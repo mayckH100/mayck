@@ -1,0 +1,5 @@
+
+> mckbot@1.0.0 typecheck
+> tsc -p tsconfig.server.json --noEmit && tsc -p web/tsconfig.json --noEmit
+
+typecheck rc=0

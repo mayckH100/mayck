@@ -1,0 +1,21 @@
+== npm start (prisma migrate deploy + servidor) ==
+Applying migration `0001_init`
+The following migration(s) have been applied:
+All migrations have been successfully applied.
+MCKBOT ouvindo na porta 4322 (production)
+== GET /api/health
+{"ok":true}
+== GET /api/health/db
+{"ok":true,"db":"ok"}
+== POST /api/auth/register
+HTTP 201
+== Cookie de sessão
+HttpOnly-jar-flag: #HttpOnly_127.0.0.1 secure: TRUE
+== GET /api/ai/settings (modelo padrão)
+"model":"gemini-3.5-flash-lite"
+== POST sem CSRF
+HTTP 403
+== Webhook GET com token errado
+HTTP 403
+== SPA /fluxos
+HTTP 200

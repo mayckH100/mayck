@@ -1,0 +1,24 @@
+# Blueprint do Render (plano gratuito). Banco: PostgreSQL gratuito no Neon ou Supabase (cole a URL em DATABASE_URL).
+services:
+  - type: web
+    name: mckbot
+    runtime: node
+    plan: free
+    region: virginia # mesma região do banco (Neon AWS us-east-1) para menor latência; o Render não tem região no Brasil
+    buildCommand: npm ci --include=dev && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NODE_VERSION
+        value: "22"
+      - key: DATABASE_URL
+        sync: false # cole a connection string do Neon/Supabase (com sslmode=require)
+      - key: MASTER_KEY
+        generateValue: true # 256 bits em base64. NUNCA troque depois: os segredos salvos ficariam ilegíveis.
+      - key: GRAPH_API_VERSION
+        value: v26.0
+      - key: FLOW_MAX_STEPS
+        value: "50"

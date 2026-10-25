@@ -1,0 +1,113 @@
+
+> mckbot@1.0.0 test:pg
+> npm run db:pg && TEST_DB=postgres vitest run tests/integration; npm run db:sqlite
+
+
+> mckbot@1.0.0 db:pg
+> prisma generate --schema prisma/schema.prisma
+
+Prisma schema loaded from prisma/schema.prisma
+
+✔ Generated Prisma Client (v6.19.3) to ./node_modules/@prisma/client in 620ms
+
+Start by importing your Prisma Client (See: https://pris.ly/d/importing-client)
+
+Tip: Want to turn off tips and other hints? https://pris.ly/tip-4-nohints
+
+
+ RUN  v3.2.7 /workspace/work/mckbot
+
+ ✓ tests/integration/flows.test.ts > Motor de fluxos (integração com banco e webhook) > primeira mensagem dispara o fluxo de boas-vindas; a segunda não 84ms
+ ✓ tests/integration/flows.test.ts > Motor de fluxos (integração com banco e webhook) > palavra-chave tem prioridade sobre primeira mensagem e coleta variáveis com validação 111ms
+ ✓ tests/integration/flows.test.ts > Motor de fluxos (integração com banco e webhook) > ramo "não" da condição 76ms
+ ✓ tests/integration/flows.test.ts > Motor de fluxos (integração com banco e webhook) > menu: opção inválida reenvia, opção válida segue o ramo; "Vendas" transfere para humano 141ms
+ ✓ tests/integration/flows.test.ts > Motor de fluxos (integração com banco e webhook) > bloco Aguardar pausa e o agendador retoma depois do tempo 52ms
+ ✓ tests/integration/flows.test.ts > Motor de fluxos (integração com banco e webhook) > proteção contra loop encerra a execução com FAILED no limite de passos 111ms
+ ✓ tests/integration/flows.test.ts > Motor de fluxos (integração com banco e webhook) > duplicidade: mesma mensagem reenviada não inicia o fluxo duas vezes 90ms
+ ✓ tests/integration/flows.test.ts > Motor de fluxos (integração com banco e webhook) > versionamento: salvar cria nova versão; execução em andamento usa a versão em que começou 84ms
+ ✓ tests/integration/flows.test.ts > Motor de fluxos (integração com banco e webhook) > ativar fluxo inválido é recusado; pausar cancela execuções; duplicar e excluir funcionam 107ms
+ ✓ tests/integration/flows.test.ts > Motor de fluxos (integração com banco e webhook) > estatísticas por bloco e histórico de execuções 43ms
+ ✓ tests/integration/flows.test.ts > Motor de fluxos (integração com banco e webhook) > bloco HTTP: mapeia JSON para variáveis, segue ramo de erro e bloqueia rede interna (SSRF) 52ms
+ ✓ tests/integration/flows.test.ts > Motor de fluxos (integração com banco e webhook) > disparo manual pelo Inbox ("Enviar fluxo") retoma o modo robô 67ms
+ ✓ tests/integration/flows.test.ts > Motor de fluxos (integração com banco e webhook) > falha no envio (canal desconectado) marca a execução como FAILED 39ms
+ ✓ tests/integration/flows.test.ts > Agendador econômico > scheduledTick não executa nada antes do vencimento e retoma depois 517ms
+ ✓ tests/integration/auth.test.ts > Autenticação e sessão > cadastro cria usuário, organização (dono), etapas do Kanban e cookie httpOnly 497ms
+ ✓ tests/integration/auth.test.ts > Autenticação e sessão > rejeita senha curta e e-mail duplicado 465ms
+ ✓ tests/integration/auth.test.ts > Autenticação e sessão > login correto, senha errada e logout 1205ms
+ ✓ tests/integration/auth.test.ts > Autenticação e sessão > CSRF: bloqueia mutações sem X-Requested-With ou com token errado 432ms
+ ✓ tests/integration/auth.test.ts > Autenticação e sessão > rotas protegidas exigem login 5ms
+ ✓ tests/integration/auth.test.ts > Autenticação e sessão > rate limit no login devolve 429 após o limite 1557ms
+ ✓ tests/integration/auth.test.ts > Autenticação e sessão > troca de senha exige a atual e encerra outras sessões 2099ms
+ ✓ tests/integration/isolation-rbac.test.ts > Isolamento entre organizações > organização B não vê listas da A 39ms
+ ✓ tests/integration/isolation-rbac.test.ts > Isolamento entre organizações > organização B recebe 404 ao acessar ou alterar recursos da A por id 54ms
+ ✓ tests/integration/isolation-rbac.test.ts > Isolamento entre organizações > não permite trocar para organização da qual não é membro 4ms
+ ✓ tests/integration/isolation-rbac.test.ts > Isolamento entre organizações > não permite mover contato para etapa de outra organização 6ms
+ ✓ tests/integration/isolation-rbac.test.ts > Permissões (RBAC) > atendente usa Inbox/Contatos mas não edita fluxos, IA, canais ou equipe 36ms
+ ✓ tests/integration/isolation-rbac.test.ts > Permissões (RBAC) > admin edita fluxos mas não altera papéis; dono altera e não pode ser removido 29ms
+ ✓ tests/integration/isolation-rbac.test.ts > Permissões (RBAC) > membro removido perde o acesso à organização 17ms
+ ✓ tests/integration/isolation-rbac.test.ts > Permissões (RBAC) > convite: link de uso único e conta existente precisa estar logada 360ms
+ ✓ tests/integration/isolation-rbac.test.ts > Permissões (RBAC) > registra logs de auditoria das ações 6ms
+ ✓ tests/integration/isolation-rbac.test.ts > Login inexistente > responde igual para e-mail inexistente 646ms
+ ✓ tests/integration/ai.test.ts > IA (provedor fake determinístico) > chave da IA é salva cifrada e nunca devolvida em texto puro 21ms
+ ✓ tests/integration/ai.test.ts > IA (provedor fake determinístico) > provedor "fake" é aceito na configuração apenas em NODE_ENV=test 8ms
+ ✓ tests/integration/ai.test.ts > IA (provedor fake determinístico) > IA desativada não responde 42ms
+ ✓ tests/integration/ai.test.ts > IA (provedor fake determinístico) > responde com base na base de conhecimento (RAG) e registra uso 30ms
+ ✓ tests/integration/ai.test.ts > IA (provedor fake determinístico) > preço presente na base pode ser citado 24ms
+ ✓ tests/integration/ai.test.ts > IA (provedor fake determinístico) > pergunta de preço/política sem base relevante → não inventa e transfere para humano 23ms
+ ✓ tests/integration/ai.test.ts > IA (provedor fake determinístico) > resposta do modelo com preço inventado é bloqueada 20ms
+ ✓ tests/integration/ai.test.ts > IA (provedor fake determinístico) > palavra de transferência ("atendente") faz handoff imediato 17ms
+ ✓ tests/integration/ai.test.ts > IA (provedor fake determinístico) > falha do provedor → nova tentativa, fallback e handoff, com erro registrado 23ms
+ ✓ tests/integration/ai.test.ts > IA (provedor fake determinístico) > limite diário de uso: ao atingir, não chama o provedor e transfere 36ms
+ ✓ tests/integration/ai.test.ts > IA (provedor fake determinístico) > bloco IA dentro de um fluxo com saída de transferência 93ms
+ ✓ tests/integration/ai.test.ts > IA (provedor fake determinístico) > endpoint de teste da IA mostra as fontes usadas 9ms
+ ✓ tests/integration/ai.test.ts > IA (provedor fake determinístico) > editar documento reindexa os trechos; uso agregado disponível 36ms
+ ✓ tests/integration/crm-dashboard.test.ts > Contatos/CRM, Kanban e LGPD > cria, busca, edita e filtra contatos por etiqueta; normaliza telefone brasileiro 60ms
+ ✓ tests/integration/crm-dashboard.test.ts > Contatos/CRM, Kanban e LGPD > importa contatos em lote (CSV) informando erros por linha 11ms
+ ✓ tests/integration/crm-dashboard.test.ts > Contatos/CRM, Kanban e LGPD > Kanban: mover contato entre etapas e gerenciar colunas 39ms
+ ✓ tests/integration/crm-dashboard.test.ts > Contatos/CRM, Kanban e LGPD > LGPD: exporta todos os dados do contato e apaga definitivamente 39ms
+ ✓ tests/integration/crm-dashboard.test.ts > Painel e relatórios com dados reais do banco > indicadores refletem exatamente o que aconteceu 486ms
+ ✓ tests/integration/crm-dashboard.test.ts > Painel e relatórios com dados reais do banco > plano e uso 359ms
+ ✓ tests/integration/webhook.test.ts > Webhook WhatsApp Cloud API (payloads simulados) > GET de verificação devolve o challenge com token correto 10ms
+ ✓ tests/integration/webhook.test.ts > Webhook WhatsApp Cloud API (payloads simulados) > GET de verificação recusa token errado ou canal inexistente 9ms
+ ✓ tests/integration/webhook.test.ts > Webhook WhatsApp Cloud API (payloads simulados) > POST com assinatura inválida é rejeitado (401) e nada é gravado 10ms
+ ✓ tests/integration/webhook.test.ts > Webhook WhatsApp Cloud API (payloads simulados) > POST sem cabeçalho de assinatura é rejeitado 5ms
+ ✓ tests/integration/webhook.test.ts > Webhook WhatsApp Cloud API (payloads simulados) > mensagem válida cria contato, conversa e mensagem recebida 19ms
+ ✓ tests/integration/webhook.test.ts > Webhook WhatsApp Cloud API (payloads simulados) > idempotência: o mesmo message id reenviado não duplica mensagem 30ms
+ ✓ tests/integration/webhook.test.ts > Webhook WhatsApp Cloud API (payloads simulados) > idempotência sob concorrência: reenvios simultâneos geram uma só mensagem 66ms
+ ✓ tests/integration/webhook.test.ts > Webhook WhatsApp Cloud API (payloads simulados) > atualizações de status avançam (sent→delivered→read) e não regridem 36ms
+ ✓ tests/integration/webhook.test.ts > Webhook WhatsApp Cloud API (payloads simulados) > envio com falhas temporárias (500, 500) faz novas tentativas e conclui 17ms
+ ✓ tests/integration/webhook.test.ts > Webhook WhatsApp Cloud API (payloads simulados) > erro definitivo da Meta (400) marca a mensagem como FAILED sem repetir 11ms
+ ✓ tests/integration/webhook.test.ts > Webhook WhatsApp Cloud API (payloads simulados) > fora da janela de 24h só permite modelo (template) 22ms
+ ✓ tests/integration/webhook.test.ts > Webhook WhatsApp Cloud API (payloads simulados) > canal sem credenciais fica "não conectado" e nunca simula envio 378ms
+ ✓ tests/integration/webhook.test.ts > Webhook WhatsApp Cloud API (payloads simulados) > verificação de credenciais consulta a Graph API e só então marca CONNECTED; segredos não vazam 377ms
+ ✓ tests/integration/webhook.test.ts > Webhook WhatsApp Cloud API (payloads simulados) > rate limit do webhook devolve 429 acima do limite 10ms
+ ✓ tests/integration/webhook.test.ts > Webhook WhatsApp Cloud API (payloads simulados) > opt-out ("SAIR") bloqueia mensagens automáticas ao contato 19ms
+
+ Test Files  6 passed (6)
+      Tests  65 passed (65)
+   Start at  06:18:21
+   Duration  24.98s (transform 650ms, setup 0ms, collect 3.79s, tests 15.22s, environment 1ms, prepare 1.10s)
+
+
+> mckbot@1.0.0 db:sqlite
+> node scripts/sqlite-schema.mjs && prisma generate --schema prisma/sqlite/schema.prisma
+
+prisma/sqlite/schema.prisma gerado
+Prisma schema loaded from prisma/sqlite/schema.prisma
+┌─────────────────────────────────────────────────────────┐
+│  Update available 6.19.3 -> 8.0.0-rc.27                 │
+│                                                         │
+│  This is a major update - please follow the guide at    │
+│  https://pris.ly/d/major-version-upgrade                │
+│                                                         │
+│  Run the following to update                            │
+│    npm i --save-dev prisma@latest                       │
+│    npm i @prisma/client@latest                          │
+└─────────────────────────────────────────────────────────┘
+
+✔ Generated Prisma Client (v6.19.3) to ./node_modules/@prisma/client in 251ms
+
+Start by importing your Prisma Client (See: https://pris.ly/d/importing-client)
+
+Tip: Want to turn off tips and other hints? https://pris.ly/tip-4-nohints
+

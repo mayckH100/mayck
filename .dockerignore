@@ -1,0 +1,9 @@
+node_modules
+dist
+.env
+*.db
+*.db-journal
+prisma/sqlite
+tests/e2e/.resultados
+docs/screenshots
+.git

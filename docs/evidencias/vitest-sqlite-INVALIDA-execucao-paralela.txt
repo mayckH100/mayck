@@ -1,0 +1,728 @@
+
+> mckbot@1.0.0 test
+> npm run db:sqlite && vitest run
+
+
+> mckbot@1.0.0 db:sqlite
+> node scripts/sqlite-schema.mjs && prisma generate --schema prisma/sqlite/schema.prisma
+
+prisma/sqlite/schema.prisma gerado
+Prisma schema loaded from prisma/sqlite/schema.prisma
+
+✔ Generated Prisma Client (v6.19.3) to ./node_modules/@prisma/client in 548ms
+
+Start by importing your Prisma Client (See: https://pris.ly/d/importing-client)
+
+Tip: Need your database queries to be 1000x faster? Accelerate offers you that and more: https://pris.ly/tip-2-accelerate
+
+
+ RUN  v3.2.7 /workspace/work/mckbot
+
+stderr | tests/integration/flows.test.ts > Motor de fluxos (integração com banco e webhook)
+[erro] PrismaClientInitializationError: 
+Invalid `prisma.user.findUnique()` invocation in
+/workspace/work/mckbot/server/auth/routes.ts:48:36
+
+  45 
+  46 authRouter.post('/register', loginLimiter, ah(async (req, res) => {
+  47   const body = z.object({ name: z.string().trim().min(2).max(100), email, password, orgName: z.string().trim().min(2).max(100) }).parse(req.body);
+→ 48   const exists = await prisma.user.findUnique(
+error: Environment variable not found: DATABASE_URL.
+  -->  schema.prisma:11
+   | 
+10 |   provider = "postgresql"
+11 |   url      = env("DATABASE_URL")
+   | 
+
+Validation Error Count: 1
+    at ei.handleRequestError [90m(/workspace/work/mckbot/[39mnode_modules/[4m@prisma/client[24m/src/runtime/RequestHandler.ts:242:13[90m)[39m
+    at ei.handleAndLogRequestError [90m(/workspace/work/mckbot/[39mnode_modules/[4m@prisma/client[24m/src/runtime/RequestHandler.ts:174:12[90m)[39m
+    at ei.request [90m(/workspace/work/mckbot/[39mnode_modules/[4m@prisma/client[24m/src/runtime/RequestHandler.ts:143:12[90m)[39m
+    at a [90m(/workspace/work/mckbot/[39mnode_modules/[4m@prisma/client[24m/src/runtime/getPrismaClient.ts:833:24[90m)[39m
+    at [90m/workspace/work/mckbot/[39mserver/auth/routes.ts:48:18 {
+  clientVersion: [32m'6.19.3'[39m,
+  errorCode: [90mundefined[39m,
+  retryable: [90mundefined[39m
+}
+
+stderr | tests/integration/flows.test.ts > Agendador econômico > scheduledTick não executa nada antes do vencimento e retoma depois
+[erro] PrismaClientInitializationError: 
+Invalid `prisma.user.findUnique()` invocation in
+/workspace/work/mckbot/server/auth/routes.ts:48:36
+
+  45 
+  46 authRouter.post('/register', loginLimiter, ah(async (req, res) => {
+  47   const body = z.object({ name: z.string().trim().min(2).max(100), email, password, orgName: z.string().trim().min(2).max(100) }).parse(req.body);
+→ 48   const exists = await prisma.user.findUnique(
+error: Environment variable not found: DATABASE_URL.
+  -->  schema.prisma:11
+   | 
+10 |   provider = "postgresql"
+11 |   url      = env("DATABASE_URL")
+   | 
+
+Validation Error Count: 1
+    at ei.handleRequestError [90m(/workspace/work/mckbot/[39mnode_modules/[4m@prisma/client[24m/src/runtime/RequestHandler.ts:242:13[90m)[39m
+    at ei.handleAndLogRequestError [90m(/workspace/work/mckbot/[39mnode_modules/[4m@prisma/client[24m/src/runtime/RequestHandler.ts:174:12[90m)[39m
+    at ei.request [90m(/workspace/work/mckbot/[39mnode_modules/[4m@prisma/client[24m/src/runtime/RequestHandler.ts:143:12[90m)[39m
+    at a [90m(/workspace/work/mckbot/[39mnode_modules/[4m@prisma/client[24m/src/runtime/getPrismaClient.ts:833:24[90m)[39m
+    at [90m/workspace/work/mckbot/[39mserver/auth/routes.ts:48:18 {
+  clientVersion: [32m'6.19.3'[39m,
+  errorCode: [90mundefined[39m,
+  retryable: [90mundefined[39m
+}
+
+ ↓ tests/integration/flows.test.ts > Motor de fluxos (integração com banco e webhook) > primeira mensagem dispara o fluxo de boas-vindas; a segunda não
+ ↓ tests/integration/flows.test.ts > Motor de fluxos (integração com banco e webhook) > palavra-chave tem prioridade sobre primeira mensagem e coleta variáveis com validação
+ ↓ tests/integration/flows.test.ts > Motor de fluxos (integração com banco e webhook) > ramo "não" da condição
+ ↓ tests/integration/flows.test.ts > Motor de fluxos (integração com banco e webhook) > menu: opção inválida reenvia, opção válida segue o ramo; "Vendas" transfere para humano
+ ↓ tests/integration/flows.test.ts > Motor de fluxos (integração com banco e webhook) > bloco Aguardar pausa e o agendador retoma depois do tempo
+ ↓ tests/integration/flows.test.ts > Motor de fluxos (integração com banco e webhook) > proteção contra loop encerra a execução com FAILED no limite de passos
+ ↓ tests/integration/flows.test.ts > Motor de fluxos (integração com banco e webhook) > duplicidade: mesma mensagem reenviada não inicia o fluxo duas vezes
+ ↓ tests/integration/flows.test.ts > Motor de fluxos (integração com banco e webhook) > versionamento: salvar cria nova versão; execução em andamento usa a versão em que começou
+ ↓ tests/integration/flows.test.ts > Motor de fluxos (integração com banco e webhook) > ativar fluxo inválido é recusado; pausar cancela execuções; duplicar e excluir funcionam
+ ↓ tests/integration/flows.test.ts > Motor de fluxos (integração com banco e webhook) > estatísticas por bloco e histórico de execuções
+ ↓ tests/integration/flows.test.ts > Motor de fluxos (integração com banco e webhook) > bloco HTTP: mapeia JSON para variáveis, segue ramo de erro e bloqueia rede interna (SSRF)
+ ↓ tests/integration/flows.test.ts > Motor de fluxos (integração com banco e webhook) > disparo manual pelo Inbox ("Enviar fluxo") retoma o modo robô
+ ↓ tests/integration/flows.test.ts > Motor de fluxos (integração com banco e webhook) > falha no envio (canal desconectado) marca a execução como FAILED
+ × tests/integration/flows.test.ts > Agendador econômico > scheduledTick não executa nada antes do vencimento e retoma depois 19ms
+   → registro falhou: {"error":"Erro interno do servidor"}
+stderr | tests/integration/auth.test.ts > Autenticação e sessão > cadastro cria usuário, organização (dono), etapas do Kanban e cookie httpOnly
+[erro] PrismaClientInitializationError: 
+Invalid `prisma.user.findUnique()` invocation in
+/workspace/work/mckbot/server/auth/routes.ts:48:36
+
+  45 
+  46 authRouter.post('/register', loginLimiter, ah(async (req, res) => {
+  47   const body = z.object({ name: z.string().trim().min(2).max(100), email, password, orgName: z.string().trim().min(2).max(100) }).parse(req.body);
+→ 48   const exists = await prisma.user.findUnique(
+error: Environment variable not found: DATABASE_URL.
+  -->  schema.prisma:11
+   | 
+10 |   provider = "postgresql"
+11 |   url      = env("DATABASE_URL")
+   | 
+
+Validation Error Count: 1
+    at ei.handleRequestError [90m(/workspace/work/mckbot/[39mnode_modules/[4m@prisma/client[24m/src/runtime/RequestHandler.ts:242:13[90m)[39m
+    at ei.handleAndLogRequestError [90m(/workspace/work/mckbot/[39mnode_modules/[4m@prisma/client[24m/src/runtime/RequestHandler.ts:174:12[90m)[39m
+    at ei.request [90m(/workspace/work/mckbot/[39mnode_modules/[4m@prisma/client[24m/src/runtime/RequestHandler.ts:143:12[90m)[39m
+    at a [90m(/workspace/work/mckbot/[39mnode_modules/[4m@prisma/client[24m/src/runtime/getPrismaClient.ts:833:24[90m)[39m
+    at [90m/workspace/work/mckbot/[39mserver/auth/routes.ts:48:18 {
+  clientVersion: [32m'6.19.3'[39m,
+  errorCode: [90mundefined[39m,
+  retryable: [90mundefined[39m
+}
+
+ × tests/integration/auth.test.ts > Autenticação e sessão > cadastro cria usuário, organização (dono), etapas do Kanban e cookie httpOnly 97ms
+   → expected 500 to be 201 // Object.is equality
+stderr | tests/integration/auth.test.ts > Autenticação e sessão > rejeita senha curta e e-mail duplicado
+[erro] PrismaClientInitializationError: 
+Invalid `prisma.user.findUnique()` invocation in
+/workspace/work/mckbot/server/auth/routes.ts:48:36
+
+  45 
+  46 authRouter.post('/register', loginLimiter, ah(async (req, res) => {
+  47   const body = z.object({ name: z.string().trim().min(2).max(100), email, password, orgName: z.string().trim().min(2).max(100) }).parse(req.body);
+→ 48   const exists = await prisma.user.findUnique(
+error: Environment variable not found: DATABASE_URL.
+  -->  schema.prisma:11
+   | 
+10 |   provider = "postgresql"
+11 |   url      = env("DATABASE_URL")
+   | 
+
+Validation Error Count: 1
+    at ei.handleRequestError [90m(/workspace/work/mckbot/[39mnode_modules/[4m@prisma/client[24m/src/runtime/RequestHandler.ts:242:13[90m)[39m
+    at ei.handleAndLogRequestError [90m(/workspace/work/mckbot/[39mnode_modules/[4m@prisma/client[24m/src/runtime/RequestHandler.ts:174:12[90m)[39m
+    at ei.request [90m(/workspace/work/mckbot/[39mnode_modules/[4m@prisma/client[24m/src/runtime/RequestHandler.ts:143:12[90m)[39m
+    at a [90m(/workspace/work/mckbot/[39mnode_modules/[4m@prisma/client[24m/src/runtime/getPrismaClient.ts:833:24[90m)[39m
+    at [90m/workspace/work/mckbot/[39mserver/auth/routes.ts:48:18 {
+  clientVersion: [32m'6.19.3'[39m,
+  errorCode: [90mundefined[39m,
+  retryable: [90mundefined[39m
+}
+
+stderr | tests/integration/auth.test.ts > Autenticação e sessão > login correto, senha errada e logout
+[erro] PrismaClientInitializationError: 
+Invalid `prisma.user.findUnique()` invocation in
+/workspace/work/mckbot/server/auth/routes.ts:48:36
+
+  45 
+  46 authRouter.post('/register', loginLimiter, ah(async (req, res) => {
+  47   const body = z.object({ name: z.string().trim().min(2).max(100), email, password, orgName: z.string().trim().min(2).max(100) }).parse(req.body);
+→ 48   const exists = await prisma.user.findUnique(
+error: Environment variable not found: DATABASE_URL.
+  -->  schema.prisma:11
+   | 
+10 |   provider = "postgresql"
+11 |   url      = env("DATABASE_URL")
+   | 
+
+Validation Error Count: 1
+    at ei.handleRequestError [90m(/workspace/work/mckbot/[39mnode_modules/[4m@prisma/client[24m/src/runtime/RequestHandler.ts:242:13[90m)[39m
+    at ei.handleAndLogRequestError [90m(/workspace/work/mckbot/[39mnode_modules/[4m@prisma/client[24m/src/runtime/RequestHandler.ts:174:12[90m)[39m
+    at ei.request [90m(/workspace/work/mckbot/[39mnode_modules/[4m@prisma/client[24m/src/runtime/RequestHandler.ts:143:12[90m)[39m
+    at a [90m(/workspace/work/mckbot/[39mnode_modules/[4m@prisma/client[24m/src/runtime/getPrismaClient.ts:833:24[90m)[39m
+    at [90m/workspace/work/mckbot/[39mserver/auth/routes.ts:48:18 {
+  clientVersion: [32m'6.19.3'[39m,
+  errorCode: [90mundefined[39m,
+  retryable: [90mundefined[39m
+}
+
+stderr | tests/integration/auth.test.ts > Autenticação e sessão > CSRF: bloqueia mutações sem X-Requested-With ou com token errado
+[erro] PrismaClientInitializationError: 
+Invalid `prisma.user.findUnique()` invocation in
+/workspace/work/mckbot/server/auth/routes.ts:48:36
+
+  45 
+  46 authRouter.post('/register', loginLimiter, ah(async (req, res) => {
+  47   const body = z.object({ name: z.string().trim().min(2).max(100), email, password, orgName: z.string().trim().min(2).max(100) }).parse(req.body);
+→ 48   const exists = await prisma.user.findUnique(
+error: Environment variable not found: DATABASE_URL.
+  -->  schema.prisma:11
+   | 
+10 |   provider = "postgresql"
+11 |   url      = env("DATABASE_URL")
+   | 
+
+Validation Error Count: 1
+    at ei.handleRequestError [90m(/workspace/work/mckbot/[39mnode_modules/[4m@prisma/client[24m/src/runtime/RequestHandler.ts:242:13[90m)[39m
+    at ei.handleAndLogRequestError [90m(/workspace/work/mckbot/[39mnode_modules/[4m@prisma/client[24m/src/runtime/RequestHandler.ts:174:12[90m)[39m
+    at ei.request [90m(/workspace/work/mckbot/[39mnode_modules/[4m@prisma/client[24m/src/runtime/RequestHandler.ts:143:12[90m)[39m
+    at a [90m(/workspace/work/mckbot/[39mnode_modules/[4m@prisma/client[24m/src/runtime/getPrismaClient.ts:833:24[90m)[39m
+    at [90m/workspace/work/mckbot/[39mserver/auth/routes.ts:48:18 {
+  clientVersion: [32m'6.19.3'[39m,
+  errorCode: [90mundefined[39m,
+  retryable: [90mundefined[39m
+}
+
+stderr | tests/integration/auth.test.ts > Autenticação e sessão > rate limit no login devolve 429 após o limite
+[erro] PrismaClientInitializationError: 
+Invalid `prisma.user.findUnique()` invocation in
+/workspace/work/mckbot/server/auth/routes.ts:48:36
+
+  45 
+  46 authRouter.post('/register', loginLimiter, ah(async (req, res) => {
+  47   const body = z.object({ name: z.string().trim().min(2).max(100), email, password, orgName: z.string().trim().min(2).max(100) }).parse(req.body);
+→ 48   const exists = await prisma.user.findUnique(
+error: Environment variable not found: DATABASE_URL.
+  -->  schema.prisma:11
+   | 
+10 |   provider = "postgresql"
+11 |   url      = env("DATABASE_URL")
+   | 
+
+Validation Error Count: 1
+    at ei.handleRequestError [90m(/workspace/work/mckbot/[39mnode_modules/[4m@prisma/client[24m/src/runtime/RequestHandler.ts:242:13[90m)[39m
+    at ei.handleAndLogRequestError [90m(/workspace/work/mckbot/[39mnode_modules/[4m@prisma/client[24m/src/runtime/RequestHandler.ts:174:12[90m)[39m
+    at ei.request [90m(/workspace/work/mckbot/[39mnode_modules/[4m@prisma/client[24m/src/runtime/RequestHandler.ts:143:12[90m)[39m
+    at a [90m(/workspace/work/mckbot/[39mnode_modules/[4m@prisma/client[24m/src/runtime/getPrismaClient.ts:833:24[90m)[39m
+    at [90m/workspace/work/mckbot/[39mserver/auth/routes.ts:48:18 {
+  clientVersion: [32m'6.19.3'[39m,
+  errorCode: [90mundefined[39m,
+  retryable: [90mundefined[39m
+}
+
+stderr | tests/integration/auth.test.ts > Autenticação e sessão > troca de senha exige a atual e encerra outras sessões
+[erro] PrismaClientInitializationError: 
+Invalid `prisma.user.findUnique()` invocation in
+/workspace/work/mckbot/server/auth/routes.ts:48:36
+
+  45 
+  46 authRouter.post('/register', loginLimiter, ah(async (req, res) => {
+  47   const body = z.object({ name: z.string().trim().min(2).max(100), email, password, orgName: z.string().trim().min(2).max(100) }).parse(req.body);
+→ 48   const exists = await prisma.user.findUnique(
+error: Environment variable not found: DATABASE_URL.
+  -->  schema.prisma:11
+   | 
+10 |   provider = "postgresql"
+11 |   url      = env("DATABASE_URL")
+   | 
+
+Validation Error Count: 1
+    at ei.handleRequestError [90m(/workspace/work/mckbot/[39mnode_modules/[4m@prisma/client[24m/src/runtime/RequestHandler.ts:242:13[90m)[39m
+    at ei.handleAndLogRequestError [90m(/workspace/work/mckbot/[39mnode_modules/[4m@prisma/client[24m/src/runtime/RequestHandler.ts:174:12[90m)[39m
+    at ei.request [90m(/workspace/work/mckbot/[39mnode_modules/[4m@prisma/client[24m/src/runtime/RequestHandler.ts:143:12[90m)[39m
+    at a [90m(/workspace/work/mckbot/[39mnode_modules/[4m@prisma/client[24m/src/runtime/getPrismaClient.ts:833:24[90m)[39m
+    at [90m/workspace/work/mckbot/[39mserver/auth/routes.ts:48:18 {
+  clientVersion: [32m'6.19.3'[39m,
+  errorCode: [90mundefined[39m,
+  retryable: [90mundefined[39m
+}
+
+ × tests/integration/auth.test.ts > Autenticação e sessão > rejeita senha curta e e-mail duplicado 15ms
+   → registro falhou: {"error":"Erro interno do servidor"}
+ × tests/integration/auth.test.ts > Autenticação e sessão > login correto, senha errada e logout 8ms
+   → registro falhou: {"error":"Erro interno do servidor"}
+ × tests/integration/auth.test.ts > Autenticação e sessão > CSRF: bloqueia mutações sem X-Requested-With ou com token errado 7ms
+   → registro falhou: {"error":"Erro interno do servidor"}
+ ✓ tests/integration/auth.test.ts > Autenticação e sessão > rotas protegidas exigem login 7ms
+ × tests/integration/auth.test.ts > Autenticação e sessão > rate limit no login devolve 429 após o limite 6ms
+   → registro falhou: {"error":"Erro interno do servidor"}
+ × tests/integration/auth.test.ts > Autenticação e sessão > troca de senha exige a atual e encerra outras sessões 8ms
+   → registro falhou: {"error":"Erro interno do servidor"}
+stderr | tests/integration/isolation-rbac.test.ts > Isolamento entre organizações
+[erro] PrismaClientInitializationError: 
+Invalid `prisma.user.findUnique()` invocation in
+/workspace/work/mckbot/server/auth/routes.ts:48:36
+
+  45 
+  46 authRouter.post('/register', loginLimiter, ah(async (req, res) => {
+  47   const body = z.object({ name: z.string().trim().min(2).max(100), email, password, orgName: z.string().trim().min(2).max(100) }).parse(req.body);
+→ 48   const exists = await prisma.user.findUnique(
+error: Environment variable not found: DATABASE_URL.
+  -->  schema.prisma:11
+   | 
+10 |   provider = "postgresql"
+11 |   url      = env("DATABASE_URL")
+   | 
+
+Validation Error Count: 1
+    at ei.handleRequestError [90m(/workspace/work/mckbot/[39mnode_modules/[4m@prisma/client[24m/src/runtime/RequestHandler.ts:242:13[90m)[39m
+    at ei.handleAndLogRequestError [90m(/workspace/work/mckbot/[39mnode_modules/[4m@prisma/client[24m/src/runtime/RequestHandler.ts:174:12[90m)[39m
+    at ei.request [90m(/workspace/work/mckbot/[39mnode_modules/[4m@prisma/client[24m/src/runtime/RequestHandler.ts:143:12[90m)[39m
+    at a [90m(/workspace/work/mckbot/[39mnode_modules/[4m@prisma/client[24m/src/runtime/getPrismaClient.ts:833:24[90m)[39m
+    at [90m/workspace/work/mckbot/[39mserver/auth/routes.ts:48:18 {
+  clientVersion: [32m'6.19.3'[39m,
+  errorCode: [90mundefined[39m,
+  retryable: [90mundefined[39m
+}
+
+stderr | tests/integration/isolation-rbac.test.ts > Permissões (RBAC)
+[erro] PrismaClientInitializationError: 
+Invalid `prisma.user.findUnique()` invocation in
+/workspace/work/mckbot/server/auth/routes.ts:48:36
+
+  45 
+  46 authRouter.post('/register', loginLimiter, ah(async (req, res) => {
+  47   const body = z.object({ name: z.string().trim().min(2).max(100), email, password, orgName: z.string().trim().min(2).max(100) }).parse(req.body);
+→ 48   const exists = await prisma.user.findUnique(
+error: Environment variable not found: DATABASE_URL.
+  -->  schema.prisma:11
+   | 
+10 |   provider = "postgresql"
+11 |   url      = env("DATABASE_URL")
+   | 
+
+Validation Error Count: 1
+    at ei.handleRequestError [90m(/workspace/work/mckbot/[39mnode_modules/[4m@prisma/client[24m/src/runtime/RequestHandler.ts:242:13[90m)[39m
+    at ei.handleAndLogRequestError [90m(/workspace/work/mckbot/[39mnode_modules/[4m@prisma/client[24m/src/runtime/RequestHandler.ts:174:12[90m)[39m
+    at ei.request [90m(/workspace/work/mckbot/[39mnode_modules/[4m@prisma/client[24m/src/runtime/RequestHandler.ts:143:12[90m)[39m
+    at a [90m(/workspace/work/mckbot/[39mnode_modules/[4m@prisma/client[24m/src/runtime/getPrismaClient.ts:833:24[90m)[39m
+    at [90m/workspace/work/mckbot/[39mserver/auth/routes.ts:48:18 {
+  clientVersion: [32m'6.19.3'[39m,
+  errorCode: [90mundefined[39m,
+  retryable: [90mundefined[39m
+}
+
+ ↓ tests/integration/isolation-rbac.test.ts > Isolamento entre organizações > organização B não vê listas da A
+ ↓ tests/integration/isolation-rbac.test.ts > Isolamento entre organizações > organização B recebe 404 ao acessar ou alterar recursos da A por id
+ ↓ tests/integration/isolation-rbac.test.ts > Isolamento entre organizações > não permite trocar para organização da qual não é membro
+ ↓ tests/integration/isolation-rbac.test.ts > Isolamento entre organizações > não permite mover contato para etapa de outra organização
+ ↓ tests/integration/isolation-rbac.test.ts > Permissões (RBAC) > atendente usa Inbox/Contatos mas não edita fluxos, IA, canais ou equipe
+stderr | tests/integration/isolation-rbac.test.ts > Login inexistente > responde igual para e-mail inexistente
+[erro] PrismaClientInitializationError: 
+Invalid `prisma.user.findUnique()` invocation in
+/workspace/work/mckbot/server/auth/routes.ts:59:34
+
+  56 
+  57 authRouter.post('/login', loginLimiter, ah(async (req, res) => {
+  58   const body = z.object({ email, password: z.string().min(1).max(200) }).parse(req.body);
+→ 59   const user = await prisma.user.findUnique(
+error: Environment variable not found: DATABASE_URL.
+  -->  schema.prisma:11
+   | 
+10 |   provider = "postgresql"
+11 |   url      = env("DATABASE_URL")
+   | 
+
+Validation Error Count: 1
+    at ei.handleRequestError [90m(/workspace/work/mckbot/[39mnode_modules/[4m@prisma/client[24m/src/runtime/RequestHandler.ts:242:13[90m)[39m
+    at ei.handleAndLogRequestError [90m(/workspace/work/mckbot/[39mnode_modules/[4m@prisma/client[24m/src/runtime/RequestHandler.ts:174:12[90m)[39m
+    at ei.request [90m(/workspace/work/mckbot/[39mnode_modules/[4m@prisma/client[24m/src/runtime/RequestHandler.ts:143:12[90m)[39m
+    at a [90m(/workspace/work/mckbot/[39mnode_modules/[4m@prisma/client[24m/src/runtime/getPrismaClient.ts:833:24[90m)[39m
+    at [90m/workspace/work/mckbot/[39mserver/auth/routes.ts:59:16 {
+  clientVersion: [32m'6.19.3'[39m,
+  errorCode: [90mundefined[39m,
+  retryable: [90mundefined[39m
+}
+
+ ↓ tests/integration/isolation-rbac.test.ts > Permissões (RBAC) > admin edita fluxos mas não altera papéis; dono altera e não pode ser removido
+ ↓ tests/integration/isolation-rbac.test.ts > Permissões (RBAC) > membro removido perde o acesso à organização
+ ↓ tests/integration/isolation-rbac.test.ts > Permissões (RBAC) > convite: link de uso único e conta existente precisa estar logada
+ ↓ tests/integration/isolation-rbac.test.ts > Permissões (RBAC) > registra logs de auditoria das ações
+ × tests/integration/isolation-rbac.test.ts > Login inexistente > responde igual para e-mail inexistente 17ms
+   → expected 500 to be 401 // Object.is equality
+stderr | tests/integration/ai.test.ts > IA (provedor fake determinístico)
+[erro] PrismaClientInitializationError: 
+Invalid `prisma.user.findUnique()` invocation in
+/workspace/work/mckbot/server/auth/routes.ts:48:36
+
+  45 
+  46 authRouter.post('/register', loginLimiter, ah(async (req, res) => {
+  47   const body = z.object({ name: z.string().trim().min(2).max(100), email, password, orgName: z.string().trim().min(2).max(100) }).parse(req.body);
+→ 48   const exists = await prisma.user.findUnique(
+error: Environment variable not found: DATABASE_URL.
+  -->  schema.prisma:11
+   | 
+10 |   provider = "postgresql"
+11 |   url      = env("DATABASE_URL")
+   | 
+
+Validation Error Count: 1
+    at ei.handleRequestError [90m(/workspace/work/mckbot/[39mnode_modules/[4m@prisma/client[24m/src/runtime/RequestHandler.ts:242:13[90m)[39m
+    at ei.handleAndLogRequestError [90m(/workspace/work/mckbot/[39mnode_modules/[4m@prisma/client[24m/src/runtime/RequestHandler.ts:174:12[90m)[39m
+    at ei.request [90m(/workspace/work/mckbot/[39mnode_modules/[4m@prisma/client[24m/src/runtime/RequestHandler.ts:143:12[90m)[39m
+    at a [90m(/workspace/work/mckbot/[39mnode_modules/[4m@prisma/client[24m/src/runtime/getPrismaClient.ts:833:24[90m)[39m
+    at [90m/workspace/work/mckbot/[39mserver/auth/routes.ts:48:18 {
+  clientVersion: [32m'6.19.3'[39m,
+  errorCode: [90mundefined[39m,
+  retryable: [90mundefined[39m
+}
+
+ ↓ tests/integration/ai.test.ts > IA (provedor fake determinístico) > chave da IA é salva cifrada e nunca devolvida em texto puro
+ ↓ tests/integration/ai.test.ts > IA (provedor fake determinístico) > provedor "fake" é aceito na configuração apenas em NODE_ENV=test
+ ↓ tests/integration/ai.test.ts > IA (provedor fake determinístico) > IA desativada não responde
+ ↓ tests/integration/ai.test.ts > IA (provedor fake determinístico) > responde com base na base de conhecimento (RAG) e registra uso
+ ↓ tests/integration/ai.test.ts > IA (provedor fake determinístico) > preço presente na base pode ser citado
+ ↓ tests/integration/ai.test.ts > IA (provedor fake determinístico) > pergunta de preço/política sem base relevante → não inventa e transfere para humano
+ ↓ tests/integration/ai.test.ts > IA (provedor fake determinístico) > resposta do modelo com preço inventado é bloqueada
+ ↓ tests/integration/ai.test.ts > IA (provedor fake determinístico) > palavra de transferência ("atendente") faz handoff imediato
+ ↓ tests/integration/ai.test.ts > IA (provedor fake determinístico) > falha do provedor → nova tentativa, fallback e handoff, com erro registrado
+ ↓ tests/integration/ai.test.ts > IA (provedor fake determinístico) > limite diário de uso: ao atingir, não chama o provedor e transfere
+ ↓ tests/integration/ai.test.ts > IA (provedor fake determinístico) > bloco IA dentro de um fluxo com saída de transferência
+ ↓ tests/integration/ai.test.ts > IA (provedor fake determinístico) > endpoint de teste da IA mostra as fontes usadas
+ ↓ tests/integration/ai.test.ts > IA (provedor fake determinístico) > editar documento reindexa os trechos; uso agregado disponível
+stderr | tests/integration/crm-dashboard.test.ts > Contatos/CRM, Kanban e LGPD
+[erro] PrismaClientInitializationError: 
+Invalid `prisma.user.findUnique()` invocation in
+/workspace/work/mckbot/server/auth/routes.ts:48:36
+
+  45 
+  46 authRouter.post('/register', loginLimiter, ah(async (req, res) => {
+  47   const body = z.object({ name: z.string().trim().min(2).max(100), email, password, orgName: z.string().trim().min(2).max(100) }).parse(req.body);
+→ 48   const exists = await prisma.user.findUnique(
+error: Environment variable not found: DATABASE_URL.
+  -->  schema.prisma:11
+   | 
+10 |   provider = "postgresql"
+11 |   url      = env("DATABASE_URL")
+   | 
+
+Validation Error Count: 1
+    at ei.handleRequestError [90m(/workspace/work/mckbot/[39mnode_modules/[4m@prisma/client[24m/src/runtime/RequestHandler.ts:242:13[90m)[39m
+    at ei.handleAndLogRequestError [90m(/workspace/work/mckbot/[39mnode_modules/[4m@prisma/client[24m/src/runtime/RequestHandler.ts:174:12[90m)[39m
+    at ei.request [90m(/workspace/work/mckbot/[39mnode_modules/[4m@prisma/client[24m/src/runtime/RequestHandler.ts:143:12[90m)[39m
+    at a [90m(/workspace/work/mckbot/[39mnode_modules/[4m@prisma/client[24m/src/runtime/getPrismaClient.ts:833:24[90m)[39m
+    at [90m/workspace/work/mckbot/[39mserver/auth/routes.ts:48:18 {
+  clientVersion: [32m'6.19.3'[39m,
+  errorCode: [90mundefined[39m,
+  retryable: [90mundefined[39m
+}
+
+stderr | tests/integration/crm-dashboard.test.ts > Painel e relatórios com dados reais do banco > indicadores refletem exatamente o que aconteceu
+[erro] PrismaClientInitializationError: 
+Invalid `prisma.user.findUnique()` invocation in
+/workspace/work/mckbot/server/auth/routes.ts:48:36
+
+  45 
+  46 authRouter.post('/register', loginLimiter, ah(async (req, res) => {
+  47   const body = z.object({ name: z.string().trim().min(2).max(100), email, password, orgName: z.string().trim().min(2).max(100) }).parse(req.body);
+→ 48   const exists = await prisma.user.findUnique(
+error: Environment variable not found: DATABASE_URL.
+  -->  schema.prisma:11
+   | 
+10 |   provider = "postgresql"
+11 |   url      = env("DATABASE_URL")
+   | 
+
+Validation Error Count: 1
+    at ei.handleRequestError [90m(/workspace/work/mckbot/[39mnode_modules/[4m@prisma/client[24m/src/runtime/RequestHandler.ts:242:13[90m)[39m
+    at ei.handleAndLogRequestError [90m(/workspace/work/mckbot/[39mnode_modules/[4m@prisma/client[24m/src/runtime/RequestHandler.ts:174:12[90m)[39m
+    at ei.request [90m(/workspace/work/mckbot/[39mnode_modules/[4m@prisma/client[24m/src/runtime/RequestHandler.ts:143:12[90m)[39m
+    at a [90m(/workspace/work/mckbot/[39mnode_modules/[4m@prisma/client[24m/src/runtime/getPrismaClient.ts:833:24[90m)[39m
+    at [90m/workspace/work/mckbot/[39mserver/auth/routes.ts:48:18 {
+  clientVersion: [32m'6.19.3'[39m,
+  errorCode: [90mundefined[39m,
+  retryable: [90mundefined[39m
+}
+
+ ↓ tests/integration/crm-dashboard.test.ts > Contatos/CRM, Kanban e LGPD > cria, busca, edita e filtra contatos por etiqueta; normaliza telefone brasileiro
+ ↓ tests/integration/crm-dashboard.test.ts > Contatos/CRM, Kanban e LGPD > importa contatos em lote (CSV) informando erros por linha
+ ↓ tests/integration/crm-dashboard.test.ts > Contatos/CRM, Kanban e LGPD > Kanban: mover contato entre etapas e gerenciar colunas
+ ↓ tests/integration/crm-dashboard.test.ts > Contatos/CRM, Kanban e LGPD > LGPD: exporta todos os dados do contato e apaga definitivamente
+ × tests/integration/crm-dashboard.test.ts > Painel e relatórios com dados reais do banco > indicadores refletem exatamente o que aconteceu 17ms
+   → registro falhou: {"error":"Erro interno do servidor"}
+stderr | tests/integration/crm-dashboard.test.ts > Painel e relatórios com dados reais do banco > plano e uso
+[erro] PrismaClientInitializationError: 
+Invalid `prisma.user.findUnique()` invocation in
+/workspace/work/mckbot/server/auth/routes.ts:48:36
+
+  45 
+  46 authRouter.post('/register', loginLimiter, ah(async (req, res) => {
+  47   const body = z.object({ name: z.string().trim().min(2).max(100), email, password, orgName: z.string().trim().min(2).max(100) }).parse(req.body);
+→ 48   const exists = await prisma.user.findUnique(
+error: Environment variable not found: DATABASE_URL.
+  -->  schema.prisma:11
+   | 
+10 |   provider = "postgresql"
+11 |   url      = env("DATABASE_URL")
+   | 
+
+Validation Error Count: 1
+    at ei.handleRequestError [90m(/workspace/work/mckbot/[39mnode_modules/[4m@prisma/client[24m/src/runtime/RequestHandler.ts:242:13[90m)[39m
+    at ei.handleAndLogRequestError [90m(/workspace/work/mckbot/[39mnode_modules/[4m@prisma/client[24m/src/runtime/RequestHandler.ts:174:12[90m)[39m
+    at ei.request [90m(/workspace/work/mckbot/[39mnode_modules/[4m@prisma/client[24m/src/runtime/RequestHandler.ts:143:12[90m)[39m
+    at a [90m(/workspace/work/mckbot/[39mnode_modules/[4m@prisma/client[24m/src/runtime/getPrismaClient.ts:833:24[90m)[39m
+    at [90m/workspace/work/mckbot/[39mserver/auth/routes.ts:48:18 {
+  clientVersion: [32m'6.19.3'[39m,
+  errorCode: [90mundefined[39m,
+  retryable: [90mundefined[39m
+}
+
+ × tests/integration/crm-dashboard.test.ts > Painel e relatórios com dados reais do banco > plano e uso 19ms
+   → registro falhou: {"error":"Erro interno do servidor"}
+stderr | tests/integration/webhook.test.ts > Webhook WhatsApp Cloud API (payloads simulados)
+[erro] PrismaClientInitializationError: 
+Invalid `prisma.user.findUnique()` invocation in
+/workspace/work/mckbot/server/auth/routes.ts:48:36
+
+  45 
+  46 authRouter.post('/register', loginLimiter, ah(async (req, res) => {
+  47   const body = z.object({ name: z.string().trim().min(2).max(100), email, password, orgName: z.string().trim().min(2).max(100) }).parse(req.body);
+→ 48   const exists = await prisma.user.findUnique(
+error: Environment variable not found: DATABASE_URL.
+  -->  schema.prisma:11
+   | 
+10 |   provider = "postgresql"
+11 |   url      = env("DATABASE_URL")
+   | 
+
+Validation Error Count: 1
+    at ei.handleRequestError [90m(/workspace/work/mckbot/[39mnode_modules/[4m@prisma/client[24m/src/runtime/RequestHandler.ts:242:13[90m)[39m
+    at ei.handleAndLogRequestError [90m(/workspace/work/mckbot/[39mnode_modules/[4m@prisma/client[24m/src/runtime/RequestHandler.ts:174:12[90m)[39m
+    at ei.request [90m(/workspace/work/mckbot/[39mnode_modules/[4m@prisma/client[24m/src/runtime/RequestHandler.ts:143:12[90m)[39m
+    at a [90m(/workspace/work/mckbot/[39mnode_modules/[4m@prisma/client[24m/src/runtime/getPrismaClient.ts:833:24[90m)[39m
+    at [90m/workspace/work/mckbot/[39mserver/auth/routes.ts:48:18 {
+  clientVersion: [32m'6.19.3'[39m,
+  errorCode: [90mundefined[39m,
+  retryable: [90mundefined[39m
+}
+
+ ↓ tests/integration/webhook.test.ts > Webhook WhatsApp Cloud API (payloads simulados) > GET de verificação devolve o challenge com token correto
+ ↓ tests/integration/webhook.test.ts > Webhook WhatsApp Cloud API (payloads simulados) > GET de verificação recusa token errado ou canal inexistente
+ ↓ tests/integration/webhook.test.ts > Webhook WhatsApp Cloud API (payloads simulados) > POST com assinatura inválida é rejeitado (401) e nada é gravado
+ ↓ tests/integration/webhook.test.ts > Webhook WhatsApp Cloud API (payloads simulados) > POST sem cabeçalho de assinatura é rejeitado
+ ↓ tests/integration/webhook.test.ts > Webhook WhatsApp Cloud API (payloads simulados) > mensagem válida cria contato, conversa e mensagem recebida
+ ↓ tests/integration/webhook.test.ts > Webhook WhatsApp Cloud API (payloads simulados) > idempotência: o mesmo message id reenviado não duplica mensagem
+ ↓ tests/integration/webhook.test.ts > Webhook WhatsApp Cloud API (payloads simulados) > idempotência sob concorrência: reenvios simultâneos geram uma só mensagem
+ ↓ tests/integration/webhook.test.ts > Webhook WhatsApp Cloud API (payloads simulados) > atualizações de status avançam (sent→delivered→read) e não regridem
+ ↓ tests/integration/webhook.test.ts > Webhook WhatsApp Cloud API (payloads simulados) > envio com falhas temporárias (500, 500) faz novas tentativas e conclui
+ ↓ tests/integration/webhook.test.ts > Webhook WhatsApp Cloud API (payloads simulados) > erro definitivo da Meta (400) marca a mensagem como FAILED sem repetir
+ ↓ tests/integration/webhook.test.ts > Webhook WhatsApp Cloud API (payloads simulados) > fora da janela de 24h só permite modelo (template)
+ ↓ tests/integration/webhook.test.ts > Webhook WhatsApp Cloud API (payloads simulados) > canal sem credenciais fica "não conectado" e nunca simula envio
+ ↓ tests/integration/webhook.test.ts > Webhook WhatsApp Cloud API (payloads simulados) > verificação de credenciais consulta a Graph API e só então marca CONNECTED; segredos não vazam
+ ↓ tests/integration/webhook.test.ts > Webhook WhatsApp Cloud API (payloads simulados) > rate limit do webhook devolve 429 acima do limite
+ ↓ tests/integration/webhook.test.ts > Webhook WhatsApp Cloud API (payloads simulados) > opt-out ("SAIR") bloqueia mensagens automáticas ao contato
+ ✓ tests/unit/whatsapp.test.ts > Assinatura X-Hub-Signature-256 > aceita assinatura correta 2ms
+ ✓ tests/unit/whatsapp.test.ts > Assinatura X-Hub-Signature-256 > rejeita assinatura errada, ausente ou malformada 1ms
+ ✓ tests/unit/whatsapp.test.ts > Parsing do webhook > extrai mensagens de texto, respostas interativas e status 2ms
+ ✓ tests/unit/whatsapp.test.ts > Parsing do webhook > ignora objetos que não são do WhatsApp 0ms
+ ✓ tests/unit/whatsapp.test.ts > Cliente da Cloud API > monta corpos de texto, mídia, botões e modelo 1ms
+ ✓ tests/unit/whatsapp.test.ts > Cliente da Cloud API > repete em 5xx e devolve o id da Meta 7ms
+ ✓ tests/unit/whatsapp.test.ts > Cliente da Cloud API > não repete em erro 4xx (exceto 429) 2ms
+ ✓ tests/unit/whatsapp.test.ts > Cliente da Cloud API > desiste após o máximo de tentativas em falha de rede 4ms
+ ✓ tests/unit/whatsapp.test.ts > Proteção SSRF > identifica endereços privados 5ms
+ ✓ tests/unit/whatsapp.test.ts > Proteção SSRF > bloqueia localhost, IP interno e protocolos não HTTP 1ms
+ ✓ tests/unit/flow-logic.test.ts > Gatilhos > palavra-chave "contém" ignora acentos e maiúsculas 2ms
+ ✓ tests/unit/flow-logic.test.ts > Gatilhos > palavra-chave "igual" exige mensagem inteira 0ms
+ ✓ tests/unit/flow-logic.test.ts > Gatilhos > aceita várias palavras separadas por vírgula 0ms
+ ✓ tests/unit/flow-logic.test.ts > Gatilhos > primeira mensagem só casa quando é a primeira 0ms
+ ✓ tests/unit/flow-logic.test.ts > Gatilhos > mensagem recebida casa qualquer texto e perde para palavra-chave 0ms
+ ✓ tests/unit/flow-logic.test.ts > Gatilhos > horário respeita dias e janela no fuso da organização 15ms
+ ✓ tests/unit/flow-logic.test.ts > Condições > operadores básicos 1ms
+ ✓ tests/unit/flow-logic.test.ts > Condições > gt/lt com valor não numérico retorna falso 0ms
+ ✓ tests/unit/flow-logic.test.ts > Condições > lógica "todas" e "qualquer" 1ms
+ ✓ tests/unit/flow-logic.test.ts > Menu e validação de respostas > casa por número, rótulo e id do botão 0ms
+ ✓ tests/unit/flow-logic.test.ts > Menu e validação de respostas > valida tipos de resposta 0ms
+ ✓ tests/unit/flow-logic.test.ts > Grafo > segue a saída correta 0ms
+ ✓ tests/unit/flow-logic.test.ts > Grafo > validação aponta problemas 1ms
+ ✓ tests/unit/flow-logic.test.ts > Templates de variáveis > substitui variáveis e caminhos 1ms
+ ✓ tests/unit/ai.test.ts > RAG > tokeniza sem acentos e sem stopwords 1ms
+ ✓ tests/unit/ai.test.ts > RAG > fragmenta textos longos 1ms
+ ✓ tests/unit/ai.test.ts > RAG > ranqueia o trecho mais relevante primeiro 1ms
+ ✓ tests/unit/ai.test.ts > Regras anti-invenção > detecta perguntas sobre preço/política 1ms
+ ✓ tests/unit/ai.test.ts > Regras anti-invenção > bloqueia preço que não está no contexto e aceita o que está 0ms
+ ✓ tests/unit/ai.test.ts > Regras anti-invenção > o prompt de sistema contém as regras e o contexto 0ms
+ ✓ tests/unit/ai.test.ts > Provedores de IA > provedor fake é determinístico 1ms
+ ✓ tests/unit/ai.test.ts > Provedores de IA > fábrica exige chave e escolhe o provedor 0ms
+ ✓ tests/unit/ai.test.ts > Provedores de IA > provedor fake é recusado fora do ambiente de teste 0ms
+ ✓ tests/unit/crypto.test.ts > Criptografia AES-256-GCM > cifra e decifra mantendo o texto original 2ms
+ ✓ tests/unit/crypto.test.ts > Criptografia AES-256-GCM > gera IV aleatório (mesmo texto → cifras diferentes) 1ms
+ ✓ tests/unit/crypto.test.ts > Criptografia AES-256-GCM > rejeita dado adulterado (tag de autenticação) 1ms
+ ✓ tests/unit/crypto.test.ts > Criptografia AES-256-GCM > rejeita chave mestra errada 0ms
+ ✓ tests/unit/crypto.test.ts > Criptografia AES-256-GCM > exige chave mestra de 32 bytes 0ms
+ ✓ tests/unit/crypto.test.ts > Criptografia AES-256-GCM > mascara segredos e compara em tempo constante 0ms
+
+⎯⎯⎯⎯⎯⎯ Failed Suites 6 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/ai.test.ts > IA (provedor fake determinístico)
+Error: registro falhou: {"error":"Erro interno do servidor"}
+ ❯ registerClient tests/helpers.ts:31:33
+
+ ❯ tests/integration/ai.test.ts:12:13
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/16]⎯
+
+ FAIL  tests/integration/crm-dashboard.test.ts > Contatos/CRM, Kanban e LGPD
+Error: registro falhou: {"error":"Erro interno do servidor"}
+ ❯ registerClient tests/helpers.ts:31:33
+
+ ❯ tests/integration/crm-dashboard.test.ts:8:13
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/16]⎯
+
+ FAIL  tests/integration/flows.test.ts > Motor de fluxos (integração com banco e webhook)
+Error: registro falhou: {"error":"Erro interno do servidor"}
+ ❯ registerClient tests/helpers.ts:31:33
+
+ ❯ tests/integration/flows.test.ts:25:13
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/16]⎯
+
+ FAIL  tests/integration/isolation-rbac.test.ts > Isolamento entre organizações
+Error: registro falhou: {"error":"Erro interno do servidor"}
+ ❯ registerClient tests/helpers.ts:31:33
+
+ ❯ tests/integration/isolation-rbac.test.ts:8:9
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/16]⎯
+
+ FAIL  tests/integration/isolation-rbac.test.ts > Permissões (RBAC)
+Error: registro falhou: {"error":"Erro interno do servidor"}
+ ❯ registerClient tests/helpers.ts:31:33
+
+ ❯ tests/integration/isolation-rbac.test.ts:54:13
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/16]⎯
+
+ FAIL  tests/integration/webhook.test.ts > Webhook WhatsApp Cloud API (payloads simulados)
+Error: registro falhou: {"error":"Erro interno do servidor"}
+ ❯ registerClient tests/helpers.ts:31:33
+
+ ❯ tests/integration/webhook.test.ts:11:13
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/16]⎯
+
+
+⎯⎯⎯⎯⎯⎯ Failed Tests 10 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/integration/auth.test.ts > Autenticação e sessão > cadastro cria usuário, organização (dono), etapas do Kanban e cookie httpOnly
+AssertionError: expected 500 to be 201 // Object.is equality
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 201[39m
+[31m+ 500[39m
+
+ ❯ tests/integration/auth.test.ts:10:24
+      8|     const email = `${uniq()}@teste.dev`;
+      9|     const res = await request(app).post('/api/auth/register').set('x-r…
+     10|     expect(res.status).toBe(201);
+       |                        ^
+     11|     expect(res.body.role).toBe('OWNER');
+     12|     expect(res.body.csrfToken).toBeTruthy();
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/16]⎯
+
+ FAIL  tests/integration/auth.test.ts > Autenticação e sessão > rejeita senha curta e e-mail duplicado
+Error: registro falhou: {"error":"Erro interno do servidor"}
+ ❯ registerClient tests/helpers.ts:31:33
+
+ ❯ tests/integration/auth.test.ts:23:15
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/16]⎯
+
+ FAIL  tests/integration/auth.test.ts > Autenticação e sessão > login correto, senha errada e logout
+Error: registro falhou: {"error":"Erro interno do servidor"}
+ ❯ registerClient tests/helpers.ts:31:33
+
+ ❯ tests/integration/auth.test.ts:31:15
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[9/16]⎯
+
+ FAIL  tests/integration/auth.test.ts > Autenticação e sessão > CSRF: bloqueia mutações sem X-Requested-With ou com token errado
+Error: registro falhou: {"error":"Erro interno do servidor"}
+ ❯ registerClient tests/helpers.ts:31:33
+
+ ❯ tests/integration/auth.test.ts:42:15
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[10/16]⎯
+
+ FAIL  tests/integration/auth.test.ts > Autenticação e sessão > rate limit no login devolve 429 após o limite
+Error: registro falhou: {"error":"Erro interno do servidor"}
+ ❯ registerClient tests/helpers.ts:31:33
+
+ ❯ tests/integration/auth.test.ts:57:15
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[11/16]⎯
+
+ FAIL  tests/integration/auth.test.ts > Autenticação e sessão > troca de senha exige a atual e encerra outras sessões
+Error: registro falhou: {"error":"Erro interno do servidor"}
+ ❯ registerClient tests/helpers.ts:31:33
+
+ ❯ tests/integration/auth.test.ts:72:15
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[12/16]⎯
+
+ FAIL  tests/integration/crm-dashboard.test.ts > Painel e relatórios com dados reais do banco > indicadores refletem exatamente o que aconteceu
+Error: registro falhou: {"error":"Erro interno do servidor"}
+ ❯ registerClient tests/helpers.ts:31:33
+
+ ❯ tests/integration/crm-dashboard.test.ts:66:19
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[13/16]⎯
+
+ FAIL  tests/integration/crm-dashboard.test.ts > Painel e relatórios com dados reais do banco > plano e uso
+Error: registro falhou: {"error":"Erro interno do servidor"}
+ ❯ registerClient tests/helpers.ts:31:33
+
+ ❯ tests/integration/crm-dashboard.test.ts:105:19
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[14/16]⎯
+
+ FAIL  tests/integration/flows.test.ts > Agendador econômico > scheduledTick não executa nada antes do vencimento e retoma depois
+Error: registro falhou: {"error":"Erro interno do servidor"}
+ ❯ registerClient tests/helpers.ts:31:33
+
+ ❯ tests/integration/flows.test.ts:268:19
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[15/16]⎯
+
+ FAIL  tests/integration/isolation-rbac.test.ts > Login inexistente > responde igual para e-mail inexistente
+AssertionError: expected 500 to be 401 // Object.is equality
+
+[32m- Expected[39m
+[31m+ Received[39m
+
+[32m- 401[39m
+[31m+ 500[39m
+
+ ❯ tests/integration/isolation-rbac.test.ts:129:26
+    127|   it('responde igual para e-mail inexistente', async () => {
+    128|     const r = await loginClient(`${uniq()}@naoexiste.dev`, 'qualquer');
+    129|     expect(r.res.status).toBe(401);
+       |                          ^
+    130|     expect(r.res.body.error).toBe('E-mail ou senha incorretos');
+    131|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[16/16]⎯
+
+
+ Test Files  6 failed | 4 passed (10)
+      Tests  10 failed | 40 passed | 54 skipped (104)
+   Start at  06:18:21
+   Duration  13.85s (transform 656ms, setup 0ms, collect 4.88s, tests 724ms, environment 2ms, prepare 1.90s)
+

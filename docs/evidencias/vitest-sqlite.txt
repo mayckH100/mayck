@@ -1,0 +1,130 @@
+
+> mckbot@1.0.0 test
+> npm run db:sqlite && vitest run
+
+
+> mckbot@1.0.0 db:sqlite
+> node scripts/sqlite-schema.mjs && prisma generate --schema prisma/sqlite/schema.prisma
+
+prisma/sqlite/schema.prisma gerado
+Prisma schema loaded from prisma/sqlite/schema.prisma
+
+✔ Generated Prisma Client (v6.19.3) to ./node_modules/@prisma/client in 241ms
+
+Start by importing your Prisma Client (See: https://pris.ly/d/importing-client)
+
+Tip: Want to turn off tips and other hints? https://pris.ly/tip-4-nohints
+
+
+ RUN  v3.2.7 /workspace/work/mckbot
+
+ ✓ tests/integration/auth.test.ts > Autenticação e sessão > cadastro cria usuário, organização (dono), etapas do Kanban e cookie httpOnly 458ms
+ ✓ tests/integration/auth.test.ts > Autenticação e sessão > rejeita senha curta e e-mail duplicado 393ms
+ ✓ tests/integration/auth.test.ts > Autenticação e sessão > login correto, senha errada e logout 1089ms
+ ✓ tests/integration/auth.test.ts > Autenticação e sessão > CSRF: bloqueia mutações sem X-Requested-With ou com token errado 406ms
+ ✓ tests/integration/auth.test.ts > Autenticação e sessão > rotas protegidas exigem login 5ms
+ ✓ tests/integration/auth.test.ts > Autenticação e sessão > rate limit no login devolve 429 após o limite 1393ms
+ ✓ tests/integration/auth.test.ts > Autenticação e sessão > troca de senha exige a atual e encerra outras sessões 2076ms
+ ✓ tests/integration/isolation-rbac.test.ts > Isolamento entre organizações > organização B não vê listas da A 66ms
+ ✓ tests/integration/isolation-rbac.test.ts > Isolamento entre organizações > organização B recebe 404 ao acessar ou alterar recursos da A por id 113ms
+ ✓ tests/integration/isolation-rbac.test.ts > Isolamento entre organizações > não permite trocar para organização da qual não é membro 9ms
+ ✓ tests/integration/isolation-rbac.test.ts > Isolamento entre organizações > não permite mover contato para etapa de outra organização 12ms
+ ✓ tests/integration/isolation-rbac.test.ts > Permissões (RBAC) > atendente usa Inbox/Contatos mas não edita fluxos, IA, canais ou equipe 105ms
+ ✓ tests/integration/isolation-rbac.test.ts > Permissões (RBAC) > admin edita fluxos mas não altera papéis; dono altera e não pode ser removido 222ms
+ ✓ tests/integration/isolation-rbac.test.ts > Permissões (RBAC) > membro removido perde o acesso à organização 52ms
+ ✓ tests/integration/isolation-rbac.test.ts > Permissões (RBAC) > convite: link de uso único e conta existente precisa estar logada 499ms
+ ✓ tests/integration/isolation-rbac.test.ts > Permissões (RBAC) > registra logs de auditoria das ações 14ms
+ ✓ tests/integration/isolation-rbac.test.ts > Login inexistente > responde igual para e-mail inexistente 652ms
+ ✓ tests/integration/flows.test.ts > Motor de fluxos (integração com banco e webhook) > primeira mensagem dispara o fluxo de boas-vindas; a segunda não 256ms
+ ✓ tests/integration/flows.test.ts > Motor de fluxos (integração com banco e webhook) > palavra-chave tem prioridade sobre primeira mensagem e coleta variáveis com validação 709ms
+ ✓ tests/integration/flows.test.ts > Motor de fluxos (integração com banco e webhook) > ramo "não" da condição 531ms
+ ✓ tests/integration/flows.test.ts > Motor de fluxos (integração com banco e webhook) > menu: opção inválida reenvia, opção válida segue o ramo; "Vendas" transfere para humano 834ms
+ ✓ tests/integration/flows.test.ts > Motor de fluxos (integração com banco e webhook) > bloco Aguardar pausa e o agendador retoma depois do tempo 529ms
+ ✓ tests/integration/flows.test.ts > Motor de fluxos (integração com banco e webhook) > proteção contra loop encerra a execução com FAILED no limite de passos 998ms
+ ✓ tests/integration/flows.test.ts > Motor de fluxos (integração com banco e webhook) > duplicidade: mesma mensagem reenviada não inicia o fluxo duas vezes 257ms
+ ✓ tests/integration/flows.test.ts > Motor de fluxos (integração com banco e webhook) > versionamento: salvar cria nova versão; execução em andamento usa a versão em que começou 429ms
+ ✓ tests/integration/flows.test.ts > Motor de fluxos (integração com banco e webhook) > ativar fluxo inválido é recusado; pausar cancela execuções; duplicar e excluir funcionam 381ms
+ ✓ tests/integration/flows.test.ts > Motor de fluxos (integração com banco e webhook) > estatísticas por bloco e histórico de execuções 49ms
+ ✓ tests/integration/flows.test.ts > Motor de fluxos (integração com banco e webhook) > bloco HTTP: mapeia JSON para variáveis, segue ramo de erro e bloqueia rede interna (SSRF) 280ms
+ ✓ tests/integration/flows.test.ts > Motor de fluxos (integração com banco e webhook) > disparo manual pelo Inbox ("Enviar fluxo") retoma o modo robô 311ms
+ ✓ tests/integration/flows.test.ts > Motor de fluxos (integração com banco e webhook) > falha no envio (canal desconectado) marca a execução como FAILED 191ms
+ ✓ tests/integration/flows.test.ts > Agendador econômico > scheduledTick não executa nada antes do vencimento e retoma depois 665ms
+ ✓ tests/integration/webhook.test.ts > Webhook WhatsApp Cloud API (payloads simulados) > GET de verificação devolve o challenge com token correto 12ms
+ ✓ tests/integration/webhook.test.ts > Webhook WhatsApp Cloud API (payloads simulados) > GET de verificação recusa token errado ou canal inexistente 12ms
+ ✓ tests/integration/webhook.test.ts > Webhook WhatsApp Cloud API (payloads simulados) > POST com assinatura inválida é rejeitado (401) e nada é gravado 22ms
+ ✓ tests/integration/webhook.test.ts > Webhook WhatsApp Cloud API (payloads simulados) > POST sem cabeçalho de assinatura é rejeitado 13ms
+ ✓ tests/integration/webhook.test.ts > Webhook WhatsApp Cloud API (payloads simulados) > mensagem válida cria contato, conversa e mensagem recebida 106ms
+ ✓ tests/integration/webhook.test.ts > Webhook WhatsApp Cloud API (payloads simulados) > idempotência: o mesmo message id reenviado não duplica mensagem 111ms
+ ✓ tests/integration/webhook.test.ts > Webhook WhatsApp Cloud API (payloads simulados) > idempotência sob concorrência: reenvios simultâneos geram uma só mensagem 163ms
+ ✓ tests/integration/webhook.test.ts > Webhook WhatsApp Cloud API (payloads simulados) > atualizações de status avançam (sent→delivered→read) e não regridem 155ms
+ ✓ tests/integration/webhook.test.ts > Webhook WhatsApp Cloud API (payloads simulados) > envio com falhas temporárias (500, 500) faz novas tentativas e conclui 61ms
+ ✓ tests/integration/webhook.test.ts > Webhook WhatsApp Cloud API (payloads simulados) > erro definitivo da Meta (400) marca a mensagem como FAILED sem repetir 54ms
+ ✓ tests/integration/webhook.test.ts > Webhook WhatsApp Cloud API (payloads simulados) > fora da janela de 24h só permite modelo (template) 100ms
+ ✓ tests/integration/webhook.test.ts > Webhook WhatsApp Cloud API (payloads simulados) > canal sem credenciais fica "não conectado" e nunca simula envio 531ms
+ ✓ tests/integration/webhook.test.ts > Webhook WhatsApp Cloud API (payloads simulados) > verificação de credenciais consulta a Graph API e só então marca CONNECTED; segredos não vazam 496ms
+ ✓ tests/integration/webhook.test.ts > Webhook WhatsApp Cloud API (payloads simulados) > rate limit do webhook devolve 429 acima do limite 21ms
+ ✓ tests/integration/webhook.test.ts > Webhook WhatsApp Cloud API (payloads simulados) > opt-out ("SAIR") bloqueia mensagens automáticas ao contato 184ms
+ ✓ tests/integration/crm-dashboard.test.ts > Contatos/CRM, Kanban e LGPD > cria, busca, edita e filtra contatos por etiqueta; normaliza telefone brasileiro 139ms
+ ✓ tests/integration/crm-dashboard.test.ts > Contatos/CRM, Kanban e LGPD > importa contatos em lote (CSV) informando erros por linha 48ms
+ ✓ tests/integration/crm-dashboard.test.ts > Contatos/CRM, Kanban e LGPD > Kanban: mover contato entre etapas e gerenciar colunas 236ms
+ ✓ tests/integration/crm-dashboard.test.ts > Contatos/CRM, Kanban e LGPD > LGPD: exporta todos os dados do contato e apaga definitivamente 166ms
+ ✓ tests/integration/crm-dashboard.test.ts > Painel e relatórios com dados reais do banco > indicadores refletem exatamente o que aconteceu 1213ms
+ ✓ tests/integration/crm-dashboard.test.ts > Painel e relatórios com dados reais do banco > plano e uso 416ms
+ ✓ tests/integration/ai.test.ts > IA (provedor fake determinístico) > chave da IA é salva cifrada e nunca devolvida em texto puro 87ms
+ ✓ tests/integration/ai.test.ts > IA (provedor fake determinístico) > provedor "fake" é aceito na configuração apenas em NODE_ENV=test 32ms
+ ✓ tests/integration/ai.test.ts > IA (provedor fake determinístico) > IA desativada não responde 147ms
+ ✓ tests/integration/ai.test.ts > IA (provedor fake determinístico) > responde com base na base de conhecimento (RAG) e registra uso 136ms
+ ✓ tests/integration/ai.test.ts > IA (provedor fake determinístico) > preço presente na base pode ser citado 228ms
+ ✓ tests/integration/ai.test.ts > IA (provedor fake determinístico) > pergunta de preço/política sem base relevante → não inventa e transfere para humano 160ms
+ ✓ tests/integration/ai.test.ts > IA (provedor fake determinístico) > resposta do modelo com preço inventado é bloqueada 159ms
+ ✓ tests/integration/ai.test.ts > IA (provedor fake determinístico) > palavra de transferência ("atendente") faz handoff imediato 135ms
+ ✓ tests/integration/ai.test.ts > IA (provedor fake determinístico) > falha do provedor → nova tentativa, fallback e handoff, com erro registrado 150ms
+ ✓ tests/integration/ai.test.ts > IA (provedor fake determinístico) > limite diário de uso: ao atingir, não chama o provedor e transfere 228ms
+ ✓ tests/integration/ai.test.ts > IA (provedor fake determinístico) > bloco IA dentro de um fluxo com saída de transferência 545ms
+ ✓ tests/integration/ai.test.ts > IA (provedor fake determinístico) > endpoint de teste da IA mostra as fontes usadas 32ms
+ ✓ tests/integration/ai.test.ts > IA (provedor fake determinístico) > editar documento reindexa os trechos; uso agregado disponível 112ms
+ ✓ tests/unit/whatsapp.test.ts > Assinatura X-Hub-Signature-256 > aceita assinatura correta 2ms
+ ✓ tests/unit/whatsapp.test.ts > Assinatura X-Hub-Signature-256 > rejeita assinatura errada, ausente ou malformada 0ms
+ ✓ tests/unit/whatsapp.test.ts > Parsing do webhook > extrai mensagens de texto, respostas interativas e status 2ms
+ ✓ tests/unit/whatsapp.test.ts > Parsing do webhook > ignora objetos que não são do WhatsApp 0ms
+ ✓ tests/unit/whatsapp.test.ts > Cliente da Cloud API > monta corpos de texto, mídia, botões e modelo 1ms
+ ✓ tests/unit/whatsapp.test.ts > Cliente da Cloud API > repete em 5xx e devolve o id da Meta 7ms
+ ✓ tests/unit/whatsapp.test.ts > Cliente da Cloud API > não repete em erro 4xx (exceto 429) 1ms
+ ✓ tests/unit/whatsapp.test.ts > Cliente da Cloud API > desiste após o máximo de tentativas em falha de rede 4ms
+ ✓ tests/unit/whatsapp.test.ts > Proteção SSRF > identifica endereços privados 5ms
+ ✓ tests/unit/whatsapp.test.ts > Proteção SSRF > bloqueia localhost, IP interno e protocolos não HTTP 1ms
+ ✓ tests/unit/flow-logic.test.ts > Gatilhos > palavra-chave "contém" ignora acentos e maiúsculas 1ms
+ ✓ tests/unit/flow-logic.test.ts > Gatilhos > palavra-chave "igual" exige mensagem inteira 0ms
+ ✓ tests/unit/flow-logic.test.ts > Gatilhos > aceita várias palavras separadas por vírgula 0ms
+ ✓ tests/unit/flow-logic.test.ts > Gatilhos > primeira mensagem só casa quando é a primeira 0ms
+ ✓ tests/unit/flow-logic.test.ts > Gatilhos > mensagem recebida casa qualquer texto e perde para palavra-chave 0ms
+ ✓ tests/unit/flow-logic.test.ts > Gatilhos > horário respeita dias e janela no fuso da organização 14ms
+ ✓ tests/unit/flow-logic.test.ts > Condições > operadores básicos 1ms
+ ✓ tests/unit/flow-logic.test.ts > Condições > gt/lt com valor não numérico retorna falso 0ms
+ ✓ tests/unit/flow-logic.test.ts > Condições > lógica "todas" e "qualquer" 1ms
+ ✓ tests/unit/flow-logic.test.ts > Menu e validação de respostas > casa por número, rótulo e id do botão 0ms
+ ✓ tests/unit/flow-logic.test.ts > Menu e validação de respostas > valida tipos de resposta 0ms
+ ✓ tests/unit/flow-logic.test.ts > Grafo > segue a saída correta 0ms
+ ✓ tests/unit/flow-logic.test.ts > Grafo > validação aponta problemas 2ms
+ ✓ tests/unit/flow-logic.test.ts > Templates de variáveis > substitui variáveis e caminhos 0ms
+ ✓ tests/unit/ai.test.ts > RAG > tokeniza sem acentos e sem stopwords 1ms
+ ✓ tests/unit/ai.test.ts > RAG > fragmenta textos longos 1ms
+ ✓ tests/unit/ai.test.ts > RAG > ranqueia o trecho mais relevante primeiro 1ms
+ ✓ tests/unit/ai.test.ts > Regras anti-invenção > detecta perguntas sobre preço/política 1ms
+ ✓ tests/unit/ai.test.ts > Regras anti-invenção > bloqueia preço que não está no contexto e aceita o que está 1ms
+ ✓ tests/unit/ai.test.ts > Regras anti-invenção > o prompt de sistema contém as regras e o contexto 0ms
+ ✓ tests/unit/ai.test.ts > Provedores de IA > provedor fake é determinístico 1ms
+ ✓ tests/unit/ai.test.ts > Provedores de IA > fábrica exige chave e escolhe o provedor 0ms
+ ✓ tests/unit/ai.test.ts > Provedores de IA > provedor fake é recusado fora do ambiente de teste 0ms
+ ✓ tests/unit/crypto.test.ts > Criptografia AES-256-GCM > cifra e decifra mantendo o texto original 2ms
+ ✓ tests/unit/crypto.test.ts > Criptografia AES-256-GCM > gera IV aleatório (mesmo texto → cifras diferentes) 1ms
+ ✓ tests/unit/crypto.test.ts > Criptografia AES-256-GCM > rejeita dado adulterado (tag de autenticação) 1ms
+ ✓ tests/unit/crypto.test.ts > Criptografia AES-256-GCM > rejeita chave mestra errada 0ms
+ ✓ tests/unit/crypto.test.ts > Criptografia AES-256-GCM > exige chave mestra de 32 bytes 0ms
+ ✓ tests/unit/crypto.test.ts > Criptografia AES-256-GCM > mascara segredos e compara em tempo constante 0ms
+
+ Test Files  10 passed (10)
+      Tests  104 passed (104)
+   Start at  06:19:01
+   Duration  34.35s (transform 514ms, setup 0ms, collect 3.61s, tests 25.09s, environment 2ms, prepare 1.45s)
+

@@ -1,0 +1,319 @@
+// MCKBOT — schema principal (PostgreSQL em produção).
+// Para dev/testes, scripts/sqlite-schema.mjs gera prisma/sqlite/schema.prisma trocando o provider.
+// Campos JSON são armazenados como texto (String) para manter compatibilidade entre PostgreSQL e SQLite.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String       @id @default(cuid())
+  email        String       @unique
+  name         String
+  phone        String?
+  passwordHash String
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+  memberships  Membership[]
+  sessions     Session[]
+}
+
+model Organization {
+  id          String       @id @default(cuid())
+  name        String
+  timezone    String       @default("America/Sao_Paulo")
+  plan        String       @default("gratis")
+  createdAt   DateTime     @default(now())
+  memberships Membership[]
+}
+
+model Membership {
+  id        String   @id @default(cuid())
+  userId    String
+  orgId     String
+  role      String // OWNER | ADMIN | AGENT
+  createdAt DateTime @default(now())
+  user      User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  org       Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, orgId])
+  @@index([orgId])
+}
+
+model Invitation {
+  id          String    @id @default(cuid())
+  orgId       String
+  email       String
+  role        String
+  tokenHash   String    @unique
+  invitedById String
+  expiresAt   DateTime
+  acceptedAt  DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@index([orgId])
+}
+
+model Session {
+  id        String   @id // sha256 do token do cookie
+  userId    String
+  orgId     String?
+  csrfToken String
+  ip        String?
+  userAgent String?
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  orgId     String?
+  userId    String?
+  action    String
+  entity    String?
+  entityId  String?
+  meta      String   @default("{}")
+  ip        String?
+  createdAt DateTime @default(now())
+
+  @@index([orgId, createdAt])
+}
+
+model Channel {
+  id             String    @id @default(cuid())
+  orgId          String
+  name           String
+  provider       String    @default("whatsapp_cloud")
+  phoneNumberId  String?
+  wabaId         String?
+  displayPhone   String?
+  accessTokenEnc String?
+  appSecretEnc   String?
+  verifyToken    String
+  status         String    @default("NOT_CONNECTED") // NOT_CONNECTED | CONNECTED | ERROR
+  lastError      String?
+  lastWebhookAt  DateTime?
+  lastCheckedAt  DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([orgId])
+}
+
+model KanbanStage {
+  id       String @id @default(cuid())
+  orgId    String
+  name     String
+  position Int
+  color    String @default("#64748b")
+
+  @@index([orgId])
+}
+
+model Contact {
+  id            String    @id @default(cuid())
+  orgId         String
+  waId          String
+  phone         String
+  name          String?
+  email         String?
+  tags          String    @default("[]")
+  notes         String?
+  vars          String    @default("{}")
+  stageId       String?
+  optOut        Boolean   @default(false)
+  lastMessageAt DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@unique([orgId, waId])
+  @@index([orgId, stageId])
+}
+
+model Conversation {
+  id              String    @id @default(cuid())
+  orgId           String
+  contactId       String
+  channelId       String?
+  status          String    @default("OPEN") // OPEN | PENDING | CLOSED
+  mode            String    @default("BOT") // BOT | HUMAN
+  assignedUserId  String?
+  unreadCount     Int       @default(0)
+  lastInboundAt   DateTime?
+  lastMessageAt   DateTime?
+  firstResponseAt DateTime?
+  closedAt        DateTime?
+  createdAt       DateTime  @default(now())
+
+  @@index([orgId, status])
+  @@index([contactId])
+}
+
+model Message {
+  id             String   @id @default(cuid())
+  orgId          String
+  conversationId String
+  channelId      String?
+  direction      String // IN | OUT
+  sender         String // contact | bot | ai | agent | system
+  type           String   @default("text")
+  body           String?
+  mediaUrl       String?
+  waMessageId    String?
+  status         String // RECEIVED | QUEUED | SENT | DELIVERED | READ | FAILED
+  error          String?
+  attempts       Int      @default(0)
+  authorUserId   String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([channelId, waMessageId])
+  @@index([orgId, createdAt])
+  @@index([conversationId, createdAt])
+}
+
+model Flow {
+  id             String    @id @default(cuid())
+  orgId          String
+  name           String
+  description    String?
+  status         String    @default("DRAFT") // DRAFT | ACTIVE | PAUSED
+  priority       Int       @default(0)
+  currentVersion Int       @default(1)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  versions       FlowVersion[]
+
+  @@index([orgId, status])
+}
+
+model FlowVersion {
+  id          String   @id @default(cuid())
+  flowId      String
+  version     Int
+  graph       String
+  createdById String?
+  createdAt   DateTime @default(now())
+  flow        Flow     @relation(fields: [flowId], references: [id], onDelete: Cascade)
+
+  @@unique([flowId, version])
+}
+
+model FlowRun {
+  id               String    @id @default(cuid())
+  orgId            String
+  flowId           String
+  flowVersion      Int
+  conversationId   String
+  contactId        String
+  status           String // RUNNING | WAITING | COMPLETED | FAILED | HANDOFF | CANCELLED
+  currentNodeId    String?
+  waitType         String? // reply | timer
+  resumeAt         DateTime?
+  vars             String    @default("{}")
+  stepCount        Int       @default(0)
+  error            String?
+  triggerMessageId String?   @unique
+  startedAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  finishedAt       DateTime?
+
+  @@index([orgId, status])
+  @@index([conversationId, status])
+}
+
+model FlowRunStep {
+  id        String   @id @default(cuid())
+  orgId     String
+  runId     String
+  flowId    String
+  nodeId    String
+  nodeType  String
+  status    String // ok | warn | error
+  detail    String?
+  createdAt DateTime @default(now())
+
+  @@index([runId])
+  @@index([flowId, nodeId])
+}
+
+model AiSettings {
+  orgId           String   @id
+  enabled         Boolean  @default(false)
+  autoReply       Boolean  @default(false)
+  provider        String   @default("gemini") // openai | gemini | fake (somente testes)
+  model           String   @default("gemini-3.5-flash-lite")
+  baseUrl         String?
+  apiKeyEnc       String?
+  instructions    String   @default("")
+  tone            String   @default("cordial e objetivo")
+  temperature     Float    @default(0.3)
+  maxTokens       Int      @default(400)
+  dailyLimit      Int      @default(200)
+  monthlyTokenLimit Int    @default(500000)
+  handoffKeywords String   @default("[\"atendente\",\"humano\",\"pessoa\"]")
+  fallbackMessage String   @default("Vou transferir você para um atendente humano. Aguarde um momento, por favor.")
+  updatedAt       DateTime @updatedAt
+}
+
+model KnowledgeDoc {
+  id        String   @id @default(cuid())
+  orgId     String
+  title     String
+  content   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([orgId])
+}
+
+model KnowledgeChunk {
+  id    String @id @default(cuid())
+  orgId String
+  docId String
+  idx   Int
+  text  String
+
+  @@index([orgId])
+  @@index([docId])
+}
+
+model AiUsage {
+  id               String   @id @default(cuid())
+  orgId            String
+  conversationId   String?
+  provider         String
+  model            String
+  promptTokens     Int      @default(0)
+  completionTokens Int      @default(0)
+  success          Boolean
+  handoff          Boolean  @default(false)
+  error            String?
+  latencyMs        Int      @default(0)
+  createdAt        DateTime @default(now())
+
+  @@index([orgId, createdAt])
+}
+
+model Integration {
+  id             String   @id @default(cuid())
+  orgId          String
+  name           String
+  slug           String
+  baseUrl        String
+  authHeaderName String?
+  authValueEnc   String?
+  lastTestAt     DateTime?
+  lastTestStatus String?
+  createdAt      DateTime @default(now())
+
+  @@unique([orgId, slug])
+}
