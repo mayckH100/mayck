@@ -4,7 +4,7 @@ import { prisma } from '../db.js';
 import { ah, notFound, HttpError } from '../lib/http.js';
 import { orgOf } from '../auth/session.js';
 import { audit } from '../lib/audit.js';
-import { sendOutbound, isWithinWindow } from '../whatsapp/messaging.js';
+import { sendOutbound, isWithinWindow, resolveChannel, windowApplies } from '../whatsapp/messaging.js';
 import { parseJson } from '../lib/json.js';
 
 export const conversationsRouter = Router();
@@ -24,12 +24,13 @@ conversationsRouter.get('/', ah(async (req, res) => {
   const convs = await prisma.conversation.findMany({ where, orderBy: { lastMessageAt: 'desc' }, take: 100 });
   const contacts = await prisma.contact.findMany({ where: { orgId, id: { in: convs.map((c) => c.contactId) } } });
   const lastMsgs = await Promise.all(convs.map((c) => prisma.message.findFirst({ where: { orgId, conversationId: c.id, direction: { in: ['IN', 'OUT'] } }, orderBy: { createdAt: 'desc' } })));
+  const qrIds = new Set((await prisma.channel.findMany({ where: { orgId, provider: 'whatsapp_qr' }, select: { id: true } })).map((c) => c.id));
   const counts = await prisma.conversation.groupBy({ by: ['status'], where: { orgId }, _count: { _all: true } });
   res.json({
     counts: Object.fromEntries(counts.map((c) => [c.status, c._count._all])),
     items: convs.map((c, i) => {
       const ct = contacts.find((x) => x.id === c.contactId);
-      return { ...c, contact: ct ? { id: ct.id, name: ct.name, phone: ct.phone, stageId: ct.stageId, tags: parseJson<string[]>(ct.tags, []) } : null, lastMessage: lastMsgs[i] ? { body: lastMsgs[i]!.body, direction: lastMsgs[i]!.direction, createdAt: lastMsgs[i]!.createdAt } : null, withinWindow: isWithinWindow(c) };
+      return { ...c, contact: ct ? { id: ct.id, name: ct.name, phone: ct.phone, stageId: ct.stageId, tags: parseJson<string[]>(ct.tags, []) } : null, lastMessage: lastMsgs[i] ? { body: lastMsgs[i]!.body, direction: lastMsgs[i]!.direction, createdAt: lastMsgs[i]!.createdAt } : null, withinWindow: (c.channelId && qrIds.has(c.channelId)) || isWithinWindow(c) };
     }),
   });
 }));
@@ -48,7 +49,7 @@ conversationsRouter.get('/:id', ah(async (req, res) => {
   const activeRun = await prisma.flowRun.findFirst({ where: { conversationId: conv.id, status: { in: ['RUNNING', 'WAITING'] } } });
   if (conv.unreadCount) await prisma.conversation.update({ where: { id: conv.id }, data: { unreadCount: 0 } });
   res.json({
-    conversation: { ...conv, unreadCount: 0, withinWindow: isWithinWindow(conv) },
+    conversation: { ...conv, unreadCount: 0, withinWindow: !windowApplies(await resolveChannel(conv)) || isWithinWindow(conv) },
     contact: contact ? { ...contact, tags: parseJson<string[]>(contact.tags, []), vars: parseJson(contact.vars, {}) } : null,
     messages: messages.map((m) => ({ ...m, authorName: authors.find((a) => a.id === m.authorUserId)?.name })),
     activeRun,

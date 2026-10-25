@@ -52,7 +52,38 @@ docker run -p 3000:3000 -e DATABASE_URL=... -e MASTER_KEY=... mckbot
 ```
 (O Dockerfile foi escrito, mas **não foi testado** neste ambiente porque o Docker não estava disponível.)
 
-## 4. Conectar o WhatsApp (Cloud API oficial da Meta)
+## 4. Conectar o WhatsApp por QR code (modo principal)
+Funciona como o WhatsApp Web: o MCKBOT vira um "aparelho conectado" do seu número. Não precisa de conta na Meta.
+
+**Antes de tudo:** o número precisa estar com o **WhatsApp (ou WhatsApp Business) instalado e ativo no celular**. Recomendado: o app *WhatsApp Business* no celular da empresa.
+
+1. Abra o MCKBOT → **Canais WhatsApp** → **+ Adicionar número** (se ainda não houver um canal).
+2. No card do canal, clique em **Conectar por QR code**. Em poucos segundos aparece o QR.
+3. No celular: WhatsApp → **⋮ Mais opções** (Android) ou **Configurações** (iPhone) → **Aparelhos conectados** → **Conectar aparelho** → aponte a câmera para o QR.
+4. Aguarde aparecer **Conectado** com o número. Pronto: as mensagens recebidas entram no Inbox, nos fluxos e na IA.
+5. O QR troca sozinho a cada ~20 s. Se ninguém ler a tempo, ele para e mostra **Gerar novo QR code**.
+6. Para trocar de número ou desconectar: **Desconectar** no card (remove o aparelho no celular e apaga a sessão salva). Se você remover o aparelho pelo celular, o MCKBOT detecta e volta para "Não conectado".
+
+Como funciona por trás: a sessão (credenciais do WhatsApp Web) fica **no banco**, cifrada com a `MASTER_KEY`. Quando o Render reinicia ou faz deploy, o servidor reconecta sozinho, sem ler o QR de novo. **Não troque a MASTER_KEY** — a sessão ficaria ilegível e seria preciso ler o QR outra vez.
+
+Cuidados do modo QR (não oficial):
+- Use para **atendimento**. Disparos em massa ou mensagens para quem não falou com você podem levar o WhatsApp a restringir o número.
+- O WhatsApp desconecta aparelhos vinculados se o celular principal ficar **14 dias** sem ser usado.
+- Botões interativos não são enviados no modo QR: o MCKBOT envia as opções numeradas ("1. Vendas / 2. Suporte") e entende a resposta pelo número.
+- Modelos (templates) só existem na API oficial.
+
+### 4.1 Manter o serviço acordado (obrigatório no Render Free para o modo QR)
+O Render Free **hiberna após ~15 min sem tráfego HTTP** e isso **derruba a conexão do WhatsApp** — mensagens recebidas enquanto ele dorme só chegam quando ele acordar (e só se alguém acessar o site). Para evitar, use um **pinger gratuito** externo chamando o health check a cada 10 minutos:
+
+1. Crie uma conta gratuita em https://cron-job.org (ou outro monitor grátis, como UptimeRobot).
+2. **Create cronjob** → URL: `https://mckbot.onrender.com/api/health` → agendamento **a cada 10 minutos** → salvar.
+3. O endpoint `/api/health` é leve (não consulta o banco), então não gasta as horas do Neon.
+
+750 horas grátis/mês do Render cobrem um serviço ligado o mês inteiro (~730 h). Mesmo com o pinger, o Render pode reiniciar o serviço (deploy, manutenção): o MCKBOT reconecta sozinho com a sessão salva.
+
+## 4B. (Opcional/Avançado) Conectar pela API oficial (Cloud API da Meta)
+Na tela, fica em **Canais WhatsApp → Avançado / API oficial (opcional)**. Ao salvar as credenciais da API num canal, ele passa a usar a API oficial e a sessão por QR code daquele canal é encerrada.
+
 Você precisa de: conta no Facebook, um **Portfólio empresarial (Business Manager)** e um número de telefone que **não esteja em uso** no app WhatsApp comum (ou que você remova de lá).
 
 1. Acesse https://developers.facebook.com → **Meus apps → Criar app** → tipo **Empresa/Business** → vincule ao seu portfólio.
@@ -84,7 +115,8 @@ Alternativa: provedor **OpenAI ou compatível** (OpenAI, Groq, OpenRouter etc.),
 ## 6. Limitações do plano grátis e como lidar
 | Situação | Efeito | O que fazer |
 |---|---|---|
-| Render dorme após 15 min sem tráfego | A primeira mensagem depois de um período parado pode demorar ~1 min; se passar do tempo limite, a Meta reenvia o evento | O MCKBOT é idempotente (reenvio não duplica). Opcional: um monitor gratuito chamando `https://SEU-APP.onrender.com/api/health` a cada 10 min mantém o serviço acordado; 750 h/mês cobrem um serviço o mês inteiro |
+| Render dorme após 15 min sem tráfego (modo QR) | A conexão do WhatsApp cai; mensagens só chegam quando o serviço acordar | **Configure o pinger** da seção 4.1 (cron-job.org a cada 10 min em `/api/health`) |
+| Render dorme após 15 min sem tráfego (API oficial) | A primeira mensagem depois de um período parado pode demorar ~1 min; se passar do tempo limite, a Meta reenvia o evento | O MCKBOT é idempotente (reenvio não duplica). Opcional: um monitor gratuito chamando `https://SEU-APP.onrender.com/api/health` a cada 10 min mantém o serviço acordado; 750 h/mês cobrem um serviço o mês inteiro |
 | Bloco **Aguardar** com o serviço dormindo | A espera só é retomada quando o serviço acorda | Prefira esperas curtas ou mantenha o serviço acordado |
 | Neon dorme após 5 min | Primeira consulta após pausa leva alguns centésimos de segundo a mais | O health check `/api/health` não consulta o banco e o agendador só consulta quando há espera pendente, para economizar as 100 CU-horas |
 | Neon Free: 1 GB | Histórico muito grande enche o banco | Exporte/apague contatos antigos (LGPD) ou mude de plano |
@@ -94,12 +126,13 @@ Alternativa: provedor **OpenAI ou compatível** (OpenAI, Groq, OpenRouter etc.),
 - [ ] Repositório no GitHub com o código.
 - [ ] Projeto Neon e `DATABASE_URL` no Render.
 - [ ] Serviço no Render (Blueprint) e cópia de segurança da `MASTER_KEY`.
-- [ ] App na Meta com produto WhatsApp.
+- [ ] **Modo QR:** canal conectado lendo o QR com o celular do número (WhatsApp instalado).
+- [ ] **Pinger gratuito** (cron-job.org a cada 10 min em `https://mckbot.onrender.com/api/health`) — necessário para o modo QR.
+- [ ] (Opcional, API oficial) App na Meta com produto WhatsApp.
 - [ ] **Phone Number ID**, **WABA ID**, **token permanente** (usuário do sistema) e **App Secret** cadastrados em Canais WhatsApp.
 - [ ] Webhook configurado na Meta (URL + token de verificação, campo `messages`) e botão **Verificar conexão** mostrando **Conectado**.
 - [ ] Número real registrado e nome de exibição aprovado (para sair do número de teste).
 - [ ] **Chave de IA** (Gemini) cadastrada, base de conhecimento preenchida e IA ativada.
-- [ ] (Opcional) Monitor gratuito para manter o serviço acordado.
 
 ## 8. Variáveis de ambiente
 | Variável | Obrigatória | Descrição |
@@ -113,3 +146,4 @@ Alternativa: provedor **OpenAI ou compatível** (OpenAI, Groq, OpenRouter etc.),
 | `FLOW_MAX_STEPS` | não | Limite de passos por execução (padrão 50) |
 | `LOGIN_RATE_LIMIT` / `API_RATE_LIMIT` / `WEBHOOK_RATE_LIMIT` | não | Limites por janela (15 min / 1 min / 1 min) |
 | `ENABLE_SCHEDULER` | não | `true` para retomar blocos Aguardar |
+| `ENABLE_WHATSAPP_QR` | não | Padrão `true`: reconecta as sessões do modo QR ao iniciar. `false` desliga a reconexão automática |

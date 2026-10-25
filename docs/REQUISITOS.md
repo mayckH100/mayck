@@ -28,7 +28,19 @@ SaaS multi-organização para automatizar atendimento no WhatsApp usando **exclu
 
 ## 3. Requisitos funcionais implementados
 
-### 3.1 Canal WhatsApp Cloud API
+### 3.0 Canal WhatsApp por QR code (modo principal desde 25/10/2026)
+Decisão do Mayck em 25/10/2026: "vamos iniciar só pelo aplicativo (QR), depois a gente volta e coloca API". A Cloud API continua no código como provedor opcional (seção 3.1).
+- Biblioteca **Baileys** (`@whiskeysockets/baileys` 6.7.24 — última versão estável publicada; a linha 7.x ainda é *release candidate*), conectando como um aparelho do WhatsApp Web ("Aparelhos conectados").
+- `Channel.provider = "whatsapp_qr"` (padrão ao criar canal pela tela). Status: `NOT_CONNECTED`, `CONNECTING`, `QR_PENDING`, `CONNECTED`, `ERROR`. Número conectado em `displayPhone`, JID em `waJid`, horário em `connectedAt`.
+- Sessão (creds + chaves do Signal) salva **no banco** (tabela `WaAuthState`), cada registro cifrado com AES-256-GCM (MASTER_KEY). Nada em disco — o disco do Render Free é efêmero.
+- Gerenciador multi-canal/multi-organização (`server/whatsapp/qr/manager.ts`): ao subir o servidor reconecta todos os canais QR com sessão salva; reconexão automática com backoff exponencial (2 s → teto de 5 min; vira `ERROR` após 5 falhas seguidas, mas continua tentando); logout feito no celular apaga a sessão e volta para `NOT_CONNECTED`; QR não lido a tempo para de gerar QR até o usuário pedir outro; sessão assumida por outra instância (novo deploy) não é disputada.
+- Endpoints (OWNER/ADMIN, isolados por organização): `POST /api/channels/:id/qr/start`, `GET /api/channels/:id/qr` (status + QR como data URL PNG, consultado a cada 3 s pela tela), `POST /api/channels/:id/qr/disconnect` (logout + apaga sessão).
+- Recebimento: texto, legenda de imagem/vídeo/documento, áudio/figurinha (registrados com o tipo), localização, contato e respostas de botão/lista. **Ignora** grupos, status/broadcast, canais (newsletter), reações e mensagens enviadas pelo próprio número. Contatos com LID usam o número real (`senderPn`) quando o WhatsApp informa. Entram no mesmo pipeline do webhook (contatos, conversas, fluxos, IA, opt-out, idempotência).
+- Envio (`sendOutbound`) roteia pelo provider: no QR sai pelo socket do Baileys, **sem a regra da janela de 24h**; botões viram texto com opções numeradas (o menu já aceita resposta pelo número); mídia por link (o link passa pela proteção SSRF antes de o servidor baixar); modelos (templates) não existem no QR e falham com explicação.
+- Status de entrega/leitura do WhatsApp (enviada → entregue → lida) atualizados pelo evento `messages.update`.
+- Riscos conhecidos: modo **não oficial** (o WhatsApp pode restringir números com comportamento de spam — usar para atendimento, sem disparo em massa); o celular precisa ter o WhatsApp instalado para o pareamento e o WhatsApp desconecta aparelhos se o celular ficar 14 dias sem uso; no Render Free o serviço hiberna sem tráfego e derruba a conexão — use o pinger descrito em docs/DEPLOY.md.
+
+### 3.1 Canal WhatsApp Cloud API (opcional)
 - Webhook por canal: `GET/POST /api/webhooks/whatsapp/:channelId`.
 - Verificação `hub.mode=subscribe` + `hub.verify_token` (comparação em tempo constante) → devolve `hub.challenge`.
 - POST autenticado por **X-Hub-Signature-256** (HMAC-SHA256 do corpo bruto com o App Secret cifrado); assinatura ausente/errada → 401 e nada é gravado.

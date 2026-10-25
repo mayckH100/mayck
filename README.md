@@ -1,6 +1,6 @@
 # MCKBOT
 
-Plataforma SaaS de automação de atendimento no WhatsApp com IA, usando a **API oficial (WhatsApp Cloud API da Meta)**.
+Plataforma SaaS de automação de atendimento no WhatsApp com IA, conectando o número por **QR code** (como o WhatsApp Web, via Baileys) — com a **API oficial (WhatsApp Cloud API da Meta)** disponível como opção avançada.
 
 - **Atendimento:** Inbox compartilhada, Kanban de funil, Contatos/CRM (etiquetas, notas, campos coletados, importação, LGPD).
 - **Automação:** fluxos visuais (React Flow) com gatilhos (mensagem recebida, palavra-chave, primeira mensagem, horário) e blocos (texto, mídia, menu, perguntar e salvar, condição, IA, aguardar, webhook HTTP, etiqueta/etapa, transferir para humano, encerrar), versionamento e registro de cada execução.
@@ -34,7 +34,7 @@ Veja `docs/DEPLOY.md` (Render free + Neon/Supabase Postgres grátis). Requisitos
 ```
 server/            API Express
   auth/            sessão httpOnly, CSRF, RBAC, convites
-  whatsapp/        Cloud API: cliente com retries, webhook, assinatura, inbound/outbound
+  whatsapp/        Cloud API (opcional) e qr/ (Baileys: sessões, QR, parser); inbound/outbound com roteamento por provider
   flows/           motor de fluxos (logic.ts puro + engine.ts com banco)
   ai/              provedores, RAG, regras anti-invenção, serviço
   routes/          rotas REST por módulo

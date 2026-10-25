@@ -91,14 +91,16 @@ model Channel {
   id             String    @id @default(cuid())
   orgId          String
   name           String
-  provider       String    @default("whatsapp_cloud")
+  provider       String    @default("whatsapp_cloud") // whatsapp_cloud (API oficial) | whatsapp_qr (WhatsApp Web via QR code)
   phoneNumberId  String?
   wabaId         String?
   displayPhone   String?
   accessTokenEnc String?
   appSecretEnc   String?
   verifyToken    String
-  status         String    @default("NOT_CONNECTED") // NOT_CONNECTED | CONNECTED | ERROR
+  status         String    @default("NOT_CONNECTED") // NOT_CONNECTED | CONNECTING | QR_PENDING | CONNECTED | ERROR
+  waJid          String? // modo QR: JID do aparelho conectado
+  connectedAt    DateTime? // modo QR: quando a sessão foi aberta pela última vez
   lastError      String?
   lastWebhookAt  DateTime?
   lastCheckedAt  DateTime?
@@ -106,6 +108,20 @@ model Channel {
   updatedAt      DateTime  @updatedAt
 
   @@index([orgId])
+}
+
+/// Estado de autenticação do Baileys (modo QR), cifrado com a MASTER_KEY. Nada de sessão em disco local.
+/// type = "creds" (keyId vazio) ou o tipo de chave do Signal (pre-key, session, sender-key, app-state-sync-key...).
+model WaAuthState {
+  id        String   @id @default(cuid())
+  channelId String
+  type      String
+  keyId     String
+  dataEnc   String
+  updatedAt DateTime @updatedAt
+
+  @@unique([channelId, type, keyId])
+  @@index([channelId])
 }
 
 model KanbanStage {

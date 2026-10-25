@@ -114,6 +114,7 @@ export const initials = (name?: string | null) => (name ?? '?').split(/\s+/).fil
 export function StatusBadge({ status }: { status: string }) {
   const map: Record<string, [string, string]> = {
     CONNECTED: ['green', 'Conectado'], NOT_CONNECTED: ['', 'Não conectado'], ERROR: ['red', 'Erro'],
+    CONNECTING: ['blue', 'Conectando…'], QR_PENDING: ['amber', 'Aguardando leitura do QR'],
     ACTIVE: ['green', 'Ativo'], PAUSED: ['amber', 'Pausado'], DRAFT: ['', 'Rascunho'],
     OPEN: ['green', 'Aberta'], PENDING: ['amber', 'Aguardando humano'], CLOSED: ['', 'Encerrada'],
     COMPLETED: ['green', 'Concluído'], FAILED: ['red', 'Falhou'], HANDOFF: ['blue', 'Transferido'], WAITING: ['amber', 'Aguardando'], RUNNING: ['blue', 'Executando'], CANCELLED: ['', 'Cancelado'],

@@ -1,7 +1,8 @@
 # MCKBOT — imagem de produção (PostgreSQL). Uso: docker build -t mckbot . && docker run -p 3000:3000 --env-file .env mckbot
 FROM node:22-slim AS build
 WORKDIR /app
-RUN apt-get update -y && apt-get install -y --no-install-recommends openssl ca-certificates && rm -rf /var/lib/apt/lists/*
+# git: a dependência libsignal do Baileys é instalada direto do GitHub
+RUN apt-get update -y && apt-get install -y --no-install-recommends openssl ca-certificates git && rm -rf /var/lib/apt/lists/*
 COPY package.json package-lock.json ./
 RUN npm ci --include=dev
 COPY . .

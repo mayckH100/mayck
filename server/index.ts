@@ -2,6 +2,8 @@ import { createApp } from './app.js';
 import { config } from './config.js';
 import { prisma } from './db.js';
 import { scheduledTick } from './flows/engine.js';
+import { qrManager } from './whatsapp/qr/manager.js';
+import { handleQrMessage, handleQrStatus } from './whatsapp/inbound.js';
 
 const app = createApp();
 const server = app.listen(config.PORT, () => {
@@ -18,7 +20,19 @@ if (config.ENABLE_SCHEDULER === 'true') {
   }, 3600e3).unref();
 }
 
+// WhatsApp por QR code (Baileys): reconecta os canais com sessão salva no banco.
+qrManager.setHandlers({
+  inbound: async (channelId, msg) => { await handleQrMessage(channelId, msg); },
+  status: async (channelId, update) => { await handleQrStatus(channelId, update); },
+});
+if (config.ENABLE_WHATSAPP_QR === 'true') {
+  qrManager.restoreAll()
+    .then((n) => { if (n) console.log(`[whatsapp-qr] restaurando ${n} sessão(ões) salva(s)`); })
+    .catch((e) => console.error('[whatsapp-qr] falha ao restaurar sessões', e));
+}
+
 const shutdown = () => {
+  qrManager.shutdown().catch(() => undefined);
   server.close(() => prisma.$disconnect().finally(() => process.exit(0)));
 };
 process.on('SIGTERM', shutdown);

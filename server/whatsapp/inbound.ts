@@ -3,6 +3,8 @@ import { parseWebhook, type InboundMessage } from './cloudClient.js';
 import { applyStatus } from './messaging.js';
 import { automateInbound, withConversationLock } from '../flows/engine.js';
 import { normalize } from '../flows/logic.js';
+import { parseBaileysMessage, mapBaileysStatus } from './qr/parse.js';
+import type { WAMessage, WAMessageUpdate } from '@whiskeysockets/baileys';
 import type { Channel } from '@prisma/client';
 
 const OPT_OUT = new Set(['sair', 'parar', 'stop', 'descadastrar']);
@@ -35,7 +37,7 @@ export async function handleInboundMessage(channel: Channel, m: InboundMessage):
   const isFirst = !contact || !contact.lastMessageAt;
   if (!contact) {
     try {
-      contact = await prisma.contact.create({ data: { orgId, waId: m.from, phone: '+' + m.from, name: m.profileName ?? null } });
+      contact = await prisma.contact.create({ data: { orgId, waId: m.from, phone: m.from.includes('@') ? m.from : '+' + m.from, name: m.profileName ?? null } });
     } catch {
       contact = await prisma.contact.findUniqueOrThrow({ where: { orgId_waId: { orgId, waId: m.from } } });
     }
@@ -75,4 +77,23 @@ export async function handleInboundMessage(channel: Channel, m: InboundMessage):
     await withConversationLock(conv.id, () => automateInbound(conv!, contact!, message, { isFirst, replyId: m.replyId }));
     return 'ok' as const;
   });
+}
+
+// ---------- Modo QR (Baileys) ----------
+
+/** Mensagem recebida pelo socket do Baileys → mesmo pipeline do webhook (contatos, conversas, fluxos, IA). */
+export async function handleQrMessage(channelId: string, raw: WAMessage): Promise<'ok' | 'duplicate' | 'ignored'> {
+  const m = parseBaileysMessage(raw);
+  if (!m) return 'ignored';
+  const channel = await prisma.channel.findUnique({ where: { id: channelId } });
+  if (!channel) return 'ignored';
+  await prisma.channel.update({ where: { id: channel.id }, data: { lastWebhookAt: new Date() } });
+  return handleInboundMessage(channel, m);
+}
+
+/** Atualização de entrega/leitura vinda do Baileys. */
+export async function handleQrStatus(channelId: string, u: WAMessageUpdate): Promise<boolean> {
+  const st = mapBaileysStatus(u.update?.status ?? null);
+  if (!st || !u.key?.id) return false;
+  return applyStatus(channelId, u.key.id, st, st === 'failed' ? 'Falha informada pelo WhatsApp' : undefined);
 }

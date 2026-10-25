@@ -1,7 +1,14 @@
 import { prisma } from '../db.js';
 import { decryptOrNull } from '../lib/crypto.js';
 import { sendCloudMessage, GraphApiError, type OutboundPayload } from './cloudClient.js';
+import { qrManager } from './qr/manager.js';
+import { numberedOptions } from './qr/parse.js';
+import { assertPublicUrl } from '../lib/ssrf.js';
 import type { Channel, Conversation, Contact, Message } from '@prisma/client';
+
+export const PROVIDER_CLOUD = 'whatsapp_cloud';
+export const PROVIDER_QR = 'whatsapp_qr';
+export const isQrChannel = (c?: Pick<Channel, 'provider'> | null) => c?.provider === PROVIDER_QR;
 
 export const WINDOW_MS = 24 * 3600 * 1000;
 
@@ -9,22 +16,30 @@ export function isWithinWindow(conv: Pick<Conversation, 'lastInboundAt'>, now = 
   return !!conv.lastInboundAt && now.getTime() - conv.lastInboundAt.getTime() < WINDOW_MS;
 }
 
-function describe(p: OutboundPayload): { type: string; body: string | null; mediaUrl: string | null } {
+/** A regra da janela de 24h é da API oficial; no modo QR (WhatsApp Web) ela não se aplica. */
+export function windowApplies(channel?: Pick<Channel, 'provider'> | null): boolean {
+  return !isQrChannel(channel);
+}
+
+function describe(p: OutboundPayload, qr = false): { type: string; body: string | null; mediaUrl: string | null } {
   switch (p.type) {
     case 'text': return { type: 'text', body: p.text, mediaUrl: null };
-    case 'buttons': return { type: 'buttons', body: p.text + '\n' + p.buttons.map((b) => `[${b.title}]`).join(' '), mediaUrl: null };
+    case 'buttons': return qr
+      ? { type: 'text', body: numberedOptions(p.text, p.buttons), mediaUrl: null }
+      : { type: 'buttons', body: p.text + '\n' + p.buttons.map((b) => `[${b.title}]`).join(' '), mediaUrl: null };
     case 'template': return { type: 'template', body: `Modelo: ${p.name} (${p.language})`, mediaUrl: null };
     default: return { type: p.type, body: p.caption ?? null, mediaUrl: p.link };
   }
 }
 
-/** Escolhe o canal da conversa ou o primeiro canal da organização. */
-async function resolveChannel(conv: Conversation): Promise<Channel | null> {
+/** Escolhe o canal da conversa ou, na falta dele, um canal conectado (ou o primeiro) da organização. */
+export async function resolveChannel(conv: Pick<Conversation, 'channelId' | 'orgId'>): Promise<Channel | null> {
   if (conv.channelId) {
     const ch = await prisma.channel.findFirst({ where: { id: conv.channelId, orgId: conv.orgId } });
     if (ch) return ch;
   }
-  return prisma.channel.findFirst({ where: { orgId: conv.orgId }, orderBy: { createdAt: 'asc' } });
+  return (await prisma.channel.findFirst({ where: { orgId: conv.orgId, status: 'CONNECTED' }, orderBy: { createdAt: 'asc' } }))
+    ?? prisma.channel.findFirst({ where: { orgId: conv.orgId }, orderBy: { createdAt: 'asc' } });
 }
 
 /**
@@ -41,8 +56,9 @@ export async function sendOutbound(args: {
   authorUserId?: string;
 }): Promise<Message> {
   const { conversation, contact, payload, sender } = args;
-  const d = describe(payload);
   const channel = await resolveChannel(conversation);
+  const qr = isQrChannel(channel);
+  const d = describe(payload, qr);
   const msg = await prisma.message.create({
     data: {
       orgId: conversation.orgId, conversationId: conversation.id, channelId: channel?.id ?? null,
@@ -53,6 +69,7 @@ export async function sendOutbound(args: {
     prisma.message.update({ where: { id: msg.id }, data: { status: 'FAILED', error, attempts } });
 
   if (contact.optOut && sender !== 'agent') return fail('Contato pediu para não receber mensagens automáticas (opt-out)');
+  if (qr) return sendViaQr(channel!, conversation, contact, payload, msg, fail);
   const accessToken = decryptOrNull(channel?.accessTokenEnc);
   if (!channel || channel.status !== 'CONNECTED' || !channel.phoneNumberId || !accessToken) {
     return fail('Canal WhatsApp não conectado: configure as credenciais da Cloud API em Canais WhatsApp');
@@ -75,6 +92,36 @@ export async function sendOutbound(args: {
     const message = e instanceof GraphApiError ? e.message : (e as Error).message;
     await prisma.channel.update({ where: { id: channel.id }, data: { lastError: message } });
     return fail(message, attempts);
+  }
+}
+
+/** Envio pelo modo QR (Baileys): sem janela de 24h; botões viram opções numeradas; mídia por link. */
+async function sendViaQr(
+  channel: Channel, conversation: Conversation, contact: Contact, payload: OutboundPayload, msg: Message,
+  fail: (error: string, attempts?: number) => Promise<Message>,
+): Promise<Message> {
+  if (payload.type === 'template') return fail('Modelos (templates) só existem na API oficial. No modo QR envie uma mensagem de texto.');
+  if (!qrManager.isConnected(channel.id)) return fail('WhatsApp (QR) não conectado: abra Canais WhatsApp e conecte pelo QR code');
+  if (payload.type === 'image' || payload.type === 'video' || payload.type === 'audio' || payload.type === 'document') {
+    try {
+      await assertPublicUrl(payload.link);
+    } catch (e) {
+      return fail(`Link de mídia recusado: ${(e as Error).message}`);
+    }
+  }
+  try {
+    const r = await qrManager.send(channel.id, contact.waId, payload);
+    const now = new Date();
+    const updated = await prisma.message.update({ where: { id: msg.id }, data: { status: 'SENT', waMessageId: r.waMessageId, attempts: 1 } });
+    await prisma.conversation.update({
+      where: { id: conversation.id },
+      data: { lastMessageAt: now, ...(conversation.firstResponseAt ? {} : { firstResponseAt: now }) },
+    });
+    conversation.firstResponseAt ??= now;
+    return updated;
+  } catch (e) {
+    const message = (e as Error).message || 'Falha ao enviar pelo WhatsApp (QR)';
+    return fail(message, 1);
   }
 }
 
