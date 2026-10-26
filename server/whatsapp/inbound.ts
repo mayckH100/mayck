@@ -6,6 +6,7 @@ import { normalize } from '../flows/logic.js';
 import { parseBaileysMessage, mapBaileysStatus } from './qr/parse.js';
 import type { WAMessage, WAMessageUpdate } from '@whiskeysockets/baileys';
 import type { Channel } from '@prisma/client';
+import { onLeadInbound, onLeadOptOut } from '../mckmensagem/hooks.js';
 
 const OPT_OUT = new Set(['sair', 'parar', 'stop', 'descadastrar']);
 
@@ -68,8 +69,11 @@ export async function handleInboundMessage(channel: Channel, m: InboundMessage):
     });
     contact = await prisma.contact.update({ where: { id: contact!.id }, data: { lastMessageAt: now } });
 
-    if (OPT_OUT.has(normalize(m.text))) {
+    const isOptOut = OPT_OUT.has(normalize(m.text));
+    if (!isOptOut) await onLeadInbound(orgId, contact);
+    if (isOptOut) {
       await prisma.contact.update({ where: { id: contact.id }, data: { optOut: true } });
+      await onLeadOptOut(orgId, contact);
       await prisma.message.create({ data: { orgId, conversationId: conv.id, direction: 'INTERNAL', sender: 'system', type: 'note', body: 'Contato pediu para não receber mensagens automáticas (opt-out).', status: 'NOTE' } });
       return 'ok' as const;
     }
