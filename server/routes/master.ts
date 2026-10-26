@@ -4,6 +4,7 @@ import { prisma } from '../db.js';
 import { ah, badRequest, HttpError, notFound } from '../lib/http.js';
 import { audit } from '../lib/audit.js';
 import { maskSecret } from '../lib/crypto.js';
+import { checkMpCredential } from '../billing/mercadopago.js';
 import {
   PRODUCTS, PLAN_PRODUCTS, CYCLES, type Product, type SubStatus,
   effectiveStatus, getSettings, getSubscription, getWebhookSecret, updateSettings,
@@ -248,7 +249,8 @@ masterRouter.get('/activity', ah(async (req, res) => {
 async function settingsView() {
   const s = await getSettings();
   const secret = await getWebhookSecret();
-  return { prices: s.prices, trialDays: s.trialDays, mpWebhookSecret: maskSecret(secret), mpWebhookSecretConfigured: !!secret, mpConfigured: !!process.env.MP_ACCESS_TOKEN, products: PLAN_PRODUCTS, cycles: CYCLES };
+  const mpCheck = await checkMpCredential();
+  return { prices: s.prices, trialDays: s.trialDays, mpWebhookSecret: maskSecret(secret), mpWebhookSecretConfigured: !!secret, mpConfigured: !!process.env.MP_ACCESS_TOKEN, mpCheck, products: PLAN_PRODUCTS, cycles: CYCLES };
 }
 
 masterRouter.get('/settings', ah(async (_req, res) => res.json(await settingsView())));

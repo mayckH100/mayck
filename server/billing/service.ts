@@ -29,8 +29,24 @@ export const isCycle = (v: unknown): v is Cycle => typeof v === 'string' && (CYC
 export const productsOf = (p: PlanProduct): Product[] => (p === 'COMBO' ? [...PRODUCTS] : [p]);
 
 // ---------- Configurações da plataforma ----------
+/**
+ * Lê (ou cria) a linha 'default'. A migração 0006 já insere essa linha; mesmo assim, no primeiro acesso
+ * várias requisições em paralelo podem tentar criá-la ao mesmo tempo — quem perde a corrida recebe P2002
+ * (violação de chave única) e simplesmente relê a linha criada pela outra.
+ */
+async function loadSettingsRow() {
+  const found = await prisma.platformSettings.findUnique({ where: { id: 'default' } });
+  if (found) return found;
+  try {
+    return await prisma.platformSettings.create({ data: { id: 'default' } });
+  } catch (e: any) {
+    if (e?.code !== 'P2002') throw e;
+    return prisma.platformSettings.findUniqueOrThrow({ where: { id: 'default' } });
+  }
+}
+
 export async function getSettings() {
-  const s = await prisma.platformSettings.upsert({ where: { id: 'default' }, update: {}, create: { id: 'default' } });
+  const s = await loadSettingsRow();
   let prices: Prices = DEFAULT_PRICES;
   try {
     const parsed = JSON.parse(s.pricesJson);

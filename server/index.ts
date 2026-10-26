@@ -5,11 +5,17 @@ import { scheduledTick } from './flows/engine.js';
 import { qrManager } from './whatsapp/qr/manager.js';
 import { tick as mckmensagemTick } from './mckmensagem/dispatcher.js';
 import { handleQrMessage, handleQrStatus } from './whatsapp/inbound.js';
+import { syncSuperAdmins } from './auth/superadmin.js';
 
 const app = createApp();
 const server = app.listen(config.PORT, () => {
   console.log(`MCKBOT ouvindo na porta ${config.PORT} (${config.NODE_ENV})`);
 });
+
+// SUPERADMIN_EMAILS: promove os e-mails listados a superadmin (nunca remove).
+syncSuperAdmins()
+  .then((n) => { if (n) console.log(`[superadmin] ${n} usuário(s) promovido(s) via SUPERADMIN_EMAILS`); })
+  .catch((e) => console.error('[superadmin] falha ao aplicar SUPERADMIN_EMAILS', e));
 
 // Agendador: retoma blocos "Aguardar" vencidos (só consulta o banco quando há espera pendente) e limpa sessões expiradas.
 if (config.ENABLE_SCHEDULER === 'true') {

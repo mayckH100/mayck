@@ -146,6 +146,7 @@ Alternativa: provedor **OpenAI ou compatível** (OpenAI, Groq, OpenRouter etc.),
 | `FLOW_MAX_STEPS` | não | Limite de passos por execução (padrão 50) |
 | `LOGIN_RATE_LIMIT` / `API_RATE_LIMIT` / `WEBHOOK_RATE_LIMIT` | não | Limites por janela (15 min / 1 min / 1 min) |
 | `ENABLE_SCHEDULER` | não | `true` para retomar blocos Aguardar |
+| `SUPERADMIN_EMAILS` | não | Lista de e-mails separados por vírgula (ex.: `voce@dominio.com,outro@dominio.com`). Quem estiver na lista vira superadmin no login e no startup do servidor. Nunca remove o acesso de ninguém |
 | `ENABLE_WHATSAPP_QR` | não | Padrão `true`: reconecta as sessões do modo QR ao iniciar. `false` desliga a reconexão automática |
 
 ## Cobrança (Mercado Pago) — backend
@@ -153,6 +154,9 @@ Alternativa: provedor **OpenAI ou compatível** (OpenAI, Groq, OpenRouter etc.),
 Cada app tem assinatura própria por organização (`MCKBOT` e `MCKMENSAGEM`) e há o plano `COMBO`, que renova os dois. Novas organizações ganham teste grátis (`PlatformSettings.trialDays`, padrão 7 dias). Preços em centavos ficam em `PlatformSettings.pricesJson` (editáveis pelo painel Master, próxima fase).
 
 - `MP_ACCESS_TOKEN` (env): access token do Mercado Pago. Sem ele, `billingConfigured=false` e o checkout responde 503.
+- Erros do Mercado Pago são registrados no log (`[mercadopago] <método> <caminho> status=<http> message=<motivo>`, sem o token). Checkout/confirm com erro do MP respondem 502 com o motivo (ex.: "Mercado Pago recusou a credencial: Unauthorized use of live credentials"); pagamento inexistente no confirm → 404. No webhook, erro 4xx do MP (credencial/requisição) responde 200 e só loga, para não gerar reenvio infinito; 5xx/rede respondem 500 (o MP tenta de novo).
+- `GET /api/master/settings` traz `mpCheck {ok, message}`: valida o token com `GET https://api.mercadopago.com/v1/payment_methods` (cache de 5 min). A aba Configurações do Master só mostra "Mercado Pago conectado" quando `ok`.
+- Migração `0006_platform_settings_default` cria a linha `PlatformSettings 'default'` com os preços padrão (evita a corrida no primeiro cadastro).
 - Segredo do webhook: `PlatformSettings.mpWebhookSecretEnc` (cifrado) ou, alternativamente, a env `MP_WEBHOOK_SECRET`. Com segredo configurado, o webhook exige `x-signature` válida.
 - URL do webhook (configurar em *Suas integrações → Webhooks*, evento **Pagamentos**): `https://<host>/api/billing/mp/webhook`. A preferência já envia `notification_url` automaticamente.
 - Endpoints: `GET /api/billing/status`, `POST /api/billing/checkout {product, cycle}`, `POST /api/billing/confirm {paymentId}`, `POST /api/billing/mp/webhook` (público).
@@ -164,6 +168,10 @@ O painel Master (`/api/master/*`) é exclusivo do administrador da plataforma (`
 Dono (OWNER) de organização **não** tem acesso: recebe 403.
 
 ### Tornar-se superadmin
+
+**Sem acesso ao banco (recomendado):** defina no Render a env `SUPERADMIN_EMAILS=seu@email.com` (vários separados por vírgula; maiúsculas/minúsculas e espaços são ignorados). Ao subir, o servidor promove os usuários já existentes com esses e-mails; quem se cadastrar ou entrar depois com um deles também é promovido no ato. A env **só concede** acesso — tirar o e-mail da lista não remove o superadmin (para revogar use o painel Master → usuário ou o script abaixo).
+
+**Pelo banco (alternativa):**
 
 1. Crie sua conta normalmente pelo cadastro do app.
 2. Rode, com a string de conexão do Neon (a mesma `DATABASE_URL` do Render):

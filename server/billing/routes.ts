@@ -5,7 +5,7 @@ import { ah, badRequest, HttpError } from '../lib/http.js';
 import { orgOf } from '../auth/session.js';
 import { audit } from '../lib/audit.js';
 import { PRODUCTS, PRODUCT_LABEL, CYCLES, PLAN_PRODUCTS, getSettings, getSubscriptionView, getWebhookSecret, renew } from './service.js';
-import { billingConfigured, createPreference, getPayment, MpError, parseReference, verifySignature } from './mercadopago.js';
+import { billingConfigured, createPreference, getPayment, MpError, mpFriendly, parseReference, verifySignature } from './mercadopago.js';
 
 const baseUrlOf = (req: Request) => `${req.protocol}://${req.get('host')}`;
 
@@ -62,7 +62,7 @@ billingRouter.post('/checkout', ah(async (req, res) => {
     await audit(req, 'billing.checkout', { entity: 'preference', entityId: pref.id, meta: { product, cycle, amountCents } });
     res.json({ init_point: pref.init_point, preferenceId: pref.id, amountCents });
   } catch (e) {
-    if (e instanceof MpError) throw new HttpError(502, 'Não foi possível iniciar o pagamento no Mercado Pago');
+    if (e instanceof MpError) throw new HttpError(502, mpFriendly(e, 'iniciar o pagamento'));
     throw e;
   }
 }));
@@ -75,7 +75,7 @@ billingRouter.post('/confirm', ah(async (req, res) => {
   if (!billingConfigured()) throw new HttpError(503, 'Pagamento online ainda não configurado');
   let r: ProcessResult;
   try { r = await processPayment(paymentId, orgId); } catch (e) {
-    if (e instanceof MpError) throw new HttpError(e.status === 404 ? 404 : 502, e.status === 404 ? 'Pagamento não encontrado' : 'Falha ao consultar o Mercado Pago');
+    if (e instanceof MpError) throw e.status === 404 ? new HttpError(404, 'Pagamento não encontrado') : new HttpError(502, mpFriendly(e, 'consultar o pagamento'));
     throw e;
   }
   const subscriptions = await Promise.all(PRODUCTS.map((p) => getSubscriptionView(orgId, p)));
@@ -103,8 +103,13 @@ billingWebhookRouter.post('/', ah(async (req, res) => {
     return res.status(200).json({ ok: true, renewed: r.renewed, duplicated: !!r.duplicated, reason: r.reason });
   } catch (e) {
     if (e instanceof MpError && e.status === 404) return res.status(200).json({ ok: true, ignored: true });
-    // Erro temporário: 500 faz o Mercado Pago tentar de novo.
-    console.error('[billing] webhook', e);
+    // Credencial/requisição recusada (400/401/403 etc.): repetir não resolve — responde 200 para não gerar reenvio infinito.
+    if (e instanceof MpError && e.isClientError) {
+      console.error(`[billing] webhook payment=${dataId} ignorado: Mercado Pago status=${e.status} message=${JSON.stringify(e.message)}`);
+      return res.status(200).json({ ok: false, ignored: true, reason: `mp_${e.status}` });
+    }
+    // Erro temporário (5xx/rede): 500 faz o Mercado Pago tentar de novo.
+    console.error('[billing] webhook falha temporária', e instanceof MpError ? `status=${e.status} message=${JSON.stringify(e.message)}` : e);
     return res.status(500).json({ error: 'Falha temporária' });
   }
 }));

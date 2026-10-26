@@ -8,21 +8,65 @@ export const mpToken = () => process.env.MP_ACCESS_TOKEN || '';
 export const billingConfigured = () => !!process.env.MP_ACCESS_TOKEN;
 
 export class MpError extends Error {
+  /** status: HTTP do Mercado Pago (0 = falha de rede). message: motivo dado pelo MP. */
   constructor(public status: number, message: string) { super(message); }
+  /** Erro de credencial/requisição (não adianta repetir). */
+  get isClientError() { return this.status >= 400 && this.status < 500 && this.status !== 429; }
+}
+
+/** Mensagem amigável para o usuário, incluindo o motivo do Mercado Pago. */
+export function mpFriendly(e: MpError, action = 'processar o pagamento') {
+  if (e.status === 401 || e.status === 403) return `Mercado Pago recusou a credencial: ${e.message}`;
+  if (e.status === 0) return `Não foi possível falar com o Mercado Pago (${e.message})`;
+  return `Não foi possível ${action} no Mercado Pago: ${e.message}`;
 }
 
 async function mp(path: string, init: RequestInit = {}) {
   const token = mpToken();
   if (!token) throw new MpError(503, 'Mercado Pago não configurado');
-  const res = await httpFetch(API + path, {
-    ...init,
-    headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json', ...(init.headers as Record<string, string> | undefined) },
-  });
+  const method = init.method || 'GET';
+  let res: Response;
+  try {
+    res = await httpFetch(API + path, {
+      ...init,
+      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json', ...(init.headers as Record<string, string> | undefined) },
+    });
+  } catch (e: any) {
+    const msg = String(e?.message || e || 'erro de rede');
+    console.error(`[mercadopago] ${method} ${path} falha de rede: ${msg}`);
+    throw new MpError(0, msg);
+  }
   const text = await res.text();
   let body: any = null;
   try { body = text ? JSON.parse(text) : null; } catch { body = null; }
-  if (!res.ok) throw new MpError(res.status, body?.message || `Mercado Pago respondeu ${res.status}`);
+  if (!res.ok) {
+    const msg = String(body?.message || body?.error || `Mercado Pago respondeu ${res.status}`);
+    // Nunca logar o token: só método, caminho, status e mensagem do MP.
+    console.error(`[mercadopago] ${method} ${path} status=${res.status} message=${JSON.stringify(msg)}`);
+    throw new MpError(res.status, msg);
+  }
   return body;
+}
+
+/**
+ * Valida o token atual (GET /v1/payment_methods). Resultado em cache por 5 minutos, por token.
+ */
+const CHECK_TTL = 5 * 60 * 1000;
+let checkCache: { token: string; at: number; result: { ok: boolean; message: string } } | null = null;
+export function resetMpCheckCache() { checkCache = null; }
+export async function checkMpCredential(): Promise<{ ok: boolean; message: string }> {
+  const token = mpToken();
+  if (!token) return { ok: false, message: 'Mercado Pago não configurado (defina MP_ACCESS_TOKEN no servidor)' };
+  if (checkCache && checkCache.token === token && Date.now() - checkCache.at < CHECK_TTL) return checkCache.result;
+  let result: { ok: boolean; message: string };
+  try {
+    await mp('/v1/payment_methods');
+    result = { ok: true, message: 'Credencial aceita pelo Mercado Pago' };
+  } catch (e) {
+    result = { ok: false, message: e instanceof MpError ? mpFriendly(e, 'validar a credencial') : 'Falha ao validar a credencial do Mercado Pago' };
+  }
+  checkCache = { token, at: Date.now(), result };
+  return result;
 }
 
 export const buildReference = (orgId: string, product: PlanProduct, cycle: Cycle) => `mckbot|${orgId}|${product}|${cycle}`;

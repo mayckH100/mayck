@@ -31,6 +31,7 @@ interface Dash {
 }
 interface Settings {
   prices: Record<PlanProduct, Record<Cycle, number>>; trialDays: number; mpWebhookSecret: string | null; mpWebhookSecretConfigured: boolean; mpConfigured: boolean;
+  mpCheck?: { ok: boolean; message: string };
 }
 
 const TABS = [
@@ -489,8 +490,15 @@ function SettingsTab() {
       <form className="stack" onSubmit={submit}>
         <div className="card row between">
           <div><h2 style={{ margin: 0 }}>Mercado Pago</h2><p className="small muted" style={{ margin: 0 }}>O token de acesso (MP_ACCESS_TOKEN) é definido nas variáveis de ambiente do servidor.</p></div>
-          {s.mpConfigured ? <span className="badge green">● Mercado Pago conectado</span> : <span className="badge amber">Mercado Pago não configurado</span>}
+          {s.mpCheck?.ok
+            ? <span className="badge green">● Mercado Pago conectado</span>
+            : <span className="badge amber">{s.mpConfigured ? 'Credencial recusada' : 'Mercado Pago não configurado'}</span>}
         </div>
+        {!s.mpCheck?.ok && s.mpCheck?.message && (
+          <div className="card small" role="alert" style={{ borderColor: 'var(--amber, #d97706)' }}>
+            <strong>Mercado Pago:</strong> {s.mpCheck.message}
+          </div>
+        )}
         <div className="card stack">
           <h2>Preços (R$)</h2>
           <div className="table-wrap">

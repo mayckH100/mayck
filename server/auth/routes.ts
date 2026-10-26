@@ -10,6 +10,7 @@ import { audit } from '../lib/audit.js';
 import { sha256 } from '../lib/crypto.js';
 import { config } from '../config.js';
 import { PRODUCTS, getSubscriptionView } from '../billing/service.js';
+import { ensureSuperAdmin } from './superadmin.js';
 
 export const authRouter = Router();
 
@@ -52,6 +53,7 @@ authRouter.post('/register', loginLimiter, ah(async (req, res) => {
   const exists = await prisma.user.findUnique({ where: { email: body.email } });
   if (exists) throw new HttpError(409, 'Já existe uma conta com este e-mail');
   const user = await prisma.user.create({ data: { email: body.email, name: body.name, passwordHash: await bcrypt.hash(body.password, 12) } });
+  await ensureSuperAdmin(user);
   const org = await createOrganization(user.id, body.orgName);
   const csrf = await createSession(res, req, user.id, org.id);
   await audit(req, 'auth.register', { orgId: org.id, userId: user.id, entity: 'user', entityId: user.id });
@@ -71,6 +73,7 @@ authRouter.post('/login', loginLimiter, ah(async (req, res) => {
     await audit(req, 'auth.login_failed', { meta: { email: body.email } });
     throw new HttpError(401, 'E-mail ou senha incorretos');
   }
+  if (await ensureSuperAdmin(user)) await audit(req, 'auth.superadmin_bootstrap', { userId: user.id, meta: { email: user.email } });
   const first = await prisma.membership.findFirst({ where: { userId: user.id }, orderBy: { createdAt: 'asc' } });
   const csrf = await createSession(res, req, user.id, first?.orgId ?? null);
   await audit(req, 'auth.login', { orgId: first?.orgId, userId: user.id });
