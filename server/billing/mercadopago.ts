@@ -35,15 +35,15 @@ export function parseReference(ref: unknown): { orgId: string; product: PlanProd
   return { orgId, product, cycle };
 }
 
-export async function createPreference(input: { orgId: string; product: PlanProduct; cycle: Cycle; title: string; amountCents: number; baseUrl: string; payerEmail?: string }) {
+export async function createPreference(input: { orgId: string; product: PlanProduct; cycle: Cycle; title: string; amountCents: number; baseUrl: string; payerEmail?: string; returnPath?: string }) {
   const body = {
     items: [{ id: `${input.product}-${input.cycle}`, title: input.title, quantity: 1, currency_id: 'BRL', unit_price: Math.round(input.amountCents) / 100 }],
     external_reference: buildReference(input.orgId, input.product, input.cycle),
     notification_url: `${input.baseUrl}/api/billing/mp/webhook`,
     back_urls: {
-      success: `${input.baseUrl}/?billing=success`,
-      pending: `${input.baseUrl}/?billing=pending`,
-      failure: `${input.baseUrl}/?billing=failure`,
+      success: `${input.baseUrl}${input.returnPath ?? '/'}?billing=success`,
+      pending: `${input.baseUrl}${input.returnPath ?? '/'}?billing=pending`,
+      failure: `${input.baseUrl}${input.returnPath ?? '/'}?billing=failure`,
     },
     auto_return: 'approved',
     // Pix e cartão liberados (nenhuma exclusão de meio de pagamento).

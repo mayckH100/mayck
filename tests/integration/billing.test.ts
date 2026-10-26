@@ -84,6 +84,13 @@ describe('Cobrança Mercado Pago por produto', () => {
     expect(body.back_urls.success).toMatch(/billing=success/);
     expect(body.auto_return).toBe('approved');
     expect((await owner.post('/api/billing/checkout', { product: 'XPTO', cycle: 'MENSAL' })).status).toBe(400);
+    // Pagamento iniciado pelo MCK Mensagens volta para /mensagem/assinatura.
+    const m = await owner.post('/api/billing/checkout', { product: 'MCKMENSAGEM', cycle: 'MENSAL', app: 'mensagem' });
+    expect(m.status).toBe(200);
+    const last = mp.prefs[mp.prefs.length - 1].body;
+    expect(last.back_urls.success).toMatch(/\/mensagem\/assinatura\?billing=success$/);
+    expect(last.back_urls.failure).toMatch(/\/mensagem\/assinatura\?billing=failure$/);
+    expect(body.back_urls.success).not.toContain('/mensagem');
   });
 
   it('webhook aprovado renova a partir do vencimento; duplicado não renova duas vezes', async () => {

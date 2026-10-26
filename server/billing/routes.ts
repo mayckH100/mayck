@@ -45,17 +45,18 @@ billingRouter.get('/status', ah(async (req, res) => {
   res.json({ subscriptions, prices, trialDays, products: PLAN_PRODUCTS.map((id) => ({ id, name: PRODUCT_LABEL[id] })), cycles: CYCLES, configured: billingConfigured() });
 }));
 
-const checkoutSchema = z.object({ product: z.enum(['MCKBOT', 'MCKMENSAGEM', 'COMBO']), cycle: z.enum(['MENSAL', 'ANUAL']) });
+// app: de qual frontend veio o pagamento ("mensagem" = MCK Mensagens), para o Mercado Pago devolver ao app certo.
+const checkoutSchema = z.object({ product: z.enum(['MCKBOT', 'MCKMENSAGEM', 'COMBO']), cycle: z.enum(['MENSAL', 'ANUAL']), app: z.enum(['mckbot', 'mensagem']).optional() });
 billingRouter.post('/checkout', ah(async (req, res) => {
   const orgId = orgOf(req);
-  const { product, cycle } = checkoutSchema.parse(req.body);
+  const { product, cycle, app } = checkoutSchema.parse(req.body);
   if (!billingConfigured()) throw new HttpError(503, 'Pagamento online ainda não configurado');
   const { prices } = await getSettings();
   const amountCents = prices[product][cycle];
   const user = req.auth?.userId ? await prisma.user.findUnique({ where: { id: req.auth.userId } }) : null;
   try {
     const pref = await createPreference({
-      orgId, product, cycle, amountCents, baseUrl: baseUrlOf(req), payerEmail: user?.email,
+      orgId, product, cycle, amountCents, baseUrl: baseUrlOf(req), payerEmail: user?.email, returnPath: app === 'mensagem' ? '/mensagem/assinatura' : '/',
       title: `${PRODUCT_LABEL[product]} — plano ${cycle === 'ANUAL' ? 'anual' : 'mensal'}`,
     });
     await audit(req, 'billing.checkout', { entity: 'preference', entityId: pref.id, meta: { product, cycle, amountCents } });
