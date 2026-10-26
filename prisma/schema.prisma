@@ -17,6 +17,7 @@ model User {
   name         String
   phone        String?
   passwordHash String
+  isSuperAdmin Boolean      @default(false)
   createdAt    DateTime     @default(now())
   updatedAt    DateTime     @updatedAt
   memberships  Membership[]
@@ -385,4 +386,44 @@ model CampaignRecipient {
   @@unique([campaignId, leadId])
   @@index([campaignId, status])
   @@index([leadId])
+}
+
+// ---------- Cobrança (Mercado Pago) ----------
+
+model Subscription {
+  id         String   @id @default(cuid())
+  orgId      String
+  product    String // MCKBOT | MCKMENSAGEM
+  status     String   @default("TRIAL") // TRIAL | ATIVA | VENCIDA | BLOQUEADA
+  cycle      String   @default("MENSAL") // MENSAL | ANUAL
+  validUntil DateTime
+  source     String   @default("TRIAL") // TRIAL | MANUAL | MP
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([orgId, product])
+}
+
+model BillingEvent {
+  id             String    @id @default(cuid())
+  orgId          String
+  product        String // MCKBOT | MCKMENSAGEM | COMBO
+  kind           String // TRIAL | MANUAL | MP | BLOCK | UNBLOCK
+  cycle          String?
+  amountCents    Int?
+  mpPaymentId    String?   @unique
+  actorUserId    String?
+  prevValidUntil DateTime?
+  newValidUntil  DateTime?
+  createdAt      DateTime  @default(now())
+
+  @@index([orgId, createdAt])
+}
+
+model PlatformSettings {
+  id                 String   @id @default("default")
+  trialDays          Int      @default(7)
+  pricesJson         String   @default("{\"MCKBOT\":{\"MENSAL\":3990,\"ANUAL\":39900},\"MCKMENSAGEM\":{\"MENSAL\":4500,\"ANUAL\":45000},\"COMBO\":{\"MENSAL\":6990,\"ANUAL\":69900}}")
+  mpWebhookSecretEnc String?
+  updatedAt          DateTime @updatedAt
 }
