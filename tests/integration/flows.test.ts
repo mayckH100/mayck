@@ -185,7 +185,9 @@ describe('Motor de fluxos (integração com banco e webhook)', () => {
     expect((await prisma.flowRun.findFirstOrThrow({ where: { contactId: c.id } })).status).toBe('CANCELLED');
     graph.reset();
     await sendInbound(ctx, p, 'menu');
-    expect(sentTexts()).toEqual([]); // pausado não dispara
+    // pausado não dispara: nenhuma execução nova do Menu (o comando "menu" cai no fluxo de boas-vindas)
+    expect(await prisma.flowRun.count({ where: { contactId: c.id, flowId: menu.id } })).toBe(1);
+    expect(sentTexts()).not.toContain('Escolha:\n\n1. Suporte\n2. Vendas');
     const dup = await owner.post(`/api/flows/${menu.id}/duplicate`);
     expect(dup.body.name).toBe('Menu (cópia)');
     expect(dup.body.status).toBe('DRAFT');

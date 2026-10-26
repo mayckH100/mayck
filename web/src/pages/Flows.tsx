@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { post, del, get } from '../api';
+import { post, del, get, put } from '../api';
 import { useAuth } from '../auth';
 import { useApi, Async, Empty, useAction, Modal, Field, fmtDate, StatusBadge } from '../ui';
 
@@ -81,6 +81,7 @@ export default function Flows() {
           </div>
         );
       }}</Async>
+      <MenuReturnSettings flows={state.data ?? []} editor={editor} />
       {creating && (
         <Modal title="Novo fluxo" onClose={() => setCreating(false)}>
           <form className="stack" onSubmit={async (e) => {
@@ -95,5 +96,42 @@ export default function Flows() {
         </Modal>
       )}
     </>
+  );
+}
+
+/** Configuração do comando "Voltar ao menu" (vale para todos os fluxos da organização). */
+function MenuReturnSettings({ flows, editor }: { flows: any[]; editor: boolean }) {
+  const cfg = useApi<any>('/flows/menu-settings');
+  const [f, setF] = useState<any>(null);
+  const { busy, run } = useAction();
+  useEffect(() => { if (cfg.data) setF(cfg.data); }, [cfg.data]);
+  if (!f) return null;
+  return (
+    <form className="card stack" style={{ marginTop: 16 }} aria-label="Voltar ao menu" onSubmit={async (e) => {
+      e.preventDefault();
+      const r = await run(() => put('/flows/menu-settings', f), 'Configuração do "Voltar ao menu" salva');
+      if (r) setF(r);
+    }}>
+      <div>
+        <h2 style={{ margin: 0 }}>↩️ Voltar ao menu</h2>
+        <p className="small muted" style={{ margin: '4px 0 0' }}>Em qualquer etapa, o cliente digita uma das palavras abaixo (ou toca no botão “Voltar ao menu”) e o robô cancela a etapa atual e reenvia o menu inteiro, desde o primeiro bloco. Durante o atendimento humano o comando não interfere: a mensagem vai para o atendente.</p>
+      </div>
+      <fieldset disabled={!editor} className="stack" style={{ border: 0, padding: 0, margin: 0 }}>
+        <label className="row"><input type="checkbox" checked={f.menuCommandEnabled} onChange={(e) => setF({ ...f, menuCommandEnabled: e.target.checked })} /> Ativar o comando “Voltar ao menu”</label>
+        <div className="grid g2">
+          <Field label="Palavras que voltam ao menu" hint="Separe por vírgula. Maiúsculas e acentos não importam."><input value={f.menuCommandWords} maxLength={300} onChange={(e) => setF({ ...f, menuCommandWords: e.target.value })} placeholder="0, menu, voltar" /></Field>
+          <Field label="Fluxo do menu" hint="Automático: fluxo com a palavra-chave digitada, senão o último fluxo da conversa, senão o de maior prioridade.">
+            <select value={f.menuFlowId ?? ''} onChange={(e) => setF({ ...f, menuFlowId: e.target.value || null })}>
+              <option value="">Automático</option>
+              {flows.map((fl) => <option key={fl.id} value={fl.id}>{fl.name}{fl.status !== 'ACTIVE' ? ' (inativo)' : ''}</option>)}
+            </select>
+          </Field>
+        </div>
+        <label className="row"><input type="checkbox" checked={f.menuFooterEnabled} onChange={(e) => setF({ ...f, menuFooterEnabled: e.target.checked })} /> Acrescentar uma linha de rodapé às mensagens que esperam resposta</label>
+        <Field label="Texto do rodapé"><input value={f.menuFooterText} maxLength={200} onChange={(e) => setF({ ...f, menuFooterText: e.target.value })} /></Field>
+        <label className="row"><input type="checkbox" checked={f.menuButtonEnabled} onChange={(e) => setF({ ...f, menuButtonEnabled: e.target.checked })} /> Mostrar o botão “Voltar ao menu” na API oficial (Cloud API). No QR code usamos o texto, porque lá os botões não são confiáveis.</label>
+        {editor && <div><button className="btn primary" disabled={busy}>Salvar</button></div>}
+      </fieldset>
+    </form>
   );
 }

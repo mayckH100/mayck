@@ -5,7 +5,8 @@ import { renderTemplate, renderDeep } from '../lib/template.js';
 import { assertPublicUrl } from '../lib/ssrf.js';
 import { httpFetch } from '../lib/fetcher.js';
 import { decryptOrNull } from '../lib/crypto.js';
-import { sendOutbound, handoffToHuman } from '../whatsapp/messaging.js';
+import { sendOutbound, handoffToHuman, resolveChannel, isQrChannel } from '../whatsapp/messaging.js';
+import { getMenuSettings, isMenuCommand, withMenuReturn, type MenuSettings } from './menuReturn.js';
 import { generateAiReply } from '../ai/service.js';
 import { isProductActive } from '../billing/service.js';
 import {
@@ -60,6 +61,12 @@ async function send(conv: Conversation, contact: Contact, payload: OutboundPaylo
   return sendOutbound({ conversation: conv, contact, payload, sender });
 }
 
+/** Mensagem que espera resposta: ganha a saída "Voltar ao menu" (botão na Cloud API, rodapé no QR). */
+function sendWaiting(run: FlowRun, conv: Conversation, contact: Contact, payload: OutboundPayload) {
+  const ctx = (run as any).__menu as { settings: MenuSettings; qr: boolean } | undefined;
+  return send(conv, contact, ctx ? withMenuReturn(payload, ctx.settings, ctx.qr) : payload);
+}
+
 function failedSend(m: Message): StepOutcome | null {
   return m.status === 'FAILED' ? { kind: 'stop', status: 'FAILED', error: `Falha ao enviar mensagem: ${m.error}` } : null;
 }
@@ -102,7 +109,7 @@ async function executeNode(node: FlowNode, run: FlowRun, runVars: Record<string,
       const options = d.options ?? [];
       if (!input) {
         runVars.__retries = 0;
-        const m = await send(conv, contact, menuPayload(node, vars));
+        const m = await sendWaiting(run, conv, contact, menuPayload(node, vars));
         return failedSend(m) ?? { kind: 'wait', waitType: 'reply', detail: 'Aguardando escolha do menu' };
       }
       const opt = matchMenuOption(options, input.text, input.replyId);
@@ -115,14 +122,14 @@ async function executeNode(node: FlowNode, run: FlowRun, runVars: Record<string,
       if (nextNodeId({ nodes: [], edges: (run as any).__edges }, node.id, 'invalid') || retries >= Number(d.maxRetries ?? 3)) {
         return { kind: 'next', handle: 'invalid', status: 'warn', detail: `Resposta inválida: ${input.text}` };
       }
-      const m = await send(conv, contact, { type: 'text', text: renderTemplate(d.invalidText || 'Opção inválida. Responda com o número de uma das opções.', vars) });
+      const m = await sendWaiting(run, conv, contact, { type: 'text', text: renderTemplate(d.invalidText || 'Opção inválida. Responda com o número de uma das opções.', vars) });
       return failedSend(m) ?? { kind: 'wait', waitType: 'reply', detail: 'Resposta inválida, aguardando novamente' };
     }
 
     case 'ask': {
       if (!input) {
         runVars.__retries = 0;
-        const m = await send(conv, contact, { type: 'text', text: renderTemplate(d.question ?? '', vars) });
+        const m = await sendWaiting(run, conv, contact, { type: 'text', text: renderTemplate(d.question ?? '', vars) });
         return failedSend(m) ?? { kind: 'wait', waitType: 'reply', detail: `Aguardando ${d.variable}` };
       }
       if (validateAnswer(d.validation, input.text)) {
@@ -135,7 +142,7 @@ async function executeNode(node: FlowNode, run: FlowRun, runVars: Record<string,
       const retries = Number(runVars.__retries ?? 0) + 1;
       runVars.__retries = retries;
       if (retries >= Number(d.maxRetries ?? 3)) return { kind: 'next', handle: 'invalid', status: 'warn', detail: 'Tentativas esgotadas' };
-      const m = await send(conv, contact, { type: 'text', text: renderTemplate(d.errorText || 'Resposta inválida, tente novamente.', vars) });
+      const m = await sendWaiting(run, conv, contact, { type: 'text', text: renderTemplate(d.errorText || 'Resposta inválida, tente novamente.', vars) });
       return failedSend(m) ?? { kind: 'wait', waitType: 'reply', detail: 'Resposta inválida' };
     }
 
@@ -252,6 +259,7 @@ async function drive(runId: string, startNodeId: string | null, input?: Input) {
   (run as any).__edges = graph.edges;
   const conv = await prisma.conversation.findUniqueOrThrow({ where: { id: run.conversationId } });
   const contact = await prisma.contact.findUniqueOrThrow({ where: { id: run.contactId } });
+  (run as any).__menu = { settings: await getMenuSettings(conv.orgId), qr: isQrChannel(await resolveChannel(conv)) };
   const runVars = parseJson<Record<string, unknown>>(run.vars, {});
   let nodeId = startNodeId;
   let pendingInput = input;
@@ -385,6 +393,32 @@ export async function findMatchingFlow(orgId: string, text: string, isFirst: boo
 }
 
 /**
+ * Fluxo do menu (o "fluxo principal" que o comando reinicia), nesta ordem:
+ * 1) o fluxo escolhido nas configurações (se ativo);
+ * 2) um fluxo ativo cujo gatilho combina com a palavra digitada (ex.: palavra-chave "menu");
+ * 3) o fluxo da execução mais recente desta conversa (se ativo);
+ * 4) o fluxo de boas-vindas: o ativo de maior prioridade com gatilho "primeira mensagem" ou "qualquer mensagem".
+ * Sem nenhum deles, a mensagem segue o caminho normal (espera atual, gatilhos, IA).
+ */
+export async function resolveMenuFlow(conv: Conversation, text: string, s: MenuSettings): Promise<string | null> {
+  const active = (id?: string | null) => (id ? prisma.flow.findFirst({ where: { id, orgId: conv.orgId, status: 'ACTIVE' }, select: { id: true } }) : null);
+  const chosen = await active(s.menuFlowId);
+  if (chosen) return chosen.id;
+  const byTrigger = await findMatchingFlow(conv.orgId, text, false);
+  if (byTrigger) return byTrigger;
+  const last = await prisma.flowRun.findFirst({ where: { conversationId: conv.id }, orderBy: { startedAt: 'desc' }, select: { flowId: true } });
+  const lastActive = await active(last?.flowId);
+  if (lastActive) return lastActive.id;
+  const flows = await prisma.flow.findMany({ where: { orgId: conv.orgId, status: 'ACTIVE' }, orderBy: [{ priority: 'desc' }, { createdAt: 'asc' }] });
+  for (const f of flows) {
+    const g = await loadGraph(f.id, f.currentVersion);
+    const triggers = (g.nodes.find((n) => n.type === 'start')?.data.triggers ?? []) as Trigger[];
+    if (triggers.some((t) => t.type === 'first_message' || t.type === 'message')) return f.id;
+  }
+  return null;
+}
+
+/**
  * Decide o que fazer com uma mensagem recebida em modo BOT:
  * 1) retomar fluxo que aguarda resposta; 2) iniciar fluxo por gatilho; 3) IA automática; 4) nada.
  */
@@ -392,6 +426,16 @@ export async function automateInbound(conv: Conversation, contact: Contact, mess
   // Assinatura do MCKBOT inativa: a mensagem já foi gravada, mas nenhuma automação roda.
   if (!(await isProductActive(conv.orgId, 'MCKBOT'))) return 'subscription_inactive' as const;
   const text = message.body ?? '';
+  // "Voltar ao menu": vale em qualquer etapa (antes de retomar a espera atual).
+  const menuSettings = await getMenuSettings(conv.orgId);
+  if (isMenuCommand(menuSettings, text, opts.replyId)) {
+    const menuFlowId = await resolveMenuFlow(conv, text, menuSettings);
+    if (menuFlowId) {
+      await prisma.message.create({ data: { orgId: conv.orgId, conversationId: conv.id, direction: 'INTERNAL', sender: 'system', type: 'note', body: 'Cliente pediu para voltar ao menu: etapa atual cancelada e menu reenviado.', status: 'NOTE' } });
+      await startFlow(menuFlowId, conv, contact, { triggerMessageId: message.id, lastMessage: text });
+      return 'menu_restarted' as const;
+    }
+  }
   const waiting = await prisma.flowRun.findFirst({ where: { conversationId: conv.id, status: 'WAITING', waitType: 'reply' }, orderBy: { startedAt: 'desc' } });
   if (waiting) {
     await resumeWithReply(waiting, { text, replyId: opts.replyId });

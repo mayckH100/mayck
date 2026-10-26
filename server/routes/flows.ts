@@ -7,6 +7,7 @@ import { audit } from '../lib/audit.js';
 import { graphSchema, validateGraph, defaultGraph, type FlowGraph } from '../flows/logic.js';
 import { parseJson } from '../lib/json.js';
 import { startFlow, withConversationLock } from '../flows/engine.js';
+import { getMenuSettings, parseWords } from '../flows/menuReturn.js';
 import { assertPublicUrl } from '../lib/ssrf.js';
 import { httpFetch } from '../lib/fetcher.js';
 import { renderDeep, renderTemplate } from '../lib/template.js';
@@ -49,6 +50,30 @@ flowsRouter.post('/import', editors, ah(async (req, res) => {
   });
   await audit(req, 'flow.import', { entity: 'flow', entityId: flow.id });
   res.status(201).json(flow);
+}));
+
+// ---------- "Voltar ao menu" (configuração por organização) ----------
+flowsRouter.get('/menu-settings', ah(async (req, res) => {
+  res.json(await getMenuSettings(orgOf(req)));
+}));
+
+flowsRouter.put('/menu-settings', editors, ah(async (req, res) => {
+  const orgId = orgOf(req);
+  const body = z.object({
+    menuCommandEnabled: z.boolean(),
+    menuCommandWords: z.string().max(300),
+    menuFooterEnabled: z.boolean(),
+    menuFooterText: z.string().trim().max(200),
+    menuButtonEnabled: z.boolean(),
+    menuFlowId: z.string().nullable().optional(),
+  }).parse(req.body);
+  const words = parseWords(body.menuCommandWords);
+  if (body.menuCommandEnabled && !words.length) throw badRequest('Informe pelo menos uma palavra para voltar ao menu.');
+  if (body.menuFlowId && !(await prisma.flow.findFirst({ where: { id: body.menuFlowId, orgId } }))) throw badRequest('Fluxo do menu não encontrado.');
+  const data = { ...body, menuCommandWords: words.join(','), menuFlowId: body.menuFlowId || null };
+  await prisma.flowSettings.upsert({ where: { orgId }, create: { orgId, ...data }, update: data });
+  await audit(req, 'flow.menu_settings', { entity: 'org', entityId: orgId });
+  res.json(await getMenuSettings(orgId));
 }));
 
 flowsRouter.get('/:id', ah(async (req, res) => {

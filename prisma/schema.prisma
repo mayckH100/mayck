@@ -445,3 +445,15 @@ model PlatformSettings {
   mpWebhookSecretEnc String?
   updatedAt          DateTime @updatedAt
 }
+
+/// "Voltar ao menu": comando global do cliente final do WhatsApp (por organização).
+model FlowSettings {
+  orgId              String   @id
+  menuCommandEnabled Boolean  @default(true)
+  menuCommandWords   String   @default("0,menu,voltar") // separadas por vírgula; comparação sem maiúsculas/acentos
+  menuFooterEnabled  Boolean  @default(true)
+  menuFooterText     String   @default("↩️ Digite 0 para voltar ao menu")
+  menuButtonEnabled  Boolean  @default(true) // botão "Voltar ao menu" na Cloud API (no QR usa-se o texto)
+  menuFlowId         String? // fluxo do menu; vazio = automático
+  updatedAt          DateTime @updatedAt
+}
