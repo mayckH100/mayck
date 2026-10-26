@@ -35,7 +35,7 @@ export default function Reports() {
             <div className="card stat"><div className="l">Tempo médio da 1ª resposta</div><div className="v">{fmtDuration(r.totals.avgFirstResponseSeconds)}</div></div>
           </div>
           <div className="grid g2">
-            <div className="card"><h2>Mensagens por dia</h2><Bars series={r.series} keys={[{ k: 'received', color: '#94a3b8', label: 'Recebidas' }, { k: 'sent', color: '#19c37d', label: 'Enviadas' }, { k: 'failed', color: '#d64545', label: 'Falhas' }]} /></div>
+            <div className="card"><h2>Mensagens por dia</h2><Bars series={r.series} keys={[{ k: 'received', color: '#94a3b8', label: 'Recebidas' }, { k: 'sent', color: '#d90429', label: 'Enviadas' }, { k: 'failed', color: '#d64545', label: 'Falhas' }]} /></div>
             <div className="card"><h2>Conversas por dia</h2><Bars series={r.series} keys={[{ k: 'newConversations', color: '#2f6fde', label: 'Novas' }, { k: 'closed', color: '#0b7a5a', label: 'Encerradas' }]} /></div>
           </div>
           <div className="card table-wrap">

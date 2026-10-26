@@ -12,7 +12,7 @@ import { useAction, Loading, ErrorBox, StatusBadge, Modal, fmtDate, Field, useAp
 type NodeType = 'start' | 'send_text' | 'send_media' | 'menu' | 'ask' | 'condition' | 'ai' | 'wait' | 'http' | 'handoff' | 'tag' | 'end';
 
 const META: Record<NodeType, { label: string; color: string; outs: (d: any) => { id: string; label: string; color?: string }[]; defaults: () => any }> = {
-  start: { label: 'Início', color: '#0b7a5a', outs: () => [{ id: 'next', label: '' }], defaults: () => ({ triggers: [{ type: 'keyword', value: '', match: 'contains' }] }) },
+  start: { label: 'Início', color: '#d90429', outs: () => [{ id: 'next', label: '' }], defaults: () => ({ triggers: [{ type: 'keyword', value: '', match: 'contains' }] }) },
   send_text: { label: 'Enviar texto', color: '#2f6fde', outs: () => [{ id: 'next', label: '' }], defaults: () => ({ text: 'Olá, {{contact_name}}!' }) },
   send_media: { label: 'Enviar mídia', color: '#2f6fde', outs: () => [{ id: 'next', label: '' }], defaults: () => ({ mediaType: 'image', url: '', caption: '' }) },
   menu: { label: 'Menu de opções', color: '#8b5cf6', outs: (d) => [...(d.options ?? []).map((o: any, i: number) => ({ id: `opt-${o.id}`, label: String(i + 1) })), { id: 'invalid', label: '✕', color: '#d64545' }], defaults: () => ({ text: 'Escolha uma opção:', options: [{ id: 'o1', label: 'Opção 1' }, { id: 'o2', label: 'Opção 2' }], style: 'text' }) },
@@ -59,7 +59,7 @@ function FlowNode({ data, type, selected }: NodeProps) {
       {outs.length > 1 && <div className="handles-row">{outs.map((o) => <span key={o.id}>{o.label}</span>)}</div>}
       {outs.map((o, i) => (
         <Handle key={o.id} id={o.id} type="source" position={outs.length > 1 ? Position.Bottom : Position.Right}
-          style={{ background: o.color ?? '#19c37d', width: 10, height: 10, ...(outs.length > 1 ? { left: `${((i + 1) / (outs.length + 1)) * 100}%` } : {}) }} />
+          style={{ background: o.color ?? '#d90429', width: 10, height: 10, ...(outs.length > 1 ? { left: `${((i + 1) / (outs.length + 1)) * 100}%` } : {}) }} />
       ))}
     </div>
   );

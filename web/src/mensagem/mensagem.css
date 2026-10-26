@@ -1,30 +1,30 @@
-/* MCK Mensagens — identidade própria (roxo/índigo) e layout com navegação no topo. */
+/* MCK Mensagens — identidade própria (preto/vermelho) e layout com navegação no topo. */
 html.mm {
-  --bg: #f5f4fb; --ink: #17142b; --muted: #645f80; --line: #e4e1f1;
-  --brand: #5b3fd6; --brand-2: #8b6cff; --brand-ink: #ffffff; --brand-soft: #efeafe;
-  --side: #1c1640; --side-ink: #d9d2f5;
-  --shadow: 0 1px 2px rgba(30,20,70,.06), 0 6px 18px rgba(30,20,70,.06);
+  --bg: #f5f5f6; --ink: #111113; --muted: #5f5f66; --line: #e4e4e7;
+  --brand: #e10a2c; --brand-2: #ff3d55; --brand-ink: #ffffff; --brand-soft: #fde8eb;
+  --side: #0a0a0b; --side-ink: #e4e4e7;
+  --shadow: 0 1px 2px rgba(0,0,0,.06), 0 6px 18px rgba(0,0,0,.06);
 }
 html.mm body { background: var(--bg); }
 html.mm .btn, html.mm button { font-family: inherit; }
-html.mm .btn.primary:hover:not(:disabled) { background: #4a2fc4; }
-html.mm .btn:hover:not(:disabled) { border-color: #c4bbe6; }
-html.mm .spinner { border-color: #ddd5fb; border-top-color: var(--brand); }
+html.mm .btn.primary:hover:not(:disabled) { background: #b00322; }
+html.mm .btn:hover:not(:disabled) { border-color: #f0a3b0; }
+html.mm .spinner { border-color: #f3c7cf; border-top-color: var(--brand); }
 html.mm tr:hover td { background: #faf9fe; }
-html.mm .toast { background: #221a4d; }
-html.mm .bar { background: #ebe7f8; }
+html.mm .toast { background: #111113; }
+html.mm .bar { background: #f3e1e4; }
 html.mm .bar > span { background: linear-gradient(90deg, var(--brand), var(--brand-2)); }
-html.mm .modal-bg { background: rgba(20,14,50,.5); }
+html.mm .modal-bg { background: rgba(0,0,0,.55); }
 
 /* Shell */
 .mm-app { min-height: 100vh; display: flex; flex-direction: column; }
-.mm-top { background: linear-gradient(100deg, #241a5c, #3b2a8f 60%, #5b3fd6); color: #fff; position: sticky; top: 0; z-index: 20; box-shadow: 0 2px 12px rgba(30,20,70,.18); }
+.mm-top { background: linear-gradient(100deg, #000000, #141416 55%, #3a0610); color: #fff; position: sticky; top: 0; z-index: 20; box-shadow: 0 2px 12px rgba(0,0,0,.18); }
 .mm-top-in { max-width: 1280px; margin: 0 auto; display: flex; align-items: center; gap: 18px; padding: 10px 20px; }
 .mm-brand { display: flex; align-items: center; gap: 10px; font-weight: 800; font-size: 17px; color: #fff; white-space: nowrap; }
 .mm-brand img { width: 32px; height: 32px; }
 .mm-brand small { font-weight: 500; opacity: .7; font-size: 11px; display: block; letter-spacing: .02em; }
 .mm-nav { display: flex; gap: 4px; flex: 1; }
-.mm-nav a { color: #e6e0ff; padding: 8px 12px; border-radius: 999px; font-weight: 600; display: inline-flex; gap: 6px; align-items: center; }
+.mm-nav a { color: #f1f1f3; padding: 8px 12px; border-radius: 999px; font-weight: 600; display: inline-flex; gap: 6px; align-items: center; }
 .mm-nav a:hover { background: rgba(255,255,255,.12); text-decoration: none; }
 .mm-nav a.active { background: #fff; color: var(--brand); }
 .mm-right { display: flex; align-items: center; gap: 10px; }
@@ -59,7 +59,7 @@ html.mm .modal-bg { background: rgba(20,14,50,.5); }
 .mm-camp > * { min-width: 0; }
 .mm-camp .head { display: flex; justify-content: space-between; gap: 8px; align-items: flex-start; flex-wrap: wrap; }
 .mm-auth { min-height: 100vh; display: grid; grid-template-columns: 1.1fr 1fr; }
-.mm-auth .side { background: linear-gradient(145deg, #241a5c, #5b3fd6); color: #fff; padding: 48px; display: flex; flex-direction: column; justify-content: center; gap: 14px; }
+.mm-auth .side { background: linear-gradient(145deg, #000000, #8a0018); color: #fff; padding: 48px; display: flex; flex-direction: column; justify-content: center; gap: 14px; }
 .mm-auth .side h1 { font-size: 30px; color: #fff; }
 .mm-auth .side li { margin-bottom: 6px; opacity: .92; }
 .mm-auth .form { display: grid; place-items: center; padding: 24px; }

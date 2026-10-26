@@ -1,1 +1,10 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#7c5cff"/><stop offset="1" stop-color="#4a2fc4"/></linearGradient></defs><rect width="64" height="64" rx="16" fill="url(#g)"/><path d="M14 20a6 6 0 0 1 6-6h24a6 6 0 0 1 6 6v16a6 6 0 0 1-6 6H28l-9 8v-8h1a6 6 0 0 1-6-6z" fill="#fff"/><path d="M22 24h20M22 31h13" stroke="#5b3fd6" stroke-width="3.5" stroke-linecap="round"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="MCK Mensagens">
+  <defs>
+    <linearGradient id="r" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ff2d46"/><stop offset="1" stop-color="#a1001c"/></linearGradient>
+  </defs>
+  <rect x="2" y="2" width="60" height="60" rx="16" fill="url(#r)"/>
+  <path d="M12 21a7 7 0 0 1 7-7h18a7 7 0 0 1 7 7v11a7 7 0 0 1-7 7H26l-8 7v-7.2A7 7 0 0 1 12 32Z" fill="#0a0a0b"/>
+  <path d="M19 23h18M19 30h11" stroke="#ff2d46" stroke-width="3.2" stroke-linecap="round"/>
+  <path d="M33 37 52 27l-6 22-6-7-7-5Z" fill="#fff"/>
+  <path d="M40 42 52 27" stroke="#a1001c" stroke-width="1.8" stroke-linecap="round"/>
+</svg>
