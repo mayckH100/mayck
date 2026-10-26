@@ -72,7 +72,7 @@ function CampaignForm({ initial, onClose, onSaved }: { initial?: Campaign; onClo
         </div>
         <div className="grid g2" style={{ gap: 10 }}>
           <Field label="Enviar a partir de"><input type="time" required value={f.windowStart} onChange={(e) => set('windowStart', e.target.value)} /></Field>
-          <Field label="Até" hint="Horário de Brasília"><input type="time" required value={f.windowEnd} onChange={(e) => set('windowEnd', e.target.value)} /></Field>
+          <Field label="Até (horário de Brasília)"><input type="time" required value={f.windowEnd} onChange={(e) => set('windowEnd', e.target.value)} /></Field>
         </div>
         {intervalErr && <div className="alert err">O intervalo mínimo não pode ser maior que o máximo.</div>}
         <div className={`alert ${risky ? 'warn' : 'info'}`}>
@@ -240,9 +240,9 @@ export default function MmCampaigns() {
           {list.map((c) => (
             <div key={c.id} className="card mm-camp">
               <div className="head">
-                <div style={{ minWidth: 0 }}>
+                <div style={{ minWidth: 0, flex: 1 }}>
                   <NavLink to={`/campanhas/${c.id}`} style={{ fontWeight: 700, fontSize: 15 }}>{c.name}</NavLink>
-                  <div className="small muted" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 420 }}>{c.message}</div>
+                  <div className="small muted" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '100%' }}>{c.message}</div>
                 </div>
                 <CampaignBadge status={c.status} />
               </div>

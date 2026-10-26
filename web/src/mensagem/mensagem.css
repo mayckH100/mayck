@@ -6,6 +6,7 @@ html.mm {
   --shadow: 0 1px 2px rgba(30,20,70,.06), 0 6px 18px rgba(30,20,70,.06);
 }
 html.mm body { background: var(--bg); }
+html.mm .btn, html.mm button { font-family: inherit; }
 html.mm .btn.primary:hover:not(:disabled) { background: #4a2fc4; }
 html.mm .btn:hover:not(:disabled) { border-color: #c4bbe6; }
 html.mm .spinner { border-color: #ddd5fb; border-top-color: var(--brand); }
@@ -54,7 +55,8 @@ html.mm .modal-bg { background: rgba(20,14,50,.5); }
 .mm-chips { display: flex; gap: 4px; flex-wrap: wrap; }
 .mm-check { display: flex; gap: 8px; align-items: flex-start; font-weight: 600; font-size: 13px; padding: 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--brand-soft); cursor: pointer; }
 .mm-check input { margin-top: 3px; }
-.mm-camp { display: grid; gap: 10px; }
+.mm-camp { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; min-width: 0; }
+.mm-camp > * { min-width: 0; }
 .mm-camp .head { display: flex; justify-content: space-between; gap: 8px; align-items: flex-start; flex-wrap: wrap; }
 .mm-auth { min-height: 100vh; display: grid; grid-template-columns: 1.1fr 1fr; }
 .mm-auth .side { background: linear-gradient(145deg, #241a5c, #5b3fd6); color: #fff; padding: 48px; display: flex; flex-direction: column; justify-content: center; gap: 14px; }
@@ -62,14 +64,15 @@ html.mm .modal-bg { background: rgba(20,14,50,.5); }
 .mm-auth .side li { margin-bottom: 6px; opacity: .92; }
 .mm-auth .form { display: grid; place-items: center; padding: 24px; }
 .mm-auth .form .card { width: min(420px, 100%); padding: 28px; }
-.mm-auth .mm-brand { color: var(--ink); justify-content: center; }
+.mm-auth .form .mm-brand { color: var(--ink); justify-content: center; }
+.mm-auth .side .mm-brand { color: #fff; }
 
 @media (max-width: 1000px) {
   .mm-nav, .mm-right .hide-sm { display: none; }
   .mm-burger { display: inline-flex !important; }
   .mm-top-in { justify-content: space-between; }
   .mm-mobile.open { display: grid; gap: 4px; padding: 8px 16px 14px; border-top: 1px solid rgba(255,255,255,.15); }
-  .mm-mobile a, .mm-mobile .mm-switch { color: #fff; padding: 10px 12px; border-radius: 10px; font-weight: 600; }
+  .mm-mobile a, .mm-mobile .mm-switch { display: flex; gap: 8px; align-items: center; color: #fff; padding: 10px 12px; border-radius: 10px; font-weight: 600; }
   .mm-mobile a.active { background: #fff; color: var(--brand); }
   .mm-mobile select { background: rgba(255,255,255,.12); color: #fff; border-color: rgba(255,255,255,.25); }
   .mm-mobile select option { color: var(--ink); }

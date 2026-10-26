@@ -43,3 +43,10 @@ prisma/            schema.prisma (PostgreSQL) + migrations/
 tests/             unit/, integration/, e2e/
 docs/              requisitos, deploy, relatório de testes, capturas de tela
 ```
+
+## MCK Mensagens (app separado em `/mensagem`)
+
+- Mesmo serviço, banco e contas do MCKBOT; frontend próprio (entrada Vite `web/mensagem.html` → `web/src/mensagem/`), marca "MCK Mensagens", cor roxa e menu no topo.
+- Rotas: `/mensagem/login`, `/mensagem/` (painel), `/mensagem/contatos`, `/mensagem/campanhas`, `/mensagem/campanhas/:id`, `/mensagem/assinatura`. O Express serve `mensagem.html` para `/mensagem` e `/mensagem/*`; o restante continua no SPA do MCKBOT.
+- API `/api/mckmensagem` (OWNER/ADMIN): com a assinatura MCKMENSAGEM inativa, leitura e exportação seguem liberadas; escrita, importação, iniciar e pausar respondem `402 {"error":"Assinatura MCK Mensagens inativa"}`.
+- Pagamento iniciado no MCK Mensagens (`POST /api/billing/checkout` com `app: "mensagem"`) volta para `/mensagem/assinatura`.
