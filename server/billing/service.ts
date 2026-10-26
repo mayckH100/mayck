@@ -149,3 +149,30 @@ export async function setBlocked(orgId: string, product: PlanProduct, blocked: b
 }
 export const block = (orgId: string, product: PlanProduct, actorUserId?: string) => setBlocked(orgId, product, true, actorUserId);
 export const unblock = (orgId: string, product: PlanProduct, actorUserId?: string) => setBlocked(orgId, product, false, actorUserId);
+
+/** Ativa manualmente (ATIVA por 1 ciclo a partir de agora), inclusive desbloqueando. */
+export async function activateManual(orgId: string, product: PlanProduct, cycle: Cycle, actorUserId?: string) {
+  const products = productsOf(product);
+  const now = new Date();
+  const validUntil = addCycle(now, cycle);
+  let prevMax: Date | null = null;
+  for (const p of products) {
+    const s = await getSubscription(orgId, p);
+    if (!prevMax || s.validUntil > prevMax) prevMax = s.validUntil;
+    await prisma.subscription.update({ where: { id: s.id }, data: { status: 'ATIVA', cycle, source: 'MANUAL', validUntil } });
+  }
+  await prisma.billingEvent.create({ data: { orgId, product, kind: 'MANUAL', cycle, actorUserId: actorUserId ?? null, prevValidUntil: prevMax, newValidUntil: validUntil } });
+}
+
+/** Define manualmente a data de validade. Não altera bloqueio. */
+export async function setValidUntil(orgId: string, product: PlanProduct, validUntil: Date, actorUserId?: string) {
+  const products = productsOf(product);
+  let prevMax: Date | null = null;
+  for (const p of products) {
+    const s = await getSubscription(orgId, p);
+    if (!prevMax || s.validUntil > prevMax) prevMax = s.validUntil;
+    const status = s.status === 'BLOQUEADA' ? 'BLOQUEADA' : s.status === 'TRIAL' ? 'TRIAL' : 'ATIVA';
+    await prisma.subscription.update({ where: { id: s.id }, data: { validUntil, status, source: s.status === 'TRIAL' ? s.source : 'MANUAL' } });
+  }
+  await prisma.billingEvent.create({ data: { orgId, product, kind: 'MANUAL', actorUserId: actorUserId ?? null, prevValidUntil: prevMax, newValidUntil: validUntil } });
+}
