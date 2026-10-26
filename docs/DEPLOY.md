@@ -147,3 +147,13 @@ Alternativa: provedor **OpenAI ou compatível** (OpenAI, Groq, OpenRouter etc.),
 | `LOGIN_RATE_LIMIT` / `API_RATE_LIMIT` / `WEBHOOK_RATE_LIMIT` | não | Limites por janela (15 min / 1 min / 1 min) |
 | `ENABLE_SCHEDULER` | não | `true` para retomar blocos Aguardar |
 | `ENABLE_WHATSAPP_QR` | não | Padrão `true`: reconecta as sessões do modo QR ao iniciar. `false` desliga a reconexão automática |
+
+## Cobrança (Mercado Pago) — backend
+
+Cada app tem assinatura própria por organização (`MCKBOT` e `MCKMENSAGEM`) e há o plano `COMBO`, que renova os dois. Novas organizações ganham teste grátis (`PlatformSettings.trialDays`, padrão 7 dias). Preços em centavos ficam em `PlatformSettings.pricesJson` (editáveis pelo painel Master, próxima fase).
+
+- `MP_ACCESS_TOKEN` (env): access token do Mercado Pago. Sem ele, `billingConfigured=false` e o checkout responde 503.
+- Segredo do webhook: `PlatformSettings.mpWebhookSecretEnc` (cifrado) ou, alternativamente, a env `MP_WEBHOOK_SECRET`. Com segredo configurado, o webhook exige `x-signature` válida.
+- URL do webhook (configurar em *Suas integrações → Webhooks*, evento **Pagamentos**): `https://<host>/api/billing/mp/webhook`. A preferência já envia `notification_url` automaticamente.
+- Endpoints: `GET /api/billing/status`, `POST /api/billing/checkout {product, cycle}`, `POST /api/billing/confirm {paymentId}`, `POST /api/billing/mp/webhook` (público).
+- Bloqueio: com `MCKBOT` inativo (vencido/bloqueado) nenhuma mensagem sai e a automação não roda (as recebidas continuam gravadas); com `MCKMENSAGEM` inativo as campanhas ficam paradas sem consumir destinatários.
