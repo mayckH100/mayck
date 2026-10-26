@@ -11,6 +11,8 @@ import { sha256 } from '../lib/crypto.js';
 import { config } from '../config.js';
 import { PRODUCTS, getSubscriptionView } from '../billing/service.js';
 import { ensureSuperAdmin } from './superadmin.js';
+import { randomToken } from '../lib/crypto.js';
+import { sendMailLater, welcomeMail, resetMail, passwordChangedMail, brandOf, appPath, type AppBrand } from '../lib/mailer.js';
 
 export const authRouter = Router();
 
@@ -38,7 +40,7 @@ export async function meResponse(userId: string, orgId: string | null, csrfToken
   const current = memberships.find((m) => m.orgId === orgId) ?? null;
   const subscriptions = current ? await Promise.all(PRODUCTS.map((p) => getSubscriptionView(current.orgId, p))) : [];
   return {
-    user: { id: user.id, email: user.email, name: user.name, phone: user.phone, isSuperAdmin: user.isSuperAdmin },
+    user: { id: user.id, email: user.email, name: user.name, phone: user.phone, isSuperAdmin: user.isSuperAdmin, emailVerified: !!user.emailVerifiedAt },
     isSuperAdmin: user.isSuperAdmin,
     subscriptions,
     org: current ? { id: current.org.id, name: current.org.name, plan: current.org.plan, timezone: current.org.timezone } : null,
@@ -57,6 +59,12 @@ authRouter.post('/register', loginLimiter, ah(async (req, res) => {
   const org = await createOrganization(user.id, body.orgName);
   const csrf = await createSession(res, req, user.id, org.id);
   await audit(req, 'auth.register', { orgId: org.id, userId: user.id, entity: 'user', entityId: user.id });
+  // Boas-vindas + link de confirmação do e-mail (não bloqueia o login; falha de SMTP não afeta o cadastro).
+  try {
+    const app = brandOf(req.body?.app);
+    const token = await issueToken(user.id, 'VERIFY_EMAIL', VERIFY_TTL_MS, req.ip);
+    sendMailLater(welcomeMail({ to: user.email, name: user.name, app, verifyUrl: appPath(app, `/verificar-email?token=${token}`, req), req }));
+  } catch (e) { console.error('[mail] boas-vindas:', (e as Error).message); }
   res.status(201).json(await meResponse(user.id, org.id, csrf));
 }));
 
@@ -135,4 +143,104 @@ authRouter.post('/accept-invite', loginLimiter, ah(async (req, res) => {
   else csrf = await createSession(res, req, user.id, inv.orgId);
   await audit(req, 'team.invite_accepted', { orgId: inv.orgId, userId: user.id, entity: 'invitation', entityId: inv.id });
   res.json(await meResponse(user.id, inv.orgId, csrf!));
+}));
+
+// ---- Recuperação de senha e verificação de e-mail ----
+const RESET_TTL_MS = 60 * 60 * 1000; // 1 hora
+const VERIFY_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 dias
+type TokenKind = 'RESET_PASSWORD' | 'VERIFY_EMAIL';
+
+/** Gera um token aleatório; só o hash SHA-256 vai para o banco. Tokens anteriores do mesmo tipo deixam de valer. */
+async function issueToken(userId: string, kind: TokenKind, ttlMs: number, ip?: string) {
+  const token = randomToken(32);
+  await prisma.authToken.deleteMany({ where: { userId, kind, usedAt: null } });
+  await prisma.authToken.create({ data: { userId, kind, tokenHash: sha256(token), expiresAt: new Date(Date.now() + ttlMs), ip: ip ?? null } });
+  return token;
+}
+
+/** Consome o token de forma atômica (uso único): só um pedido concorrente consegue marcar usedAt. */
+async function consumeToken(token: string, kind: TokenKind) {
+  const row = await prisma.authToken.findUnique({ where: { tokenHash: sha256(token) } });
+  if (!row || row.kind !== kind || row.usedAt || row.expiresAt < new Date()) return null;
+  const upd = await prisma.authToken.updateMany({ where: { id: row.id, usedAt: null }, data: { usedAt: new Date() } });
+  return upd.count === 1 ? row : null;
+}
+
+const forgotLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: () => config.FORGOT_RATE_LIMIT,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  keyGenerator: (req) => `${req.ip}|${String(req.body?.email ?? '').trim().toLowerCase()}`,
+  message: { error: 'Muitos pedidos de redefinição. Aguarde alguns minutos e tente novamente.' },
+});
+const forgotIpLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  limit: () => config.FORGOT_RATE_LIMIT * 6,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  message: { error: 'Muitos pedidos de redefinição. Aguarde alguns minutos e tente novamente.' },
+});
+
+const FORGOT_MSG = 'Se existir uma conta com este e-mail, enviamos um link para redefinir a senha. Confira a caixa de entrada e o spam.';
+
+authRouter.post('/forgot', forgotIpLimiter, forgotLimiter, ah(async (req, res) => {
+  const body = z.object({ email, app: z.enum(['mckbot', 'mensagem']).optional() }).parse(req.body);
+  const app: AppBrand = brandOf(body.app);
+  // Resposta sempre igual e imediata; o trabalho acontece em segundo plano para não vazar, pelo tempo, se o e-mail existe.
+  res.json({ ok: true, message: FORGOT_MSG });
+  void (async () => {
+    try {
+      const user = await prisma.user.findUnique({ where: { email: body.email } });
+      if (!user || user.disabledAt) {
+        await audit(req, 'auth.forgot_unknown', { meta: { email: body.email } });
+        return;
+      }
+      const token = await issueToken(user.id, 'RESET_PASSWORD', RESET_TTL_MS, req.ip);
+      await audit(req, 'auth.forgot', { userId: user.id });
+      sendMailLater(resetMail({ to: user.email, name: user.name, app, url: appPath(app, `/redefinir-senha?token=${token}`, req), req }));
+    } catch (e) {
+      console.error('[auth] forgot:', (e as Error).message);
+    }
+  })();
+}));
+
+authRouter.get('/reset/:token', ah(async (req, res) => {
+  const row = await prisma.authToken.findUnique({ where: { tokenHash: sha256(req.params.token) } });
+  const valid = !!row && row.kind === 'RESET_PASSWORD' && !row.usedAt && row.expiresAt > new Date();
+  res.json({ valid });
+}));
+
+authRouter.post('/reset', loginLimiter, ah(async (req, res) => {
+  const body = z.object({ token: z.string().min(20).max(200), password, app: z.enum(['mckbot', 'mensagem']).optional() }).parse(req.body);
+  const row = await consumeToken(body.token, 'RESET_PASSWORD');
+  if (!row) throw new HttpError(400, 'Link inválido ou expirado. Peça um novo em "Esqueci minha senha".');
+  const user = await prisma.user.update({ where: { id: row.userId }, data: { passwordHash: await bcrypt.hash(body.password, 12) } });
+  // Invalida todas as sessões antigas (inclusive a atual, se houver) e os demais links de redefinição pendentes.
+  await prisma.session.deleteMany({ where: { userId: user.id } });
+  await prisma.authToken.deleteMany({ where: { userId: user.id, kind: 'RESET_PASSWORD', usedAt: null } });
+  // Quem recebeu o link no e-mail provou ser dono dele.
+  if (!user.emailVerifiedAt) await prisma.user.update({ where: { id: user.id }, data: { emailVerifiedAt: new Date() } });
+  await audit(req, 'auth.password_reset', { userId: user.id, entity: 'user', entityId: user.id });
+  sendMailLater(passwordChangedMail({ to: user.email, name: user.name, app: brandOf(body.app), req }));
+  res.clearCookie('mck_sid', { path: '/' });
+  res.json({ ok: true });
+}));
+
+authRouter.post('/verify-email', ah(async (req, res) => {
+  const { token } = z.object({ token: z.string().min(20).max(200) }).parse(req.body);
+  const row = await consumeToken(token, 'VERIFY_EMAIL');
+  if (!row) throw new HttpError(400, 'Link de confirmação inválido ou expirado.');
+  await prisma.user.update({ where: { id: row.userId }, data: { emailVerifiedAt: new Date() } });
+  await audit(req, 'auth.email_verified', { userId: row.userId, entity: 'user', entityId: row.userId });
+  res.json({ ok: true });
+}));
+
+authRouter.post('/resend-verification', requireAuth, ah(async (req, res) => {
+  const user = await prisma.user.findUniqueOrThrow({ where: { id: req.auth!.userId } });
+  if (user.emailVerifiedAt) return void res.json({ ok: true, alreadyVerified: true });
+  const app = brandOf(req.body?.app);
+  const token = await issueToken(user.id, 'VERIFY_EMAIL', VERIFY_TTL_MS, req.ip);
+  sendMailLater(welcomeMail({ to: user.email, name: user.name, app, verifyUrl: appPath(app, `/verificar-email?token=${token}`, req), req }));
+  res.json({ ok: true });
 }));

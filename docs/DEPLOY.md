@@ -203,3 +203,22 @@ Saia e entre de novo no app (ou recarregue): `GET /api/auth/me` passa a trazer `
 | GET/PUT | `/api/master/settings` | preços (centavos), dias de teste, segredo do webhook MP (salvo cifrado, exibido mascarado) |
 
 Migração `0005_user_disabled` adiciona `User.disabledAt` (aplicada automaticamente no `npm start`).
+
+## E-mails transacionais (SMTP grátis)
+
+Cadastro (boas-vindas + confirmação de e-mail), "Esqueci minha senha" e aviso de senha alterada usam SMTP genérico via nodemailer. Sem SMTP, nada quebra: o servidor só registra no log que o e-mail não foi enviado.
+
+| Variável | Exemplo (Brevo, grátis até 300 e-mails/dia) |
+|---|---|
+| `SMTP_HOST` | `smtp-relay.brevo.com` |
+| `SMTP_PORT` | `587` (use `465` para SSL direto) |
+| `SMTP_USER` | login SMTP do provedor |
+| `SMTP_PASS` | chave/senha SMTP do provedor |
+| `MAIL_FROM` | `MCKBOT <no-reply@seudominio.com>` (remetente verificado no provedor) |
+| `APP_URL` | `https://mckbot.onrender.com` (opcional; sem ela usa `RENDER_EXTERNAL_URL`) |
+
+Opcional: `FORGOT_RATE_LIMIT` (padrão 5 pedidos de redefinição por e-mail/IP a cada 15 min).
+
+## PWA e futuro app na Play Store (TWA)
+
+Os dois apps são instaláveis pelo navegador (`/manifest.webmanifest` para o MCKBOT e `/mensagem.webmanifest` para o MCK Mensagens, service worker em `/sw.js`, que nunca guarda `/api`). Para publicar na Play Store como TWA (Bubblewrap/PWABuilder), gere o app a partir do manifest e cole o JSON do Digital Asset Links na variável `TWA_ASSETLINKS`; ele passa a ser servido em `/.well-known/assetlinks.json`.

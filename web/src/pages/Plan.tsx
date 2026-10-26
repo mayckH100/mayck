@@ -78,6 +78,37 @@ export function ProductCard({ product, sub, prices, configured, app, desc, label
   );
 }
 
+/** Resumo do plano atual: o que está ativo, até quando e como renova. */
+export function CurrentPlan({ subs, prices, only }: { subs: SubscriptionView[]; prices: Record<PlanProduct, Record<Cycle, number>>; only?: SubscriptionView['product'][] }) {
+  const list = only ? subs.filter((s) => only.includes(s.product)) : subs;
+  const paid = list.filter((s) => s.status === 'ATIVA');
+  const sameEnd = paid.length === 2 && paid[0].validUntil.slice(0, 10) === paid[1].validUntil.slice(0, 10) && paid[0].cycle === paid[1].cycle;
+  return (
+    <div className="card stack">
+      <div className="row between"><h2 style={{ margin: 0 }}>Seu plano atual</h2>{paid.length === 0 && <span className="badge amber">Nenhum plano pago ativo</span>}</div>
+      {sameEnd && <p className="small" style={{ margin: 0 }}>Você tem <strong>MCKBOT + MCK Mensagens</strong> (ciclo {CYCLE_LABEL[paid[0].cycle].toLowerCase()}).</p>}
+      <div className="grid g2" style={{ gap: 10 }}>
+        {list.map((s) => {
+          const left = daysLeft(s.validUntil);
+          const label = s.product === 'MCKMENSAGEM' ? 'MCK Mensagens' : 'MCKBOT';
+          return (
+            <div key={s.product} className="card" style={{ boxShadow: 'none', padding: 14 }}>
+              <div className="row between"><strong>{label}</strong><SubBadge status={s.status} /></div>
+              <div className="small" style={{ marginTop: 6, lineHeight: 1.6 }}>
+                {s.status === 'BLOQUEADA' ? <>Acesso bloqueado pelo administrador. Fale com o suporte.</> : <>
+                  {s.status === 'TRIAL' ? 'Teste grátis' : `Plano ${CYCLE_LABEL[s.cycle]?.toLowerCase()} · ${fmtBRL(prices[s.product][s.cycle])}`}<br />
+                  {left > 0 ? <>Vence em <strong>{fmtDay(s.validUntil)}</strong> ({left} dia{left === 1 ? '' : 's'})</> : <>Venceu em <strong>{fmtDay(s.validUntil)}</strong></>}<br />
+                  <span className="muted">Renovação: {s.status === 'ATIVA' ? 'manual, por Pix ou cartão. Renovando antes do vencimento, o novo período é somado ao que resta.' : 'assine um plano para continuar usando depois do vencimento.'}</span>
+                </>}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 export default function Plan() {
   const state = useApi<BillingStatus>('/billing/status');
   const usage = useApi<any>('/plans');
@@ -88,6 +119,8 @@ export default function Plan() {
   const [confirming, setConfirming] = useState(false);
   const [result, setResult] = useState<{ kind: 'ok' | 'warn' | 'err'; text: string } | null>(null);
   const done = useRef<string | null>(null);
+  // Comparação de planos: só quando não há plano pago ativo, quando o cliente pede para trocar/renovar ou veio da vitrine (?plano=).
+  const [compare, setCompare] = useState<boolean>(() => sp.has('plano'));
 
   useEffect(() => {
     const key = paymentId ?? billingBack;
@@ -95,6 +128,7 @@ export default function Plan() {
     done.current = key;
     if (!paymentId || paymentId === 'null' || !/^\d+$/.test(paymentId)) {
       const st = sp.get('status') ?? sp.get('collection_status') ?? billingBack;
+      setCompare(true);
       setResult(st === 'pending'
         ? { kind: 'warn', text: 'Pagamento pendente. Assim que o Mercado Pago aprovar, sua assinatura é renovada automaticamente.' }
         : { kind: 'warn', text: st === 'rejected' || st === 'failure' ? 'O pagamento não foi concluído. Você pode tentar novamente quando quiser.' : 'Pagamento não concluído. Você pode tentar novamente quando quiser.' });
@@ -116,16 +150,29 @@ export default function Plan() {
       <Async state={state}>{(b) => {
         const subs = b.subscriptions;
         const combo = comboView(subs);
+        const paid = subs.filter((x) => x.status === 'ATIVA');
+        const showCompare = compare || paid.length === 0;
         return (
           <div className="stack">
-            {!b.configured && <div className="alert warn">Pagamento ainda não configurado. O pagamento online estará disponível em breve; enquanto isso, fale com o suporte para ativar ou renovar a sua assinatura.</div>}
-            <div className="grid g3">
-              {PLAN_PRODUCTS.map((p) => {
-                const s = p === 'COMBO' ? combo : subs.find((x) => x.product === p) ?? null;
-                return <ProductCard key={p} product={p} sub={s} prices={b.prices[p]} configured={b.configured} />;
-              })}
-            </div>
-            <p className="small muted">O pagamento é processado pelo Mercado Pago. Ao renovar antes do vencimento, o novo período é somado ao que ainda resta. Novos clientes têm {b.trialDays} dia(s) de teste grátis.</p>
+            <CurrentPlan subs={subs} prices={b.prices} />
+            {paid.length > 0 && (
+              <div className="row" style={{ gap: 8 }}>
+                <button className="btn" onClick={() => setCompare((v) => !v)} aria-expanded={showCompare}>{showCompare ? 'Ocultar planos' : 'Renovar ou trocar de plano'}</button>
+              </div>
+            )}
+            {showCompare && (
+              <>
+                {!b.configured && <div className="alert warn">Pagamento ainda não configurado. O pagamento online estará disponível em breve; enquanto isso, fale com o suporte para ativar ou renovar a sua assinatura.</div>}
+                <h2 style={{ margin: '8px 0 0' }}>{paid.length ? 'Renovar ou trocar de plano' : 'Escolha seu plano'}</h2>
+                <div className="grid g3">
+                  {PLAN_PRODUCTS.map((p) => {
+                    const s = p === 'COMBO' ? combo : subs.find((x) => x.product === p) ?? null;
+                    return <ProductCard key={p} product={p} sub={s} prices={b.prices[p]} configured={b.configured} />;
+                  })}
+                </div>
+                <p className="small muted">O pagamento é processado pelo Mercado Pago. Ao renovar antes do vencimento, o novo período é somado ao que ainda resta. Novos clientes têm {b.trialDays} dia(s) de teste grátis.</p>
+              </>
+            )}
             {usage.data?.plans && (() => {
               const p = usage.data;
               const cur = p.plans.find((x: any) => x.id === p.current);

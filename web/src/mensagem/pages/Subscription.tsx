@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { post } from '../../api';
 import { useAuth } from '../../auth';
 import { useApi, Async, Loading } from '../../ui';
-import { ProductCard, comboView, reasonText, type BillingStatus, type ConfirmResult } from '../../pages/Plan';
+import { ProductCard, CurrentPlan, comboView, reasonText, type BillingStatus, type ConfirmResult } from '../../pages/Plan';
 
 export default function MmSubscription() {
   const state = useApi<BillingStatus>('/billing/status');
@@ -14,6 +14,7 @@ export default function MmSubscription() {
   const [confirming, setConfirming] = useState(false);
   const [result, setResult] = useState<{ kind: 'ok' | 'warn' | 'err'; text: string } | null>(null);
   const done = useRef<string | null>(null);
+  const [compare, setCompare] = useState<boolean>(() => sp.has('plano') || sp.has('billing'));
 
   useEffect(() => {
     const key = paymentId ?? billingBack;
@@ -41,8 +42,13 @@ export default function MmSubscription() {
       {result && <div className={`alert ${result.kind}`} role="status" style={{ marginBottom: 12 }}>{result.text}</div>}
       <Async state={state}>{(b) => {
         const mm = b.subscriptions.find((s) => s.product === 'MCKMENSAGEM') ?? null;
+        const paid = mm?.status === 'ATIVA';
+        const showCompare = compare || !paid;
         return (
           <div className="stack">
+            <CurrentPlan subs={b.subscriptions} prices={b.prices} only={['MCKMENSAGEM']} />
+            {paid && <div><button className="btn" onClick={() => setCompare((v) => !v)} aria-expanded={showCompare}>{showCompare ? 'Ocultar planos' : 'Renovar ou trocar de plano'}</button></div>}
+            {showCompare && <>
             {!b.configured && <div className="alert warn">Pagamento online ainda não configurado. Enquanto isso, fale com o suporte para ativar ou renovar a sua assinatura.</div>}
             <div className="grid g2">
               <ProductCard product="MCKMENSAGEM" label="MCK Mensagens" app="mensagem" sub={mm} prices={b.prices.MCKMENSAGEM} configured={b.configured}
@@ -51,6 +57,7 @@ export default function MmSubscription() {
                 desc="Atendimento automatizado (MCKBOT) e campanhas (MCK Mensagens) juntos, com desconto. Renova os dois de uma vez." />
             </div>
             <p className="small muted">Com a assinatura inativa você continua consultando e exportando seus contatos e métricas, mas não pode criar, importar nem disparar campanhas. Ao renovar antes do vencimento, o novo período é somado ao que resta. Novos clientes têm {b.trialDays} dia(s) de teste grátis.</p>
+            </>}
           </div>
         );
       }}</Async>

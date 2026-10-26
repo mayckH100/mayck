@@ -22,3 +22,14 @@ services:
         value: v26.0
       - key: FLOW_MAX_STEPS
         value: "50"
+      # E-mails transacionais (opcional; sem SMTP o app funciona e só registra no log)
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        value: "587"
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS
+        sync: false
+      - key: MAIL_FROM
+        sync: false

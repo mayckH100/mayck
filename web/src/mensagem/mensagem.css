@@ -89,3 +89,6 @@ html.mm .modal-bg { background: rgba(0,0,0,.55); }
   .mm-funnel .r { grid-template-columns: 90px 1fr 44px; }
   .hide-xs { display: none; }
 }
+
+/* Vitrine de planos abaixo do login */
+.mm-plans { max-width: 1080px; margin: 0 auto; padding: 32px 24px 48px; }

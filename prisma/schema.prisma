@@ -12,17 +12,34 @@ datasource db {
 }
 
 model User {
-  id           String       @id @default(cuid())
-  email        String       @unique
-  name         String
-  phone        String?
-  passwordHash String
-  isSuperAdmin Boolean      @default(false)
-  disabledAt   DateTime?
-  createdAt    DateTime     @default(now())
-  updatedAt    DateTime     @updatedAt
-  memberships  Membership[]
-  sessions     Session[]
+  id              String       @id @default(cuid())
+  email           String       @unique
+  name            String
+  phone           String?
+  passwordHash    String
+  isSuperAdmin    Boolean      @default(false)
+  disabledAt      DateTime?
+  emailVerifiedAt DateTime?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+  memberships     Membership[]
+  sessions        Session[]
+  authTokens      AuthToken[]
+}
+
+/// Tokens de uso único enviados por e-mail (redefinição de senha e verificação de e-mail). Só o hash fica salvo.
+model AuthToken {
+  id        String    @id @default(cuid())
+  userId    String
+  kind      String // RESET_PASSWORD | VERIFY_EMAIL
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  ip        String?
+  createdAt DateTime  @default(now())
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, kind])
 }
 
 model Organization {
@@ -35,11 +52,11 @@ model Organization {
 }
 
 model Membership {
-  id        String   @id @default(cuid())
+  id        String       @id @default(cuid())
   userId    String
   orgId     String
   role      String // OWNER | ADMIN | AGENT
-  createdAt DateTime @default(now())
+  createdAt DateTime     @default(now())
   user      User         @relation(fields: [userId], references: [id], onDelete: Cascade)
   org       Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
 
@@ -199,15 +216,15 @@ model Message {
 }
 
 model Flow {
-  id             String    @id @default(cuid())
+  id             String        @id @default(cuid())
   orgId          String
   name           String
   description    String?
-  status         String    @default("DRAFT") // DRAFT | ACTIVE | PAUSED
-  priority       Int       @default(0)
-  currentVersion Int       @default(1)
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
+  status         String        @default("DRAFT") // DRAFT | ACTIVE | PAUSED
+  priority       Int           @default(0)
+  currentVersion Int           @default(1)
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
   versions       FlowVersion[]
 
   @@index([orgId, status])
@@ -264,22 +281,22 @@ model FlowRunStep {
 }
 
 model AiSettings {
-  orgId           String   @id
-  enabled         Boolean  @default(false)
-  autoReply       Boolean  @default(false)
-  provider        String   @default("gemini") // openai | gemini | fake (somente testes)
-  model           String   @default("gemini-3.5-flash-lite")
-  baseUrl         String?
-  apiKeyEnc       String?
-  instructions    String   @default("")
-  tone            String   @default("cordial e objetivo")
-  temperature     Float    @default(0.3)
-  maxTokens       Int      @default(400)
-  dailyLimit      Int      @default(200)
-  monthlyTokenLimit Int    @default(500000)
-  handoffKeywords String   @default("[\"atendente\",\"humano\",\"pessoa\"]")
-  fallbackMessage String   @default("Vou transferir você para um atendente humano. Aguarde um momento, por favor.")
-  updatedAt       DateTime @updatedAt
+  orgId             String   @id
+  enabled           Boolean  @default(false)
+  autoReply         Boolean  @default(false)
+  provider          String   @default("gemini") // openai | gemini | fake (somente testes)
+  model             String   @default("gemini-3.5-flash-lite")
+  baseUrl           String?
+  apiKeyEnc         String?
+  instructions      String   @default("")
+  tone              String   @default("cordial e objetivo")
+  temperature       Float    @default(0.3)
+  maxTokens         Int      @default(400)
+  dailyLimit        Int      @default(200)
+  monthlyTokenLimit Int      @default(500000)
+  handoffKeywords   String   @default("[\"atendente\",\"humano\",\"pessoa\"]")
+  fallbackMessage   String   @default("Vou transferir você para um atendente humano. Aguarde um momento, por favor.")
+  updatedAt         DateTime @updatedAt
 }
 
 model KnowledgeDoc {
@@ -322,7 +339,7 @@ model AiUsage {
 }
 
 model Integration {
-  id             String   @id @default(cuid())
+  id             String    @id @default(cuid())
   orgId          String
   name           String
   slug           String
@@ -331,7 +348,7 @@ model Integration {
   authValueEnc   String?
   lastTestAt     DateTime?
   lastTestStatus String?
-  createdAt      DateTime @default(now())
+  createdAt      DateTime  @default(now())
 
   @@unique([orgId, slug])
 }

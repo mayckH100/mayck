@@ -5,7 +5,8 @@ import { post } from '../api';
 import { Loading, useToast } from '../ui';
 import { STATUS_LABEL, fmtDay, subOf } from '../billing';
 import { MCKBOT_URL } from './common';
-import { MmLogin, MmRegister, MmNoOrg, MmBrand } from './pages/Auth';
+import { MmLogin, MmRegister, MmNoOrg, MmBrand, MmForgot, MmReset, MmVerify } from './pages/Auth';
+import { InstallButton } from '../pwa';
 import MmDashboard from './pages/Dashboard';
 import MmLeads from './pages/Leads';
 import MmCampaigns from './pages/Campaigns';
@@ -88,6 +89,7 @@ function Shell({ children }: { children: ReactNode }) {
             <a href={MCKBOT_URL} className="mm-switch hide-sm">Ir para MCKBOT ↗</a>
             <span className="hide-sm">{orgSelect('mm-org')}</span>
             <span className="mm-user hide-sm" title={me?.user.email}>{me?.user.name}{me?.role ? ` · ${ROLE_LABEL[me.role]}` : ''}</span>
+            <span className="hide-sm"><InstallButton appName="MCK Mensagens" /></span>
             <button className="btn sm hide-sm" onClick={async () => { await logout(); nav('/login'); }}>Sair</button>
             <button className="btn sm mm-burger" onClick={() => setOpen((o) => !o)} aria-expanded={open} aria-label="Abrir menu">☰</button>
           </div>
@@ -96,6 +98,7 @@ function Shell({ children }: { children: ReactNode }) {
           {links}
           {orgSelect('mm-org-m')}
           <a href={MCKBOT_URL} className="mm-switch">Ir para MCKBOT ↗</a>
+          <InstallButton appName="MCK Mensagens" />
           <button className="btn sm" onClick={async () => { await logout(); nav('/login'); }}>Sair ({me?.user.name})</button>
         </nav>
       </header>
@@ -131,10 +134,16 @@ export default function MensagemApp() {
       <Routes>
         <Route path="/login" element={<MmLogin />} />
         <Route path="/cadastro" element={<MmRegister />} />
+        <Route path="/esqueci-senha" element={<MmForgot />} />
+        <Route path="/redefinir-senha" element={<MmReset />} />
+        <Route path="/verificar-email" element={<MmVerify />} />
         <Route path="*" element={<Navigate to="/login" replace />} />
       </Routes>
     );
   }
+  const path = window.location.pathname;
+  if (path.endsWith('/redefinir-senha')) return <MmReset />;
+  if (path.endsWith('/verificar-email')) return <MmVerify />;
   if (!me.org) return <MmNoOrg />;
   if (!can('OWNER', 'ADMIN')) return <AgentBlocked />;
   return (

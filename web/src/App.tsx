@@ -3,7 +3,8 @@ import { Routes, Route, Navigate, NavLink, useLocation, useNavigate } from 'reac
 import { useAuth, ROLE_LABEL, type Role } from './auth';
 import { post } from './api';
 import { Loading, useApi, useToast } from './ui';
-import { Login, Register, AcceptInvite, NoOrg } from './pages/Auth';
+import { Login, Register, AcceptInvite, NoOrg, Forgot, Reset, Verify } from './pages/Auth';
+import { InstallButton } from './pwa';
 import Dashboard from './pages/Dashboard';
 import Inbox from './pages/Inbox';
 import Kanban from './pages/Kanban';
@@ -110,6 +111,7 @@ function Shell({ children }: { children: ReactNode }) {
           <select id="org-sel" value={me?.org?.id} onChange={(e) => switchOrg(e.target.value)}>
             {me?.orgs.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
           </select>
+          <InstallButton appName="MCKBOT" />
           <button className="btn sm" onClick={async () => { await logout(); nav('/login'); }}>Sair</button>
         </div>
       </aside>
@@ -146,6 +148,9 @@ export default function App() {
       <Routes>
         <Route path="/login" element={<Login />} />
         <Route path="/cadastro" element={<Register />} />
+        <Route path="/esqueci-senha" element={<Forgot />} />
+        <Route path="/redefinir-senha" element={<Reset />} />
+        <Route path="/verificar-email" element={<Verify />} />
         <Route path="/convite/:token" element={<AcceptInvite />} />
         <Route path="*" element={<Navigate to="/login" replace />} />
       </Routes>
@@ -155,6 +160,8 @@ export default function App() {
     return (
       <Routes>
         <Route path="/convite/:token" element={<AcceptInvite />} />
+        <Route path="/redefinir-senha" element={<Reset />} />
+        <Route path="/verificar-email" element={<Verify />} />
         <Route path="*" element={<NoOrg />} />
       </Routes>
     );
@@ -162,6 +169,9 @@ export default function App() {
   return (
     <Routes>
       <Route path="/convite/:token" element={<AcceptInvite />} />
+      <Route path="/redefinir-senha" element={<Reset />} />
+      <Route path="/verificar-email" element={<Verify />} />
+      <Route path="/esqueci-senha" element={<Navigate to="/perfil" replace />} />
       <Route path="/login" element={<Navigate to="/" replace />} />
       <Route path="/cadastro" element={<Navigate to="/" replace />} />
       <Route path="*" element={

@@ -7,6 +7,7 @@ const schema = z.object({
   MASTER_KEY: z.string().optional(),
   COOKIE_SECURE: z.enum(['true', 'false']).optional(),
   LOGIN_RATE_LIMIT: z.coerce.number().default(10),
+  FORGOT_RATE_LIMIT: z.coerce.number().default(5),
   API_RATE_LIMIT: z.coerce.number().default(300),
   WEBHOOK_RATE_LIMIT: z.coerce.number().default(600),
   ALLOW_PRIVATE_HTTP: z.enum(['true', 'false']).default('false'),

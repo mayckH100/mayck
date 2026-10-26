@@ -1,0 +1,22 @@
+{
+  "id": "/mensagem/",
+  "name": "MCK Mensagens — Campanhas no WhatsApp",
+  "short_name": "MCK Mensagens",
+  "description": "Campanhas e contatos no WhatsApp com consentimento.",
+  "lang": "pt-BR",
+  "dir": "ltr",
+  "start_url": "/mensagem/?source=pwa",
+  "scope": "/mensagem/",
+  "display": "standalone",
+  "display_override": ["standalone", "minimal-ui"],
+  "orientation": "any",
+  "background_color": "#0a0a0b",
+  "theme_color": "#e10a2c",
+  "categories": ["business", "productivity"],
+  "icons": [
+    { "src": "/mensagem-logo-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/mensagem-logo-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/mensagem-logo-maskable-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
+    { "src": "/mensagem-logo-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

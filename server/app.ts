@@ -22,7 +22,7 @@ import { contactsRouter } from './routes/contacts.js';
 import { kanbanRouter } from './routes/kanban.js';
 import { conversationsRouter } from './routes/conversations.js';
 import { teamRouter } from './routes/team.js';
-import { plansRouter } from './routes/plans.js';
+import { plansRouter, publicPlansRouter } from './routes/plans.js';
 import { integrationsRouter } from './routes/integrations.js';
 import { dashboardRouter } from './routes/dashboard.js';
 import { profileRouter, orgRouter, auditRouter } from './routes/misc.js';
@@ -63,6 +63,7 @@ export function createApp() {
   app.use('/api', loadSession, csrfProtection);
 
   app.use('/api/auth', authRouter);
+  app.use('/api/public/plans', publicPlansRouter); // vitrine de planos, sem login
   app.use('/api/profile', profileRouter);
   app.use('/api/master', requireSuperAdmin, masterRouter);
   app.use('/api/org', requireOrg, orgRouter);
@@ -85,8 +86,22 @@ export function createApp() {
   const here = path.dirname(fileURLToPath(import.meta.url));
   const candidates = [path.resolve(here, '../web'), path.resolve(here, '../../dist/web'), path.resolve(process.cwd(), 'dist/web')];
   const webDir = candidates.find((p) => existsSync(path.join(p, 'index.html')));
+  // Digital Asset Links para um futuro app TWA na Play Store (defina TWA_ASSETLINKS com o JSON gerado pelo Bubblewrap).
+  app.get('/.well-known/assetlinks.json', (_req, res) => {
+    const raw = process.env.TWA_ASSETLINKS;
+    if (!raw) return void res.status(404).json([]);
+    try { res.type('application/json').send(JSON.stringify(JSON.parse(raw))); } catch { res.status(500).json([]); }
+  });
   if (webDir) {
-    app.use(express.static(webDir, { index: false, maxAge: '1h' }));
+    app.use(express.static(webDir, {
+      index: false, maxAge: '1h',
+      setHeaders: (res, file) => {
+        // Service worker e manifests sempre revalidados, para atualizações do PWA chegarem logo.
+        if (/(sw\.js|\.webmanifest)$/.test(file)) res.setHeader('Cache-Control', 'no-cache');
+        if (file.endsWith('.webmanifest')) res.setHeader('Content-Type', 'application/manifest+json');
+        if (file.endsWith('sw.js')) res.setHeader('Service-Worker-Allowed', '/');
+      },
+    }));
     // MCK Mensagens: app separado (entrada própria) servido em /mensagem e /mensagem/*.
     const mensagemHtml = path.join(webDir, 'mensagem.html');
     if (existsSync(mensagemHtml)) app.get(['/mensagem', '/mensagem/*'], (_req, res) => res.sendFile(mensagemHtml));

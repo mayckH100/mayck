@@ -1,13 +1,20 @@
 import { useState, type FormEvent, type ReactNode } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { post } from '../../api';
 import { useAuth } from '../../auth';
 import { Field } from '../../ui';
 import { MCKBOT_URL } from '../common';
+import { InstallButton } from '../../pwa';
+import { PlansShowcase, ForgotPassword, ResetPassword, VerifyEmail } from '../../pages/PublicAuth';
 
 export function MmBrand() {
   return <div className="mm-brand"><img src="/mensagem-logo.svg" alt="" /> MCK Mensagens</div>;
 }
+
+export const MmForgot = () => <ForgotPassword app="mensagem" Wrap={AuthLayout} Brand={MmBrand} />;
+export const MmReset = () => <ResetPassword app="mensagem" Wrap={AuthLayout} Brand={MmBrand} />;
+export const MmVerify = () => <VerifyEmail Wrap={AuthLayout} Brand={MmBrand} />;
+const PLAN_NAME: Record<string, string> = { MCKBOT: 'MCKBOT', MCKMENSAGEM: 'MCK Mensagens', COMBO: 'Combo MCKBOT + MCK Mensagens' };
 
 function AuthLayout({ children }: { children: ReactNode }) {
   return (
@@ -42,6 +49,7 @@ export function MmLogin() {
     try { setMe(await post('/auth/login', { email, password })); nav('/'); } catch (err) { setError((err as Error).message); } finally { setBusy(false); }
   };
   return (
+    <>
     <AuthLayout>
       <form className="card stack" onSubmit={submit}>
         <MmBrand />
@@ -49,24 +57,32 @@ export function MmLogin() {
         {error && <div className="alert err" role="alert">{error}</div>}
         <Field label="E-mail"><input type="email" autoComplete="email" required value={email} onChange={(e) => setEmail(e.target.value)} /></Field>
         <Field label="Senha"><input type="password" autoComplete="current-password" required value={password} onChange={(e) => setPassword(e.target.value)} /></Field>
+        <div style={{ textAlign: 'right', marginTop: -6 }}><Link to="/esqueci-senha" className="small">Esqueci minha senha</Link></div>
         <button className="btn primary" disabled={busy}>{busy ? 'Entrando…' : 'Entrar'}</button>
         <p className="small muted" style={{ textAlign: 'center' }}>Ainda não tem conta? <Link to="/cadastro">Criar conta grátis</Link></p>
-        <p className="small" style={{ textAlign: 'center' }}><a href={MCKBOT_URL}>Ir para MCKBOT</a></p>
+        <div className="row" style={{ justifyContent: 'center', gap: 12, flexWrap: 'wrap' }}>
+          <InstallButton appName="MCK Mensagens" />
+          <a href={MCKBOT_URL} className="small">Ir para MCKBOT</a>
+        </div>
       </form>
     </AuthLayout>
+    <div className="mm-plans"><PlansShowcase highlight="MCKMENSAGEM" /></div>
+    </>
   );
 }
 
 export function MmRegister() {
   const { setMe } = useAuth();
   const nav = useNavigate();
+  const [sp] = useSearchParams();
+  const plano = sp.get('plano');
   const [f, setF] = useState({ name: '', email: '', password: '', orgName: '' });
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     setBusy(true); setError('');
-    try { setMe(await post('/auth/register', f)); nav('/'); } catch (err) { setError((err as Error).message); } finally { setBusy(false); }
+    try { setMe(await post('/auth/register', { ...f, app: 'mensagem' })); nav(plano && PLAN_NAME[plano] ? '/assinatura' : '/'); } catch (err) { setError((err as Error).message); } finally { setBusy(false); }
   };
   const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement>) => setF({ ...f, [k]: e.target.value });
   return (
@@ -74,6 +90,7 @@ export function MmRegister() {
       <form className="card stack" onSubmit={submit}>
         <MmBrand />
         <h2 style={{ textAlign: 'center' }}>Criar conta</h2>
+        {plano && PLAN_NAME[plano] && <div className="alert info">Plano escolhido: <strong>{PLAN_NAME[plano]}</strong>. Você começa no teste grátis e assina quando quiser, em Assinatura.</div>}
         {error && <div className="alert err" role="alert">{error}</div>}
         <Field label="Seu nome"><input required minLength={2} value={f.name} onChange={set('name')} autoComplete="name" /></Field>
         <Field label="E-mail"><input type="email" required value={f.email} onChange={set('email')} autoComplete="email" /></Field>
