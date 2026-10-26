@@ -5,6 +5,16 @@ export class ApiError extends Error {
   constructor(message: string, public status: number, public details?: unknown) { super(message); }
 }
 
+const FRIENDLY: Record<number, string> = {
+  402: 'Sua assinatura está inativa. Regularize em Plano para continuar usando este recurso.',
+  403: 'Você não tem permissão para acessar este recurso.',
+  404: 'Não encontrado.',
+  429: 'Muitas tentativas. Aguarde um pouco e tente de novo.',
+  500: 'Erro interno do servidor. Tente novamente em instantes.',
+  502: 'O serviço externo não respondeu. Tente novamente em instantes.',
+  503: 'Serviço indisponível no momento.',
+};
+
 export async function api<T = any>(path: string, opts: { method?: string; body?: unknown } = {}): Promise<T> {
   const method = opts.method ?? 'GET';
   const headers: Record<string, string> = {};
@@ -22,8 +32,10 @@ export async function api<T = any>(path: string, opts: { method?: string; body?:
   const data = await res.json().catch(() => null);
   if (!res.ok) {
     if (res.status === 401 && !path.startsWith('/auth/')) window.dispatchEvent(new Event('mck:unauthorized'));
+    // 402 = assinatura inativa (vencida/bloqueada): avisa o app para mostrar o banner e levar à Assinatura.
+    if (res.status === 402) window.dispatchEvent(new CustomEvent('mck:payment-required', { detail: data?.error ?? null }));
     const details = data?.details;
-    let msg = data?.error ?? `Erro ${res.status}`;
+    let msg = data?.error ?? FRIENDLY[res.status] ?? `Erro ${res.status}`;
     if (Array.isArray(details) && details.length) msg += ': ' + details.join('; ');
     else if (details?.fieldErrors) {
       const f = Object.entries(details.fieldErrors as Record<string, string[]>).map(([k, v]) => `${k}: ${v.join(', ')}`);
