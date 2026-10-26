@@ -1,6 +1,7 @@
 import { prisma } from '../db.js';
 import { sendOutbound } from '../whatsapp/messaging.js';
 import { TZ } from './constants.js';
+import { isProductActive } from '../billing/service.js';
 import type { Campaign, Lead } from '@prisma/client';
 
 type Sender = typeof sendOutbound;
@@ -40,7 +41,7 @@ export function personalize(message: string, lead: Pick<Lead, 'name'>): string {
   return message.replace(/\{\s*nome\s*\}/gi, first).replace(/[ \t]+([,.!?])/g, '$1').replace(/[ \t]{2,}/g, ' ').trim();
 }
 
-export type TickResult = { campaignId: string; action: 'sent' | 'failed' | 'skipped' | 'outside_window' | 'daily_limit' | 'waiting_interval' | 'completed' }[];
+export type TickResult = { campaignId: string; action: 'sent' | 'failed' | 'skipped' | 'outside_window' | 'daily_limit' | 'waiting_interval' | 'completed' | 'subscription_inactive' }[];
 
 /** Um passo do disparador: no máximo um envio por campanha EM_ANDAMENTO por chamada. */
 export async function tick(now = new Date()): Promise<TickResult> {
@@ -57,6 +58,8 @@ export async function tick(now = new Date()): Promise<TickResult> {
 }
 
 async function stepCampaign(c: Campaign, now: Date): Promise<TickResult[number]['action']> {
+  // Assinatura do MCKMENSAGEM inativa: pausa sem consumir destinatários (retoma ao renovar).
+  if (!(await isProductActive(c.orgId, 'MCKMENSAGEM'))) return 'subscription_inactive';
   if (!inWindow(c, now)) return 'outside_window';
   const { dayStart } = localClock(now);
   const sentToday = await prisma.campaignRecipient.count({ where: { campaignId: c.id, status: 'ENVIADA', sentAt: { gte: dayStart } } });
@@ -112,7 +115,7 @@ async function sendToLead(c: Campaign, lead: Lead, recipientId: string, now: Dat
 
   let msg;
   try {
-    msg = await sender({ conversation: conv, contact, payload: { type: 'text', text: personalize(c.message, lead) }, sender: 'bot' });
+    msg = await sender({ conversation: conv, contact, payload: { type: 'text', text: personalize(c.message, lead) }, sender: 'bot', product: 'MCKMENSAGEM' });
   } catch (e) {
     await prisma.campaignRecipient.update({ where: { id: recipientId }, data: { status: 'FALHOU', error: (e as Error).message?.slice(0, 500) || 'Erro no envio' } });
     return false;

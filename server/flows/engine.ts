@@ -7,6 +7,7 @@ import { httpFetch } from '../lib/fetcher.js';
 import { decryptOrNull } from '../lib/crypto.js';
 import { sendOutbound, handoffToHuman } from '../whatsapp/messaging.js';
 import { generateAiReply } from '../ai/service.js';
+import { isProductActive } from '../billing/service.js';
 import {
   type FlowGraph, type FlowNode, type Trigger, matchTriggers, evaluateCondition, matchMenuOption, validateAnswer, nextNodeId,
 } from './logic.js';
@@ -388,6 +389,8 @@ export async function findMatchingFlow(orgId: string, text: string, isFirst: boo
  * 1) retomar fluxo que aguarda resposta; 2) iniciar fluxo por gatilho; 3) IA automática; 4) nada.
  */
 export async function automateInbound(conv: Conversation, contact: Contact, message: Message, opts: { isFirst: boolean; replyId?: string }) {
+  // Assinatura do MCKBOT inativa: a mensagem já foi gravada, mas nenhuma automação roda.
+  if (!(await isProductActive(conv.orgId, 'MCKBOT'))) return 'subscription_inactive' as const;
   const text = message.body ?? '';
   const waiting = await prisma.flowRun.findFirst({ where: { conversationId: conv.id, status: 'WAITING', waitType: 'reply' }, orderBy: { startedAt: 'desc' } });
   if (waiting) {

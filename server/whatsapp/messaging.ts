@@ -4,6 +4,7 @@ import { sendCloudMessage, GraphApiError, type OutboundPayload } from './cloudCl
 import { qrManager } from './qr/manager.js';
 import { numberedOptions } from './qr/parse.js';
 import { assertPublicUrl } from '../lib/ssrf.js';
+import { isProductActive, type Product } from '../billing/service.js';
 import type { Channel, Conversation, Contact, Message } from '@prisma/client';
 
 export const PROVIDER_CLOUD = 'whatsapp_cloud';
@@ -54,6 +55,8 @@ export async function sendOutbound(args: {
   payload: OutboundPayload;
   sender: 'bot' | 'ai' | 'agent' | 'system';
   authorUserId?: string;
+  /** App que está enviando (cobrança por produto). Padrão: MCKBOT. */
+  product?: Product;
 }): Promise<Message> {
   const { conversation, contact, payload, sender } = args;
   const channel = await resolveChannel(conversation);
@@ -68,6 +71,7 @@ export async function sendOutbound(args: {
   const fail = async (error: string, attempts = 0) =>
     prisma.message.update({ where: { id: msg.id }, data: { status: 'FAILED', error, attempts } });
 
+  if (!(await isProductActive(conversation.orgId, args.product ?? 'MCKBOT'))) return fail('Assinatura inativa');
   if (contact.optOut && sender !== 'agent') return fail('Contato pediu para não receber mensagens automáticas (opt-out)');
   if (qr) return sendViaQr(channel!, conversation, contact, payload, msg, fail);
   const accessToken = decryptOrNull(channel?.accessTokenEnc);
