@@ -157,3 +157,41 @@ Cada app tem assinatura própria por organização (`MCKBOT` e `MCKMENSAGEM`) e 
 - URL do webhook (configurar em *Suas integrações → Webhooks*, evento **Pagamentos**): `https://<host>/api/billing/mp/webhook`. A preferência já envia `notification_url` automaticamente.
 - Endpoints: `GET /api/billing/status`, `POST /api/billing/checkout {product, cycle}`, `POST /api/billing/confirm {paymentId}`, `POST /api/billing/mp/webhook` (público).
 - Bloqueio: com `MCKBOT` inativo (vencido/bloqueado) nenhuma mensagem sai e a automação não roda (as recebidas continuam gravadas); com `MCKMENSAGEM` inativo as campanhas ficam paradas sem consumir destinatários.
+
+## Painel Master (superadmin) — backend
+
+O painel Master (`/api/master/*`) é exclusivo do administrador da plataforma (`User.isSuperAdmin = true`).
+Dono (OWNER) de organização **não** tem acesso: recebe 403.
+
+### Tornar-se superadmin
+
+1. Crie sua conta normalmente pelo cadastro do app.
+2. Rode, com a string de conexão do Neon (a mesma `DATABASE_URL` do Render):
+
+```bash
+DATABASE_URL='postgresql://...' node scripts/make-superadmin.mjs seu@email.com
+# revogar: node scripts/make-superadmin.mjs seu@email.com --revoke
+```
+
+Alternativa pelo SQL Editor do Neon:
+
+```sql
+UPDATE "User" SET "isSuperAdmin" = true WHERE email = 'seu@email.com';
+```
+
+Saia e entre de novo no app (ou recarregue): `GET /api/auth/me` passa a trazer `isSuperAdmin: true`.
+
+### Endpoints (todos exigem sessão de superadmin; POST/PUT exigem os cabeçalhos CSRF habituais)
+
+| Método | Rota | Uso |
+|---|---|---|
+| GET | `/api/master/dashboard` | clientes, assinaturas por status/produto, faturamento do mês/total, MRR, receita 12 meses, últimos 10 pagamentos |
+| GET | `/api/master/clients?q=&status=&product=&page=` | lista de clientes (20 por página) |
+| GET | `/api/master/clients/:orgId` | detalhes + eventos de cobrança + últimas 50 auditorias |
+| POST | `/api/master/clients/:orgId/actions` | `renew` · `set-date` · `block` · `unblock` · `activate` · `deactivate` |
+| POST | `/api/master/users/:userId` | `{ disabled?, isSuperAdmin? }` — desativar usuário derruba as sessões e bloqueia o login |
+| GET | `/api/master/payments?page=` | todos os eventos de cobrança |
+| GET | `/api/master/activity?page=` | auditoria global |
+| GET/PUT | `/api/master/settings` | preços (centavos), dias de teste, segredo do webhook MP (salvo cifrado, exibido mascarado) |
+
+Migração `0005_user_disabled` adiciona `User.disabledAt` (aplicada automaticamente no `npm start`).
