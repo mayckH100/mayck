@@ -86,6 +86,9 @@ export function createApp() {
   const webDir = candidates.find((p) => existsSync(path.join(p, 'index.html')));
   if (webDir) {
     app.use(express.static(webDir, { index: false, maxAge: '1h' }));
+    // MCK Mensagens: app separado (entrada própria) servido em /mensagem e /mensagem/*.
+    const mensagemHtml = path.join(webDir, 'mensagem.html');
+    if (existsSync(mensagemHtml)) app.get(['/mensagem', '/mensagem/*'], (_req, res) => res.sendFile(mensagemHtml));
     app.get('*', (_req, res) => res.sendFile(path.join(webDir, 'index.html')));
   }
 

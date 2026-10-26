@@ -105,6 +105,7 @@ function Shell({ children }: { children: ReactNode }) {
           ))}
         </nav>
         <div className="side-foot" onClick={(e) => e.stopPropagation()}>
+          {can('OWNER', 'ADMIN') && <a href="/mensagem/" className="btn sm" style={{ background: '#5b3fd6', borderColor: '#5b3fd6', color: '#fff', textDecoration: 'none' }}>Ir para MCK Mensagens ↗</a>}
           <label className="small" htmlFor="org-sel">Organização</label>
           <select id="org-sel" value={me?.org?.id} onChange={(e) => switchOrg(e.target.value)}>
             {me?.orgs.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}

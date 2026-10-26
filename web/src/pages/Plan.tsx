@@ -5,13 +5,13 @@ import { useAuth, type SubscriptionView, type SubStatus } from '../auth';
 import { useApi, Async, Loading, useAction } from '../ui';
 import { CYCLE_LABEL, PLAN_PRODUCTS, PRODUCT_LABEL, SubBadge, daysLeft, fmtBRL, fmtDay, type Cycle, type PlanProduct } from '../billing';
 
-interface BillingStatus {
+export interface BillingStatus {
   subscriptions: SubscriptionView[];
   prices: Record<PlanProduct, Record<Cycle, number>>;
   trialDays: number;
   configured: boolean;
 }
-interface ConfirmResult { ok: boolean; renewed: boolean; duplicated?: boolean; reason?: string; subscriptions: SubscriptionView[] }
+export interface ConfirmResult { ok: boolean; renewed: boolean; duplicated?: boolean; reason?: string; subscriptions: SubscriptionView[] }
 
 const DESC: Record<PlanProduct, string> = {
   MCKBOT: 'Automação de atendimento no WhatsApp: Inbox, fluxos, Kanban e IA.',
@@ -19,7 +19,7 @@ const DESC: Record<PlanProduct, string> = {
   COMBO: 'Os dois produtos juntos, com desconto. Renova MCKBOT e MCKMENSAGEM de uma vez.',
 };
 
-function reasonText(r: ConfirmResult): { kind: 'ok' | 'warn' | 'err'; text: string } {
+export function reasonText(r: ConfirmResult): { kind: 'ok' | 'warn' | 'err'; text: string } {
   if (r.renewed) return { kind: 'ok', text: 'Pagamento aprovado! Sua assinatura foi renovada.' };
   if (r.duplicated) return { kind: 'ok', text: 'Este pagamento já tinha sido confirmado. Sua assinatura está atualizada.' };
   const reason = r.reason ?? '';
@@ -33,7 +33,7 @@ function reasonText(r: ConfirmResult): { kind: 'ok' | 'warn' | 'err'; text: stri
 }
 
 /** Status do combo: o "pior" dos dois produtos e a menor validade. */
-function comboView(subs: SubscriptionView[]): { status: SubStatus; validUntil: string } | null {
+export function comboView(subs: SubscriptionView[]): { status: SubStatus; validUntil: string } | null {
   if (subs.length === 0) return null;
   const order: SubStatus[] = ['BLOQUEADA', 'VENCIDA', 'TRIAL', 'ATIVA'];
   const status = order.find((s) => subs.some((x) => x.status === s)) ?? 'ATIVA';
@@ -41,19 +41,19 @@ function comboView(subs: SubscriptionView[]): { status: SubStatus; validUntil: s
   return { status, validUntil };
 }
 
-function ProductCard({ product, sub, prices, configured }: { product: PlanProduct; sub: { status: SubStatus; validUntil: string; cycle?: string } | null; prices: Record<Cycle, number>; configured: boolean }) {
+export function ProductCard({ product, sub, prices, configured, app, desc, label }: { product: PlanProduct; sub: { status: SubStatus; validUntil: string; cycle?: string } | null; prices: Record<Cycle, number>; configured: boolean; app?: 'mckbot' | 'mensagem'; desc?: string; label?: string }) {
   const [cycle, setCycle] = useState<Cycle>('MENSAL');
   const { busy, run } = useAction();
   const left = sub ? daysLeft(sub.validUntil) : 0;
   const saving = prices.MENSAL * 12 - prices.ANUAL;
   const pay = async () => {
-    const r = await run(() => post<{ init_point: string }>('/billing/checkout', { product, cycle }));
+    const r = await run(() => post<{ init_point: string }>('/billing/checkout', app ? { product, cycle, app } : { product, cycle }));
     if (r?.init_point) window.location.href = r.init_point;
   };
   return (
     <div className="card stack" style={product === 'COMBO' ? { borderColor: 'var(--brand-2)' } : undefined}>
-      <div className="row between"><h2 style={{ margin: 0 }}>{PRODUCT_LABEL[product]}</h2>{sub && <SubBadge status={sub.status} />}</div>
-      <p className="small muted" style={{ margin: 0 }}>{DESC[product]}</p>
+      <div className="row between"><h2 style={{ margin: 0 }}>{label ?? PRODUCT_LABEL[product]}</h2>{sub && <SubBadge status={sub.status} />}</div>
+      <p className="small muted" style={{ margin: 0 }}>{desc ?? DESC[product]}</p>
       {sub && (
         <div className="small">
           {sub.status === 'BLOQUEADA' ? <>Acesso bloqueado pelo administrador. Fale com o suporte.</>

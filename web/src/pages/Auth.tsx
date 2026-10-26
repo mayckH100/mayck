@@ -30,6 +30,7 @@ export function Login() {
         <Field label="Senha"><input type="password" autoComplete="current-password" required value={password} onChange={(e) => setPassword(e.target.value)} /></Field>
         <button className="btn primary" disabled={busy}>{busy ? 'Entrando…' : 'Entrar'}</button>
         <p className="small muted" style={{ textAlign: 'center' }}>Ainda não tem conta? <Link to="/cadastro">Criar conta grátis</Link></p>
+        <p className="small" style={{ textAlign: 'center' }}><a href="/mensagem/login">Ir para MCK Mensagens</a></p>
       </form>
     </div>
   );
