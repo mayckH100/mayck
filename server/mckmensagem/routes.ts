@@ -7,8 +7,19 @@ import { audit } from '../lib/audit.js';
 import { parseJson } from '../lib/json.js';
 import { LEAD_STATUS, CONSENT_SOURCES, toE164 } from './constants.js';
 import type { Lead, Campaign } from '@prisma/client';
+import { isProductActive } from '../billing/service.js';
 
 export const mckmensagemRouter = Router();
+
+/**
+ * Assinatura MCK Mensagens: com o produto inativo (vencido/bloqueado), leitura e exportação continuam
+ * liberadas, mas qualquer escrita (criar/editar/excluir/importar/iniciar/pausar) responde 402.
+ */
+mckmensagemRouter.use(ah(async (req, _res, next) => {
+  if (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS') return next();
+  if (!(await isProductActive(orgOf(req), 'MCKMENSAGEM'))) throw new HttpError(402, 'Assinatura MCK Mensagens inativa');
+  next();
+}));
 
 const leadView = (l: Lead) => ({ ...l, tags: parseJson<string[]>(l.tags, []) });
 const tagsSchema = z.array(z.string().trim().min(1).max(40)).max(30);

@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'vitest';
 import { registerClient, Client, createTestChannel, installGraphMock, sendInbound, prisma } from '../helpers.js';
+import { block, unblock } from '../../server/billing/service.js';
 import { tick, setSender, setRandom, resetDispatcherState, personalize, inWindow } from '../../server/mckmensagem/dispatcher.js';
 
 // 2026-10-26 13:00 em São Paulo (UTC-3) = 16:00 UTC
@@ -172,5 +173,43 @@ describe('MCKMENSAGEM', () => {
     expect((await other.post(`/api/mckmensagem/campaigns/${camp.body.id}/start`, { leadIds: [lead.body.id] })).status).toBe(404);
     // Sem login: 401.
     expect((await new Client().get('/api/mckmensagem/leads')).status).toBe(401);
+  });
+  it('assinatura MCK Mensagens inativa: escrita/start bloqueados com 402, leitura e exportação liberadas', async () => {
+    const c = await registerClient();
+    const oid = c.me.org.id;
+    const ch = await createTestChannel(oid);
+    const lead = await c.post('/api/mckmensagem/leads', { phone: '5511966660000', name: 'Gate', consentSource: 'MANUAL' });
+    expect(lead.status).toBe(201);
+    const camp = await c.post('/api/mckmensagem/campaigns', { name: 'Gate', message: 'Oi {nome}', channelId: ch.ch.id });
+    expect(camp.status).toBe(201);
+    await block(oid, 'MCKMENSAGEM');
+    try {
+      const msg = 'Assinatura MCK Mensagens inativa';
+      const writes = [
+        await c.post('/api/mckmensagem/leads', { phone: '5511966660001', consentSource: 'MANUAL' }),
+        await c.patch(`/api/mckmensagem/leads/${lead.body.id}`, { name: 'X' }),
+        await c.post('/api/mckmensagem/leads/import', { text: '11966660002,Y', consentDeclared: true }),
+        await c.post('/api/mckmensagem/campaigns', { name: 'Nova', message: 'x', channelId: ch.ch.id }),
+        await c.patch(`/api/mckmensagem/campaigns/${camp.body.id}`, { name: 'Y' }),
+        await c.post(`/api/mckmensagem/campaigns/${camp.body.id}/start`, { leadIds: [lead.body.id] }),
+        await c.post(`/api/mckmensagem/campaigns/${camp.body.id}/pause`, {}),
+        await c.del(`/api/mckmensagem/leads/${lead.body.id}`),
+        await c.del(`/api/mckmensagem/campaigns/${camp.body.id}`),
+      ];
+      for (const r of writes) { expect(r.status).toBe(402); expect(r.body.error).toBe(msg); }
+      expect((await c.get('/api/mckmensagem/leads')).body.items).toHaveLength(1);
+      expect((await c.get(`/api/mckmensagem/leads/${lead.body.id}`)).status).toBe(200);
+      expect((await c.get('/api/mckmensagem/campaigns')).status).toBe(200);
+      expect((await c.get(`/api/mckmensagem/campaigns/${camp.body.id}`)).status).toBe(200);
+      expect((await c.get('/api/mckmensagem/metrics')).status).toBe(200);
+      const exp = await c.get('/api/mckmensagem/leads/export');
+      expect(exp.status).toBe(200);
+      expect(exp.text).toContain('+5511966660000');
+      // O MCKBOT continua funcionando normalmente (o gate é só do MCK Mensagens).
+      expect((await c.get('/api/channels')).status).toBe(200);
+    } finally {
+      await unblock(oid, 'MCKMENSAGEM');
+    }
+    expect((await c.patch(`/api/mckmensagem/leads/${lead.body.id}`, { name: 'Liberado' })).status).toBe(200);
   });
 });
