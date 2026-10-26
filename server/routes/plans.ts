@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { prisma } from '../db.js';
 import { ah } from '../lib/http.js';
 import { orgOf } from '../auth/session.js';
+import { billingConfigured } from '../billing/mercadopago.js';
 
 /**
  * Planos do MCKBOT. Não há cobrança integrada: a troca de plano depende de
@@ -19,5 +20,5 @@ plansRouter.get('/', ah(async (req, res) => {
   const [channels, members, flows] = await Promise.all([
     prisma.channel.count({ where: { orgId } }), prisma.membership.count({ where: { orgId } }), prisma.flow.count({ where: { orgId } }),
   ]);
-  res.json({ current: org.plan, plans: PLANS, usage: { channels, members, flows }, billingConfigured: false });
+  res.json({ current: org.plan, plans: PLANS, usage: { channels, members, flows }, billingConfigured: billingConfigured() });
 }));

@@ -10,6 +10,7 @@ import { prisma } from './db.js';
 import { errorHandler } from './lib/http.js';
 import { loadSession, csrfProtection, requireOrg, requireRole } from './auth/session.js';
 import { mckmensagemRouter } from './mckmensagem/routes.js';
+import { billingRouter, billingWebhookRouter } from './billing/routes.js';
 import { authRouter } from './auth/routes.js';
 import { webhookRouter } from './routes/webhook.js';
 import { channelsRouter } from './routes/channels.js';
@@ -39,6 +40,8 @@ export function createApp() {
 
   // Webhook antes do JSON parser: precisa do corpo bruto para validar a assinatura.
   app.use('/api/webhooks', webhookRouter);
+  // Webhook do Mercado Pago: público (sem sessão/CSRF), validado por assinatura + consulta à API.
+  app.use('/api/billing/mp/webhook', rateLimit({ windowMs: 60 * 1000, limit: 120, standardHeaders: 'draft-7', legacyHeaders: false }), billingWebhookRouter);
 
   // Health check leve (não toca no banco — permite o Postgres grátis do Neon escalar a zero).
   app.get('/api/health', (_req, res) => res.json({ ok: true }));
@@ -68,6 +71,7 @@ export function createApp() {
   app.use('/api/conversations', requireOrg, conversationsRouter);
   app.use('/api/team', requireOrg, teamRouter);
   app.use('/api/plans', requireOrg, plansRouter);
+  app.use('/api/billing', requireOrg, billingRouter);
   app.use('/api/integrations', requireOrg, integrationsRouter);
   app.use('/api/audit', requireOrg, auditRouter);
   app.use('/api/mckmensagem', requireOrg, requireRole('OWNER', 'ADMIN'), mckmensagemRouter);
