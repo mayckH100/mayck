@@ -84,6 +84,7 @@ export async function createPreference(input: { orgId: string; product: PlanProd
     items: [{ id: `${input.product}-${input.cycle}`, title: input.title, quantity: 1, currency_id: 'BRL', unit_price: Math.round(input.amountCents) / 100 }],
     external_reference: buildReference(input.orgId, input.product, input.cycle),
     notification_url: `${input.baseUrl}/api/billing/mp/webhook`,
+    statement_descriptor: 'MCKBOT',
     back_urls: {
       success: `${input.baseUrl}${input.returnPath ?? '/'}?billing=success`,
       pending: `${input.baseUrl}${input.returnPath ?? '/'}?billing=pending`,
