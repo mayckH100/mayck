@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { Routes, Route, Navigate, NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth, ROLE_LABEL, type Role } from './auth';
 import { post } from './api';
@@ -19,8 +19,10 @@ import Plan from './pages/Plan';
 import Audit from './pages/Audit';
 import Profile from './pages/Profile';
 import Guide from './pages/Guide';
+import Master from './pages/Master';
+import { STATUS_LABEL, fmtDay } from './billing';
 
-const NAV: { to: string; label: string; icon: string; roles?: Role[]; sep?: string }[] = [
+const NAV: { to: string; label: string; icon: string; roles?: Role[]; sep?: string; superAdmin?: boolean }[] = [
   { to: '/', label: 'Visão geral', icon: '◧' },
   { to: '/inbox', label: 'Inbox', icon: '✉', sep: 'Atendimento' },
   { to: '/kanban', label: 'Kanban', icon: '▦' },
@@ -35,7 +37,46 @@ const NAV: { to: string; label: string; icon: string; roles?: Role[]; sep?: stri
   { to: '/auditoria', label: 'Auditoria', icon: '☰', roles: ['OWNER', 'ADMIN'] },
   { to: '/perfil', label: 'Perfil', icon: '☻', sep: 'Conta' },
   { to: '/boas-praticas', label: 'Boas práticas', icon: '?' },
+  { to: '/master', label: 'Painel Master', icon: '♛', sep: 'Plataforma', superAdmin: true },
 ];
+
+/** Aviso quando o MCKBOT está vencido/bloqueado ou a API respondeu 402. */
+function SubscriptionBanner() {
+  const { me, refresh } = useAuth();
+  const loc = useLocation();
+  const [apiMsg, setApiMsg] = useState<string | null>(null);
+  useEffect(() => {
+    const h = (e: Event) => { setApiMsg((e as CustomEvent).detail ?? 'Sua assinatura está inativa.'); refresh(); };
+    window.addEventListener('mck:payment-required', h);
+    return () => window.removeEventListener('mck:payment-required', h);
+  }, []);
+  if (loc.pathname.startsWith('/plano') || loc.pathname.startsWith('/master')) return null;
+  const sub = me?.subscriptions?.find((s) => s.product === 'MCKBOT');
+  const inactive = sub && !sub.active;
+  if (!inactive && !apiMsg) return null;
+  const text = inactive
+    ? sub!.status === 'BLOQUEADA'
+      ? <>Sua assinatura do <strong>MCKBOT</strong> está <strong>bloqueada</strong>. Os robôs e fluxos ficam parados até a regularização.</>
+      : <>Sua assinatura do <strong>MCKBOT</strong> está <strong>{STATUS_LABEL[sub!.status].toLowerCase()}</strong> desde {fmtDay(sub!.validUntil)}. Renove para continuar usando os robôs e fluxos.</>
+    : <>{apiMsg}</>;
+  return (
+    <div className="alert err row between" role="alert" style={{ margin: '12px 24px 0', borderRadius: 10 }}>
+      <span>{text}</span>
+      <NavLink to="/plano" className="btn sm primary" style={{ color: '#fff', textDecoration: 'none' }}>{sub?.status === 'BLOQUEADA' ? 'Ver assinatura' : 'Renovar agora'}</NavLink>
+    </div>
+  );
+}
+
+/** O Mercado Pago devolve para "/?billing=…&payment_id=…": leva para a tela de Assinatura. */
+function BillingReturnRedirect() {
+  const loc = useLocation();
+  const nav = useNavigate();
+  useEffect(() => {
+    const q = new URLSearchParams(loc.search);
+    if (loc.pathname !== '/plano' && (q.has('billing') || q.has('payment_id') || q.has('collection_id'))) nav(`/plano${loc.search}`, { replace: true });
+  }, [loc.pathname, loc.search]);
+  return null;
+}
 
 function Shell({ children }: { children: ReactNode }) {
   const { me, setMe, logout, can } = useAuth();
@@ -56,7 +97,7 @@ function Shell({ children }: { children: ReactNode }) {
       <aside className={`sidebar ${open ? 'open' : ''}`} onClick={() => setOpen(false)}>
         <div className="brand"><img src="/logo.svg" alt="" /> MCKBOT</div>
         <nav className="nav">
-          {NAV.filter((n) => !n.roles || can(...n.roles)).map((n) => (
+          {NAV.filter((n) => (!n.roles || can(...n.roles)) && (!n.superAdmin || me?.isSuperAdmin)).map((n) => (
             <div key={n.to}>
               {n.sep && <div className="sep">{n.sep}</div>}
               <NavLink to={n.to} end={n.to === '/'} className={({ isActive }) => (isActive ? 'active' : '')}><span aria-hidden>{n.icon}</span>{n.label}</NavLink>
@@ -88,6 +129,8 @@ function Shell({ children }: { children: ReactNode }) {
             WhatsApp <strong>não conectado</strong>: nenhuma mensagem será enviada até você configurar a WhatsApp Cloud API. <NavLink to="/canais">Configurar canal →</NavLink>
           </div>
         )}
+        <SubscriptionBanner />
+        <BillingReturnRedirect />
         <main className="content">{children}</main>
       </div>
     </div>
@@ -136,6 +179,9 @@ export default function App() {
             <Route path="/relatorios" element={<Reports />} />
             <Route path="/equipe" element={<Team />} />
             <Route path="/plano" element={<Plan />} />
+            <Route path="/assinatura" element={<Navigate to="/plano" replace />} />
+            <Route path="/master" element={<Master />} />
+            <Route path="/master/clientes/:orgId" element={<Master />} />
             <Route path="/auditoria" element={<Audit />} />
             <Route path="/perfil" element={<Profile />} />
             <Route path="/boas-praticas" element={<Guide />} />
