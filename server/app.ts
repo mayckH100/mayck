@@ -12,6 +12,7 @@ import { loadSession, csrfProtection, requireOrg, requireRole, requireSuperAdmin
 import { masterRouter } from './routes/master.js';
 import { mckmensagemRouter } from './mckmensagem/routes.js';
 import { billingRouter, billingWebhookRouter } from './billing/routes.js';
+import { requireMckbotForWrites } from './billing/guard.js';
 import { authRouter } from './auth/routes.js';
 import { webhookRouter } from './routes/webhook.js';
 import { channelsRouter } from './routes/channels.js';
@@ -66,15 +67,15 @@ export function createApp() {
   app.use('/api/master', requireSuperAdmin, masterRouter);
   app.use('/api/org', requireOrg, orgRouter);
   app.use('/api/channels', requireOrg, channelsRouter);
-  app.use('/api/flows', requireOrg, flowsRouter);
-  app.use('/api/ai', requireOrg, aiRouter);
-  app.use('/api/contacts', requireOrg, contactsRouter);
-  app.use('/api/kanban', requireOrg, kanbanRouter);
+  app.use('/api/flows', requireOrg, requireMckbotForWrites, flowsRouter);
+  app.use('/api/ai', requireOrg, requireMckbotForWrites, aiRouter);
+  app.use('/api/contacts', requireOrg, requireMckbotForWrites, contactsRouter);
+  app.use('/api/kanban', requireOrg, requireMckbotForWrites, kanbanRouter);
   app.use('/api/conversations', requireOrg, conversationsRouter);
   app.use('/api/team', requireOrg, teamRouter);
   app.use('/api/plans', requireOrg, plansRouter);
   app.use('/api/billing', requireOrg, billingRouter);
-  app.use('/api/integrations', requireOrg, integrationsRouter);
+  app.use('/api/integrations', requireOrg, requireMckbotForWrites, integrationsRouter);
   app.use('/api/audit', requireOrg, auditRouter);
   app.use('/api/mckmensagem', requireOrg, requireRole('OWNER', 'ADMIN'), mckmensagemRouter);
   app.use('/api', requireOrg, dashboardRouter);

@@ -237,3 +237,50 @@ describe('Cobrança Mercado Pago por produto', () => {
     setRandom(null);
   });
 });
+
+describe('Vencimento, estorno e bloqueio de escrita do MCKBOT', () => {
+  let owner: Client; let orgId: string;
+  beforeAll(async () => {
+    installGraphMock();
+    process.env.MP_ACCESS_TOKEN = 'TEST-token-mp';
+    graph.other = async (url) => {
+      const m = url.match(/^https:\/\/api\.mercadopago\.com\/v1\/payments\/(\d+)$/);
+      if (m) { const p = mp.payments.get(m[1]); return p ? new Response(JSON.stringify(p), { status: 200 }) : new Response('{}', { status: 404 }); }
+      return null;
+    };
+    await updateSettings({ mpWebhookSecret: null });
+    owner = await registerClient(); orgId = owner.me.org.id;
+  });
+  afterAll(() => { delete process.env.MP_ACCESS_TOKEN; graph.other = null; });
+  const sub = () => prisma.subscription.findUniqueOrThrow({ where: { orgId_product: { orgId, product: 'MCKBOT' } } });
+
+  it('vencido: escrita do MCKBOT → 402, leitura ok; pagamento aprovado reativa; estorno desfaz e corta de novo', async () => {
+    await owner.get('/api/billing/status');
+    await prisma.subscription.update({ where: { orgId_product: { orgId, product: 'MCKBOT' } }, data: { validUntil: new Date(Date.now() - DAY) } });
+    expect(effectiveStatus(await sub())).toBe('VENCIDA');
+    expect((await owner.post('/api/contacts', { name: 'X', phone: '5511999990000' })).status).toBe(402);
+    expect((await owner.get('/api/contacts')).status).toBe(200);
+
+    const id = newPay({ status: 'approved', external_reference: `mckbot|${orgId}|MCKBOT|MENSAL`, transaction_amount: 39.9 });
+    expect((await webhook(id)).body.renewed).toBe(true);
+    expect(effectiveStatus(await sub())).toBe('ATIVA');
+    expect((await owner.post('/api/contacts', { name: 'X', phone: '5511999990000' })).status).not.toBe(402);
+
+    mp.payments.get(id)!.status = 'refunded';
+    const r = await webhook(id);
+    expect(r.body.revoked).toBe(true);
+    expect(effectiveStatus(await sub())).toBe('VENCIDA');
+    expect((await webhook(id)).body.revoked).toBe(false); // idempotente
+    expect((await owner.post('/api/contacts', { name: 'Y', phone: '5511999990001' })).status).toBe(402);
+  });
+
+  it('Pix pendente não ativa; quando aprova, ativa', async () => {
+    await prisma.subscription.update({ where: { orgId_product: { orgId, product: 'MCKBOT' } }, data: { validUntil: new Date(Date.now() - DAY) } });
+    const id = newPay({ status: 'pending', external_reference: `mckbot|${orgId}|MCKBOT|MENSAL`, transaction_amount: 39.9 });
+    expect((await webhook(id)).body.renewed).toBe(false);
+    expect(effectiveStatus(await sub())).toBe('VENCIDA');
+    mp.payments.get(id)!.status = 'approved';
+    expect((await webhook(id)).body.renewed).toBe(true);
+    expect(effectiveStatus(await sub())).toBe('ATIVA');
+  });
+});

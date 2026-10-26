@@ -4,12 +4,12 @@ import { prisma } from '../db.js';
 import { ah, badRequest, HttpError } from '../lib/http.js';
 import { orgOf } from '../auth/session.js';
 import { audit } from '../lib/audit.js';
-import { PRODUCTS, PRODUCT_LABEL, CYCLES, PLAN_PRODUCTS, getSettings, getSubscriptionView, getWebhookSecret, renew } from './service.js';
+import { PRODUCTS, PRODUCT_LABEL, CYCLES, PLAN_PRODUCTS, getSettings, getSubscriptionView, getWebhookSecret, renew, revokePayment } from './service.js';
 import { billingConfigured, createPreference, getPayment, MpError, mpFriendly, parseReference, verifySignature } from './mercadopago.js';
 
 const baseUrlOf = (req: Request) => `${req.protocol}://${req.get('host')}`;
 
-export type ProcessResult = { ok: boolean; renewed: boolean; duplicated?: boolean; reason?: string; orgId?: string };
+export type ProcessResult = { ok: boolean; renewed: boolean; duplicated?: boolean; revoked?: boolean; reason?: string; orgId?: string };
 
 /**
  * Confirma um pagamento SEMPRE consultando a API do Mercado Pago (nunca confia no corpo do aviso).
@@ -20,6 +20,11 @@ export async function processPayment(paymentId: string, expectedOrgId?: string):
   const ref = parseReference(pay.external_reference);
   if (!ref) return { ok: false, renewed: false, reason: 'referencia_invalida' };
   if (expectedOrgId && ref.orgId !== expectedOrgId) return { ok: false, renewed: false, reason: 'outra_organizacao' };
+  if (['refunded', 'charged_back', 'cancelled'].includes(pay.status)) {
+    const rv = await revokePayment(String(pay.id), pay.status);
+    if (rv.revoked) await audit(null, 'billing.mp.estornado', { orgId: ref.orgId, entity: 'payment', entityId: String(pay.id), meta: { status: pay.status } });
+    return { ok: true, renewed: false, revoked: rv.revoked, reason: `status_${pay.status}`, orgId: ref.orgId };
+  }
   if (pay.status !== 'approved') return { ok: true, renewed: false, reason: `status_${pay.status || 'desconhecido'}`, orgId: ref.orgId };
   const org = await prisma.organization.findUnique({ where: { id: ref.orgId } });
   if (!org) return { ok: false, renewed: false, reason: 'organizacao_inexistente' };
@@ -100,7 +105,7 @@ billingWebhookRouter.post('/', ah(async (req, res) => {
   if (!dataId || !/^\d{1,30}$/.test(dataId) || !billingConfigured()) return res.status(200).json({ ok: true, ignored: true });
   try {
     const r = await processPayment(dataId);
-    return res.status(200).json({ ok: true, renewed: r.renewed, duplicated: !!r.duplicated, reason: r.reason });
+    return res.status(200).json({ ok: true, renewed: r.renewed, duplicated: !!r.duplicated, revoked: !!r.revoked, reason: r.reason });
   } catch (e) {
     if (e instanceof MpError && e.status === 404) return res.status(200).json({ ok: true, ignored: true });
     // Credencial/requisição recusada (400/401/403 etc.): repetir não resolve — responde 200 para não gerar reenvio infinito.

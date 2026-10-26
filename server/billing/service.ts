@@ -154,6 +154,35 @@ export async function renew(orgId: string, product: PlanProduct, cycle: Cycle, o
   }
 }
 
+/**
+ * Estorno/chargeback/cancelamento de um pagamento que já renovou: desfaz o ciclo pago.
+ * Idempotente (evento único "<id>-estorno"). Se o novo vencimento ficar no passado, o plano
+ * passa a VENCIDA na hora e o acesso é cortado.
+ */
+export async function revokePayment(mpPaymentId: string, reason: string) {
+  const ev = await prisma.billingEvent.findUnique({ where: { mpPaymentId } });
+  if (!ev || ev.kind !== 'MP' || !isPlanProduct(ev.product) || !isCycle(ev.cycle)) return { revoked: false as const, reason: 'sem_renovacao' };
+  const products = productsOf(ev.product);
+  try {
+    return await prisma.$transaction(async (tx) => {
+      await tx.billingEvent.create({ data: { orgId: ev.orgId, product: ev.product, kind: 'MP_ESTORNO', cycle: ev.cycle, amountCents: ev.amountCents, mpPaymentId: `${mpPaymentId}-estorno`, prevValidUntil: ev.newValidUntil, newValidUntil: null } });
+      const subs = await tx.subscription.findMany({ where: { orgId: ev.orgId, product: { in: products } } });
+      let newMax: Date | null = null;
+      for (const s of subs) {
+        const d = new Date(s.validUntil.getTime());
+        if (ev.cycle === 'ANUAL') d.setFullYear(d.getFullYear() - 1); else d.setMonth(d.getMonth() - 1);
+        await tx.subscription.update({ where: { id: s.id }, data: { validUntil: d } });
+        if (!newMax || d > newMax) newMax = d;
+      }
+      await tx.billingEvent.update({ where: { mpPaymentId: `${mpPaymentId}-estorno` }, data: { newValidUntil: newMax } });
+      return { revoked: true as const, orgId: ev.orgId, reason };
+    });
+  } catch (e: any) {
+    if (e?.code === 'P2002') return { revoked: false as const, reason: 'ja_estornado' };
+    throw e;
+  }
+}
+
 export async function setBlocked(orgId: string, product: PlanProduct, blocked: boolean, actorUserId?: string) {
   const products = productsOf(product);
   for (const p of products) {
