@@ -8,7 +8,8 @@ import { fileURLToPath } from 'node:url';
 import { config } from './config.js';
 import { prisma } from './db.js';
 import { errorHandler } from './lib/http.js';
-import { loadSession, csrfProtection, requireOrg } from './auth/session.js';
+import { loadSession, csrfProtection, requireOrg, requireRole } from './auth/session.js';
+import { mckmensagemRouter } from './mckmensagem/routes.js';
 import { authRouter } from './auth/routes.js';
 import { webhookRouter } from './routes/webhook.js';
 import { channelsRouter } from './routes/channels.js';
@@ -69,6 +70,7 @@ export function createApp() {
   app.use('/api/plans', requireOrg, plansRouter);
   app.use('/api/integrations', requireOrg, integrationsRouter);
   app.use('/api/audit', requireOrg, auditRouter);
+  app.use('/api/mckmensagem', requireOrg, requireRole('OWNER', 'ADMIN'), mckmensagemRouter);
   app.use('/api', requireOrg, dashboardRouter);
   app.use('/api', (_req, res) => res.status(404).json({ error: 'Rota não encontrada' }));
 

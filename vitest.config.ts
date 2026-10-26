@@ -16,6 +16,7 @@ export default defineConfig({
       LOGIN_RATE_LIMIT: '1000',
       ALLOW_PRIVATE_HTTP: 'false',
       ENABLE_SCHEDULER: 'false',
+      ENABLE_MCKMENSAGEM_CRON: 'false',
       GRAPH_API_BASE: 'https://graph.facebook.com',
     },
     reporters: ['verbose'],

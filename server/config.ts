@@ -14,6 +14,7 @@ const schema = z.object({
   GRAPH_API_BASE: z.string().default('https://graph.facebook.com'),
   ENABLE_SCHEDULER: z.enum(['true', 'false']).default('true'),
   ENABLE_WHATSAPP_QR: z.enum(['true', 'false']).default('true'),
+  ENABLE_MCKMENSAGEM_CRON: z.enum(['true', 'false']).default('true'),
   FLOW_MAX_STEPS: z.coerce.number().default(50),
 });
 

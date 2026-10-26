@@ -3,6 +3,7 @@ import { config } from './config.js';
 import { prisma } from './db.js';
 import { scheduledTick } from './flows/engine.js';
 import { qrManager } from './whatsapp/qr/manager.js';
+import { tick as mckmensagemTick } from './mckmensagem/dispatcher.js';
 import { handleQrMessage, handleQrStatus } from './whatsapp/inbound.js';
 
 const app = createApp();
@@ -18,6 +19,16 @@ if (config.ENABLE_SCHEDULER === 'true') {
   setInterval(() => {
     prisma.session.deleteMany({ where: { expiresAt: { lt: new Date() } } }).catch(() => undefined);
   }, 3600e3).unref();
+}
+
+// MCKMENSAGEM: disparador de campanhas para leads com consentimento (um passo por minuto).
+if (config.ENABLE_MCKMENSAGEM_CRON === 'true' && config.NODE_ENV !== 'test') {
+  let running = false;
+  setInterval(() => {
+    if (running) return;
+    running = true;
+    mckmensagemTick().catch((e) => console.error('[mckmensagem]', e)).finally(() => { running = false; });
+  }, 60_000).unref();
 }
 
 // WhatsApp por QR code (Baileys): reconecta os canais com sessão salva no banco.
