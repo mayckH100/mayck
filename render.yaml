@@ -26,7 +26,7 @@ services:
       - key: SMTP_HOST
         sync: false
       - key: SMTP_PORT
-        value: "587"
+        value: "2525" # o Render Free bloqueia 25/465/587; o Brevo aceita 2525
       - key: SMTP_USER
         sync: false
       - key: SMTP_PASS

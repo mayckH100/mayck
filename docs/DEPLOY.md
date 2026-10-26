@@ -211,7 +211,7 @@ Cadastro (boas-vindas + confirmação de e-mail), "Esqueci minha senha" e aviso 
 | Variável | Exemplo (Brevo, grátis até 300 e-mails/dia) |
 |---|---|
 | `SMTP_HOST` | `smtp-relay.brevo.com` |
-| `SMTP_PORT` | `587` (use `465` para SSL direto) |
+| `SMTP_PORT` | `2525` — **no Render Free use 2525**: desde 26/09/2025 o plano grátis bloqueia a saída nas portas 25, 465 e 587 |
 | `SMTP_USER` | login SMTP do provedor |
 | `SMTP_PASS` | chave/senha SMTP do provedor |
 | `MAIL_FROM` | `MCKBOT <no-reply@seudominio.com>` (remetente verificado no provedor) |
