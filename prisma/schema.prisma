@@ -333,3 +333,56 @@ model Integration {
 
   @@unique([orgId, slug])
 }
+
+// ---------- MCKMENSAGEM: disparo para leads com consentimento ----------
+
+model Lead {
+  id            String    @id @default(cuid())
+  orgId         String
+  phone         String // E.164, ex.: +5511999998888
+  name          String?
+  tags          String    @default("[]")
+  status        String    @default("NOVO") // NOVO | CONTATADO | RESPONDEU | CONVERTIDO | DESCARTADO
+  consentSource String // FORMULARIO | IMPORTACAO | ANUNCIO_CTWA | MANUAL
+  consentAt     DateTime
+  optOutAt      DateTime?
+  campaignId    String?
+  contactId     String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@unique([orgId, phone])
+  @@index([orgId, status])
+  @@index([contactId])
+}
+
+model Campaign {
+  id             String   @id @default(cuid())
+  orgId          String
+  name           String
+  message        String
+  channelId      String
+  status         String   @default("RASCUNHO") // RASCUNHO | AGENDADA | EM_ANDAMENTO | PAUSADA | CONCLUIDA
+  dailyLimit     Int      @default(50)
+  minIntervalSec Int      @default(45)
+  maxIntervalSec Int      @default(120)
+  windowStart    String   @default("09:00")
+  windowEnd      String   @default("20:00")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([orgId, status])
+}
+
+model CampaignRecipient {
+  id         String    @id @default(cuid())
+  campaignId String
+  leadId     String
+  status     String    @default("PENDENTE") // PENDENTE | ENVIADA | FALHOU | IGNORADA
+  sentAt     DateTime?
+  error      String?
+
+  @@unique([campaignId, leadId])
+  @@index([campaignId, status])
+  @@index([leadId])
+}
