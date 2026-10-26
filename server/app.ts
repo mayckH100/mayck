@@ -14,6 +14,7 @@ import { mckmensagemRouter } from './mckmensagem/routes.js';
 import { billingRouter, billingWebhookRouter } from './billing/routes.js';
 import { requireMckbotForWrites } from './billing/guard.js';
 import { authRouter } from './auth/routes.js';
+import { tutorialsRouter } from './tutorials/routes.js';
 import { webhookRouter } from './routes/webhook.js';
 import { channelsRouter } from './routes/channels.js';
 import { flowsRouter } from './routes/flows.js';
@@ -78,6 +79,7 @@ export function createApp() {
   app.use('/api/billing', requireOrg, billingRouter);
   app.use('/api/integrations', requireOrg, requireMckbotForWrites, integrationsRouter);
   app.use('/api/audit', requireOrg, auditRouter);
+  app.use('/api/tutorials', requireOrg, tutorialsRouter); // vídeos só para assinantes pagos (rota autenticada, com Range)
   app.use('/api/mckmensagem', requireOrg, requireRole('OWNER', 'ADMIN'), mckmensagemRouter);
   app.use('/api', requireOrg, dashboardRouter);
   app.use('/api', (_req, res) => res.status(404).json({ error: 'Rota não encontrada' }));

@@ -160,3 +160,4 @@ tr:hover td { background: #fafcfb; }
   .editor .canvas { height: 460px; }
   .bubble { max-width: 90%; }
 }
+@media (max-width: 860px) { .tut-grid { grid-template-columns: 1fr !important; } }

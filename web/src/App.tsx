@@ -21,6 +21,7 @@ import Audit from './pages/Audit';
 import Profile from './pages/Profile';
 import Guide from './pages/Guide';
 import Master from './pages/Master';
+import Tutorials from './Tutorials';
 import { STATUS_LABEL, fmtDay } from './billing';
 
 const NAV: { to: string; label: string; icon: string; roles?: Role[]; sep?: string; superAdmin?: boolean }[] = [
@@ -37,6 +38,7 @@ const NAV: { to: string; label: string; icon: string; roles?: Role[]; sep?: stri
   { to: '/plano', label: 'Plano', icon: '◈' },
   { to: '/auditoria', label: 'Auditoria', icon: '☰', roles: ['OWNER', 'ADMIN'] },
   { to: '/perfil', label: 'Perfil', icon: '☻', sep: 'Conta' },
+  { to: '/tutoriais', label: 'Tutoriais', icon: '▶' },
   { to: '/boas-praticas', label: 'Boas práticas', icon: '?' },
   { to: '/master', label: 'Painel Master', icon: '♛', sep: 'Plataforma', superAdmin: true },
 ];
@@ -196,6 +198,7 @@ export default function App() {
             <Route path="/auditoria" element={<Audit />} />
             <Route path="/perfil" element={<Profile />} />
             <Route path="/boas-praticas" element={<Guide />} />
+            <Route path="/tutoriais" element={<Tutorials app="mckbot" appName="MCKBOT" planPath="/plano" />} />
             <Route path="*" element={<div className="empty"><div className="t">Página não encontrada</div><NavLink to="/">Voltar para a visão geral</NavLink></div>} />
           </Routes>
         </Shell>
