@@ -18,6 +18,7 @@ model User {
   phone        String?
   passwordHash String
   isSuperAdmin Boolean      @default(false)
+  disabledAt   DateTime?
   createdAt    DateTime     @default(now())
   updatedAt    DateTime     @updatedAt
   memberships  Membership[]

@@ -9,6 +9,7 @@ declare global {
         csrfToken: string;
         orgId: string | null;
         role: Role | null;
+        isSuperAdmin: boolean;
       };
       rawBody?: Buffer;
     }

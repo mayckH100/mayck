@@ -40,6 +40,8 @@ export async function loadSession(req: Request, _res: Response, next: NextFuncti
     if (!token) return next();
     const session = await prisma.session.findUnique({ where: { id: sha256(token) } });
     if (!session || session.expiresAt < new Date()) return next();
+    const user = await prisma.user.findUnique({ where: { id: session.userId }, select: { isSuperAdmin: true, disabledAt: true } });
+    if (!user || user.disabledAt) return next(); // usuário desativado: sessão não vale (401 nas rotas protegidas)
     let role: Role | null = null;
     let orgId = session.orgId;
     if (orgId) {
@@ -47,7 +49,7 @@ export async function loadSession(req: Request, _res: Response, next: NextFuncti
       if (m) role = m.role as Role;
       else orgId = null; // removido da organização
     }
-    req.auth = { userId: session.userId, sessionId: session.id, csrfToken: session.csrfToken, orgId, role };
+    req.auth = { userId: session.userId, sessionId: session.id, csrfToken: session.csrfToken, orgId, role, isSuperAdmin: user.isSuperAdmin };
     next();
   } catch (e) {
     next(e);
@@ -85,6 +87,13 @@ export const requireRole = (...roles: Role[]) => (req: Request, _res: Response, 
   if (!req.auth?.role || !roles.includes(req.auth.role)) return next(forbidden());
   next();
 };
+
+/** Somente superadmin da plataforma (painel Master). OWNER de organização não basta. */
+export function requireSuperAdmin(req: Request, _res: Response, next: NextFunction) {
+  if (!req.auth) return next(new HttpError(401, 'Faça login para continuar'));
+  if (!req.auth.isSuperAdmin) return next(forbidden('Acesso restrito ao administrador da plataforma'));
+  next();
+}
 
 /** orgId do usuário autenticado — toda consulta de dados de negócio deve filtrar por ele. */
 export function orgOf(req: Request): string {

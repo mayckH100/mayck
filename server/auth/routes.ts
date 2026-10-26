@@ -9,6 +9,7 @@ import { createOrganization } from './orgDefaults.js';
 import { audit } from '../lib/audit.js';
 import { sha256 } from '../lib/crypto.js';
 import { config } from '../config.js';
+import { PRODUCTS, getSubscriptionView } from '../billing/service.js';
 
 export const authRouter = Router();
 
@@ -34,8 +35,11 @@ export async function meResponse(userId: string, orgId: string | null, csrfToken
   const user = await prisma.user.findUniqueOrThrow({ where: { id: userId } });
   const memberships = await prisma.membership.findMany({ where: { userId }, include: { org: true }, orderBy: { createdAt: 'asc' } });
   const current = memberships.find((m) => m.orgId === orgId) ?? null;
+  const subscriptions = current ? await Promise.all(PRODUCTS.map((p) => getSubscriptionView(current.orgId, p))) : [];
   return {
-    user: { id: user.id, email: user.email, name: user.name, phone: user.phone },
+    user: { id: user.id, email: user.email, name: user.name, phone: user.phone, isSuperAdmin: user.isSuperAdmin },
+    isSuperAdmin: user.isSuperAdmin,
+    subscriptions,
     org: current ? { id: current.org.id, name: current.org.name, plan: current.org.plan, timezone: current.org.timezone } : null,
     role: current?.role ?? null,
     orgs: memberships.map((m) => ({ id: m.org.id, name: m.org.name, role: m.role })),
@@ -59,6 +63,10 @@ authRouter.post('/login', loginLimiter, ah(async (req, res) => {
   const user = await prisma.user.findUnique({ where: { email: body.email } });
   // Compara mesmo quando o usuário não existe, para não vazar por tempo de resposta quais e-mails têm conta.
   const ok = await bcrypt.compare(body.password, user?.passwordHash ?? (await dummyHash()));
+  if (user && ok && user.disabledAt) {
+    await audit(req, 'auth.login_disabled', { userId: user.id, meta: { email: body.email } });
+    throw new HttpError(401, 'Esta conta está desativada. Fale com o suporte.');
+  }
   if (!user || !ok) {
     await audit(req, 'auth.login_failed', { meta: { email: body.email } });
     throw new HttpError(401, 'E-mail ou senha incorretos');
