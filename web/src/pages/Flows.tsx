@@ -120,7 +120,7 @@ function MenuReturnSettings({ flows, editor }: { flows: any[]; editor: boolean }
         <label className="row"><input type="checkbox" checked={f.menuCommandEnabled} onChange={(e) => setF({ ...f, menuCommandEnabled: e.target.checked })} /> Ativar o comando “Voltar ao menu”</label>
         <div className="grid g2">
           <Field label="Palavras que voltam ao menu" hint="Separe por vírgula. Maiúsculas e acentos não importam."><input value={f.menuCommandWords} maxLength={300} onChange={(e) => setF({ ...f, menuCommandWords: e.target.value })} placeholder="0, menu, voltar" /></Field>
-          <Field label="Fluxo do menu" hint="Automático: fluxo com a palavra-chave digitada, senão o último fluxo da conversa, senão o de maior prioridade.">
+          <Field label="Fluxo do menu" hint="Automático: fluxo com a palavra-chave digitada, senão o último fluxo da conversa, senão o fluxo de boas-vindas (primeira mensagem).">
             <select value={f.menuFlowId ?? ''} onChange={(e) => setF({ ...f, menuFlowId: e.target.value || null })}>
               <option value="">Automático</option>
               {flows.map((fl) => <option key={fl.id} value={fl.id}>{fl.name}{fl.status !== 'ACTIVE' ? ' (inativo)' : ''}</option>)}
