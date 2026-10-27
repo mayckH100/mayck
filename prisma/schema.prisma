@@ -457,3 +457,146 @@ model FlowSettings {
   menuFlowId         String? // fluxo do menu; vazio = automático
   updatedAt          DateTime @updatedAt
 }
+
+// ---------- MCK MENSAGENS: Automações e Cobranças (FASE 1: clientes, lembretes, marketing) ----------
+
+/// Cliente do módulo Automações e Cobranças. Deduplicado (no código) por telefone/WhatsApp, e-mail e CPF/CNPJ dentro da organização.
+model Cliente {
+  id                  String    @id @default(cuid())
+  orgId               String
+  nome                String
+  documento           String? // CPF/CNPJ só com dígitos
+  telefone            String? // E.164
+  whatsapp            String? // E.164 (com código do país)
+  email               String? // minúsculo
+  emailSecundario     String?
+  empresa             String?
+  plano               String?
+  dataContratacao     DateTime?
+  dataVencimento      DateTime?
+  valorCentavos       Int?
+  parcelas            Int?
+  formaPagamento      String?
+  status              String    @default("ATIVO") // ATIVO | INATIVO | INADIMPLENTE | CANCELADO
+  observacoes         String?
+  prefWhatsapp        Boolean   @default(true)
+  prefEmail           Boolean   @default(true)
+  consentimentoAt     DateTime?
+  consentimentoOrigem String? // FORMULARIO | IMPORTACAO | ANUNCIO_CTWA | MANUAL
+  marketingOptOutAt   DateTime?
+  contactId           String?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  @@index([orgId, nome])
+  @@index([orgId, telefone])
+  @@index([orgId, whatsapp])
+  @@index([orgId, email])
+  @@index([orgId, documento])
+}
+
+/// Automação de envio (LEMBRETE ou MARKETING) com regra de recorrência em JSON.
+model Automacao {
+  id          String    @id @default(cuid())
+  orgId       String
+  nome        String
+  categoria   String // LEMBRETE | MARKETING
+  canais      String    @default("[\"WHATSAPP\"]") // JSON: WHATSAPP e/ou EMAIL
+  channelId   String? // canal WhatsApp (vazio = o conectado da organização)
+  assunto     String? // assunto do e-mail
+  mensagem    String
+  clienteIds  String    @default("[]") // JSON com os ids dos clientes destinatários
+  regra       String // JSON: { tipo: UNICO|DIARIO|SEMANAL|MENSAL|DATAS|ANUAL|INTERVALO, ... }
+  timezone    String    @default("America/Sao_Paulo")
+  inicio      DateTime
+  fim         DateTime?
+  maxEnvios   Int?
+  status      String    @default("RASCUNHO") // RASCUNHO | ATIVA | PAUSADA | CANCELADA | CONCLUIDA
+  geradoAte   DateTime? // horizonte até onde as ocorrências já foram geradas
+  createdById String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([orgId, status])
+  @@index([status, geradoAte])
+}
+
+/// Um envio programado, por cliente e por canal. "chave" garante idempotência (automação + cliente + canal + horário original).
+model Ocorrencia {
+  id           String    @id @default(cuid())
+  orgId        String
+  automacaoId  String
+  clienteId    String
+  canal        String // WHATSAPP | EMAIL
+  chave        String    @unique
+  agendadoPara DateTime // horário programado (pode ser alterado em "só esta ocorrência")
+  executarEm   DateTime // próximo momento de execução (agendadoPara ou nova tentativa)
+  status       String    @default("PENDENTE") // PENDENTE | PROCESSANDO | ENVIADA | FALHOU | IGNORADA | CANCELADA
+  tentativas   Int       @default(0)
+  erro         String?
+  provedorId   String?
+  mensagem     String? // texto só desta ocorrência (edição pontual)
+  editada      Boolean   @default(false)
+  lockedAt     DateTime?
+  enviadoEm    DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([status, executarEm])
+  @@index([orgId, agendadoPara])
+  @@index([automacaoId, status])
+  @@index([clienteId])
+}
+
+/// Histórico de mensagens do módulo (um registro por ocorrência, atualizado a cada tentativa).
+model MensagemHistorico {
+  id           String    @id @default(cuid())
+  orgId        String
+  ocorrenciaId String?   @unique
+  automacaoId  String?
+  clienteId    String?
+  categoria    String
+  canal        String
+  direcao      String    @default("OUT")
+  assunto      String?
+  conteudo     String
+  agendadoPara DateTime?
+  enviadoEm    DateTime?
+  provedorId   String?
+  status       String // ENVIADA | FALHOU | IGNORADA | CANCELADA | TENTANDO
+  erro         String?
+  tentativas   Int       @default(0)
+  operadorId   String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([orgId, createdAt])
+  @@index([orgId, clienteId])
+  @@index([automacaoId])
+}
+
+/// Configurações do módulo por organização.
+model AutomacaoConfig {
+  orgId         String   @id
+  timezone      String   @default("America/Sao_Paulo")
+  janelaInicio  String   @default("08:00")
+  janelaFim     String   @default("20:00")
+  limiteDiario  Int      @default(500)
+  maxTentativas Int      @default(3)
+  backoffSeg    Int      @default(60)
+  updatedAt     DateTime @updatedAt
+}
+
+/// Modelos de mensagem reutilizáveis, por categoria (LEMBRETE | MARKETING).
+model ModeloMensagem {
+  id        String   @id @default(cuid())
+  orgId     String
+  categoria String
+  nome      String
+  assunto   String?
+  corpo     String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([orgId, categoria])
+}
