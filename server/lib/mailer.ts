@@ -57,6 +57,29 @@ export async function sendMail(msg: MailMessage): Promise<boolean> {
   }
 }
 
+/**
+ * Envio com resultado detalhado (Automações do MCK Mensagens): devolve o id do provedor ou o erro real.
+ * Usa o mesmo transporte SMTP configurado; sem SMTP, falha com motivo explícito (nunca simula envio).
+ */
+export async function sendMailResult(msg: { to: string; subject: string; text: string; html?: string }): Promise<{ ok: boolean; messageId?: string; error?: string }> {
+  if (isTest) { outbox.push({ ...msg, html: msg.html ?? msg.text, kind: 'automacao' }); return { ok: true, messageId: `test-${outbox.length}` }; }
+  const t = getTransporter();
+  if (!t) return { ok: false, error: 'SMTP não configurado (defina SMTP_HOST e MAIL_FROM)' };
+  try {
+    const r = await t.sendMail({ from: process.env.MAIL_FROM, to: msg.to, subject: msg.subject, text: msg.text, html: msg.html });
+    return { ok: true, messageId: r.messageId };
+  } catch (e) {
+    return { ok: false, error: ((e as Error).message || 'Falha no SMTP').slice(0, 500) };
+  }
+}
+
+/** Verifica a conexão/autenticação SMTP sem enviar e-mail. */
+export async function verifySmtp(): Promise<{ ok: boolean; error?: string }> {
+  const t = getTransporter();
+  if (!t) return { ok: false, error: 'SMTP não configurado' };
+  try { await t.verify(); return { ok: true }; } catch (e) { return { ok: false, error: (e as Error).message }; }
+}
+
 /** Dispara em segundo plano (não atrasa a resposta HTTP). */
 export function sendMailLater(msg: MailMessage) {
   void sendMail(msg);

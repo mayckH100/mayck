@@ -4,6 +4,7 @@ import { prisma } from './db.js';
 import { scheduledTick } from './flows/engine.js';
 import { qrManager } from './whatsapp/qr/manager.js';
 import { tick as mckmensagemTick } from './mckmensagem/dispatcher.js';
+import { tickAutomacoes } from './mckmensagem/automacoes/engine.js';
 import { handleQrMessage, handleQrStatus } from './whatsapp/inbound.js';
 import { syncSuperAdmins } from './auth/superadmin.js';
 
@@ -35,6 +36,18 @@ if (config.ENABLE_MCKMENSAGEM_CRON === 'true' && config.NODE_ENV !== 'test') {
     running = true;
     mckmensagemTick().catch((e) => console.error('[mckmensagem]', e)).finally(() => { running = false; });
   }, 60_000).unref();
+}
+
+// Automações e Cobranças: motor no processo (claim atômico no banco; retoma após restart). Ciclo curto de 15 s.
+if (config.ENABLE_MCKMENSAGEM_CRON === 'true' && config.NODE_ENV !== 'test') {
+  let rodando = false;
+  const ciclo = () => {
+    if (rodando) return;
+    rodando = true;
+    tickAutomacoes().catch((e) => console.error('[automacoes]', e)).finally(() => { rodando = false; });
+  };
+  setTimeout(ciclo, 10_000).unref();
+  setInterval(ciclo, 15_000).unref();
 }
 
 // WhatsApp por QR code (Baileys): reconecta os canais com sessão salva no banco.

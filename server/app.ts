@@ -11,6 +11,7 @@ import { errorHandler } from './lib/http.js';
 import { loadSession, csrfProtection, requireOrg, requireRole, requireSuperAdmin } from './auth/session.js';
 import { masterRouter } from './routes/master.js';
 import { mckmensagemRouter } from './mckmensagem/routes.js';
+import { automacoesRouter } from './mckmensagem/automacoes/routes.js';
 import { billingRouter, billingWebhookRouter } from './billing/routes.js';
 import { requireMckbotForWrites } from './billing/guard.js';
 import { authRouter } from './auth/routes.js';
@@ -80,6 +81,8 @@ export function createApp() {
   app.use('/api/integrations', requireOrg, requireMckbotForWrites, integrationsRouter);
   app.use('/api/audit', requireOrg, auditRouter);
   app.use('/api/tutorials', requireOrg, tutorialsRouter); // vídeos só para assinantes pagos (rota autenticada, com Range)
+  // Automações e Cobranças (MCK Mensagens): OWNER/ADMIN alteram; AGENT só lê (checado dentro do router).
+  app.use('/api/mckmensagem/automacoes', requireOrg, automacoesRouter);
   app.use('/api/mckmensagem', requireOrg, requireRole('OWNER', 'ADMIN'), mckmensagemRouter);
   app.use('/api', requireOrg, dashboardRouter);
   app.use('/api', (_req, res) => res.status(404).json({ error: 'Rota não encontrada' }));

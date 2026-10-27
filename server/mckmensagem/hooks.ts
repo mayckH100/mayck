@@ -25,6 +25,10 @@ export async function onLeadOptOut(orgId: string, contact: { id: string; waId: s
     const or: any[] = [{ contactId: contact.id }];
     if (phone) or.push({ phone });
     await prisma.lead.updateMany({ where: { orgId, optOutAt: null, OR: or }, data: { optOutAt: at, contactId: contact.id } });
+    // Automações: o mesmo pedido vale como opt-out de marketing do cliente.
+    const orCli: any[] = [{ contactId: contact.id }];
+    if (phone) orCli.push({ whatsapp: phone }, { telefone: phone });
+    await prisma.cliente.updateMany({ where: { orgId, marketingOptOutAt: null, OR: orCli }, data: { marketingOptOutAt: at } });
   } catch (e) {
     console.error('[mckmensagem] falha ao registrar opt-out do lead', e);
   }
