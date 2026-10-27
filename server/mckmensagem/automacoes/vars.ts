@@ -20,7 +20,7 @@ export const VARIAVEIS: Record<string, { rotulo: string; valor: (c: Cliente, tz:
 export const VARIAVEIS_FASE2 = ['numero_parcela', 'data_pagamento', 'valor_pendente', 'link_pagamento', 'numero_documento'];
 
 function brl(cents: number) {
-  return (cents / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+  return (cents / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }).replace(/\u00a0/g, ' ');
 }
 function fmtData(d: Date, tz: string) {
   // Datas de cadastro (vencimento/contratação) são salvas ao meio-dia UTC para não "voltar um dia" no fuso.
