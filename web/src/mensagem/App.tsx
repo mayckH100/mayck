@@ -11,12 +11,14 @@ import MmDashboard from './pages/Dashboard';
 import MmLeads from './pages/Leads';
 import MmCampaigns from './pages/Campaigns';
 import MmSubscription from './pages/Subscription';
+import AutomacoesModulo from './pages/automacoes/Index';
 import Tutorials from '../Tutorials';
 
 const NAV = [
   { to: '/', label: 'Painel', icon: '◔' },
   { to: '/contatos', label: 'Contatos', icon: '☺' },
   { to: '/campanhas', label: 'Campanhas', icon: '➤' },
+  { to: '/automacoes', label: 'Automações e Cobranças', icon: '⏱' },
   { to: '/assinatura', label: 'Assinatura', icon: '◈' },
   { to: '/tutoriais', label: 'Tutoriais', icon: '▶' },
 ];
@@ -60,7 +62,7 @@ function BillingReturnRedirect() {
   return null;
 }
 
-function Shell({ children }: { children: ReactNode }) {
+function Shell({ children, nav: navItems = NAV }: { children: ReactNode; nav?: typeof NAV }) {
   const { me, setMe, logout } = useAuth();
   const [open, setOpen] = useState(false);
   const nav = useNavigate();
@@ -75,7 +77,7 @@ function Shell({ children }: { children: ReactNode }) {
       {me.orgs.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
     </select>
   );
-  const links = NAV.map((n) => (
+  const links = navItems.map((n) => (
     <NavLink key={n.to} to={n.to} end={n.to === '/'} className={({ isActive }) => (isActive ? 'active' : '')}><span aria-hidden>{n.icon}</span>{n.label}</NavLink>
   ));
   return (
@@ -120,6 +122,7 @@ function AgentBlocked() {
           <MmBrand />
           <h2>Acesso restrito</h2>
           <p className="muted">O MCK Mensagens é usado por proprietários e administradores da organização. Peça acesso ao responsável ou continue no MCKBOT.</p>
+          <a className="btn" href="/mensagem/automacoes">Consultar Automações (somente leitura)</a>
           <a className="btn primary" href={MCKBOT_URL} style={{ color: '#fff', textDecoration: 'none' }}>Ir para MCKBOT</a>
           <button className="btn" onClick={logout}>Sair</button>
         </div>
@@ -147,7 +150,15 @@ export default function MensagemApp() {
   if (path.endsWith('/redefinir-senha')) return <MmReset />;
   if (path.endsWith('/verificar-email')) return <MmVerify />;
   if (!me.org) return <MmNoOrg />;
-  if (!can('OWNER', 'ADMIN')) return <AgentBlocked />;
+  if (!can('OWNER', 'ADMIN')) {
+    // Atendente (AGENT): só consulta o módulo Automações e Cobranças, sem alterar nada.
+    if (!/\/mensagem\/automacoes/.test(path)) return <AgentBlocked />;
+    return (
+      <Shell nav={[{ to: '/automacoes', label: 'Automações e Cobranças', icon: '⏱' }]}>
+        <Routes><Route path="/automacoes/*" element={<AutomacoesModulo readOnly />} /><Route path="*" element={<AgentBlocked />} /></Routes>
+      </Shell>
+    );
+  }
   return (
     <Routes>
       <Route path="/login" element={<Navigate to="/" replace />} />
@@ -159,6 +170,7 @@ export default function MensagemApp() {
             <Route path="/contatos" element={<MmLeads />} />
             <Route path="/campanhas" element={<MmCampaigns />} />
             <Route path="/campanhas/:id" element={<MmCampaigns />} />
+            <Route path="/automacoes/*" element={<AutomacoesModulo />} />
             <Route path="/assinatura" element={<MmSubscription />} />
             <Route path="/tutoriais" element={<Tutorials app="mck-mensagens" appName="MCK Mensagens" planPath="/assinatura" />} />
             <Route path="/plano" element={<Navigate to="/assinatura" replace />} />

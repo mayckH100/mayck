@@ -92,3 +92,15 @@ html.mm .modal-bg { background: rgba(0,0,0,.55); }
 
 /* Vitrine de planos abaixo do login */
 .mm-plans { max-width: 1080px; margin: 0 auto; padding: 32px 24px 48px; }
+
+/* Automações e Cobranças */
+html.mm .tabs a.mm-sub-on { background: var(--brand-soft); color: var(--brand); }
+html.mm .tabs a { color: var(--muted); text-decoration: none; }
+.mm-cal { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
+.mm-cal-h { font-size: 11px; font-weight: 700; color: var(--muted); text-align: center; padding: 4px 0; }
+.mm-cal-d { background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 4px; text-align: left; display: flex; flex-direction: column; gap: 2px; cursor: pointer; font: inherit; min-width: 0; overflow: hidden; }
+.mm-cal-d.out { opacity: .45; }
+.mm-cal-d.sel { border-color: var(--brand); box-shadow: 0 0 0 2px var(--brand-soft); }
+.mm-cal-d .n { font-size: 12px; font-weight: 700; }
+.mm-cal-d .ev { font-size: 10px; border-left: 3px solid #999; padding-left: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+@media (max-width: 820px) { .mm-cal-d .ev { display: none; } .mm-cal-d { min-height: 48px !important; } }
