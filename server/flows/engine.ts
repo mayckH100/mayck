@@ -379,7 +379,7 @@ export async function startFlow(flowId: string, conv: Conversation, contact: Con
 }
 
 /** Escolhe o fluxo ativo cujo gatilho é mais específico para a mensagem. */
-export async function findMatchingFlow(orgId: string, text: string, isFirst: boolean, now = new Date()) {
+export async function findMatchingFlow(orgId: string, text: string, isFirst: boolean, now = new Date(), minScore = 1) {
   const org = await prisma.organization.findUnique({ where: { id: orgId } });
   const flows = await prisma.flow.findMany({ where: { orgId, status: 'ACTIVE' }, orderBy: [{ priority: 'desc' }, { createdAt: 'asc' }] });
   let best: { flowId: string; score: number } | null = null;
@@ -387,7 +387,7 @@ export async function findMatchingFlow(orgId: string, text: string, isFirst: boo
     const g = await loadGraph(f.id, f.currentVersion);
     const start = g.nodes.find((n) => n.type === 'start');
     const score = matchTriggers((start?.data.triggers ?? []) as Trigger[], { text, isFirst, now, timeZone: org?.timezone ?? 'America/Sao_Paulo' });
-    if (score !== null && (!best || score > best.score)) best = { flowId: f.id, score };
+    if (score !== null && score >= minScore && (!best || score > best.score)) best = { flowId: f.id, score };
   }
   return best?.flowId ?? null;
 }
@@ -456,7 +456,7 @@ export async function automateInbound(conv: Conversation, contact: Contact, mess
     // Cliente escreveu uma pergunta livre em vez de escolher uma opção do menu:
     // em vez de "Opção inválida", tenta outro fluxo pelo gatilho e, se não houver, a IA responde.
     const miss = await isFreeTextMenuMiss(waiting, text, opts.replyId);
-    if (!miss || (!aiOn && !(await findMatchingFlow(conv.orgId, text, false)))) {
+    if (!miss || (!aiOn && !(await findMatchingFlow(conv.orgId, text, false, new Date(), 2)))) {
       await resumeWithReply(waiting, { text, replyId: opts.replyId });
       return 'flow_resumed' as const;
     }
@@ -465,7 +465,10 @@ export async function automateInbound(conv: Conversation, contact: Contact, mess
       await prisma.flowRunStep.create({ data: { orgId: waiting.orgId, runId: waiting.id, flowId: waiting.flowId, nodeId: waiting.currentNodeId ?? '', nodeType: 'menu', status: 'warn', detail: `Resposta fora do menu, encaminhada: ${text}`.slice(0, 1000) } });
     }
   }
-  const flowId = await findMatchingFlow(conv.orgId, text, waiting ? false : opts.isFirst);
+  // Com a IA automática ligada, gatilhos "qualquer mensagem" (score 1) não capturam a conversa:
+  // quem responde o que nenhum fluxo específico cobre é a IA. Palavra-chave, primeira mensagem e
+  // horário continuam tendo prioridade.
+  const flowId = await findMatchingFlow(conv.orgId, text, waiting ? false : opts.isFirst, new Date(), aiOn ? 2 : 1);
   if (flowId) {
     await startFlow(flowId, conv, contact, { triggerMessageId: message.id, lastMessage: text });
     return 'flow_started' as const;

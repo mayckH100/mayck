@@ -76,6 +76,22 @@ describe('IA (provedor fake determinístico)', () => {
     await owner.post(`/api/flows/${f.body.id}/status`, { status: 'PAUSED' });
   });
 
+  it('com IA automática ligada, fluxo "qualquer mensagem" não engole perguntas: a IA responde', async () => {
+    const f = await owner.post('/api/flows', { name: 'Catch-all', graph: {
+      nodes: [
+        { id: 's', type: 'start', position: { x: 0, y: 0 }, data: { triggers: [{ type: 'message' }] } },
+        { id: 'a', type: 'send_text', position: { x: 0, y: 0 }, data: { text: 'MENU GERAL' } },
+      ],
+      edges: [{ id: 'e1', source: 's', target: 'a' }],
+    } });
+    expect((await owner.post(`/api/flows/${f.body.id}/status`, { status: 'ACTIVE' })).status).toBe(200);
+    const p = nextPhone();
+    await sendInbound(ctx, p, 'qual o horário de atendimento?');
+    expect(sentTexts().join(' ')).not.toContain('MENU GERAL');
+    expect(sentTexts()[0]).toContain('segunda a sexta, das 9h às 18h');
+    await owner.post(`/api/flows/${f.body.id}/status`, { status: 'PAUSED' });
+  });
+
   it('preço presente na base pode ser citado', async () => {
     const p = nextPhone();
     await sendInbound(ctx, p, 'quanto custa o plano básico?');
