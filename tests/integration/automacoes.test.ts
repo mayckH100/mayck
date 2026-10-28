@@ -105,7 +105,7 @@ describe('Automações e Cobranças (fase 1)', () => {
     const falta = await owner.post(`${API}/preview`, { clienteId: c.id, mensagem: 'Empresa: {{nome_empresa}}' });
     expect(falta.body).toMatchObject({ bloqueado: true, faltando: ['nome_empresa'] });
     const f2 = await owner.post(`${API}/preview`, { clienteId: c.id, mensagem: 'Pague: {{link_pagamento}}' });
-    expect(f2.body.problema).toMatch(/financeiro/);
+    expect(f2.body.problema).toMatch(/cobranças com boleto/);
     // Ativação bloqueada; fica como rascunho sem ocorrências.
     const r = await criar({ clienteIds: [c.id], mensagem: 'Olá {{nome_empresa}}', regra: { tipo: 'UNICO', data: dia(1), horario: '10:00' } });
     expect(r.status).toBe(400);

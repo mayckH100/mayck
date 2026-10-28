@@ -8,7 +8,8 @@ import { isTest } from '../config.js';
  * Sem SMTP configurado, nada quebra: o envio é apenas registrado no log.
  */
 
-export interface MailMessage { to: string; subject: string; html: string; text: string; kind: string }
+export interface MailAttachment { filename: string; content: Buffer; contentType?: string }
+export interface MailMessage { to: string; subject: string; html: string; text: string; kind: string; attachments?: MailAttachment[] }
 
 /** Caixa de saída em memória — usada só nos testes automatizados. */
 export const outbox: MailMessage[] = [];
@@ -61,12 +62,12 @@ export async function sendMail(msg: MailMessage): Promise<boolean> {
  * Envio com resultado detalhado (Automações do MCK Mensagens): devolve o id do provedor ou o erro real.
  * Usa o mesmo transporte SMTP configurado; sem SMTP, falha com motivo explícito (nunca simula envio).
  */
-export async function sendMailResult(msg: { to: string; subject: string; text: string; html?: string }): Promise<{ ok: boolean; messageId?: string; error?: string }> {
+export async function sendMailResult(msg: { to: string; subject: string; text: string; html?: string; attachments?: MailAttachment[] }): Promise<{ ok: boolean; messageId?: string; error?: string }> {
   if (isTest) { outbox.push({ ...msg, html: msg.html ?? msg.text, kind: 'automacao' }); return { ok: true, messageId: `test-${outbox.length}` }; }
   const t = getTransporter();
   if (!t) return { ok: false, error: 'SMTP não configurado (defina SMTP_HOST e MAIL_FROM)' };
   try {
-    const r = await t.sendMail({ from: process.env.MAIL_FROM, to: msg.to, subject: msg.subject, text: msg.text, html: msg.html });
+    const r = await t.sendMail({ from: process.env.MAIL_FROM, to: msg.to, subject: msg.subject, text: msg.text, html: msg.html, attachments: msg.attachments });
     return { ok: true, messageId: r.messageId };
   } catch (e) {
     return { ok: false, error: ((e as Error).message || 'Falha no SMTP').slice(0, 500) };

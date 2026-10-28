@@ -17,7 +17,11 @@ export const regraSchema = z.discriminatedUnion('tipo', [
     tipo: z.literal('MENSAL'), diasMes: z.array(z.number().int().min(1).max(31)).min(1, 'Escolha ao menos um dia do mês').max(31),
     horarios, meses: z.array(z.number().int().min(1).max(12)).max(12).optional(),
   }),
-  z.object({ tipo: z.literal('DATAS'), datas: z.array(z.object({ data: ymd, horario: hhmm })).min(1, 'Informe ao menos uma data').max(1000) }),
+  z.object({
+    tipo: z.literal('DATAS'),
+    // mensagem (opcional): texto só daquele envio — ex.: msg 1 de apresentação, msg 2 de lembrete, msg 3 de aviso de vencimento.
+    datas: z.array(z.object({ data: ymd, horario: hhmm, mensagem: z.string().trim().max(4000).optional().nullable() })).min(1, 'Informe ao menos uma data').max(1000),
+  }),
   z.object({ tipo: z.literal('ANUAL'), datas: z.array(z.string().regex(/^\d{2}-\d{2}$/, 'Use MM-DD')).min(1).max(366), horarios }),
   z.object({
     tipo: z.literal('INTERVALO'), a_cada: z.number().int().min(1).max(10000),
@@ -86,6 +90,7 @@ export interface GerarOpts {
   ate: Date; // até este instante (exclusive): horizonte
   max?: number; // máximo de horários (no total, contando desde o início)
   limite?: number; // proteção contra regras gigantes por chamada
+  indices?: number[]; // saída opcional: posição (1 = primeiro) de cada horário devolvido na sequência completa
 }
 
 /**
@@ -103,7 +108,7 @@ export function gerarHorarios(o: GerarOpts): Date[] {
     if (ms < o.inicio.getTime() || ms > hiFim) return ms > hiFim ? 'stop' : 'ok';
     contados++;
     if (o.max && contados > o.max) return 'stop';
-    if (ms >= lo && ms < o.ate.getTime()) out.push(t);
+    if (ms >= lo && ms < o.ate.getTime()) { out.push(t); o.indices?.push(contados); }
     return out.length >= limite ? 'stop' : 'ok';
   };
   const fimScan = Math.min(o.ate.getTime(), hiFim);

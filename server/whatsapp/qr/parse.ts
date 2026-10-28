@@ -114,6 +114,11 @@ export function buildQrContent(p: OutboundPayload): AnyMessageContent {
       const fileName = p.filename || decodeURIComponent(p.link.split('?')[0].split('/').pop() || 'documento');
       return { document: { url: p.link }, fileName, mimetype: mimeFromUrl(fileName, mimeFromUrl(p.link, 'application/octet-stream')), caption: p.caption };
     }
+    case 'file':
+      return /^image\/(jpeg|png|webp)$/.test(p.mime)
+        ? { image: p.data, caption: p.caption, mimetype: p.mime }
+        : { document: p.data, fileName: p.filename, mimetype: p.mime, caption: p.caption };
+    case 'media_id': throw new Error('Mídia por id só existe na API oficial');
     case 'template': throw new Error('Modelos (templates) só existem na API oficial. No modo QR envie uma mensagem de texto.');
   }
 }

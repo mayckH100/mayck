@@ -1,6 +1,6 @@
 import { prisma } from '../db.js';
 import { decryptOrNull } from '../lib/crypto.js';
-import { sendCloudMessage, GraphApiError, type OutboundPayload } from './cloudClient.js';
+import { sendCloudMessage, uploadCloudMedia, isImageMime, GraphApiError, type OutboundPayload } from './cloudClient.js';
 import { qrManager } from './qr/manager.js';
 import { numberedOptions } from './qr/parse.js';
 import { assertPublicUrl } from '../lib/ssrf.js';
@@ -29,6 +29,8 @@ function describe(p: OutboundPayload, qr = false): { type: string; body: string 
       ? { type: 'text', body: numberedOptions(p.text, p.buttons), mediaUrl: null }
       : { type: 'buttons', body: p.text + '\n' + p.buttons.map((b) => `[${b.title}]`).join(' '), mediaUrl: null };
     case 'template': return { type: 'template', body: `Modelo: ${p.name} (${p.language})`, mediaUrl: null };
+    case 'file': return { type: isImageMime(p.mime) ? 'image' : 'document', body: p.caption || `[${p.filename}]`, mediaUrl: null };
+    case 'media_id': return { type: p.kind, body: p.caption || (p.filename ? `[${p.filename}]` : null), mediaUrl: null };
     default: return { type: p.type, body: p.caption ?? null, mediaUrl: p.link };
   }
 }
@@ -82,7 +84,11 @@ export async function sendOutbound(args: {
     return fail('Fora da janela de 24 horas: só é permitido enviar um modelo (template) aprovado pela Meta');
   }
   try {
-    const r = await sendCloudMessage({ phoneNumberId: channel.phoneNumberId, accessToken }, contact.waId, payload);
+    const creds = { phoneNumberId: channel.phoneNumberId, accessToken };
+    const final: OutboundPayload = payload.type === 'file'
+      ? { type: 'media_id', kind: isImageMime(payload.mime) ? 'image' : 'document', id: await uploadCloudMedia(creds, payload.data, payload.mime, payload.filename), caption: payload.caption, filename: payload.filename }
+      : payload;
+    const r = await sendCloudMessage(creds, contact.waId, final);
     const now = new Date();
     const updated = await prisma.message.update({ where: { id: msg.id }, data: { status: 'SENT', waMessageId: r.waMessageId, attempts: r.attempts } });
     await prisma.conversation.update({

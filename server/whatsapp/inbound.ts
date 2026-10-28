@@ -1,5 +1,8 @@
 import { prisma } from '../db.js';
-import { parseWebhook, type InboundMessage } from './cloudClient.js';
+import { parseWebhook, downloadCloudMedia, type InboundMessage } from './cloudClient.js';
+import { decryptOrNull } from '../lib/crypto.js';
+import { downloadMediaMessage } from '@whiskeysockets/baileys';
+import { receberMidiaWhatsApp } from '../mckmensagem/automacoes/comprovantes.js';
 import { applyStatus } from './messaging.js';
 import { automateInbound, withConversationLock } from '../flows/engine.js';
 import { normalize } from '../flows/logic.js';
@@ -28,7 +31,23 @@ export async function processWebhook(channel: Channel, body: unknown): Promise<I
   return result;
 }
 
-export async function handleInboundMessage(channel: Channel, m: InboundMessage): Promise<'ok' | 'duplicate'> {
+export type BaixarMidia = () => Promise<{ dados: Buffer; nome: string; mime?: string }>;
+
+const EXT: Record<string, string> = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'application/pdf': 'pdf' };
+const nomeMidia = (type: string, mime?: string, nome?: string) => nome || `comprovante.${EXT[mime ?? ''] ?? (type === 'image' ? 'jpg' : 'pdf')}`;
+
+/** Download de mídia recebida pela Cloud API (com o token do canal). */
+function baixarCloud(channel: Channel, m: InboundMessage): BaixarMidia | undefined {
+  if (!m.mediaId) return undefined;
+  return async () => {
+    const token = decryptOrNull(channel.accessTokenEnc);
+    if (!token) throw new Error('Canal sem token para baixar a mídia');
+    const r = await downloadCloudMedia(token, m.mediaId!);
+    return { dados: r.dados, mime: r.mime, nome: nomeMidia(m.type, r.mime, m.fileName) };
+  };
+}
+
+export async function handleInboundMessage(channel: Channel, m: InboundMessage, baixar?: BaixarMidia): Promise<'ok' | 'duplicate'> {
   const orgId = channel.orgId;
   // Idempotência rápida: a Meta reenvia o mesmo evento em caso de timeout.
   const already = await prisma.message.findUnique({ where: { channelId_waMessageId: { channelId: channel.id, waMessageId: m.waMessageId } } });
@@ -69,6 +88,18 @@ export async function handleInboundMessage(channel: Channel, m: InboundMessage):
     });
     contact = await prisma.contact.update({ where: { id: contact!.id }, data: { lastMessageAt: now } });
 
+    // MCK Mensagens: imagem/PDF de cliente com cobrança em aberto (ou que fala de pagamento) vira comprovante em análise.
+    if (m.type === 'image' || m.type === 'document') {
+      const dl = baixar ?? baixarCloud(channel, m);
+      if (dl) {
+        try {
+          await receberMidiaWhatsApp(orgId, contact, { waMessageId: m.waMessageId, type: m.type, texto: m.text, baixar: dl });
+        } catch (e) {
+          console.error('[comprovantes] falha ao registrar mídia recebida:', (e as Error).message);
+        }
+      }
+    }
+
     const isOptOut = OPT_OUT.has(normalize(m.text));
     if (!isOptOut) await onLeadInbound(orgId, contact);
     if (isOptOut) {
@@ -92,7 +123,15 @@ export async function handleQrMessage(channelId: string, raw: WAMessage): Promis
   const channel = await prisma.channel.findUnique({ where: { id: channelId } });
   if (!channel) return 'ignored';
   await prisma.channel.update({ where: { id: channel.id }, data: { lastWebhookAt: new Date() } });
-  return handleInboundMessage(channel, m);
+  const baixar: BaixarMidia | undefined = m.type === 'image' || m.type === 'document'
+    ? async () => {
+      const dados = await downloadMediaMessage(raw, 'buffer', {});
+      const c = raw.message?.documentMessage ?? raw.message?.documentWithCaptionMessage?.message?.documentMessage ?? null;
+      const mime = c?.mimetype ?? raw.message?.imageMessage?.mimetype ?? undefined;
+      return { dados: Buffer.from(dados), mime: mime ?? undefined, nome: nomeMidia(m.type, mime ?? undefined, c?.fileName ?? undefined) };
+    }
+    : undefined;
+  return handleInboundMessage(channel, m, baixar);
 }
 
 /** Atualização de entrega/leitura vinda do Baileys. */

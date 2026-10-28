@@ -10,12 +10,16 @@ import { smtpConfigured, verifySmtp } from '../../lib/mailer.js';
 import { qrManager } from '../../whatsapp/qr/manager.js';
 import { CONSENT_SOURCES, toE164 } from '../constants.js';
 import { regraSchema, zonedToUtc, isValidTimeZone, descreverRegra, localDate, gerarHorarios } from './rules.js';
-import { renderMensagem, problemaRender, VARIAVEIS, VARIAVEIS_FASE2 } from './vars.js';
-import { getConfig, reprogramar, regraDe, CANAIS, HORIZONTE_DIAS } from './engine.js';
+import { renderMensagem, problemaRender, VARIAVEIS, VARIAVEIS_BOLETO, VARIAVEIS_FASE2 } from './vars.js';
+import { getConfig, reprogramar, regraDe, reenvioDe, enviarTeste, CANAIS, HORIZONTE_DIAS, type Canal } from './engine.js';
+import { cobrancasRouter, boletoView, arquivoView, comprovanteView } from './cobrancas.js';
+import { ABERTOS, COBRAVEIS, saldoDe, saldoCliente, reenvioPadraoDe, vencYmd, STATUS_LABEL } from './financeiro.js';
+import { TIPOS_SUPORTADOS } from './arquivos.js';
 import type { Automacao, Cliente } from '@prisma/client';
 
 /**
- * Automações e Cobranças — FASE 1 (clientes, lembretes, marketing, calendário, histórico, configurações).
+ * Automações e Cobranças — FASE 1 (clientes, lembretes, marketing, calendário, histórico, configurações)
+ * e FASE 2 (cobranças com boletos em sequência, anexos por mensagem, arquivos, comprovantes, pagamentos, relatórios — ver cobrancas.ts).
  * Permissões (papéis existentes): OWNER e ADMIN alteram; AGENT é somente leitura neste módulo.
  */
 export const automacoesRouter = Router();
@@ -30,7 +34,9 @@ automacoesRouter.use(ah(async (req, _res, next) => {
   next();
 }));
 
-const CATEGORIAS = ['LEMBRETE', 'MARKETING'] as const;
+automacoesRouter.use(cobrancasRouter);
+
+const CATEGORIAS = ['LEMBRETE', 'MARKETING', 'COBRANCA'] as const;
 const STATUS_CLIENTE = ['ATIVO', 'INATIVO', 'INADIMPLENTE', 'CANCELADO'] as const;
 const STATUS_OCORRENCIA = ['PENDENTE', 'PROCESSANDO', 'ENVIADA', 'FALHOU', 'IGNORADA', 'CANCELADA'] as const;
 const ymd = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use o formato AAAA-MM-DD');
@@ -232,12 +238,22 @@ async function getCliente(orgId: string, id: string) {
 automacoesRouter.get('/clientes/:id', ah(async (req, res) => {
   const orgId = orgOf(req);
   const c = await getCliente(orgId, req.params.id);
-  const [historico, proximas, automacoes] = await Promise.all([
+  const [historico, proximas, automacoes, boletos, pagamentos, arquivos, comprovantes, saldo, cfg] = await Promise.all([
     prisma.mensagemHistorico.findMany({ where: { orgId, clienteId: c.id }, orderBy: { updatedAt: 'desc' }, take: 50 }),
     prisma.ocorrencia.findMany({ where: { orgId, clienteId: c.id, status: 'PENDENTE' }, orderBy: { executarEm: 'asc' }, take: 20 }),
     prisma.automacao.findMany({ where: { orgId, clienteIds: { contains: JSON.stringify(c.id) } }, orderBy: { createdAt: 'desc' } }),
+    prisma.boleto.findMany({ where: { orgId, clienteId: c.id }, orderBy: [{ vencimento: 'asc' }, { parcela: 'asc' }], take: 200 }),
+    prisma.pagamento.findMany({ where: { orgId, clienteId: c.id }, orderBy: { pagoEm: 'desc' }, take: 100 }),
+    prisma.arquivo.findMany({ where: { orgId, clienteId: c.id }, orderBy: { createdAt: 'desc' }, take: 100 }),
+    prisma.comprovante.findMany({ where: { orgId, clienteId: c.id }, orderBy: { createdAt: 'desc' }, take: 50 }),
+    saldoCliente(orgId, c.id),
+    getConfig(orgId),
   ]);
-  res.json({ ...clienteView(c), historico, proximas, automacoes: automacoes.map((a) => ({ id: a.id, nome: a.nome, categoria: a.categoria, status: a.status })) });
+  res.json({
+    ...clienteView(c), historico, proximas, automacoes: automacoes.map((a) => ({ id: a.id, nome: a.nome, categoria: a.categoria, status: a.status })),
+    boletos: await Promise.all(boletos.map((b) => boletoView(b, cfg.timezone))), pagamentos: pagamentos.map((p) => ({ ...p, valor: p.valorCentavos / 100 })),
+    arquivos: arquivos.map(arquivoView), comprovantes: comprovantes.map(comprovanteView), saldoPendente: saldo / 100,
+  });
 }));
 
 automacoesRouter.patch('/clientes/:id', ah(async (req, res) => {
@@ -257,6 +273,8 @@ automacoesRouter.delete('/clientes/:id', ah(async (req, res) => {
   if (req.auth?.role !== 'OWNER') throw forbidden('Somente o proprietário pode excluir clientes');
   const orgId = orgOf(req);
   const c = await getCliente(orgId, req.params.id);
+  const [nb, np] = await Promise.all([prisma.boleto.count({ where: { orgId, clienteId: c.id } }), prisma.pagamento.count({ where: { orgId, clienteId: c.id } })]);
+  if (nb || np) throw new HttpError(409, `Cliente com histórico financeiro (${nb} boleto(s), ${np} pagamento(s)) não pode ser excluído. Altere o status para Cancelado/Inativo.`);
   await prisma.ocorrencia.updateMany({ where: { orgId, clienteId: c.id, status: 'PENDENTE' }, data: { status: 'CANCELADA', erro: 'Cliente excluído' } });
   await prisma.cliente.delete({ where: { id: c.id } });
   await audit(req, 'automacoes.cliente.delete', { entity: 'Cliente', entityId: c.id, meta: { nome: c.nome } });
@@ -266,19 +284,23 @@ automacoesRouter.delete('/clientes/:id', ah(async (req, res) => {
 // ---------------- Variáveis, prévia e modelos ----------------
 
 automacoesRouter.get('/variaveis', ah(async (_req, res) => {
-  res.json({ disponiveis: Object.entries(VARIAVEIS).map(([k, v]) => ({ chave: k, rotulo: v.rotulo })), fase2: VARIAVEIS_FASE2 });
+  res.json({
+    disponiveis: Object.entries(VARIAVEIS).map(([k, v]) => ({ chave: k, rotulo: v.rotulo })),
+    boleto: Object.entries(VARIAVEIS_BOLETO).map(([k, v]) => ({ chave: k, rotulo: v.rotulo })), fase2: VARIAVEIS_FASE2,
+  });
 }));
 
 automacoesRouter.post('/preview', ah(async (req, res) => {
   // Prévia é leitura: liberada também para o perfil somente leitura (não altera nada).
-  const b = z.object({ mensagem: z.string().max(4000), assunto: z.string().max(200).optional().nullable(), clienteId: z.string() }).parse(req.body);
+  const b = z.object({ mensagem: z.string().max(4000), assunto: z.string().max(200).optional().nullable(), clienteId: z.string(), boletoId: z.string().optional().nullable() }).parse(req.body);
   const orgId = orgOf(req);
   const c = await getCliente(orgId, b.clienteId);
   const cfg = await getConfig(orgId);
-  const r = renderMensagem(b.mensagem, c, cfg.timezone);
-  const a = b.assunto ? renderMensagem(b.assunto, c, cfg.timezone) : null;
+  const boleto = b.boletoId ? await prisma.boleto.findFirst({ where: { id: b.boletoId, orgId, clienteId: c.id } }) : null;
+  const r = renderMensagem(b.mensagem, c, cfg.timezone, { boleto });
+  const a = b.assunto ? renderMensagem(b.assunto, c, cfg.timezone, { boleto }) : null;
   const problema = problemaRender(r) ?? (a ? problemaRender(a) : null);
-  res.json({ texto: r.texto, assunto: a?.texto ?? null, faltando: [...r.faltando, ...(a?.faltando ?? [])], desconhecidas: [...r.desconhecidas, ...(a?.desconhecidas ?? [])], bloqueado: !!problema, problema });
+  res.json({ texto: r.texto, assunto: a?.texto ?? null, faltando: [...r.faltando, ...(a?.faltando ?? [])], desconhecidas: [...r.desconhecidas, ...(a?.desconhecidas ?? [])], precisaBoleto: r.precisaBoleto, bloqueado: !!problema, problema });
 }));
 
 const modeloSchema = z.object({ categoria: z.enum(CATEGORIAS), nome: z.string().trim().min(1).max(120), assunto: z.string().trim().max(200).optional().nullable(), corpo: z.string().trim().min(1).max(4000) });
@@ -324,7 +346,51 @@ const automacaoSchema = z.object({
   fim: ymd.optional().nullable(),
   maxEnvios: z.number().int().min(1).max(100000).optional().nullable(),
   ativar: z.boolean().optional(),
+  /** Arquivos/boletos: envio = N → só na N-ésima mensagem; vazio → em todas. A ordem da lista é a ordem de envio. */
+  anexos: z.array(z.object({ envio: z.number().int().min(1).max(100000).optional().nullable(), arquivoId: z.string().optional().nullable(), boletoId: z.string().optional().nullable() })
+    .refine((x) => !!x.arquivoId !== !!x.boletoId, 'Cada anexo é um arquivo OU um boleto')).max(200).optional(),
+  /** COBRANCA: reenvios relativos ao vencimento de cada boleto ainda pendente/vencido (null desliga). */
+  reenvio: z.object({
+    offsets: z.array(z.number().int().min(-60).max(365)).max(30), horario: hhmm, maxPorBoleto: z.number().int().min(1).max(50),
+    mensagem: z.string().trim().max(4000).optional().nullable(),
+  }).optional().nullable(),
 });
+
+type AnexoIn = NonNullable<z.infer<typeof automacaoSchema>['anexos']>[number];
+
+/** Valida os anexos contra a organização, a categoria e os destinatários (arquivo/boleto de um cliente só vai para ele). */
+async function validarAnexos(orgId: string, categoria: string, clienteIds: string[], anexos: AnexoIn[], regra: any) {
+  const arqIds = [...new Set(anexos.filter((x) => x.arquivoId).map((x) => x.arquivoId!))];
+  const bolIds = [...new Set(anexos.filter((x) => x.boletoId).map((x) => x.boletoId!))];
+  if (bolIds.length && categoria !== 'COBRANCA') throw new HttpError(400, 'Boletos só podem ser anexados em automações de cobrança');
+  const [arqs, bols] = await Promise.all([
+    arqIds.length ? prisma.arquivo.findMany({ where: { orgId, id: { in: arqIds } } }) : [],
+    bolIds.length ? prisma.boleto.findMany({ where: { orgId, id: { in: bolIds } } }) : [],
+  ]);
+  if (arqs.length !== arqIds.length) throw new HttpError(400, 'Há arquivos inválidos entre os anexos');
+  if (bols.length !== bolIds.length) throw new HttpError(400, 'Há boletos inválidos entre os anexos');
+  const pessoais = [...arqs.filter((a) => a.clienteId).map((a) => a.clienteId!), ...bols.map((b) => b.clienteId)];
+  if (pessoais.length && (clienteIds.length !== 1 || pessoais.some((id) => id !== clienteIds[0]))) {
+    throw new HttpError(400, 'Arquivos e boletos vinculados a um cliente só podem ir numa automação com esse único cliente como destinatário (evita troca de documentos entre clientes)');
+  }
+  if (bols.some((b) => b.status === 'CANCELADO' || b.status === 'PAGO')) throw new HttpError(400, 'Não é possível anexar boleto pago ou cancelado');
+  const porEnvio = new Map<number, number>();
+  for (const x of anexos) if (x.boletoId) {
+    if (x.envio == null) throw new HttpError(400, 'Cada boleto precisa indicar em qual mensagem da sequência será enviado');
+    porEnvio.set(x.envio, (porEnvio.get(x.envio) ?? 0) + 1);
+  }
+  if (bolIds.length !== anexos.filter((x) => x.boletoId).length) throw new HttpError(400, 'O mesmo boleto foi anexado duas vezes');
+  // Ordem preservada: nas datas específicas, as datas precisam ser crescentes (mensagem N = N-ésima data).
+  if (bolIds.length && regra?.tipo === 'DATAS') {
+    const ds = (regra.datas as { data: string; horario: string }[]).map((d) => `${d.data} ${d.horario}`);
+    if (ds.some((d, i) => i > 0 && d <= ds[i - 1])) throw new HttpError(400, 'Em cobranças com boletos, as datas da sequência precisam estar em ordem crescente (a mensagem 1 leva o 1º documento, a 2 o 2º…)');
+  }
+}
+
+async function salvarAnexos(orgId: string, automacaoId: string, anexos: AnexoIn[]) {
+  await prisma.automacaoAnexo.deleteMany({ where: { automacaoId } });
+  if (anexos.length) await prisma.automacaoAnexo.createMany({ data: anexos.map((x, i) => ({ orgId, automacaoId, envio: x.envio ?? null, ordem: i, arquivoId: x.arquivoId ?? null, boletoId: x.boletoId ?? null })) });
+}
 
 async function resolverDestinatarios(orgId: string, b: { clienteIds?: string[]; todosClientes?: { status?: string; q?: string } }) {
   if (b.todosClientes) return (await prisma.cliente.findMany({ where: filtroClientes(orgId, b.todosClientes.q, b.todosClientes.status), select: { id: true } })).map((c) => c.id);
@@ -360,6 +426,7 @@ async function automacaoData(orgId: string, b: Partial<z.infer<typeof automacaoS
     d.fim = fim ? zonedToUtc(fim, '23:59', tz) : null;
   }
   if (b.maxEnvios !== undefined) d.maxEnvios = b.maxEnvios;
+  if (b.reenvio !== undefined) d.reenvio = b.reenvio && b.reenvio.offsets.length ? JSON.stringify({ ...b.reenvio, offsets: [...new Set(b.reenvio.offsets)].sort((x, y) => x - y) }) : null;
   const ini = d.inicio ?? atual?.inicio, fim = d.fim !== undefined ? d.fim : atual?.fim;
   if (fim && ini && fim < ini) throw new HttpError(400, 'A data de término não pode ser anterior ao início');
   return d;
@@ -371,9 +438,22 @@ async function validarAtivacao(a: Automacao) {
   if (!ids.length) throw new HttpError(400, 'Escolha ao menos um cliente');
   const clientes = await prisma.cliente.findMany({ where: { orgId: a.orgId, id: { in: ids } } });
   const problemas: { clienteId: string; nome: string; problema: string }[] = [];
+  const anexos = await prisma.automacaoAnexo.findMany({ where: { automacaoId: a.id }, orderBy: { ordem: 'asc' } });
+  const bolIds = anexos.filter((x) => x.boletoId).map((x) => x.boletoId!);
+  const boletos = bolIds.length ? await prisma.boleto.findMany({ where: { orgId: a.orgId, id: { in: bolIds } } }) : [];
+  const regra = regraDe(a);
+  const textosPorEnvio = regra.tipo === 'DATAS' ? regra.datas.map((d) => d.mensagem?.trim() || a.mensagem) : [a.mensagem];
+  const reenvio = reenvioDe(a);
+  if (reenvio?.mensagem) textosPorEnvio.push(reenvio.mensagem);
+  if (a.categoria === 'COBRANCA' && !boletos.length && textosPorEnvio.some((t) => /\{\{\s*(numero_parcela|valor_pendente|link_pagamento|numero_documento|linha_digitavel|codigo_barras|data_pagamento|descricao_cobranca)\s*\}\}/i.test(t))) {
+    throw new HttpError(400, 'A mensagem usa variáveis do boleto, mas nenhum boleto foi anexado à sequência');
+  }
   for (const c of clientes) {
-    const p = problemaRender(renderMensagem(a.mensagem, c, a.timezone)) ?? (a.assunto ? problemaRender(renderMensagem(a.assunto, c, a.timezone)) : null);
-    if (p) problemas.push({ clienteId: c.id, nome: c.nome, problema: p });
+    for (const [i, tpl] of textosPorEnvio.entries()) {
+      const bol = boletos.find((b) => b.id === anexos.find((x) => x.boletoId && x.envio === i + 1)?.boletoId) ?? boletos[0] ?? null;
+      const p = problemaRender(renderMensagem(tpl, c, a.timezone, { boleto: bol })) ?? (a.assunto ? problemaRender(renderMensagem(a.assunto, c, a.timezone, { boleto: bol })) : null);
+      if (p) { problemas.push({ clienteId: c.id, nome: c.nome, problema: p }); break; }
+    }
   }
   if (problemas.length) throw new HttpError(400, `Não é possível ativar: ${problemas[0].nome} — ${problemas[0].problema}`, { problemas: problemas.slice(0, 100) });
   const canais = parseJson<string[]>(a.canais, []);
@@ -383,6 +463,9 @@ async function validarAtivacao(a: Automacao) {
   if (a.categoria === 'MARKETING') { const n = clientes.filter((c) => c.marketingOptOutAt).length; if (n) avisos.push(`${n} cliente(s) com opt-out de marketing não receberão`); }
   if (canais.includes('EMAIL')) { const n = clientes.filter((c) => !c.email).length; if (n) avisos.push(`${n} cliente(s) sem e-mail`); }
   if (canais.includes('WHATSAPP')) { const n = clientes.filter((c) => !c.whatsapp && !c.telefone).length; if (n) avisos.push(`${n} cliente(s) sem WhatsApp`); }
+  const semPdf = boletos.filter((b) => !b.arquivoId).length;
+  if (semPdf) avisos.push(`${semPdf} boleto(s) sem arquivo PDF: a mensagem segue só com os dados no texto (use {{linha_digitavel}} ou {{link_pagamento}})`);
+  if (regra.tipo === 'DATAS' && anexos.some((x) => x.envio != null && x.envio > regra.datas.length)) avisos.push('Há anexos indicados para mensagens além do número de datas da sequência: não serão enviados');
   return avisos;
 }
 
@@ -392,8 +475,18 @@ async function automacaoView(a: Automacao) {
   const regra = parseJson<any>(a.regra, {});
   let descricao = '';
   try { descricao = descreverRegra(regraSchema.parse(regra)); } catch { /* regra antiga/ inválida */ }
+  const anexos = await prisma.automacaoAnexo.findMany({ where: { automacaoId: a.id }, orderBy: { ordem: 'asc' } });
+  const arqs = anexos.some((x) => x.arquivoId) ? await prisma.arquivo.findMany({ where: { orgId: a.orgId, id: { in: anexos.filter((x) => x.arquivoId).map((x) => x.arquivoId!) } }, select: { id: true, nome: true } }) : [];
+  const bols = anexos.some((x) => x.boletoId) ? await prisma.boleto.findMany({ where: { orgId: a.orgId, id: { in: anexos.filter((x) => x.boletoId).map((x) => x.boletoId!) } } }) : [];
   return {
-    ...a, canais: parseJson<string[]>(a.canais, []), clienteIds: parseJson<string[]>(a.clienteIds, []), regra, descricao,
+    ...a, canais: parseJson<string[]>(a.canais, []), clienteIds: parseJson<string[]>(a.clienteIds, []), regra, descricao, reenvio: parseJson<any>(a.reenvio, null),
+    anexos: anexos.map((x) => {
+      const b = bols.find((y) => y.id === x.boletoId);
+      return {
+        id: x.id, envio: x.envio, ordem: x.ordem, arquivoId: x.arquivoId, boletoId: x.boletoId, nome: arqs.find((y) => y.id === x.arquivoId)?.nome ?? null,
+        boleto: b ? { id: b.id, descricao: b.descricao, parcela: b.parcela, totalParcelas: b.totalParcelas, vencimento: vencYmd(b), status: b.status, statusLabel: STATUS_LABEL[b.status], valor: b.valorCentavos / 100, temArquivo: !!b.arquivoId } : null,
+      };
+    }),
     ocorrencias: Object.fromEntries(groups.map((g) => [g.status, g._count._all])), proximoEnvio: proxima?.executarEm ?? null,
   };
 }
@@ -414,7 +507,10 @@ automacoesRouter.post('/automacoes', ah(async (req, res) => {
   const b = automacaoSchema.parse(req.body);
   const orgId = orgOf(req);
   const data = await automacaoData(orgId, b);
+  if (b.anexos?.length) await validarAnexos(orgId, b.categoria, parseJson<string[]>(data.clienteIds, []), b.anexos, b.regra);
+  if (b.categoria === 'COBRANCA' && b.reenvio === undefined) data.reenvio = JSON.stringify(reenvioPadraoDe((await getConfig(orgId)).reenvioPadrao));
   let a = await prisma.automacao.create({ data: { orgId, createdById: req.auth!.userId, ...data, nome: b.nome, categoria: b.categoria, mensagem: b.mensagem, regra: JSON.stringify(b.regra) } });
+  if (b.anexos?.length) await salvarAnexos(orgId, a.id, b.anexos);
   let avisos: string[] = [];
   if (b.ativar) {
     try {
@@ -450,11 +546,22 @@ automacoesRouter.patch('/automacoes/:id', ah(async (req, res) => {
   const a = await getAutomacao(orgId, req.params.id);
   if (a.status === 'CANCELADA' || a.status === 'CONCLUIDA') throw new HttpError(400, 'Automação encerrada não pode ser editada. Duplique para criar outra.');
   const data = await automacaoData(orgId, b, a);
+  if (b.categoria && b.categoria !== a.categoria) throw new HttpError(400, 'A categoria não pode ser alterada. Duplique para criar outra.');
+  const anexosAntes = await prisma.automacaoAnexo.findMany({ where: { automacaoId: a.id }, orderBy: { ordem: 'asc' } });
+  if (b.anexos !== undefined) await validarAnexos(orgId, a.categoria, parseJson<string[]>(data.clienteIds ?? a.clienteIds, []), b.anexos, b.regra ?? regraDe(a));
+  else if (anexosAntes.length && (b.clienteIds !== undefined || b.todosClientes || b.regra)) {
+    await validarAnexos(orgId, a.categoria, parseJson<string[]>(data.clienteIds ?? a.clienteIds, []), anexosAntes as AnexoIn[], b.regra ?? regraDe(a));
+  }
   let u = await prisma.automacao.update({ where: { id: a.id }, data });
+  if (b.anexos !== undefined) await salvarAnexos(orgId, a.id, b.anexos);
   let avisos: string[] = [];
   let reprogramadas = 0;
   if (u.status === 'ATIVA') {
-    avisos = await validarAtivacao(u).catch(async (e) => { await prisma.automacao.update({ where: { id: a.id }, data: { ...pick(a, Object.keys(data)) } }); throw e; });
+    avisos = await validarAtivacao(u).catch(async (e) => {
+      await prisma.automacao.update({ where: { id: a.id }, data: { ...pick(a, Object.keys(data)) } });
+      if (b.anexos !== undefined) await salvarAnexos(orgId, a.id, anexosAntes as AnexoIn[]);
+      throw e;
+    });
     reprogramadas = await reprogramar(u);
     u = await prisma.automacao.findUniqueOrThrow({ where: { id: a.id } });
   }
@@ -511,9 +618,90 @@ automacoesRouter.post('/automacoes/:id/duplicar', ah(async (req, res) => {
       clienteIds: a.clienteIds, regra: a.regra, timezone: a.timezone, inicio: a.inicio, fim: a.fim, maxEnvios: a.maxEnvios, status: 'RASCUNHO', createdById: req.auth!.userId,
     },
   });
+  const anexos = await prisma.automacaoAnexo.findMany({ where: { automacaoId: a.id }, orderBy: { ordem: 'asc' } });
+  if (anexos.length) await salvarAnexos(a.orgId, c.id, anexos as AnexoIn[]);
+  if (a.reenvio) await prisma.automacao.update({ where: { id: c.id }, data: { reenvio: a.reenvio } });
   await audit(req, 'automacoes.automacao.duplicar', { entity: 'Automacao', entityId: c.id, meta: { origem: a.id } });
   res.status(201).json(await automacaoView(c));
 }));
+
+/** Teste de envio imediato para um cliente autorizado (com consentimento). Não conta como envio da sequência. */
+automacoesRouter.post('/automacoes/:id/testar', ah(async (req, res) => {
+  const b = z.object({ clienteId: z.string(), canal: z.enum(CANAIS), envio: z.number().int().min(1).optional().nullable() }).parse(req.body);
+  const orgId = orgOf(req);
+  const a = await getAutomacao(orgId, req.params.id);
+  const c = await getCliente(orgId, b.clienteId);
+  if (!c.consentimentoAt) throw new HttpError(400, 'O teste só pode ir para um cliente com consentimento registrado');
+  if (b.canal === 'EMAIL' && !c.email) throw new HttpError(400, 'Cliente sem e-mail');
+  if (b.canal === 'WHATSAPP' && !(c.whatsapp || c.telefone)) throw new HttpError(400, 'Cliente sem WhatsApp');
+  const r = await enviarTeste(a, c, b.canal as Canal, req.auth!.userId, b.envio ?? 1);
+  await audit(req, 'automacoes.automacao.testar', { entity: 'Automacao', entityId: a.id, meta: { clienteId: c.id, canal: b.canal, ok: r.ok } });
+  res.status(r.ok ? 200 : 422).json(r.ok ? r : { ...r, error: r.erro });
+}));
+
+/**
+ * Atalho de cobrança: cria uma sequência a partir dos boletos escolhidos (na ordem informada).
+ * Mensagem N = boleto N, enviada "diasAntes" do vencimento no horário escolhido (ou na data informada por boleto).
+ */
+automacoesRouter.post('/cobrancas/sequencia', ah(async (req, res) => {
+  const b = z.object({
+    nome: z.string().trim().min(1).max(160), clienteId: z.string(), boletoIds: z.array(z.string()).min(1).max(120),
+    canais: z.array(z.enum(CANAIS)).min(1), channelId: z.string().optional().nullable(), assunto: z.string().trim().max(200).optional().nullable(),
+    mensagem: z.string().trim().min(1).max(4000), mensagens: z.array(z.string().trim().max(4000).optional().nullable()).max(120).optional(),
+    diasAntes: z.number().int().min(0).max(60).default(3), horario: hhmm.default('09:00'), datas: z.array(ymd).max(120).optional(),
+    reenvio: z.object({ offsets: z.array(z.number().int().min(-60).max(365)).max(30), horario: hhmm, maxPorBoleto: z.number().int().min(1).max(50), mensagem: z.string().trim().max(4000).optional().nullable() }).optional().nullable(),
+    ativar: z.boolean().default(false),
+  }).parse(req.body);
+  const orgId = orgOf(req);
+  await getCliente(orgId, b.clienteId);
+  if (new Set(b.boletoIds).size !== b.boletoIds.length) throw new HttpError(400, 'Boleto repetido na sequência');
+  const bols = await prisma.boleto.findMany({ where: { orgId, id: { in: b.boletoIds } } });
+  if (bols.length !== b.boletoIds.length || bols.some((x) => x.clienteId !== b.clienteId)) throw new HttpError(400, 'Todos os boletos precisam ser deste cliente');
+  const cobraveis = bols.filter((x) => (COBRAVEIS as string[]).includes(x.status));
+  if (cobraveis.length !== bols.length) throw new HttpError(400, 'Só boletos pendentes, vencidos ou parcialmente pagos entram na sequência');
+  const cfg = await getConfig(orgId);
+  const hoje = localDate(new Date(), cfg.timezone);
+  const agora = new Intl.DateTimeFormat('en-GB', { timeZone: cfg.timezone, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date());
+  const datas: { data: string; horario: string; mensagem?: string | null }[] = [];
+  let ultimo = '';
+  b.boletoIds.forEach((id, i) => {
+    const bo = bols.find((x) => x.id === id)!;
+    let data = b.datas?.[i] ?? new Date(bo.vencimento.getTime() - b.diasAntes * 86400e3).toISOString().slice(0, 10);
+    let horario = b.horario;
+    if (data < hoje || (data === hoje && horario <= agora)) { data = hoje; horario = agora < '23:58' ? minutoSeguinte(agora) : '23:59'; }
+    let chave = `${data} ${horario}`;
+    if (chave <= ultimo) { // mantém a ordem: mesma data/horário vira 1 minuto depois do anterior
+      const [d, h] = ultimo.split(' ');
+      data = d; horario = minutoSeguinte(h); chave = `${data} ${horario}`;
+    }
+    ultimo = chave;
+    datas.push({ data, horario, mensagem: b.mensagens?.[i] || null });
+  });
+  const body = {
+    nome: b.nome, categoria: 'COBRANCA', canais: b.canais, channelId: b.channelId ?? null, assunto: b.assunto ?? null, mensagem: b.mensagem, clienteIds: [b.clienteId],
+    regra: { tipo: 'DATAS', datas }, anexos: b.boletoIds.map((id, i) => ({ envio: i + 1, boletoId: id })),
+    reenvio: b.reenvio === undefined ? reenvioPadraoDe(cfg.reenvioPadrao) : b.reenvio, ativar: b.ativar,
+  };
+  const parsed = automacaoSchema.parse(body);
+  const data = await automacaoData(orgId, parsed);
+  await validarAnexos(orgId, 'COBRANCA', [b.clienteId], parsed.anexos!, parsed.regra);
+  let a = await prisma.automacao.create({ data: { orgId, createdById: req.auth!.userId, ...data, nome: b.nome, categoria: 'COBRANCA', mensagem: b.mensagem, regra: JSON.stringify(parsed.regra) } });
+  await salvarAnexos(orgId, a.id, parsed.anexos!);
+  let avisos: string[] = [];
+  if (b.ativar) {
+    avisos = await validarAtivacao(a);
+    a = await prisma.automacao.update({ where: { id: a.id }, data: { status: 'ATIVA' } });
+    await reprogramar(a);
+  }
+  await audit(req, 'automacoes.cobranca.sequencia', { entity: 'Automacao', entityId: a.id, meta: { clienteId: b.clienteId, boletos: b.boletoIds.length, ativada: b.ativar } });
+  res.status(201).json({ ...(await automacaoView(a)), avisos });
+}));
+
+function minutoSeguinte(hm: string) {
+  const [h, m] = hm.split(':').map(Number);
+  const t = Math.min(23 * 60 + 59, h * 60 + m + 1);
+  return `${String(Math.floor(t / 60)).padStart(2, '0')}:${String(t % 60).padStart(2, '0')}`;
+}
 
 /** Prévia dos próximos horários de uma regra (sem salvar). */
 automacoesRouter.post('/regra/previa', ah(async (req, res) => {
@@ -572,25 +760,50 @@ automacoesRouter.post('/ocorrencias/:id/reprocessar', ah(async (req, res) => {
 
 // ---------------- Dashboard, calendário e histórico ----------------
 
+/**
+ * Indicadores. Filtros opcionais: período (de/ate: enviadas, falhas, pagos, recebidos e comprovantes do período), cliente e categoria.
+ * Sem período, "enviadas" é o dia de hoje e falhas/pagos são o total.
+ */
 automacoesRouter.get('/dashboard', ah(async (req, res) => {
+  const q = z.object({ de: ymd.optional(), ate: ymd.optional(), clienteId: z.string().optional(), categoria: z.enum(CATEGORIAS).optional() }).parse(req.query);
   const orgId = orgOf(req);
   const cfg = await getConfig(orgId);
   const now = new Date();
   const hoje = zonedToUtc(localDate(now, cfg.timezone), '00:00', cfg.timezone);
+  const periodo = q.de || q.ate ? { ...(q.de ? { gte: zonedToUtc(q.de, '00:00', cfg.timezone) } : {}), ...(q.ate ? { lt: new Date(zonedToUtc(q.ate, '00:00', cfg.timezone).getTime() + 86400e3) } : {}) } : null;
+  const oc: any = { orgId, ...(q.clienteId ? { clienteId: q.clienteId } : {}) };
+  if (q.categoria) oc.automacaoId = { in: (await prisma.automacao.findMany({ where: { orgId, categoria: q.categoria }, select: { id: true } })).map((a) => a.id) };
   const [clientes, programadas, enviadasHoje, pendentes, falhas, marketingAtivas, lembretesAtivos, pausadas, proximos] = await Promise.all([
     prisma.cliente.count({ where: { orgId } }),
-    prisma.ocorrencia.count({ where: { orgId, status: 'PENDENTE' } }),
-    prisma.ocorrencia.count({ where: { orgId, status: 'ENVIADA', enviadoEm: { gte: hoje } } }),
-    prisma.ocorrencia.count({ where: { orgId, status: { in: ['PENDENTE', 'PROCESSANDO'] }, executarEm: { lte: now } } }),
-    prisma.ocorrencia.count({ where: { orgId, status: 'FALHOU' } }),
+    prisma.ocorrencia.count({ where: { ...oc, status: 'PENDENTE' } }),
+    prisma.ocorrencia.count({ where: { ...oc, status: 'ENVIADA', enviadoEm: periodo ?? { gte: hoje } } }),
+    prisma.ocorrencia.count({ where: { ...oc, status: { in: ['PENDENTE', 'PROCESSANDO'] }, executarEm: { lte: now } } }),
+    prisma.ocorrencia.count({ where: { ...oc, status: 'FALHOU', ...(periodo ? { updatedAt: periodo } : {}) } }),
     prisma.automacao.count({ where: { orgId, categoria: 'MARKETING', status: 'ATIVA' } }),
     prisma.automacao.count({ where: { orgId, categoria: 'LEMBRETE', status: 'ATIVA' } }),
-    prisma.automacao.count({ where: { orgId, status: 'PAUSADA' } }),
-    prisma.ocorrencia.findMany({ where: { orgId, status: 'PENDENTE', executarEm: { gte: now } }, orderBy: { executarEm: 'asc' }, take: 10 }),
+    prisma.automacao.count({ where: { orgId, status: 'PAUSADA', ...(q.categoria ? { categoria: q.categoria } : {}) } }),
+    prisma.ocorrencia.findMany({ where: { ...oc, status: 'PENDENTE', executarEm: { gte: now } }, orderBy: { executarEm: 'asc' }, take: 10 }),
   ]);
   const nomes = await nomesDe(orgId, proximos);
+  const bWhere: any = { orgId, ...(q.clienteId ? { clienteId: q.clienteId } : {}) };
+  const em7 = localDate(new Date(now.getTime() + 7 * 86400e3), cfg.timezone);
+  const [abertos, pagos, comprovantesRecebidos, comprovantesPendentes, cobrancasAtivas, recebidoPeriodo] = await Promise.all([
+    prisma.boleto.findMany({ where: { ...bWhere, status: { in: ABERTOS } } }),
+    prisma.boleto.count({ where: { ...bWhere, status: 'PAGO', ...(periodo ? { pagoEm: periodo } : {}) } }),
+    prisma.comprovante.count({ where: { orgId, ...(q.clienteId ? { clienteId: q.clienteId } : {}), ...(periodo ? { createdAt: periodo } : {}) } }),
+    prisma.comprovante.count({ where: { orgId, status: 'EM_ANALISE', ...(q.clienteId ? { clienteId: q.clienteId } : {}) } }),
+    prisma.automacao.count({ where: { orgId, categoria: 'COBRANCA', status: 'ATIVA' } }),
+    prisma.pagamento.aggregate({ where: { orgId, estornadoEm: null, ...(q.clienteId ? { clienteId: q.clienteId } : {}), ...(periodo ? { pagoEm: periodo } : {}) }, _sum: { valorCentavos: true } }),
+  ]);
+  const hojeYmd = localDate(now, cfg.timezone);
   res.json({
     clientes, programadas, enviadasHoje, pendentes, falhas, marketingAtivas, lembretesAtivos, pausadas,
+    boletosAVencer: abertos.filter((b) => vencYmd(b) >= hojeYmd && vencYmd(b) <= em7 && b.status !== 'EM_ANALISE').length,
+    boletosVencidos: abertos.filter((b) => vencYmd(b) < hojeYmd && b.status !== 'EM_ANALISE').length,
+    boletosPagos: pagos, boletosAguardando: abertos.filter((b) => b.status === 'EM_ANALISE').length,
+    valoresPendentes: abertos.reduce((s, b) => s + saldoDe(b), 0) / 100, valoresRecebidos: (recebidoPeriodo._sum.valorCentavos ?? 0) / 100,
+    comprovantesRecebidos, comprovantesPendentes, cobrancasAtivas,
+    filtro: { de: q.de ?? null, ate: q.ate ?? null, clienteId: q.clienteId ?? null, categoria: q.categoria ?? null },
     proximos: proximos.map((o) => ({ ...o, cliente: nomes.c[o.clienteId] ?? '—', automacao: nomes.a[o.automacaoId]?.nome ?? '—', categoria: nomes.a[o.automacaoId]?.categoria })),
   });
 }));
@@ -617,10 +830,16 @@ automacoesRouter.get('/calendario', ah(async (req, res) => {
   });
   const nomes = await nomesDe(orgId, rows);
   const cfg = await getConfig(orgId);
+  // Vencimentos de boletos (a vencer, vencidos, pagos) no período — salvos ao meio-dia UTC da data.
+  const boletos = !q.categoria || q.categoria === 'COBRANCA'
+    ? await prisma.boleto.findMany({ where: { orgId, status: { not: 'RASCUNHO' }, vencimento: { gte: new Date(q.de.getTime() - 86400e3), lt: new Date(q.ate.getTime() + 86400e3) } }, orderBy: { vencimento: 'asc' }, take: 2000 })
+    : [];
+  const nb = await nomesDe(orgId, boletos.map((b) => ({ clienteId: b.clienteId, automacaoId: null })));
   res.json({
     timezone: cfg.timezone, truncado: rows.length >= 3000,
+    boletos: boletos.map((b) => ({ id: b.id, clienteId: b.clienteId, cliente: nb.c[b.clienteId] ?? '—', descricao: b.descricao, parcela: b.parcela, totalParcelas: b.totalParcelas, vencimento: vencYmd(b), status: b.status, statusLabel: STATUS_LABEL[b.status], saldo: saldoDe(b) / 100 })),
     eventos: rows.map((o) => ({
-      id: o.id, automacaoId: o.automacaoId, clienteId: o.clienteId, canal: o.canal, status: o.status, agendadoPara: o.agendadoPara, enviadoEm: o.enviadoEm, erro: o.erro,
+      id: o.id, automacaoId: o.automacaoId, clienteId: o.clienteId, canal: o.canal, status: o.status, agendadoPara: o.agendadoPara, enviadoEm: o.enviadoEm, erro: o.erro, tipo: o.tipo, boletoId: o.boletoId,
       cliente: nomes.c[o.clienteId] ?? '—', automacao: nomes.a[o.automacaoId]?.nome ?? '—', categoria: nomes.a[o.automacaoId]?.categoria ?? null, automacaoStatus: nomes.a[o.automacaoId]?.status ?? null,
     })),
   });
@@ -630,11 +849,11 @@ automacoesRouter.get('/historico', ah(async (req, res) => {
   const q = z.object({
     clienteId: z.string().optional(), automacaoId: z.string().optional(), categoria: z.enum(CATEGORIAS).optional(), canal: z.enum(CANAIS).optional(),
     status: z.string().max(20).optional(), de: z.coerce.date().optional(), ate: z.coerce.date().optional(), q: z.string().max(100).optional(),
-    page: z.coerce.number().int().min(1).default(1),
+    direcao: z.enum(['IN', 'OUT']).optional(), boletoId: z.string().optional(), page: z.coerce.number().int().min(1).default(1),
   }).parse(req.query);
   const orgId = orgOf(req);
   const where: any = { orgId };
-  for (const k of ['clienteId', 'automacaoId', 'categoria', 'canal', 'status'] as const) if (q[k]) where[k] = q[k];
+  for (const k of ['clienteId', 'automacaoId', 'categoria', 'canal', 'status', 'direcao', 'boletoId'] as const) if (q[k]) where[k] = q[k];
   if (q.de || q.ate) where.updatedAt = { ...(q.de ? { gte: q.de } : {}), ...(q.ate ? { lt: q.ate } : {}) };
   if (q.q) where.conteudo = { contains: q.q };
   const [items, total] = await Promise.all([
@@ -642,7 +861,15 @@ automacoesRouter.get('/historico', ah(async (req, res) => {
     prisma.mensagemHistorico.count({ where }),
   ]);
   const nomes = await nomesDe(orgId, items);
-  res.json({ items: items.map((h) => ({ ...h, cliente: h.clienteId ? nomes.c[h.clienteId] ?? '(excluído)' : '—', automacao: h.automacaoId ? nomes.a[h.automacaoId]?.nome ?? '—' : '—' })), total, page: q.page, pageSize: 50 });
+  const opIds = [...new Set(items.map((h) => h.operadorId).filter(Boolean) as string[])];
+  const ops = opIds.length ? await prisma.user.findMany({ where: { id: { in: opIds } }, select: { id: true, name: true } }) : [];
+  res.json({
+    items: items.map((h) => ({
+      ...h, anexos: parseJson<any[]>(h.anexos, []), cliente: h.clienteId ? nomes.c[h.clienteId] ?? '(excluído)' : '—', automacao: h.automacaoId ? nomes.a[h.automacaoId]?.nome ?? '—' : '—',
+      operador: h.operadorId ? ops.find((o) => o.id === h.operadorId)?.name ?? null : null,
+    })),
+    total, page: q.page, pageSize: 50,
+  });
 }));
 
 // ---------------- Configurações ----------------
@@ -658,10 +885,17 @@ automacoesRouter.put('/config', ah(async (req, res) => {
     limiteDiario: z.number().int().min(1).max(100000).optional(),
     maxTentativas: z.number().int().min(1).max(10).optional(),
     backoffSeg: z.number().int().min(10).max(86400).optional(),
+    tiposArquivo: z.array(z.enum(Object.keys(TIPOS_SUPORTADOS) as [string, ...string[]])).min(1, 'Escolha ao menos um tipo de arquivo').optional(),
+    tamanhoMaxMb: z.number().int().min(1).max(25).optional(),
+    reenvioPadrao: z.object({ offsets: z.array(z.number().int().min(-60).max(365)).max(30), horario: hhmm, maxPorBoleto: z.number().int().min(1).max(50) }).optional(),
+    notificarComprovantes: z.boolean().optional(),
   }).parse(req.body);
   const orgId = orgOf(req);
   await getConfig(orgId);
-  const u = await prisma.automacaoConfig.update({ where: { orgId }, data: b });
+  const data: any = { ...b };
+  if (b.tiposArquivo) data.tiposArquivo = [...new Set(b.tiposArquivo)].join(',');
+  if (b.reenvioPadrao) data.reenvioPadrao = JSON.stringify({ ...b.reenvioPadrao, offsets: [...new Set(b.reenvioPadrao.offsets)].sort((x, y) => x - y) });
+  const u = await prisma.automacaoConfig.update({ where: { orgId }, data });
   await audit(req, 'automacoes.config.update', { meta: Object.keys(b) });
   res.json(u);
 }));
