@@ -456,7 +456,7 @@ export async function automateInbound(conv: Conversation, contact: Contact, mess
     // Cliente escreveu uma pergunta livre em vez de escolher uma opção do menu:
     // em vez de "Opção inválida", tenta outro fluxo pelo gatilho e, se não houver, a IA responde.
     const miss = await isFreeTextMenuMiss(waiting, text, opts.replyId);
-    if (!miss || (!aiOn && !(await findMatchingFlow(conv.orgId, text, false, new Date(), 2)))) {
+    if (!miss || (!aiOn && !(await findMatchingFlow(conv.orgId, text, false, new Date(), 3)))) {
       await resumeWithReply(waiting, { text, replyId: opts.replyId });
       return 'flow_resumed' as const;
     }
@@ -465,10 +465,11 @@ export async function automateInbound(conv: Conversation, contact: Contact, mess
       await prisma.flowRunStep.create({ data: { orgId: waiting.orgId, runId: waiting.id, flowId: waiting.flowId, nodeId: waiting.currentNodeId ?? '', nodeType: 'menu', status: 'warn', detail: `Resposta fora do menu, encaminhada: ${text}`.slice(0, 1000) } });
     }
   }
-  // Com a IA automática ligada, gatilhos "qualquer mensagem" (score 1) não capturam a conversa:
-  // quem responde o que nenhum fluxo específico cobre é a IA. Palavra-chave, primeira mensagem e
-  // horário continuam tendo prioridade.
-  const flowId = await findMatchingFlow(conv.orgId, text, waiting ? false : opts.isFirst, new Date(), aiOn ? 2 : 1);
+  // Com a IA automática ligada, depois da primeira mensagem os gatilhos genéricos ("qualquer mensagem"
+  // e "horário") não capturam a conversa: só palavra-chave inicia fluxo, e o resto a IA responde.
+  // Na primeira mensagem do contato, todos os gatilhos valem (boas-vindas/menu).
+  const isFirst = waiting ? false : opts.isFirst;
+  const flowId = await findMatchingFlow(conv.orgId, text, isFirst, new Date(), aiOn && !isFirst ? 3 : 1);
   if (flowId) {
     await startFlow(flowId, conv, contact, { triggerMessageId: message.id, lastMessage: text });
     return 'flow_started' as const;
