@@ -58,10 +58,11 @@ export function installGraphMock() {
   setFetch(async (input, init) => {
     const url = String(input);
     if (url.startsWith('https://graph.facebook.com/')) {
-      const body = init?.body ? JSON.parse(String(init.body)) : null;
+      const body = typeof init?.body === 'string' ? JSON.parse(init.body) : init?.body instanceof FormData ? { formData: Object.fromEntries([...init.body.keys()].map((k) => [k, true])) } : null;
       graph.calls.push({ url, body, headers: init?.headers });
       const fail = graph.failNext.shift();
       if (fail) return new Response(JSON.stringify({ error: { message: `Erro simulado ${fail}` } }), { status: fail });
+      if (init?.method === 'POST' && url.endsWith('/media')) return new Response(JSON.stringify({ id: `media-${++graph.n}` }), { status: 200 });
       if (init?.method === 'POST') return new Response(JSON.stringify({ messages: [{ id: `wamid.OUT${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}${++graph.n}` }] }), { status: 200 });
       return new Response(JSON.stringify({ display_phone_number: '+55 11 90000-0000', verified_name: 'Teste' }), { status: 200 });
     }
