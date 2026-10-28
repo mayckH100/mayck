@@ -367,12 +367,33 @@ model Lead {
   optOutAt      DateTime?
   campaignId    String?
   contactId     String?
+  // IA de qualificação (MCK Mensagens)
+  qualifyAttempts Int       @default(0) // respostas negativas recebidas (cada uma gera uma nova tentativa)
+  nextAttemptAt   DateTime? // quando AGUARDANDO: próxima tentativa automática
+  lastIntent      String? // POSITIVO | NEGATIVO | DUVIDA | SAIR
+  aiSummary       String? // resumo curto da IA sobre o lead
+  qualifiedAt     DateTime?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
   @@unique([orgId, phone])
   @@index([orgId, status])
   @@index([contactId])
+  @@index([status, nextAttemptAt])
+}
+
+/** IA de qualificação de leads do MCK Mensagens (usa o provedor/chave configurados em IA do MCKBOT). */
+model LeadAiSettings {
+  orgId           String   @id
+  enabled         Boolean  @default(false)
+  instructions    String   @default("") // o que a empresa vende, público, como abordar
+  offer           String   @default("") // próximo passo oferecido a quem tem interesse (ex.: teste grátis de 1h)
+  positiveAction  String   @default("HANDOFF") // HANDOFF (atendente) | FLOW (inicia um fluxo do MCKBOT) | BOT (segue no robô/IA)
+  positiveFlowId  String?
+  retryDays       Int      @default(3)
+  maxAttempts     Int      @default(3)
+  retryMessage    String   @default("Oi {nome}! Passando de novo por aqui 😊 Ainda posso te ajudar? Se quiser, libero um teste grátis pra você conhecer, sem compromisso.")
+  updatedAt       DateTime @updatedAt
 }
 
 model Campaign {

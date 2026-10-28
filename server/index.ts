@@ -4,6 +4,7 @@ import { prisma } from './db.js';
 import { scheduledTick } from './flows/engine.js';
 import { qrManager } from './whatsapp/qr/manager.js';
 import { tick as mckmensagemTick } from './mckmensagem/dispatcher.js';
+import { tickLeadRetries } from './mckmensagem/qualificacao.js';
 import { tickAutomacoes } from './mckmensagem/automacoes/engine.js';
 import { handleQrMessage, handleQrStatus } from './whatsapp/inbound.js';
 import { syncSuperAdmins } from './auth/superadmin.js';
@@ -34,7 +35,9 @@ if (config.ENABLE_MCKMENSAGEM_CRON === 'true' && config.NODE_ENV !== 'test') {
   setInterval(() => {
     if (running) return;
     running = true;
-    mckmensagemTick().catch((e) => console.error('[mckmensagem]', e)).finally(() => { running = false; });
+    mckmensagemTick().catch((e) => console.error('[mckmensagem]', e))
+      .then(() => tickLeadRetries()).catch((e) => console.error('[mckmensagem-ia]', e))
+      .finally(() => { running = false; });
   }, 60_000).unref();
 }
 

@@ -4,7 +4,7 @@ export const MM_BASE = '/mensagem';
 /** Link absoluto para o MCKBOT (app principal, servido na raiz). */
 export const MCKBOT_URL = '/';
 
-export type LeadStatus = 'NOVO' | 'CONTATADO' | 'RESPONDEU' | 'CONVERTIDO' | 'DESCARTADO';
+export type LeadStatus = 'NOVO' | 'CONTATADO' | 'RESPONDEU' | 'QUALIFICADO' | 'AGUARDANDO' | 'CONVERTIDO' | 'DESCARTADO';
 export type ConsentSource = 'FORMULARIO' | 'IMPORTACAO' | 'ANUNCIO_CTWA' | 'MANUAL';
 export type CampaignStatus = 'RASCUNHO' | 'AGENDADA' | 'EM_ANDAMENTO' | 'PAUSADA' | 'CONCLUIDA';
 
@@ -25,10 +25,10 @@ export interface Metrics {
 }
 export interface ChannelLite { id: string; name: string; status: string; provider?: string; displayPhone?: string | null }
 
-export const LEAD_STATUS: LeadStatus[] = ['NOVO', 'CONTATADO', 'RESPONDEU', 'CONVERTIDO', 'DESCARTADO'];
-export const LEAD_STATUS_LABEL: Record<LeadStatus, string> = { NOVO: 'Novo', CONTATADO: 'Contatado', RESPONDEU: 'Respondeu', CONVERTIDO: 'Convertido', DESCARTADO: 'Descartado' };
-export const LEAD_STATUS_CLS: Record<LeadStatus, string> = { NOVO: 'blue', CONTATADO: '', RESPONDEU: 'amber', CONVERTIDO: 'green', DESCARTADO: 'red' };
-export const LEAD_STATUS_COLOR: Record<LeadStatus, string> = { NOVO: '#2f6fde', CONTATADO: '#8b6cff', RESPONDEU: '#b7791f', CONVERTIDO: '#0b7a5a', DESCARTADO: '#d64545' };
+export const LEAD_STATUS: LeadStatus[] = ['NOVO', 'CONTATADO', 'RESPONDEU', 'QUALIFICADO', 'AGUARDANDO', 'CONVERTIDO', 'DESCARTADO'];
+export const LEAD_STATUS_LABEL: Record<LeadStatus, string> = { NOVO: 'Novo', CONTATADO: 'Contatado', RESPONDEU: 'Respondeu', QUALIFICADO: 'Qualificado', AGUARDANDO: 'Aguardando', CONVERTIDO: 'Convertido', DESCARTADO: 'Descartado' };
+export const LEAD_STATUS_CLS: Record<LeadStatus, string> = { NOVO: 'blue', CONTATADO: '', RESPONDEU: 'amber', QUALIFICADO: 'green', AGUARDANDO: '', CONVERTIDO: 'green', DESCARTADO: 'red' };
+export const LEAD_STATUS_COLOR: Record<LeadStatus, string> = { NOVO: '#2f6fde', CONTATADO: '#8b6cff', RESPONDEU: '#b7791f', QUALIFICADO: '#14a37f', AGUARDANDO: '#8a94a6', CONVERTIDO: '#0b7a5a', DESCARTADO: '#d64545' };
 
 export const CONSENT_SOURCES: ConsentSource[] = ['FORMULARIO', 'IMPORTACAO', 'ANUNCIO_CTWA', 'MANUAL'];
 export const CONSENT_LABEL: Record<ConsentSource, string> = {

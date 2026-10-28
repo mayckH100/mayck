@@ -10,6 +10,7 @@ import { InstallButton } from '../pwa';
 import MmDashboard from './pages/Dashboard';
 import MmLeads from './pages/Leads';
 import MmCampaigns from './pages/Campaigns';
+import MmLeadAi from './pages/LeadAi';
 import MmSubscription from './pages/Subscription';
 import AutomacoesModulo from './pages/automacoes/Index';
 import Tutorials from '../Tutorials';
@@ -18,6 +19,7 @@ const NAV = [
   { to: '/', label: 'Painel', icon: '◔' },
   { to: '/contatos', label: 'Contatos', icon: '☺' },
   { to: '/campanhas', label: 'Campanhas', icon: '➤' },
+  { to: '/ia-leads', label: 'IA de qualificação', icon: '✦' },
   { to: '/automacoes', label: 'Automações e Cobranças', icon: '⏱' },
   { to: '/assinatura', label: 'Assinatura', icon: '◈' },
   { to: '/tutoriais', label: 'Tutoriais', icon: '▶' },
@@ -170,6 +172,7 @@ export default function MensagemApp() {
             <Route path="/contatos" element={<MmLeads />} />
             <Route path="/campanhas" element={<MmCampaigns />} />
             <Route path="/campanhas/:id" element={<MmCampaigns />} />
+            <Route path="/ia-leads" element={<MmLeadAi />} />
             <Route path="/automacoes/*" element={<AutomacoesModulo />} />
             <Route path="/assinatura" element={<MmSubscription />} />
             <Route path="/tutoriais" element={<Tutorials app="mck-mensagens" appName="MCK Mensagens" planPath="/assinatura" />} />

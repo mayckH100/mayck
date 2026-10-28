@@ -60,6 +60,12 @@ export class FakeProvider implements AiProvider {
     const system = messages.find((m) => m.role === 'system')?.content ?? '';
     if (/falhar/i.test(user)) throw new Error('Falha simulada do provedor');
     if (/inventar/i.test(user)) return { text: 'Custa apenas R$ 9,99 hoje!', promptTokens: 10, completionTokens: 5 };
+    if (system.includes('QUALIFICAR o lead')) {
+      const u = user.toLowerCase();
+      const intencao = /sair|remov|parar/.test(u) ? 'SAIR' : /\bnão\b|nao quero|agora não|sem interesse/.test(u) ? 'NEGATIVO' : /quero|sim|pode|interess/.test(u) ? 'POSITIVO' : 'DUVIDA';
+      const text = JSON.stringify({ intencao, resposta: `Resposta ${intencao.toLowerCase()} da IA`, resumo: `lead ${intencao.toLowerCase()}` });
+      return { text, promptTokens: 20, completionTokens: 10 };
+    }
     const rawCtx = system.split('### CONTEXTO')[1]?.split('### FIM')[0]?.trim() ?? '';
     const ctx = rawCtx.startsWith('(nenhuma informação') ? '' : rawCtx;
     const text = ctx ? `Segundo nossas informações: ${ctx.split('\n').find((l) => l.trim() && !l.startsWith('['))?.trim()}` : '[TRANSFERIR]';

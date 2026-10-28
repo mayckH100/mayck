@@ -1,0 +1,127 @@
+import { useEffect, useState } from 'react';
+import { put, post } from '../../api';
+import { useApi, Async, Field, useAction } from '../../ui';
+
+interface Settings {
+  enabled: boolean; instructions: string; offer: string; positiveAction: 'HANDOFF' | 'FLOW' | 'BOT';
+  positiveFlowId: string | null; retryDays: number; maxAttempts: number; retryMessage: string;
+}
+interface View {
+  settings: Settings; flows: { id: string; name: string }[]; aiReady: boolean; aiProvider: string | null; aiModel: string | null;
+  counts: { aguardando: number; qualificados: number }; prompt: string;
+}
+interface TestResult { intent: 'POSITIVO' | 'NEGATIVO' | 'DUVIDA' | 'SAIR'; reply: string; summary: string }
+
+const INTENT_LABEL: Record<TestResult['intent'], string> = {
+  POSITIVO: 'Interessado → Qualificado', NEGATIVO: 'Sem interesse → Aguardando nova tentativa', DUVIDA: 'Dúvida → IA responde e conduz', SAIR: 'Pediu para sair → opt-out',
+};
+
+function Form({ view, onSaved }: { view: View; onSaved: (v: View) => void }) {
+  const [f, setF] = useState<Settings>(view.settings);
+  const { busy, run } = useAction();
+  const [texto, setTexto] = useState('Oi, como funciona o teste?');
+  const [test, setTest] = useState<TestResult | null>(null);
+  const [showPrompt, setShowPrompt] = useState(false);
+  useEffect(() => setF(view.settings), [view.settings]);
+  const set = <K extends keyof Settings>(k: K, v: Settings[K]) => setF((x) => ({ ...x, [k]: v }));
+
+  const save = async () => {
+    const r = await run(() => put<View>('/mckmensagem/ia-leads', f), 'IA de qualificação salva');
+    if (r) onSaved(r);
+  };
+  const testar = async () => {
+    setTest(null);
+    const r = await run(() => post<TestResult>('/mckmensagem/ia-leads/testar', { texto }));
+    if (r) setTest(r);
+  };
+
+  return (
+    <div className="stack">
+      {!view.aiReady && <div className="alert warn">Configure o provedor e a chave da IA no MCKBOT &gt; IA. A qualificação usa a mesma IA (e a mesma base de conhecimento).</div>}
+      <div className="grid g2">
+        <div className="card stat"><div className="v">{view.counts.qualificados}</div><div className="l">Leads qualificados</div></div>
+        <div className="card stat"><div className="v">{view.counts.aguardando}</div><div className="l">Em aguardo (nova tentativa agendada)</div></div>
+      </div>
+
+      <div className="card stack">
+        <label className="row" style={{ gap: 8 }}>
+          <input type="checkbox" checked={f.enabled} onChange={(e) => set('enabled', e.target.checked)} />
+          <b>Ativar IA de qualificação nas respostas das campanhas</b>
+        </label>
+        <p className="muted small">Quando um lead abordado por campanha responde, a IA entende se ele tem interesse, responde e move o lead automaticamente.</p>
+        <Field label="Como abordar e qualificar" hint="O que você vende, para quem, e o que perguntar para descobrir o interesse.">
+          <textarea rows={5} value={f.instructions} onChange={(e) => set('instructions', e.target.value)} placeholder="Ex.: Vendemos IPTV com mais de 2.000 canais, filmes e séries. Descubra em qual aparelho a pessoa assiste e se já usa outro serviço. Destaque o teste grátis sem compromisso." />
+        </Field>
+        <Field label="Próximo passo para quem tem interesse" hint="O que a IA oferece quando o lead diz sim.">
+          <input value={f.offer} onChange={(e) => set('offer', e.target.value)} placeholder="Ex.: liberar um teste grátis de 1 hora e enviar o app para o aparelho dele" />
+        </Field>
+      </div>
+
+      <div className="card stack">
+        <h3>Quando o lead responde POSITIVO</h3>
+        <p className="muted small">O lead vira <b>Qualificado</b>, recebe a etiqueta <code>lead-qualificado</code> e a IA confirma o interesse. Depois disso:</p>
+        <Field label="Ação">
+          <select value={f.positiveAction} onChange={(e) => set('positiveAction', e.target.value as Settings['positiveAction'])}>
+            <option value="HANDOFF">Transferir para um atendente fechar a venda</option>
+            <option value="FLOW">Iniciar um fluxo do MCKBOT (ex.: Teste grátis)</option>
+            <option value="BOT">Continuar com o robô e a IA do MCKBOT</option>
+          </select>
+        </Field>
+        {f.positiveAction === 'FLOW' && (
+          <Field label="Fluxo">
+            <select value={f.positiveFlowId ?? ''} onChange={(e) => set('positiveFlowId', e.target.value || null)}>
+              <option value="">Escolha um fluxo ativo…</option>
+              {view.flows.map((fl) => <option key={fl.id} value={fl.id}>{fl.name}</option>)}
+            </select>
+          </Field>
+        )}
+      </div>
+
+      <div className="card stack">
+        <h3>Quando o lead responde NEGATIVO</h3>
+        <p className="muted small">A IA agradece sem insistir. O lead fica <b>Aguardando</b> (etiqueta <code>lead-aguardando</code>) e recebe uma nova tentativa automática, dentro do horário da campanha.</p>
+        <div className="grid g2">
+          <Field label="Nova tentativa após (dias)"><input type="number" min={1} max={60} value={f.retryDays} onChange={(e) => set('retryDays', Number(e.target.value) || 1)} /></Field>
+          <Field label="Descartar depois de quantos 'não'" hint="Ao atingir, o lead vira Descartado e não é mais abordado."><input type="number" min={1} max={10} value={f.maxAttempts} onChange={(e) => set('maxAttempts', Number(e.target.value) || 1)} /></Field>
+        </div>
+        <Field label="Mensagem da nova tentativa" hint="Use {nome} para o primeiro nome.">
+          <textarea rows={3} value={f.retryMessage} onChange={(e) => set('retryMessage', e.target.value)} />
+        </Field>
+        <p className="muted small">Dúvidas: a IA responde usando a base de conhecimento e conduz para o próximo passo. Pedido para sair: opt-out na hora.</p>
+      </div>
+
+      <div className="row" style={{ justifyContent: 'flex-end' }}><button className="btn primary" disabled={busy} onClick={save}>Salvar</button></div>
+
+      <div className="card stack">
+        <h3>Testar</h3>
+        <p className="muted small">Simule a resposta de um lead. Nada é enviado no WhatsApp e nenhum lead é alterado (usa a configuração salva).</p>
+        <div className="row" style={{ gap: 8 }}>
+          <input style={{ flex: 1 }} value={texto} onChange={(e) => setTexto(e.target.value)} />
+          <button className="btn" disabled={busy || !texto.trim()} onClick={testar}>Testar</button>
+        </div>
+        {test && (
+          <div className="stack">
+            <div><span className="badge blue">{INTENT_LABEL[test.intent]}</span></div>
+            <div className="card" style={{ background: 'var(--bg-soft, #f6f7fb)' }}>{test.reply || <i className="muted">(sem texto)</i>}</div>
+            {test.summary && <div className="muted small">Resumo: {test.summary}</div>}
+          </div>
+        )}
+      </div>
+
+      <div className="card stack">
+        <button className="btn sm" onClick={() => setShowPrompt((s) => !s)}>{showPrompt ? 'Ocultar' : 'Ver'} o prompt que a IA recebe</button>
+        {showPrompt && <pre style={{ whiteSpace: 'pre-wrap', fontSize: 12 }}>{view.prompt}</pre>}
+      </div>
+    </div>
+  );
+}
+
+export default function MmLeadAi() {
+  const state = useApi<View>('/mckmensagem/ia-leads');
+  return (
+    <>
+      <div className="page-head"><div><h1>IA de qualificação</h1><p className="muted">A IA conversa com quem respondeu às campanhas, separa os interessados e agenda novas tentativas para quem disse não.</p></div></div>
+      <Async state={state}>{(v) => <Form view={v} onSaved={(nv) => state.setData(nv)} />}</Async>
+    </>
+  );
+}

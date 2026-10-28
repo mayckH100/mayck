@@ -10,6 +10,7 @@ import { parseBaileysMessage, mapBaileysStatus } from './qr/parse.js';
 import type { WAMessage, WAMessageUpdate } from '@whiskeysockets/baileys';
 import type { Channel } from '@prisma/client';
 import { onLeadInbound, onLeadOptOut } from '../mckmensagem/hooks.js';
+import { qualifyLeadInbound } from '../mckmensagem/qualificacao.js';
 
 const OPT_OUT = new Set(['sair', 'parar', 'stop', 'descadastrar']);
 
@@ -109,7 +110,11 @@ export async function handleInboundMessage(channel: Channel, m: InboundMessage, 
       return 'ok' as const;
     }
     if (conv.mode === 'HUMAN' || contact.optOut) return 'ok' as const;
-    await withConversationLock(conv.id, () => automateInbound(conv!, contact!, message, { isFirst, replyId: m.replyId }));
+    await withConversationLock(conv.id, async () => {
+      // MCK Mensagens: lead abordado por campanha que respondeu → IA de qualificação (quando ligada).
+      if (m.type === 'text' && (await qualifyLeadInbound(conv!, contact!, m.text ?? ''))) return;
+      await automateInbound(conv!, contact!, message, { isFirst, replyId: m.replyId });
+    });
     return 'ok' as const;
   });
 }

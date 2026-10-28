@@ -8,6 +8,7 @@ import { parseJson } from '../lib/json.js';
 import { LEAD_STATUS, CONSENT_SOURCES, toE164 } from './constants.js';
 import type { Lead, Campaign } from '@prisma/client';
 import { isProductActive } from '../billing/service.js';
+import { getLeadAiSettings, classifyLeadMessage, buildQualifyPrompt } from './qualificacao.js';
 
 export const mckmensagemRouter = Router();
 
@@ -390,11 +391,66 @@ mckmensagemRouter.get('/metrics', ah(async (req, res) => {
   const sent = campaignIds.length ? await prisma.campaignRecipient.count({ where: { campaignId: { in: campaignIds }, status: 'ENVIADA' } }) : 0;
   const failed = campaignIds.length ? await prisma.campaignRecipient.count({ where: { campaignId: { in: campaignIds }, status: 'FALHOU' } }) : 0;
   const optOuts = await prisma.lead.count({ where: { ...leadWhere, optOutAt: { not: null } } });
-  const replies = byStatus.RESPONDEU + byStatus.CONVERTIDO;
+  const replies = byStatus.RESPONDEU + byStatus.QUALIFICADO + byStatus.AGUARDANDO + byStatus.CONVERTIDO;
   const contacted = byStatus.CONTATADO + replies;
   const rate = (n: number) => (contacted ? Math.round((n / contacted) * 10000) / 100 : 0);
   res.json({
     totalLeads: Object.values(byStatus).reduce((a, b) => a + b, 0), byStatus, sent, failed, optOuts,
     replies, responseRate: rate(replies), conversionRate: rate(byStatus.CONVERTIDO),
   });
+}));
+
+// ---------------- IA de qualificação de leads ----------------
+
+const leadAiSchema = z.object({
+  enabled: z.boolean().optional(),
+  instructions: z.string().max(4000).optional(),
+  offer: z.string().max(1000).optional(),
+  positiveAction: z.enum(['HANDOFF', 'FLOW', 'BOT']).optional(),
+  positiveFlowId: z.string().max(40).nullable().optional(),
+  retryDays: z.number().int().min(1).max(60).optional(),
+  maxAttempts: z.number().int().min(1).max(10).optional(),
+  retryMessage: z.string().trim().min(1).max(1000).optional(),
+});
+
+async function leadAiView(orgId: string) {
+  const [settings, flows, ai, aguardando, qualificados] = await Promise.all([
+    getLeadAiSettings(orgId),
+    prisma.flow.findMany({ where: { orgId, status: 'ACTIVE' }, select: { id: true, name: true }, orderBy: { name: 'asc' } }),
+    prisma.aiSettings.findUnique({ where: { orgId } }),
+    prisma.lead.count({ where: { orgId, status: 'AGUARDANDO' } }),
+    prisma.lead.count({ where: { orgId, status: 'QUALIFICADO' } }),
+  ]);
+  return {
+    settings, flows, aiReady: !!(ai?.apiKeyEnc || ai?.provider === 'fake'), aiProvider: ai?.provider ?? null, aiModel: ai?.model ?? null,
+    counts: { aguardando, qualificados },
+    prompt: buildQualifyPrompt(settings as any, { tone: ai?.tone ?? '', companyInstructions: ai?.instructions ?? '', knowledge: '(trechos da base de conhecimento encontrados para a mensagem do lead)', leadName: '{nome}', attempts: 0, maxAttempts: settings.maxAttempts }),
+  };
+}
+
+mckmensagemRouter.get('/ia-leads', ah(async (req, res) => {
+  res.json(await leadAiView(orgOf(req)));
+}));
+
+mckmensagemRouter.put('/ia-leads', ah(async (req, res) => {
+  const orgId = orgOf(req);
+  const data = leadAiSchema.parse(req.body);
+  if (data.positiveAction === 'FLOW') {
+    const flowId = data.positiveFlowId ?? (await getLeadAiSettings(orgId)).positiveFlowId;
+    if (!flowId || !(await prisma.flow.findFirst({ where: { id: flowId, orgId } }))) throw new HttpError(400, 'Escolha o fluxo que o lead qualificado deve receber');
+  }
+  await prisma.leadAiSettings.upsert({ where: { orgId }, create: { orgId, ...data }, update: data });
+  await audit(req, 'mckmensagem.ia_leads.update', { entity: 'LeadAiSettings', entityId: orgId });
+  res.json(await leadAiView(orgId));
+}));
+
+/** Simula a resposta de um lead (nada é enviado e nenhum lead é alterado). */
+mckmensagemRouter.post('/ia-leads/testar', ah(async (req, res) => {
+  const q = z.object({ texto: z.string().trim().min(1).max(1000), nome: z.string().max(80).optional() }).parse(req.body);
+  try {
+    const r = await classifyLeadMessage(orgOf(req), { name: q.nome ?? 'Cliente', qualifyAttempts: 0 }, q.texto);
+    res.json(r);
+  } catch (e) {
+    throw new HttpError(400, (e as Error).message);
+  }
 }));
