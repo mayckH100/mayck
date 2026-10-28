@@ -412,6 +412,14 @@ const leadAiSchema = z.object({
   maxAttempts: z.number().int().min(1).max(10).optional(),
   retryMessage: z.string().trim().min(1).max(1000).optional(),
   promptTemplate: z.string().max(8000).nullable().optional(),
+  positiveMessage: z.string().max(1000).optional(),
+  negativeAction: z.enum(['RETRY', 'FLOW', 'HANDOFF', 'DISCARD']).optional(),
+  negativeFlowId: z.string().max(40).nullable().optional(),
+  doubtAction: z.enum(['AI', 'FLOW', 'HANDOFF']).optional(),
+  doubtFlowId: z.string().max(40).nullable().optional(),
+  tagPositive: z.string().trim().max(40).optional(),
+  tagWaiting: z.string().trim().max(40).optional(),
+  tagDiscarded: z.string().trim().max(40).optional(),
 });
 
 async function leadAiView(orgId: string) {
@@ -441,10 +449,15 @@ mckmensagemRouter.put('/ia-leads', ah(async (req, res) => {
     const t = data.promptTemplate?.trim() ?? '';
     data.promptTemplate = !t || t === DEFAULT_PROMPT_TEMPLATE.trim() ? null : t;
   }
-  if (data.positiveAction === 'FLOW') {
-    const flowId = data.positiveFlowId ?? (await getLeadAiSettings(orgId)).positiveFlowId;
-    if (!flowId || !(await prisma.flow.findFirst({ where: { id: flowId, orgId } }))) throw new HttpError(400, 'Escolha o fluxo que o lead qualificado deve receber');
-  }
+  const cur = await getLeadAiSettings(orgId);
+  const checkFlow = async (action: string | undefined, flowId: string | null | undefined, fallback: string | null, label: string) => {
+    if (action !== 'FLOW') return;
+    const id = flowId === undefined ? fallback : flowId;
+    if (!id || !(await prisma.flow.findFirst({ where: { id, orgId } }))) throw new HttpError(400, `Escolha o fluxo para ${label}`);
+  };
+  await checkFlow(data.positiveAction, data.positiveFlowId, cur.positiveFlowId, 'o lead interessado');
+  await checkFlow(data.negativeAction, data.negativeFlowId, cur.negativeFlowId, 'o lead sem interesse');
+  await checkFlow(data.doubtAction, data.doubtFlowId, cur.doubtFlowId, 'o lead com dúvida');
   await prisma.leadAiSettings.upsert({ where: { orgId }, create: { orgId, ...data }, update: data });
   await audit(req, 'mckmensagem.ia_leads.update', { entity: 'LeadAiSettings', entityId: orgId });
   res.json(await leadAiView(orgId));

@@ -32,6 +32,14 @@ export const DEFAULT_LEAD_AI = {
   retryDays: 3,
   maxAttempts: 3,
   promptTemplate: null as string | null,
+  positiveMessage: '',
+  negativeAction: 'RETRY', // RETRY (aguardar e tentar de novo) | FLOW | HANDOFF | DISCARD
+  negativeFlowId: null as string | null,
+  doubtAction: 'AI', // AI (IA responde) | FLOW | HANDOFF
+  doubtFlowId: null as string | null,
+  tagPositive: 'lead-qualificado',
+  tagWaiting: 'lead-aguardando',
+  tagDiscarded: 'lead-descartado',
   retryMessage: 'Oi {nome}! Passando de novo por aqui 😊 Ainda posso te ajudar? Se quiser, te mando mais detalhes, sem compromisso.',
 };
 
@@ -211,30 +219,39 @@ export async function qualifyLeadInbound(conv: Conversation, contact: Contact, t
     await prisma.contact.update({ where: { id: contact.id }, data: { tags: JSON.stringify([...tags]) } });
   };
 
+  const runAction = async (action: string, flowId: string | null, reason: string) => {
+    if (action === 'HANDOFF') return handoffToHuman(conv, reason);
+    if (action === 'FLOW' && flowId) {
+      const { startFlow } = await import('../flows/engine.js');
+      try { await startFlow(flowId, conv, contact, { lastMessage: text }); } catch (e) { await note(conv, `Não foi possível iniciar o fluxo (${reason}): ${(e as Error).message}`); }
+    }
+  };
+  const allTags = [s.tagPositive, s.tagWaiting, s.tagDiscarded].filter(Boolean);
+
   switch (r.intent) {
     case 'POSITIVO': {
       await prisma.lead.update({ where: { id: lead.id }, data: { status: 'QUALIFICADO', qualifiedAt: now, lastIntent: 'POSITIVO', aiSummary: r.summary || lead.aiSummary, nextAttemptAt: null, contactId: contact.id } });
-      await setTag('lead-qualificado', ['lead-aguardando']);
+      if (s.tagPositive) await setTag(s.tagPositive, allTags);
       await send(r.reply);
+      if (s.positiveMessage?.trim()) await send(personalize(s.positiveMessage, lead));
       await note(conv, `Lead qualificado pela IA (interessado).${r.summary ? ' Resumo: ' + r.summary : ''}`);
-      if (s.positiveAction === 'HANDOFF') {
-        await handoffToHuman(conv, 'Lead qualificado: interessado');
-      } else if (s.positiveAction === 'FLOW' && s.positiveFlowId) {
-        const { startFlow } = await import('../flows/engine.js');
-        try { await startFlow(s.positiveFlowId, conv, contact, { lastMessage: text }); } catch (e) { await note(conv, `Não foi possível iniciar o fluxo do lead qualificado: ${(e as Error).message}`); }
-      }
+      await runAction(s.positiveAction, s.positiveFlowId, 'Lead qualificado: interessado');
       return true;
     }
     case 'NEGATIVO': {
       const attempts = (lead.qualifyAttempts ?? 0) + 1;
-      const discard = attempts >= s.maxAttempts;
-      const next = discard ? null : new Date(now.getTime() + s.retryDays * 86400e3);
-      await prisma.lead.update({ where: { id: lead.id }, data: { status: discard ? 'DESCARTADO' : 'AGUARDANDO', qualifyAttempts: attempts, nextAttemptAt: next, lastIntent: 'NEGATIVO', aiSummary: r.summary || lead.aiSummary, contactId: contact.id } });
-      await setTag(discard ? 'lead-descartado' : 'lead-aguardando');
+      const discard = s.negativeAction === 'DISCARD' || (s.negativeAction === 'RETRY' && attempts >= s.maxAttempts);
+      const next = s.negativeAction === 'RETRY' && !discard ? new Date(now.getTime() + s.retryDays * 86400e3) : null;
+      const status = discard ? 'DESCARTADO' : s.negativeAction === 'RETRY' ? 'AGUARDANDO' : 'RESPONDEU';
+      await prisma.lead.update({ where: { id: lead.id }, data: { status, qualifyAttempts: attempts, nextAttemptAt: next, lastIntent: 'NEGATIVO', aiSummary: r.summary || lead.aiSummary, contactId: contact.id } });
+      const tag = discard ? s.tagDiscarded : s.negativeAction === 'RETRY' ? s.tagWaiting : '';
+      if (tag) await setTag(tag, allTags);
       await send(r.reply);
       await note(conv, discard
-        ? `Lead sem interesse pela ${attempts}ª vez: marcado como Descartado (não será mais abordado).`
-        : `Lead sem interesse agora (${attempts}/${s.maxAttempts}). Em aguardo: nova tentativa em ${next!.toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' })}.`);
+        ? `Lead sem interesse (${attempts}ª vez): marcado como Descartado (não será mais abordado).`
+        : next ? `Lead sem interesse agora (${attempts}/${s.maxAttempts}). Em aguardo: nova tentativa em ${next.toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' })}.`
+        : 'Lead sem interesse agora.');
+      if (s.negativeAction === 'FLOW' || s.negativeAction === 'HANDOFF') await runAction(s.negativeAction, s.negativeFlowId, 'Lead sem interesse');
       return true;
     }
     case 'SAIR': {
@@ -248,7 +265,8 @@ export async function qualifyLeadInbound(conv: Conversation, contact: Contact, t
     }
     default: {
       await prisma.lead.update({ where: { id: lead.id }, data: { status: 'RESPONDEU', lastIntent: 'DUVIDA', aiSummary: r.summary || lead.aiSummary, contactId: contact.id } });
-      await send(r.reply);
+      if (s.doubtAction === 'AI') { await send(r.reply); return true; }
+      await runAction(s.doubtAction, s.doubtFlowId, 'Lead com dúvida');
       return true;
     }
   }

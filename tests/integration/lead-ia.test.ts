@@ -103,6 +103,27 @@ describe('MCK Mensagens — IA de qualificação de leads', () => {
     expect(back.body.settings.promptTemplate).toBeNull();
   });
 
+  it('campos por resultado: etiquetas próprias, mensagem extra e negativo descarta direto', async () => {
+    await owner.put('/api/mckmensagem/ia-leads', { tagPositive: 'quer-test-drive', positiveMessage: 'Agende aqui, {nome}: https://exemplo.com', positiveAction: 'BOT', negativeAction: 'DISCARD', tagDiscarded: 'frio' });
+    const a = await leadContatado('5511933330010', 'Elias');
+    await sendInbound(ctx, '5511933330010', 'quero sim');
+    const la = await prisma.lead.findUniqueOrThrow({ where: { id: a } });
+    expect(la.status).toBe('QUALIFICADO');
+    const ca = await prisma.contact.findUniqueOrThrow({ where: { id: la.contactId! } });
+    expect(JSON.parse(ca.tags)).toContain('quer-test-drive');
+    expect(sentTexts()).toContain('Agende aqui, Elias: https://exemplo.com');
+    expect((await prisma.conversation.findFirstOrThrow({ where: { contactId: ca.id } })).mode).toBe('BOT');
+
+    const b = await leadContatado('5511933330011', 'Fabi');
+    await sendInbound(ctx, '5511933330011', 'não quero');
+    const lb = await prisma.lead.findUniqueOrThrow({ where: { id: b } });
+    expect(lb.status).toBe('DESCARTADO');
+    expect(lb.nextAttemptAt).toBeNull();
+    const cb = await prisma.contact.findUniqueOrThrow({ where: { id: lb.contactId! } });
+    expect(JSON.parse(cb.tags)).toContain('frio');
+    await owner.put('/api/mckmensagem/ia-leads', { negativeAction: 'RETRY', positiveMessage: '', positiveAction: 'HANDOFF' });
+  });
+
   it('testar: classifica sem enviar nada', async () => {
     const r = await owner.post('/api/mckmensagem/ia-leads/testar', { texto: 'pode mandar o teste' });
     expect(r.status).toBe(200);

@@ -5,6 +5,8 @@ import { useApi, Async, Field, useAction } from '../../ui';
 interface Settings {
   enabled: boolean; instructions: string; offer: string; positiveAction: 'HANDOFF' | 'FLOW' | 'BOT';
   positiveFlowId: string | null; retryDays: number; maxAttempts: number; retryMessage: string; promptTemplate: string | null;
+  positiveMessage: string; negativeAction: 'RETRY' | 'FLOW' | 'HANDOFF' | 'DISCARD'; negativeFlowId: string | null;
+  doubtAction: 'AI' | 'FLOW' | 'HANDOFF'; doubtFlowId: string | null; tagPositive: string; tagWaiting: string; tagDiscarded: string;
 }
 interface View {
   settings: Settings; flows: { id: string; name: string }[]; aiReady: boolean; aiProvider: string | null; aiModel: string | null;
@@ -14,7 +16,7 @@ interface View {
 interface TestResult { intent: 'POSITIVO' | 'NEGATIVO' | 'DUVIDA' | 'SAIR'; reply: string; summary: string }
 
 const INTENT_LABEL: Record<TestResult['intent'], string> = {
-  POSITIVO: 'Interessado → Qualificado', NEGATIVO: 'Sem interesse → Aguardando nova tentativa', DUVIDA: 'Dúvida → IA responde e conduz', SAIR: 'Pediu para sair → opt-out',
+  POSITIVO: 'Interessado (positivo)', NEGATIVO: 'Sem interesse (negativo)', DUVIDA: 'Dúvida', SAIR: 'Pediu para sair → opt-out',
 };
 
 function Form({ view, onSaved }: { view: View; onSaved: (v: View) => void }) {
@@ -61,35 +63,59 @@ function Form({ view, onSaved }: { view: View; onSaved: (v: View) => void }) {
 
       <div className="card stack">
         <h3>Quando o lead responde POSITIVO</h3>
-        <p className="muted small">O lead vira <b>Qualificado</b>, recebe a etiqueta <code>lead-qualificado</code> e a IA confirma o interesse. Depois disso:</p>
-        <Field label="Ação">
+        <p className="muted small">O lead vira <b>Qualificado</b> e a IA confirma o interesse com o próximo passo.</p>
+        <Field label="Depois da resposta da IA">
           <select value={f.positiveAction} onChange={(e) => set('positiveAction', e.target.value as Settings['positiveAction'])}>
-            <option value="HANDOFF">Transferir para um atendente fechar a venda</option>
-            <option value="FLOW">Iniciar um fluxo do MCKBOT (ex.: Agendar test drive)</option>
+            <option value="HANDOFF">Transferir para um atendente</option>
+            <option value="FLOW">Iniciar um fluxo do MCKBOT</option>
             <option value="BOT">Continuar com o robô e a IA do MCKBOT</option>
           </select>
         </Field>
-        {f.positiveAction === 'FLOW' && (
-          <Field label="Fluxo">
-            <select value={f.positiveFlowId ?? ''} onChange={(e) => set('positiveFlowId', e.target.value || null)}>
-              <option value="">Escolha um fluxo ativo…</option>
-              {view.flows.map((fl) => <option key={fl.id} value={fl.id}>{fl.name}</option>)}
-            </select>
-          </Field>
-        )}
+        {f.positiveAction === 'FLOW' && <FlowSelect flows={view.flows} value={f.positiveFlowId} onChange={(v) => set('positiveFlowId', v)} />}
+        <Field label="Mensagem extra (opcional)" hint="Enviada logo depois da resposta da IA. Ex.: link de agendamento, catálogo, endereço. Use {nome}.">
+          <textarea rows={2} value={f.positiveMessage} onChange={(e) => set('positiveMessage', e.target.value)} placeholder="Ex.: Agende seu horário aqui: https://..." />
+        </Field>
+        <Field label="Etiqueta do contato"><input value={f.tagPositive} onChange={(e) => set('tagPositive', e.target.value)} placeholder="lead-qualificado" /></Field>
       </div>
 
       <div className="card stack">
         <h3>Quando o lead responde NEGATIVO</h3>
-        <p className="muted small">A IA agradece sem insistir. O lead fica <b>Aguardando</b> (etiqueta <code>lead-aguardando</code>) e recebe uma nova tentativa automática, dentro do horário da campanha.</p>
-        <div className="grid g2">
-          <Field label="Nova tentativa após (dias)"><input type="number" min={1} max={60} value={f.retryDays} onChange={(e) => set('retryDays', Number(e.target.value) || 1)} /></Field>
-          <Field label="Descartar depois de quantos 'não'" hint="Ao atingir, o lead vira Descartado e não é mais abordado."><input type="number" min={1} max={10} value={f.maxAttempts} onChange={(e) => set('maxAttempts', Number(e.target.value) || 1)} /></Field>
-        </div>
-        <Field label="Mensagem da nova tentativa" hint="Use {nome} para o primeiro nome.">
-          <textarea rows={3} value={f.retryMessage} onChange={(e) => set('retryMessage', e.target.value)} />
+        <p className="muted small">A IA agradece sem insistir. Depois disso:</p>
+        <Field label="Ação">
+          <select value={f.negativeAction} onChange={(e) => set('negativeAction', e.target.value as Settings['negativeAction'])}>
+            <option value="RETRY">Deixar em aguardo e tentar de novo depois</option>
+            <option value="FLOW">Iniciar um fluxo do MCKBOT</option>
+            <option value="HANDOFF">Transferir para um atendente</option>
+            <option value="DISCARD">Descartar o lead (não abordar mais)</option>
+          </select>
         </Field>
-        <p className="muted small">Dúvidas: a IA responde usando a base de conhecimento e conduz para o próximo passo. Pedido para sair: opt-out na hora.</p>
+        {f.negativeAction === 'FLOW' && <FlowSelect flows={view.flows} value={f.negativeFlowId} onChange={(v) => set('negativeFlowId', v)} />}
+        {f.negativeAction === 'RETRY' && <>
+          <div className="grid g2">
+            <Field label="Nova tentativa após (dias)"><input type="number" min={1} max={60} value={f.retryDays} onChange={(e) => set('retryDays', Number(e.target.value) || 1)} /></Field>
+            <Field label="Descartar depois de quantos 'não'" hint="Ao atingir, o lead vira Descartado."><input type="number" min={1} max={10} value={f.maxAttempts} onChange={(e) => set('maxAttempts', Number(e.target.value) || 1)} /></Field>
+          </div>
+          <Field label="Mensagem da nova tentativa" hint="Use {nome} para o primeiro nome.">
+            <textarea rows={3} value={f.retryMessage} onChange={(e) => set('retryMessage', e.target.value)} />
+          </Field>
+        </>}
+        <div className="grid g2">
+          <Field label="Etiqueta em aguardo"><input value={f.tagWaiting} onChange={(e) => set('tagWaiting', e.target.value)} placeholder="lead-aguardando" /></Field>
+          <Field label="Etiqueta descartado"><input value={f.tagDiscarded} onChange={(e) => set('tagDiscarded', e.target.value)} placeholder="lead-descartado" /></Field>
+        </div>
+      </div>
+
+      <div className="card stack">
+        <h3>Quando o lead tem DÚVIDA</h3>
+        <Field label="Ação">
+          <select value={f.doubtAction} onChange={(e) => set('doubtAction', e.target.value as Settings['doubtAction'])}>
+            <option value="AI">A IA responde e conduz para o próximo passo</option>
+            <option value="FLOW">Iniciar um fluxo do MCKBOT</option>
+            <option value="HANDOFF">Transferir para um atendente</option>
+          </select>
+        </Field>
+        {f.doubtAction === 'FLOW' && <FlowSelect flows={view.flows} value={f.doubtFlowId} onChange={(v) => set('doubtFlowId', v)} />}
+        <p className="muted small">Se o lead pedir para sair, ele recebe opt-out na hora e não é mais abordado (regra fixa, protege seu número).</p>
       </div>
 
       <div className="row" style={{ justifyContent: 'flex-end' }}><button className="btn primary" disabled={busy} onClick={save}>Salvar</button></div>
@@ -125,6 +151,17 @@ function Form({ view, onSaved }: { view: View; onSaved: (v: View) => void }) {
         </>}
       </div>
     </div>
+  );
+}
+
+function FlowSelect({ flows, value, onChange }: { flows: { id: string; name: string }[]; value: string | null; onChange: (v: string | null) => void }) {
+  return (
+    <Field label="Fluxo">
+      <select value={value ?? ''} onChange={(e) => onChange(e.target.value || null)}>
+        <option value="">Escolha um fluxo ativo…</option>
+        {flows.map((fl) => <option key={fl.id} value={fl.id}>{fl.name}</option>)}
+      </select>
+    </Field>
   );
 }
 

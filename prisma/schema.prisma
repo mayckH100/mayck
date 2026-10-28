@@ -391,6 +391,14 @@ model LeadAiSettings {
   positiveAction  String   @default("HANDOFF") // HANDOFF (atendente) | FLOW (inicia um fluxo do MCKBOT) | BOT (segue no robô/IA)
   positiveFlowId  String?
   promptTemplate  String? // prompt editável pelo cliente; vazio = padrão do sistema
+  positiveMessage String   @default("") // mensagem fixa extra enviada depois da resposta da IA no positivo
+  negativeAction  String   @default("RETRY") // RETRY | FLOW | HANDOFF | DISCARD
+  negativeFlowId  String?
+  doubtAction     String   @default("AI") // AI | FLOW | HANDOFF
+  doubtFlowId     String?
+  tagPositive     String   @default("lead-qualificado")
+  tagWaiting      String   @default("lead-aguardando")
+  tagDiscarded    String   @default("lead-descartado")
   retryDays       Int      @default(3)
   maxAttempts     Int      @default(3)
   retryMessage    String   @default("Oi {nome}! Passando de novo por aqui 😊 Ainda posso te ajudar? Se quiser, libero um teste grátis pra você conhecer, sem compromisso.")
