@@ -104,3 +104,4 @@ html.mm .tabs a { color: var(--muted); text-decoration: none; }
 .mm-cal-d .n { font-size: 12px; font-weight: 700; }
 .mm-cal-d .ev { font-size: 10px; border-left: 3px solid #999; padding-left: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 @media (max-width: 820px) { .mm-cal-d .ev { display: none; } .mm-cal-d { min-height: 48px !important; } }
+.mm-row-sel td { background: var(--brand-soft); }

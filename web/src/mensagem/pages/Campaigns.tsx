@@ -3,6 +3,7 @@ import { NavLink, useNavigate, useParams, useSearchParams } from 'react-router-d
 import { post, patch, del, get } from '../../api';
 import { useApi, Async, Empty, Field, Modal, useAction, useToast, fmtDate, fmtNum } from '../../ui';
 import { MetricsView } from './Dashboard';
+import { AddContactsModal } from './LeadBulk';
 import {
   CampaignBadge, LEAD_STATUS_LABEL, SAFE_DEFAULTS, campaignProgress, downloadCsv, fetchAllLeads, fmtPhone, personalize, slug,
   type Campaign, type ChannelLite, type Metrics,
@@ -175,6 +176,7 @@ function CampaignDetail({ id, list, reload }: { id: string; list: Campaign[]; re
   const channels = useApi<ChannelLite[]>('/channels');
   const a = useCampaignActions(reload);
   const [editing, setEditing] = useState(false);
+  const [adding, setAdding] = useState(false);
   if (!c) return <Empty title="Campanha não encontrada"><NavLink to="/campanhas">Voltar para campanhas</NavLink></Empty>;
   const ch = channels.data?.find((x) => x.id === c.channelId);
   return (
@@ -200,9 +202,9 @@ function CampaignDetail({ id, list, reload }: { id: string; list: Campaign[]; re
             <p className="small muted" style={{ marginTop: 8, marginBottom: 0 }}>Limite {fmtNum(c.dailyLimit)}/dia · intervalo {c.minIntervalSec}–{c.maxIntervalSec}s · das {c.windowStart} às {c.windowEnd} (Brasília)</p>
           </div>
           <div className="card">
-            <div className="row between"><h2 style={{ margin: 0 }}>Contatos vinculados</h2><NavLink to={`/contatos?campaignId=${c.id}`} className="small">Ver todos →</NavLink></div>
+            <div className="row between"><h2 style={{ margin: 0 }}>Contatos vinculados{leads.data ? ` (${fmtNum(leads.data.total)})` : ''}</h2><span className="row"><button className="btn sm primary" onClick={() => setAdding(true)}>+ Adicionar contatos</button><NavLink to={`/contatos?campaignId=${c.id}`} className="small">Ver todos / remover →</NavLink></span></div>
             <Async state={leads}>{(d) => d.items.length === 0
-              ? <p className="muted small" style={{ marginTop: 8 }}>Nenhum contato vinculado. Vincule ao importar ou editar contatos, ou inicie por etiqueta.</p>
+              ? <p className="muted small" style={{ marginTop: 8 }}>Nenhum contato vinculado. Use “Adicionar contatos” para escolher vários de uma vez (com busca, etiqueta e status), ou inicie por etiqueta.</p>
               : (
                 <table style={{ marginTop: 8 }}><tbody>
                   {d.items.slice(0, 8).map((l) => <tr key={l.id}><td>{l.name || '—'}<div className="small muted">{fmtPhone(l.phone)}</div></td><td style={{ textAlign: 'right' }}><span className="badge">{LEAD_STATUS_LABEL[l.status as keyof typeof LEAD_STATUS_LABEL]}</span></td></tr>)}
@@ -213,6 +215,7 @@ function CampaignDetail({ id, list, reload }: { id: string; list: Campaign[]; re
       </div>
       {editing && <CampaignForm initial={c} onClose={() => setEditing(false)} onSaved={() => { setEditing(false); reload(); }} />}
       {a.starting && <StartModal c={a.starting} onClose={() => a.setStarting(null)} onDone={() => { a.setStarting(null); reload(); }} />}
+      {adding && <AddContactsModal c={c} onClose={() => setAdding(false)} onDone={() => { setAdding(false); leads.reload(); metrics.reload(); reload(); }} />}
     </>
   );
 }

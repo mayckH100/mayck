@@ -6,6 +6,7 @@ import {
   CONSENT_LABEL, CONSENT_SOURCES, LEAD_STATUS, LEAD_STATUS_LABEL, LeadBadge, fmtPhone,
   type Campaign, type ConsentSource, type Lead, type LeadPage, type LeadStatus,
 } from '../common';
+import { useLeadSelection, SelectAllBanner, BulkBar, type LeadFilter } from './LeadBulk';
 
 const parseTags = (s: string) => [...new Set(s.split(/[,|]/).map((t) => t.trim()).filter(Boolean))].slice(0, 30);
 
@@ -15,10 +16,11 @@ function useDebounced<T>(v: T, ms = 350) {
   return d;
 }
 
-function CampaignSelect({ value, onChange, campaigns, empty = 'Sem campanha' }: { value: string; onChange: (v: string) => void; campaigns: Campaign[]; empty?: string }) {
+function CampaignSelect({ value, onChange, campaigns, empty = 'Sem campanha', withNone = false }: { value: string; onChange: (v: string) => void; campaigns: Campaign[]; empty?: string; withNone?: boolean }) {
   return (
     <select value={value} onChange={(e) => onChange(e.target.value)}>
       <option value="">{empty}</option>
+      {withNone && <option value="none">Sem campanha</option>}
       {campaigns.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
     </select>
   );
@@ -199,6 +201,10 @@ export default function MmLeads() {
     if (r) leads.reload();
   };
   const filtered = !!(sp.get('q') || status || tag || campaignId);
+  const filter: LeadFilter = { q: sp.get('q') ?? '', status, tag, campaignId };
+  const sel = useLeadSelection(JSON.stringify(filter));
+  const pageIds = leads.data?.items.map((l) => l.id) ?? [];
+  const paginaToda = pageIds.length > 0 && pageIds.every((id) => sel.ids.has(id));
 
   return (
     <>
@@ -218,20 +224,23 @@ export default function MmLeads() {
             {LEAD_STATUS.map((s) => <option key={s} value={s}>{LEAD_STATUS_LABEL[s]}</option>)}
           </select>
           <input placeholder="Etiqueta" value={tagInput} onChange={(e) => setTagInput(e.target.value)} aria-label="Etiqueta" />
-          <CampaignSelect value={campaignId} onChange={(v) => setParam('campaignId', v)} campaigns={campaigns} empty="Todas as campanhas" />
+          <CampaignSelect value={campaignId} onChange={(v) => setParam('campaignId', v)} campaigns={campaigns} empty="Todas as campanhas" withNone />
         </div>
+        <BulkBar sel={sel} filter={filter} total={leads.data?.total ?? 0} campaigns={campaigns} onDone={() => { leads.reload(); camps.reload(); }} />
         <Async state={leads}>{(d) => d.items.length === 0 ? (
           <Empty title={filtered ? 'Nenhum contato encontrado' : 'Nenhum contato ainda'}>
             {filtered ? 'Ajuste a busca ou os filtros.' : <>Adicione contatos que autorizaram receber mensagens ou <button className="btn sm" onClick={() => setModal('import')}>importe um CSV</button></>}
           </Empty>
         ) : (
           <>
+            <SelectAllBanner sel={sel} pageIds={pageIds} total={d.total} />
             <div className="table-wrap">
               <table>
-                <thead><tr><th>Contato</th><th>Status</th><th className="hide-xs">Etiquetas</th><th className="hide-xs">Campanha</th><th className="hide-xs">Consentimento</th><th></th></tr></thead>
+                <thead><tr><th style={{ width: 32 }}><input type="checkbox" aria-label="Selecionar todos desta página" checked={sel.todos || paginaToda} onChange={(e) => sel.setPage(pageIds, e.target.checked)} style={{ width: 'auto' }} /></th><th>Contato</th><th>Status</th><th className="hide-xs">Etiquetas</th><th className="hide-xs">Campanha</th><th className="hide-xs">Consentimento</th><th></th></tr></thead>
                 <tbody>
                   {d.items.map((l) => (
-                    <tr key={l.id}>
+                    <tr key={l.id} className={sel.todos || sel.ids.has(l.id) ? 'mm-row-sel' : undefined}>
+                      <td><input type="checkbox" aria-label={`Selecionar ${l.name ?? l.phone}`} checked={sel.todos || sel.ids.has(l.id)} onChange={() => sel.toggle(l.id)} style={{ width: 'auto' }} /></td>
                       <td>
                         <strong>{l.name || '—'}</strong>
                         <div className="small muted">{fmtPhone(l.phone)}</div>
