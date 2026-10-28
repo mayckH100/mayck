@@ -51,3 +51,23 @@ export const post = <T = any>(p: string, body?: unknown) => api<T>(p, { method: 
 export const put = <T = any>(p: string, body?: unknown) => api<T>(p, { method: 'PUT', body });
 export const patch = <T = any>(p: string, body?: unknown) => api<T>(p, { method: 'PATCH', body });
 export const del = <T = any>(p: string) => api<T>(p, { method: 'DELETE' });
+
+/** Upload binário (arquivo inteiro no corpo; nome em x-file-name). Usado pelos anexos/boletos/comprovantes do MCK Mensagens. */
+export async function upload<T = any>(path: string, file: File | Blob, name?: string): Promise<T> {
+  const fileName = name ?? (file as File).name ?? 'arquivo';
+  let res: Response;
+  try {
+    res = await fetch('/api' + path, {
+      method: 'POST', credentials: 'same-origin', body: file,
+      headers: { 'x-requested-with': 'mckbot', ...(csrfToken ? { 'x-csrf-token': csrfToken } : {}), 'content-type': 'application/octet-stream', 'x-file-name': encodeURIComponent(fileName) },
+    });
+  } catch {
+    throw new ApiError('Sem conexão com o servidor. Verifique sua internet.', 0);
+  }
+  const data = await res.json().catch(() => null);
+  if (!res.ok) {
+    if (res.status === 402) window.dispatchEvent(new CustomEvent('mck:payment-required', { detail: data?.error ?? null }));
+    throw new ApiError(data?.error ?? FRIENDLY[res.status] ?? `Erro ${res.status}`, res.status, data?.details);
+  }
+  return data as T;
+}

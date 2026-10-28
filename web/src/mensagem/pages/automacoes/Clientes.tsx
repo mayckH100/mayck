@@ -2,7 +2,8 @@ import { useState } from 'react';
 import { useApi, Async, Modal, Field, useAction, fmtNum, Empty } from '../../../ui';
 import { post, patch, del } from '../../../api';
 import { useAuth } from '../../../auth';
-import { API, useReadOnly, OcBadge, fmtDT, CANAL_LABEL, CAT_LABEL, AutoBadge, type Cliente } from './shared';
+import { API, useReadOnly, OcBadge, BolBadge, fmtDT, fmtYmd, brl, fmtBytes, CANAL_LABEL, CAT_LABEL, AutoBadge, type Cliente } from './shared';
+import { BoletoForm, ParcelasForm, SequenciaForm, UploadButton, ArquivoLink } from './Cobrancas';
 
 const STATUS = ['ATIVO', 'INATIVO', 'INADIMPLENTE', 'CANCELADO'];
 const ST_LABEL: Record<string, string> = { ATIVO: 'Ativo', INATIVO: 'Inativo', INADIMPLENTE: 'Inadimplente', CANCELADO: 'Cancelado' };
@@ -121,12 +122,31 @@ function ClienteForm({ cliente, onClose, onSaved }: { cliente: Cliente | null; o
 }
 
 function ClienteDetalhe({ id, onClose }: { id: string; onClose: () => void }) {
+  const ro = useReadOnly();
   const d = useApi<any>(`${API}/clientes/${id}`);
+  const [modal, setModal] = useState<'boleto' | 'parcelas' | 'sequencia' | null>(null);
+  const fechar = () => { setModal(null); d.reload(); };
   return (
     <Modal title="Cliente" onClose={onClose}>
       <Async state={d}>{(c) => (
         <div className="stack">
           <div><h3 style={{ margin: 0 }}>{c.nome}</h3><div className="small muted">{[c.whatsapp, c.email, c.plano, c.empresa].filter(Boolean).join(' · ')}</div></div>
+          <div>
+            <div className="row between"><strong className="small">Financeiro — saldo em aberto: {brl(c.saldoPendente)}</strong>
+              {!ro && <span className="row"><button className="btn sm" onClick={() => setModal('boleto')}>+ Boleto</button><button className="btn sm" onClick={() => setModal('parcelas')}>Gerar parcelas</button><button className="btn sm" onClick={() => setModal('sequencia')}>Sequência de cobrança</button></span>}
+            </div>
+            {c.boletos.length ? (
+              <div className="table-wrap"><table><tbody>{c.boletos.map((b: any) => (
+                <tr key={b.id}><td className="small">{fmtYmd(b.vencimentoData)}</td><td className="small">{b.descricao}{b.parcela ? ` · parcela ${b.parcela}${b.totalParcelas ? `/${b.totalParcelas}` : ''}` : ''}</td><td className="small">{brl(b.devido)}{b.pago > 0 && <div className="muted">pago {brl(b.pago)}</div>}</td><td><BolBadge s={b.status} /></td></tr>
+              ))}</tbody></table></div>
+            ) : <div className="small muted">Nenhum boleto.</div>}
+            {c.pagamentos.length > 0 && <div className="small" style={{ marginTop: 4 }}><strong>Pagamentos:</strong> {c.pagamentos.map((p: any) => `${fmtYmd(p.pagoEm)} ${brl(p.valor)}${p.estornadoEm ? ' (estornado)' : ''}`).join(' · ')}</div>}
+            {c.comprovantes.length > 0 && <div className="small"><strong>Comprovantes:</strong> {c.comprovantes.map((x: any) => `${fmtDT(x.createdAt)} (${x.status === 'EM_ANALISE' ? 'em análise' : x.status.toLowerCase()})`).join(' · ')}</div>}
+          </div>
+          <div>
+            <div className="row between"><strong className="small">Arquivos do cliente</strong>{!ro && <UploadButton query={`?clienteId=${c.id}`} onDone={() => d.reload()} />}</div>
+            {c.arquivos.length ? c.arquivos.map((a: any) => <div key={a.id} className="small"><ArquivoLink id={a.id} nome={a.nome} /> <span className="muted">{fmtBytes(a.tamanho)} · {fmtDT(a.createdAt)}</span></div>) : <div className="small muted">Nenhum arquivo.</div>}
+          </div>
           <div><strong className="small">Automações</strong>
             {c.automacoes.length ? c.automacoes.map((a: any) => <div key={a.id} className="row small">{a.nome} <span className="badge">{CAT_LABEL[a.categoria as 'LEMBRETE']}</span> <AutoBadge s={a.status} /></div>) : <div className="small muted">Nenhuma.</div>}
           </div>
@@ -141,6 +161,9 @@ function ClienteDetalhe({ id, onClose }: { id: string; onClose: () => void }) {
               </div>
             )) : <div className="small muted">Nada enviado ainda.</div>}
           </div>
+          {modal === 'boleto' && <BoletoForm boleto={null} clienteFixo={c.id} onClose={() => setModal(null)} onSaved={fechar} />}
+          {modal === 'parcelas' && <ParcelasForm clienteFixo={c.id} onClose={() => setModal(null)} onSaved={fechar} />}
+          {modal === 'sequencia' && <SequenciaForm clienteFixo={c.id} onClose={() => setModal(null)} onSaved={fechar} />}
         </div>
       )}</Async>
     </Modal>

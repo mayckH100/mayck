@@ -5,19 +5,21 @@ import { put, post, del } from '../../../api';
 import { Kpi } from '../Dashboard';
 import Clientes from './Clientes';
 import Automacoes from './Automacoes';
-import { API, ReadOnlyCtx, useReadOnly, OcBadge, fmtDT, hmLocal, ymdLocal, CAT_LABEL, CANAL_LABEL, OC_COLOR } from './shared';
+import { Boletos, Pagamentos, Arquivos, Relatorios, ArquivoLink } from './Cobrancas';
+import { API, ReadOnlyCtx, useReadOnly, OcBadge, BolBadge, fmtDT, hmLocal, ymdLocal, CAT_LABEL, CANAL_LABEL, OC_COLOR, brl, type Cliente } from './shared';
 
 const SUB = [
   { to: '', label: 'Dashboard' }, { to: 'clientes', label: 'Clientes' }, { to: 'agendamentos', label: 'Agendamentos' },
-  { to: 'lembretes', label: 'Lembretes' }, { to: 'marketing', label: 'Marketing' }, { to: 'calendario', label: 'Calendário' },
-  { to: 'historico', label: 'Histórico' }, { to: 'configuracoes', label: 'Configurações' },
+  { to: 'lembretes', label: 'Lembretes' }, { to: 'marketing', label: 'Marketing' }, { to: 'boletos', label: 'Boletos e faturas' },
+  { to: 'cobrancas', label: 'Sequências de cobrança' }, { to: 'pagamentos', label: 'Pagamentos e comprovantes' }, { to: 'arquivos', label: 'Arquivos' },
+  { to: 'calendario', label: 'Calendário' }, { to: 'historico', label: 'Histórico' }, { to: 'relatorios', label: 'Relatórios' }, { to: 'configuracoes', label: 'Configurações' },
 ];
 
 export default function AutomacoesModulo({ readOnly = false }: { readOnly?: boolean }) {
   return (
     <ReadOnlyCtx.Provider value={readOnly}>
       <div className="page-head">
-        <div><h1>Automações e Cobranças</h1><p className="muted">Clientes, lembretes e marketing com envio programado pelo WhatsApp e por e-mail.</p></div>
+        <div><h1>Automações e Cobranças</h1><p className="muted">Clientes, lembretes, marketing e cobranças com boletos, envio programado pelo WhatsApp e por e-mail, comprovantes e controle de pagamentos.</p></div>
       </div>
       {readOnly && <div className="alert info" style={{ marginBottom: 12 }}>Seu perfil é <strong>somente leitura</strong> neste módulo: você consulta tudo, mas não altera.</div>}
       <nav className="tabs" aria-label="Automações">
@@ -29,42 +31,70 @@ export default function AutomacoesModulo({ readOnly = false }: { readOnly?: bool
         <Route path="agendamentos" element={<Automacoes />} />
         <Route path="lembretes" element={<Automacoes categoria="LEMBRETE" />} />
         <Route path="marketing" element={<Automacoes categoria="MARKETING" />} />
+        <Route path="boletos" element={<Boletos />} />
+        <Route path="cobrancas" element={<Automacoes categoria="COBRANCA" />} />
+        <Route path="pagamentos" element={<Pagamentos />} />
+        <Route path="arquivos" element={<Arquivos />} />
+        <Route path="relatorios" element={<Relatorios />} />
         <Route path="calendario" element={<Calendario />} />
         <Route path="historico" element={<Historico />} />
         <Route path="configuracoes" element={<Configuracoes />} />
         <Route path="*" element={<Navigate to="/automacoes" replace />} />
       </Routes>
-      <p className="small muted" style={{ marginTop: 18 }}>Boletos, pagamentos, comprovantes, arquivos e relatórios financeiros chegam na próxima fase.</p>
     </ReadOnlyCtx.Provider>
   );
 }
 
 function Painel() {
-  const d = useApi<any>(`${API}/dashboard`);
+  const [f, setF] = useState({ de: '', ate: '', clienteId: '', categoria: '' });
+  const qs = new URLSearchParams(); for (const [k, v] of Object.entries(f)) if (v) qs.set(k, v);
+  const d = useApi<any>(`${API}/dashboard?${qs}`);
+  const clientes = useApi<{ items: Cliente[] }>(`${API}/clientes?pageSize=500`);
+  const periodo = !!(f.de || f.ate);
   return (
-    <Async state={d}>{(m) => (
-      <div className="stack">
-        <div className="grid g4">
-          <Kpi label="Clientes cadastrados" value={fmtNum(m.clientes)} />
-          <Kpi label="Mensagens programadas" value={fmtNum(m.programadas)} sub={`${fmtNum(m.pendentes)} vencidas aguardando envio`} />
-          <Kpi label="Enviadas hoje" value={fmtNum(m.enviadasHoje)} />
-          <Kpi label="Com falha" value={fmtNum(m.falhas)} sub="após todas as tentativas" />
-        </div>
-        <div className="grid g3">
-          <Kpi label="Lembretes ativos" value={fmtNum(m.lembretesAtivos)} />
-          <Kpi label="Campanhas de marketing ativas" value={fmtNum(m.marketingAtivas)} />
-          <Kpi label="Automações pausadas" value={fmtNum(m.pausadas)} />
-        </div>
-        <div className="card">
-          <h2>Próximos envios</h2>
-          {m.proximos.length === 0 ? <p className="muted" style={{ margin: 0 }}>Nenhum envio programado.</p> : (
-            <div className="table-wrap"><table><tbody>{m.proximos.map((o: any) => (
-              <tr key={o.id}><td className="small">{fmtDT(o.executarEm)}</td><td>{o.cliente}</td><td className="small">{o.automacao}</td><td className="small">{o.categoria ? CAT_LABEL[o.categoria as 'LEMBRETE'] : ''}</td><td className="small">{CANAL_LABEL[o.canal as 'EMAIL']}</td></tr>
-            ))}</tbody></table></div>
-          )}
-        </div>
+    <div className="stack">
+      <div className="row">
+        <span className="small muted">Período</span><input type="date" value={f.de} onChange={(e) => setF({ ...f, de: e.target.value })} style={{ width: 'auto' }} /> até <input type="date" value={f.ate} onChange={(e) => setF({ ...f, ate: e.target.value })} style={{ width: 'auto' }} />
+        <select value={f.clienteId} onChange={(e) => setF({ ...f, clienteId: e.target.value })} style={{ width: 'auto', maxWidth: 220 }}><option value="">Todos os clientes</option>{clientes.data?.items.map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}</select>
+        <select value={f.categoria} onChange={(e) => setF({ ...f, categoria: e.target.value })} style={{ width: 'auto' }}><option value="">Todas as categorias</option><option value="LEMBRETE">Lembretes</option><option value="MARKETING">Marketing</option><option value="COBRANCA">Cobranças</option></select>
+        {(periodo || f.clienteId || f.categoria) && <button className="btn sm" onClick={() => setF({ de: '', ate: '', clienteId: '', categoria: '' })}>Limpar filtros</button>}
       </div>
-    )}</Async>
+      <Async state={d}>{(m) => (
+        <div className="stack">
+          <div className="grid g4">
+            <Kpi label="Clientes cadastrados" value={fmtNum(m.clientes)} />
+            <Kpi label="Mensagens programadas" value={fmtNum(m.programadas)} sub={`${fmtNum(m.pendentes)} vencidas aguardando envio`} />
+            <Kpi label={periodo ? 'Enviadas no período' : 'Enviadas hoje'} value={fmtNum(m.enviadasHoje)} />
+            <Kpi label="Com falha" value={fmtNum(m.falhas)} sub="após todas as tentativas" />
+          </div>
+          <div className="grid g4">
+            <Kpi label="Boletos a vencer (7 dias)" value={fmtNum(m.boletosAVencer)} />
+            <Kpi label="Boletos vencidos" value={fmtNum(m.boletosVencidos)} />
+            <Kpi label={periodo ? 'Boletos pagos no período' : 'Boletos pagos'} value={fmtNum(m.boletosPagos)} />
+            <Kpi label="Aguardando confirmação" value={fmtNum(m.boletosAguardando)} sub="comprovante em análise" />
+          </div>
+          <div className="grid g4">
+            <Kpi label="Valores pendentes" value={brl(m.valoresPendentes)} />
+            <Kpi label={periodo ? 'Recebido no período' : 'Total recebido'} value={brl(m.valoresRecebidos)} />
+            <Kpi label="Comprovantes recebidos" value={fmtNum(m.comprovantesRecebidos)} sub={`${fmtNum(m.comprovantesPendentes)} em análise`} />
+            <Kpi label="Cobranças ativas" value={fmtNum(m.cobrancasAtivas)} />
+          </div>
+          <div className="grid g3">
+            <Kpi label="Lembretes ativos" value={fmtNum(m.lembretesAtivos)} />
+            <Kpi label="Campanhas de marketing ativas" value={fmtNum(m.marketingAtivas)} />
+            <Kpi label="Automações pausadas" value={fmtNum(m.pausadas)} />
+          </div>
+          <div className="card">
+            <h2>Próximos envios</h2>
+            {m.proximos.length === 0 ? <p className="muted" style={{ margin: 0 }}>Nenhum envio programado.</p> : (
+              <div className="table-wrap"><table><tbody>{m.proximos.map((o: any) => (
+                <tr key={o.id}><td className="small">{fmtDT(o.executarEm)}</td><td>{o.cliente}</td><td className="small">{o.automacao}{o.tipo && o.tipo !== 'ENVIO' ? ' (reenvio)' : ''}</td><td className="small">{o.categoria ? CAT_LABEL[o.categoria as 'LEMBRETE'] : ''}</td><td className="small">{CANAL_LABEL[o.canal as 'EMAIL']}</td></tr>
+              ))}</tbody></table></div>
+            )}
+          </div>
+        </div>
+      )}</Async>
+    </div>
   );
 }
 
@@ -81,12 +111,18 @@ function Calendario() {
     const end = new Date(ds[n - 1]); end.setDate(end.getDate() + 1);
     return { de: ini, ate: end, dias: ds };
   }, [ref, modo]);
-  const cal = useApi<{ eventos: any[]; timezone: string; truncado: boolean }>(`${API}/calendario?de=${de.toISOString()}&ate=${ate.toISOString()}`);
+  const cal = useApi<{ eventos: any[]; boletos: any[]; timezone: string; truncado: boolean }>(`${API}/calendario?de=${de.toISOString()}&ate=${ate.toISOString()}`);
   const porDia = useMemo(() => {
     const m: Record<string, any[]> = {};
     for (const e of cal.data?.eventos ?? []) (m[ymdLocal(new Date(e.agendadoPara), cal.data!.timezone)] ??= []).push(e);
     return m;
   }, [cal.data]);
+  const bolDia = useMemo(() => {
+    const m: Record<string, any[]> = {};
+    for (const b of cal.data?.boletos ?? []) (m[b.vencimento] ??= []).push(b);
+    return m;
+  }, [cal.data]);
+  const BOL_COR: Record<string, string> = { PAGO: '#0b7a5a', VENCIDO: '#d64545', PENDENTE: '#7c3aed', EM_ANALISE: '#b7791f', PARCIAL: '#b7791f', CANCELADO: '#b5b5bb' };
   const mover = (k: number) => { const x = new Date(ref); if (modo === 'mes') x.setMonth(x.getMonth() + k); else x.setDate(x.getDate() + 7 * k); setRef(x); };
   const key = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   return (
@@ -111,6 +147,7 @@ function Calendario() {
                 <span className="n">{d.getDate()}</span>
                 {evs.slice(0, modo === 'semana' ? 8 : 3).map((e) => <span key={e.id} className="ev" style={{ borderLeftColor: OC_COLOR[e.status] ?? '#999' }}>{hmLocal(e.agendadoPara, cal.data!.timezone)} {e.cliente}</span>)}
                 {evs.length > (modo === 'semana' ? 8 : 3) && <span className="small muted">+{evs.length - (modo === 'semana' ? 8 : 3)}</span>}
+                {(bolDia[k] ?? []).slice(0, modo === 'semana' ? 6 : 2).map((b) => <span key={b.id} className="ev" style={{ borderLeftColor: BOL_COR[b.status] ?? '#999' }}>💲 {b.cliente}</span>)}
               </button>
             );
           })}
@@ -119,12 +156,17 @@ function Calendario() {
       {dia && (
         <div className="card">
           <h3 style={{ marginTop: 0 }}>{dia.split('-').reverse().join('/')}</h3>
-          {(porDia[dia] ?? []).length === 0 ? <p className="muted small">Nenhum envio neste dia.</p> : (
-            <div className="table-wrap"><table><tbody>{porDia[dia].map((e) => (
-              <tr key={e.id}><td className="small">{hmLocal(e.agendadoPara, cal.data!.timezone)}</td><td>{e.cliente}</td><td className="small">{e.automacao}{e.automacaoStatus === 'PAUSADA' && <span className="badge amber" style={{ marginLeft: 4 }}>pausada</span>}</td><td className="small">{e.categoria ? CAT_LABEL[e.categoria as 'LEMBRETE'] : ''}</td><td className="small">{CANAL_LABEL[e.canal as 'EMAIL']}</td><td><OcBadge s={e.status} /></td></tr>
+          {(bolDia[dia] ?? []).length > 0 && (
+            <div className="table-wrap" style={{ marginBottom: 8 }}><table><tbody>{bolDia[dia].map((b) => (
+              <tr key={b.id}><td className="small">Vencimento</td><td>{b.cliente}</td><td className="small">{b.descricao}{b.parcela ? ` · parcela ${b.parcela}${b.totalParcelas ? `/${b.totalParcelas}` : ''}` : ''}</td><td className="small">saldo {brl(b.saldo)}</td><td><BolBadge s={b.status} /></td></tr>
             ))}</tbody></table></div>
           )}
-          <p className="small muted" style={{ marginBottom: 0 }}>Para editar ou cancelar um envio, abra a automação em Agendamentos.</p>
+          {(porDia[dia] ?? []).length === 0 ? <p className="muted small">Nenhum envio neste dia.</p> : (
+            <div className="table-wrap"><table><tbody>{porDia[dia].map((e) => (
+              <tr key={e.id}><td className="small">{hmLocal(e.agendadoPara, cal.data!.timezone)}</td><td>{e.cliente}</td><td className="small">{e.automacao}{e.tipo && e.tipo !== 'ENVIO' && <span className="badge" style={{ marginLeft: 4 }}>reenvio</span>}{e.automacaoStatus === 'PAUSADA' && <span className="badge amber" style={{ marginLeft: 4 }}>pausada</span>}</td><td className="small">{e.categoria ? CAT_LABEL[e.categoria as 'LEMBRETE'] : ''}</td><td className="small">{CANAL_LABEL[e.canal as 'EMAIL']}</td><td><OcBadge s={e.status} /></td></tr>
+            ))}</tbody></table></div>
+          )}
+          <p className="small muted" style={{ marginBottom: 0 }}>Para editar ou cancelar um envio, abra a automação em Agendamentos (ou em Sequências de cobrança). Boletos: abra em Boletos e faturas.</p>
         </div>
       )}
     </div>
@@ -132,7 +174,7 @@ function Calendario() {
 }
 
 function Historico() {
-  const [f, setF] = useState({ categoria: '', canal: '', status: '', q: '', de: '', ate: '' });
+  const [f, setF] = useState({ categoria: '', canal: '', status: '', q: '', de: '', ate: '', direcao: '' });
   const [page, setPage] = useState(1);
   const qs = new URLSearchParams({ page: String(page) });
   for (const [k, v] of Object.entries(f)) if (v) qs.set(k, k === 'de' || k === 'ate' ? new Date(`${v}T${k === 'de' ? '00:00' : '23:59'}`).toISOString() : v);
@@ -142,9 +184,10 @@ function Historico() {
     <div className="stack">
       <div className="row">
         <input placeholder="Buscar no conteúdo" value={f.q} onChange={set('q')} style={{ maxWidth: 220 }} />
-        <select value={f.categoria} onChange={set('categoria')} style={{ width: 'auto' }}><option value="">Categoria</option><option value="LEMBRETE">Lembrete</option><option value="MARKETING">Marketing</option></select>
+        <select value={f.categoria} onChange={set('categoria')} style={{ width: 'auto' }}><option value="">Categoria</option><option value="LEMBRETE">Lembrete</option><option value="MARKETING">Marketing</option><option value="COBRANCA">Cobrança</option></select>
+        <select value={f.direcao} onChange={set('direcao')} style={{ width: 'auto' }}><option value="">Enviadas e recebidas</option><option value="OUT">Enviadas</option><option value="IN">Recebidas</option></select>
         <select value={f.canal} onChange={set('canal')} style={{ width: 'auto' }}><option value="">Canal</option><option value="WHATSAPP">WhatsApp</option><option value="EMAIL">E-mail</option></select>
-        <select value={f.status} onChange={set('status')} style={{ width: 'auto' }}><option value="">Status</option>{['ENVIADA', 'FALHOU', 'TENTANDO', 'IGNORADA', 'CANCELADA'].map((s) => <option key={s} value={s}>{s.toLowerCase()}</option>)}</select>
+        <select value={f.status} onChange={set('status')} style={{ width: 'auto' }}><option value="">Status</option>{['ENVIADA', 'FALHOU', 'TENTANDO', 'IGNORADA', 'CANCELADA', 'RECEBIDA'].map((s) => <option key={s} value={s}>{s.toLowerCase()}</option>)}</select>
         <input type="date" value={f.de} onChange={set('de')} style={{ width: 'auto' }} /> até <input type="date" value={f.ate} onChange={set('ate')} style={{ width: 'auto' }} />
       </div>
       <div className="card table-wrap">
@@ -158,7 +201,9 @@ function Historico() {
                   <td>{x.cliente}</td><td className="small">{x.automacao}<div className="muted">{CAT_LABEL[x.categoria as 'LEMBRETE']}</div></td>
                   <td className="small">{CANAL_LABEL[x.canal as 'EMAIL']}</td>
                   <td><OcBadge s={x.status} /><div className="small muted">{x.tentativas} tentativa(s)</div>{x.erro && <div className="small" style={{ color: 'var(--danger)' }}>{x.erro}</div>}{x.provedorId && <div className="small muted" title={x.provedorId}>id: {String(x.provedorId).slice(0, 18)}…</div>}</td>
-                  <td className="small" style={{ maxWidth: 320, whiteSpace: 'pre-wrap' }}>{x.assunto && <strong>{x.assunto}<br /></strong>}{x.conteudo}</td>
+                  <td className="small" style={{ maxWidth: 320, whiteSpace: 'pre-wrap' }}>{x.direcao === 'IN' && <span className="badge blue">recebida</span>} {x.assunto && <strong>{x.assunto}<br /></strong>}{x.conteudo}
+                    {x.anexos?.length > 0 && <div>📎 {x.anexos.map((a: any, i: number) => <span key={i}>{i > 0 && ', '}<ArquivoLink id={a.arquivoId} nome={a.nome} /></span>)}</div>}
+                    {x.comprovanteId && <div className="muted">comprovante registrado para conferência</div>}{x.operador && <div className="muted">operador: {x.operador}</div>}</td>
                 </tr>
               ))}</tbody>
             </table>
@@ -193,6 +238,11 @@ function Configuracoes() {
               cfg.setData(await put(`${API}/config`, {
                 timezone: fd.get('timezone'), janelaInicio: fd.get('janelaInicio'), janelaFim: fd.get('janelaFim'),
                 limiteDiario: Number(fd.get('limiteDiario')), maxTentativas: Number(fd.get('maxTentativas')), backoffSeg: Number(fd.get('backoffSeg')),
+                tiposArquivo: fd.getAll('tiposArquivo'), tamanhoMaxMb: Number(fd.get('tamanhoMaxMb')), notificarComprovantes: fd.get('notificarComprovantes') === 'on',
+                reenvioPadrao: {
+                  offsets: String(fd.get('reOffsets') ?? '').split(',').map((x) => Number(x.trim())).filter((n) => Number.isInteger(n)),
+                  horario: fd.get('reHorario'), maxPorBoleto: Number(fd.get('reMax')),
+                },
               }));
             }, 'Configurações salvas');
           }}>
@@ -205,6 +255,21 @@ function Configuracoes() {
                 <Field label="Máximo de tentativas"><input type="number" name="maxTentativas" min={1} max={10} defaultValue={c.maxTentativas} /></Field>
                 <Field label="Espera entre tentativas (s)" hint="dobra a cada nova tentativa"><input type="number" name="backoffSeg" min={10} defaultValue={c.backoffSeg} /></Field>
               </div>
+              <strong className="small">Arquivos e anexos</strong>
+              <div className="row small">{['pdf', 'png', 'jpg', 'webp', 'gif', 'docx', 'xlsx', 'txt', 'csv'].map((t) => (
+                <label key={t} className="row small"><input type="checkbox" name="tiposArquivo" value={t} defaultChecked={String(c.tiposArquivo).split(',').includes(t)} style={{ width: 'auto' }} /> {t.toUpperCase()}</label>
+              ))}</div>
+              <Field label="Tamanho máximo por arquivo (MB)" hint="até 25 MB; o WhatsApp e muitos provedores de e-mail recusam anexos grandes"><input type="number" name="tamanhoMaxMb" min={1} max={25} defaultValue={c.tamanhoMaxMb} /></Field>
+              <strong className="small">Regras de cobrança (padrão das novas sequências)</strong>
+              {(() => { const r = (() => { try { return JSON.parse(c.reenvioPadrao); } catch { return { offsets: [-1, 0, 1, 3, 7], horario: '10:00', maxPorBoleto: 5 }; } })(); return (
+                <div className="grid g3">
+                  <Field label="Reenviar (dias do vencimento)" hint="-1 = véspera, 0 = no dia, 3 = 3 dias depois"><input name="reOffsets" defaultValue={r.offsets.join(', ')} /></Field>
+                  <Field label="Horário dos reenvios"><input type="time" name="reHorario" defaultValue={r.horario} /></Field>
+                  <Field label="Máximo por boleto"><input type="number" name="reMax" min={1} max={50} defaultValue={r.maxPorBoleto} /></Field>
+                </div>
+              ); })()}
+              <p className="small muted" style={{ margin: 0 }}>Confirmação de pagamento: sem integração bancária, todo comprovante fica em análise até um administrador aprovar ou rejeitar. Boleto pago nunca recebe cobrança automática.</p>
+              <label className="mm-check"><input type="checkbox" name="notificarComprovantes" defaultChecked={c.notificarComprovantes} /> Avisar proprietários e administradores por e-mail quando chegar um comprovante</label>
               {!ro && <button className="btn primary" disabled={busy}>Salvar</button>}
             </fieldset>
           </form>
@@ -241,7 +306,7 @@ function Configuracoes() {
             {!ro && (
               <div className="stack" style={{ borderTop: '1px solid var(--line)', paddingTop: 8 }}>
                 <div className="grid g3">
-                  <select value={novo.categoria} onChange={(e) => setNovo({ ...novo, categoria: e.target.value })}><option value="LEMBRETE">Lembrete</option><option value="MARKETING">Marketing</option></select>
+                  <select value={novo.categoria} onChange={(e) => setNovo({ ...novo, categoria: e.target.value })}><option value="LEMBRETE">Lembrete</option><option value="MARKETING">Marketing</option><option value="COBRANCA">Cobrança</option></select>
                   <input placeholder="Nome do modelo" value={novo.nome} onChange={(e) => setNovo({ ...novo, nome: e.target.value })} />
                   <input placeholder="Assunto do e-mail (opcional)" value={novo.assunto} onChange={(e) => setNovo({ ...novo, assunto: e.target.value })} />
                 </div>
