@@ -49,6 +49,7 @@ docs/              requisitos, deploy, relatório de testes, capturas de tela
 - Mesmo serviço, banco e contas do MCKBOT; frontend próprio (entrada Vite `web/mensagem.html` → `web/src/mensagem/`), marca "MCK Mensagens", cor roxa e menu no topo.
 - Rotas: `/mensagem/login`, `/mensagem/` (painel), `/mensagem/contatos`, `/mensagem/campanhas`, `/mensagem/campanhas/:id`, `/mensagem/assinatura`. O Express serve `mensagem.html` para `/mensagem` e `/mensagem/*`; o restante continua no SPA do MCKBOT.
 - API `/api/mckmensagem` (OWNER/ADMIN): com a assinatura MCKMENSAGEM inativa, leitura e exportação seguem liberadas; escrita, importação, iniciar e pausar respondem `402 {"error":"Assinatura MCK Mensagens inativa"}`.
+- **Ações em massa nos contatos:** marque contatos (ou "todos os N que atendem ao filtro") e vincule/remova campanha, adicione/remova etiquetas, mude status, marque/remova opt-out ou exclua — `POST /api/mckmensagem/leads/bulk` com `ids` ou `filter` (limite de 10.000 por operação, auditado). Na campanha, "Adicionar contatos" abre um seletor com busca, etiqueta, status e selecionar todos; se a campanha já começou, os elegíveis entram direto na fila.
 - Pagamento iniciado no MCK Mensagens (`POST /api/billing/checkout` com `app: "mensagem"`) volta para `/mensagem/assinatura`.
 
 ### Automações e Cobranças (`/mensagem/automacoes`)
