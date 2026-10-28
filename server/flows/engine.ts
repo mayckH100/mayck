@@ -419,6 +419,19 @@ export async function resolveMenuFlow(conv: Conversation, text: string, s: MenuS
 }
 
 /**
+ * true quando o run aguarda a escolha de um MENU e o cliente mandou texto livre (com letras)
+ * que não corresponde a nenhuma opção — ex.: "Preciso renovar meu plano". Números fora da faixa
+ * continuam recebendo a mensagem de opção inválida.
+ */
+export async function isFreeTextMenuMiss(run: FlowRun, text: string, replyId?: string): Promise<boolean> {
+  if (!run.currentNodeId || !/\p{L}/u.test(text ?? '')) return false;
+  const graph = await loadGraph(run.flowId, run.flowVersion);
+  const node = graph.nodes.find((n) => n.id === run.currentNodeId);
+  if (!node || node.type !== 'menu') return false;
+  return !matchMenuOption(node.data?.options ?? [], text, replyId);
+}
+
+/**
  * Decide o que fazer com uma mensagem recebida em modo BOT:
  * 1) retomar fluxo que aguarda resposta; 2) iniciar fluxo por gatilho; 3) IA automática; 4) nada.
  */
@@ -437,17 +450,27 @@ export async function automateInbound(conv: Conversation, contact: Contact, mess
     }
   }
   const waiting = await prisma.flowRun.findFirst({ where: { conversationId: conv.id, status: 'WAITING', waitType: 'reply' }, orderBy: { startedAt: 'desc' } });
+  const ai = await prisma.aiSettings.findUnique({ where: { orgId: conv.orgId } });
+  const aiOn = !!(ai?.enabled && ai.autoReply);
   if (waiting) {
-    await resumeWithReply(waiting, { text, replyId: opts.replyId });
-    return 'flow_resumed' as const;
+    // Cliente escreveu uma pergunta livre em vez de escolher uma opção do menu:
+    // em vez de "Opção inválida", tenta outro fluxo pelo gatilho e, se não houver, a IA responde.
+    const miss = await isFreeTextMenuMiss(waiting, text, opts.replyId);
+    if (!miss || (!aiOn && !(await findMatchingFlow(conv.orgId, text, false)))) {
+      await resumeWithReply(waiting, { text, replyId: opts.replyId });
+      return 'flow_resumed' as const;
+    }
+    const cancelled = await prisma.flowRun.updateMany({ where: { id: waiting.id, status: 'WAITING' }, data: { status: 'CANCELLED', finishedAt: new Date(), waitType: null } });
+    if (cancelled.count === 1) {
+      await prisma.flowRunStep.create({ data: { orgId: waiting.orgId, runId: waiting.id, flowId: waiting.flowId, nodeId: waiting.currentNodeId ?? '', nodeType: 'menu', status: 'warn', detail: `Resposta fora do menu, encaminhada: ${text}`.slice(0, 1000) } });
+    }
   }
-  const flowId = await findMatchingFlow(conv.orgId, text, opts.isFirst);
+  const flowId = await findMatchingFlow(conv.orgId, text, waiting ? false : opts.isFirst);
   if (flowId) {
     await startFlow(flowId, conv, contact, { triggerMessageId: message.id, lastMessage: text });
     return 'flow_started' as const;
   }
-  const ai = await prisma.aiSettings.findUnique({ where: { orgId: conv.orgId } });
-  if (ai?.enabled && ai.autoReply) {
+  if (aiOn) {
     const r = await generateAiReply({ orgId: conv.orgId, conversationId: conv.id, text });
     if (r.text) await sendOutbound({ conversation: conv, contact, payload: { type: 'text', text: r.text }, sender: 'ai' });
     if (r.handoff) await handoffToHuman(conv, r.reason ?? 'IA');

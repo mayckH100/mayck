@@ -53,6 +53,29 @@ describe('IA (provedor fake determinístico)', () => {
     expect(msg!.status).toBe('SENT');
   });
 
+  it('menu aguardando escolha: texto livre fora das opções vai para a IA em vez de "Opção inválida"', async () => {
+    const f = await owner.post('/api/flows', { name: 'Menu IA', graph: {
+      nodes: [
+        { id: 's', type: 'start', position: { x: 0, y: 0 }, data: { triggers: [{ type: 'keyword', value: 'menuzinho', match: 'equals' }] } },
+        { id: 'm', type: 'menu', position: { x: 0, y: 0 }, data: { text: 'Escolha:', options: [{ id: 'a', label: 'Teste' }, { id: 'b', label: 'Apps' }] } },
+        { id: 'a', type: 'send_text', position: { x: 0, y: 0 }, data: { text: 'Teste escolhido.' } },
+      ],
+      edges: [{ id: 'e1', source: 's', target: 'm' }, { id: 'e2', source: 'm', target: 'a', sourceHandle: 'opt-a' }],
+    } });
+    expect((await owner.post(`/api/flows/${f.body.id}/status`, { status: 'ACTIVE' })).status).toBe(200);
+    const p = nextPhone();
+    await sendInbound(ctx, p, 'menuzinho');
+    await sendInbound(ctx, p, '7'); // número fora da faixa continua inválido
+    expect(sentTexts()[1]).toMatch(/Opção inválida/);
+    graph.reset();
+    await sendInbound(ctx, p, 'qual o horário de atendimento?');
+    expect(sentTexts().join(' ')).not.toMatch(/Opção inválida/);
+    expect(sentTexts()[0]).toContain('segunda a sexta, das 9h às 18h');
+    const run = await prisma.flowRun.findFirstOrThrow({ where: { flowId: f.body.id }, orderBy: { startedAt: 'desc' } });
+    expect(run.status).toBe('CANCELLED');
+    await owner.post(`/api/flows/${f.body.id}/status`, { status: 'PAUSED' });
+  });
+
   it('preço presente na base pode ser citado', async () => {
     const p = nextPhone();
     await sendInbound(ctx, p, 'quanto custa o plano básico?');
