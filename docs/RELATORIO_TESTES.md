@@ -2,6 +2,18 @@
 
 Execução real em 25/10/2026, no sandbox de desenvolvimento (Linux ARM64, Node.js 22.23.3). Nenhum número abaixo foi estimado: todos saem dos logs em `docs/evidencias/`.
 
+## 0. Atualização 28/10/2026 — Automações e Cobranças (fase 2)
+
+Execução real no sandbox (Linux, Node.js 22.23.3, fuso do processo UTC), banco SQLite descartável: `npm test` → **24 arquivos, 229 testes aprovados / 0 reprovados**; `npm run typecheck` sem erros; `npm run build` concluído.
+
+| Arquivo | Casos | O que prova |
+|---|---|---|
+| `tests/integration/cobrancas.test.ts` | 12 | upload com tipo real/tamanho/segurança (executável, PDF com JavaScript, extensão trocada, limite em MB), download só autenticado/admin e isolado por organização, exclusão só do dono e nunca de arquivo vinculado; boletos (lote de parcelas, vencido automático, status de envio ≠ financeiro, cliente com histórico financeiro não é excluído); **vários boletos em sequência** (mensagem N + boleto N, texto por mensagem, anexo geral + boleto, variáveis da parcela); boleto pago no meio não é cobrado e a sequência encerra quando tudo é pago; validação de anexos; **reenvio** só de vencido/pendente, nunca de pago, com máximo por boleto; **comprovante pelo WhatsApp** (vínculo com cliente/parcela, confiança, em análise sem baixa, duplicado, inconclusivo, idempotência, aprovação com responsável e auditoria); comprovante do operador e rejeição; **pagamento parcial**, quitação e **estorno** (só o dono); **envio real de anexos** pelo QR (Baileys recebe o PDF como documento; nova tentativa não repete o texto), e-mail com anexo e Cloud API com upload em `/media`; falha do WhatsApp e do e-mail registradas separadamente; relatórios, dashboard e calendário com números exatos e CSV; 402 com assinatura inativa |
+| `tests/unit/cobrancas-rules.test.ts` | 9 | detecção de tipo pelo conteúdo, bloqueios de segurança, nome seguro; extração de valor/data/E2E Pix/instituição; leitura de texto de PDF (com e sem FlateDecode); identificação da parcela por valor e linha digitável; valor devido; variáveis do boleto; horários de reenvio no fuso |
+| `tests/integration/automacoes.test.ts` | 14 | (fase 1) — o caso "recorrência mensal…" falhava conforme o dia em que rodava: o motor corretamente transforma "dia 31" no último dia de meses curtos, mas o teste exigia o mesmo número de dia em todos os meses. O teste agora calcula o dia esperado de cada mês (não era bug do motor). |
+
+Limitações: não houve execução em PostgreSQL neste sandbox (sem servidor Postgres disponível) — a migração `0010_cobrancas_arquivos_comprovantes` foi gerada pelo `prisma migrate diff` a partir do schema da 0009 e contém só `CREATE TABLE`, `CREATE INDEX` e `ALTER TABLE … ADD COLUMN` (opcionais ou com padrão). E2E com Chromium não rodou (faltam bibliotecas do sistema no sandbox); as telas novas foram validadas por `tsc` e pelo build do Vite.
+
 ## 1. Resumo
 
 | Suíte | Ferramenta | Banco | Resultado final | Evidência |
