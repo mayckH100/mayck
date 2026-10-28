@@ -183,7 +183,9 @@ describe('Automações e Cobranças (fase 1)', () => {
     const antes = await ocorr(r.body.id);
     expect(antes.length).toBeGreaterThanOrEqual(2);
     expect(antes.every((o) => localTime(o.agendadoPara, TZ) === '10:00')).toBe(true);
-    expect(new Set(antes.map((o) => Math.min(Number(localDate(o.agendadoPara, TZ).slice(8)), d))).size).toBe(1);
+    // Dia 29/30/31 em mês mais curto vira o último dia do mês (ex.: dia 31 em novembro → 30/11).
+    const esperado = (ymd: string) => { const [y, m] = ymd.split('-').map(Number); return Math.min(d, new Date(Date.UTC(y, m, 0)).getUTCDate()); };
+    expect(antes.every((o) => { const s = localDate(o.agendadoPara, TZ); return Number(s.slice(8)) === esperado(s); })).toBe(true);
     await estenderHorizontes(new Date(Date.now() + 70 * 86400e3));
     const depois = await ocorr(r.body.id);
     expect(depois.length).toBeGreaterThan(antes.length);
