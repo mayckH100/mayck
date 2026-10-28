@@ -50,10 +50,10 @@ function Form({ view, onSaved }: { view: View; onSaved: (v: View) => void }) {
         </label>
         <p className="muted small">Quando um lead abordado por campanha responde, a IA entende se ele tem interesse, responde e move o lead automaticamente.</p>
         <Field label="Como abordar e qualificar" hint="O que você vende, para quem, e o que perguntar para descobrir o interesse.">
-          <textarea rows={5} value={f.instructions} onChange={(e) => set('instructions', e.target.value)} placeholder="Ex.: Vendemos IPTV com mais de 2.000 canais, filmes e séries. Descubra em qual aparelho a pessoa assiste e se já usa outro serviço. Destaque o teste grátis sem compromisso." />
+          <textarea rows={5} value={f.instructions} onChange={(e) => set('instructions', e.target.value)} placeholder="Ex.: Somos uma loja de carros seminovos revisados, com garantia e financiamento. Descubra qual modelo a pessoa procura, a faixa de preço e se tem carro para dar na troca. Destaque o test drive sem compromisso." />
         </Field>
         <Field label="Próximo passo para quem tem interesse" hint="O que a IA oferece quando o lead diz sim.">
-          <input value={f.offer} onChange={(e) => set('offer', e.target.value)} placeholder="Ex.: liberar um teste grátis de 1 hora e enviar o app para o aparelho dele" />
+          <input value={f.offer} onChange={(e) => set('offer', e.target.value)} placeholder="Ex.: agendar um test drive na loja e fazer uma simulação de financiamento" />
         </Field>
       </div>
 
@@ -63,7 +63,7 @@ function Form({ view, onSaved }: { view: View; onSaved: (v: View) => void }) {
         <Field label="Ação">
           <select value={f.positiveAction} onChange={(e) => set('positiveAction', e.target.value as Settings['positiveAction'])}>
             <option value="HANDOFF">Transferir para um atendente fechar a venda</option>
-            <option value="FLOW">Iniciar um fluxo do MCKBOT (ex.: Teste grátis)</option>
+            <option value="FLOW">Iniciar um fluxo do MCKBOT (ex.: Agendar test drive)</option>
             <option value="BOT">Continuar com o robô e a IA do MCKBOT</option>
           </select>
         </Field>

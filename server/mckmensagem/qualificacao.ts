@@ -31,7 +31,7 @@ export const DEFAULT_LEAD_AI = {
   positiveFlowId: null as string | null,
   retryDays: 3,
   maxAttempts: 3,
-  retryMessage: 'Oi {nome}! Passando de novo por aqui 😊 Ainda posso te ajudar? Se quiser, libero um teste grátis pra você conhecer, sem compromisso.',
+  retryMessage: 'Oi {nome}! Passando de novo por aqui 😊 Ainda posso te ajudar? Se quiser, te mando mais detalhes, sem compromisso.',
 };
 
 export async function getLeadAiSettings(orgId: string): Promise<typeof DEFAULT_LEAD_AI> {
@@ -55,11 +55,11 @@ export function buildQualifyPrompt(s: Pick<LeadAiSettings, 'instructions' | 'off
     'COMO CLASSIFICAR A ÚLTIMA MENSAGEM DO LEAD:',
     '- POSITIVO: demonstra interesse ("quero", "sim", "como funciona o teste", "quanto custa", "pode mandar", pergunta como contratar).',
     '- NEGATIVO: recusa agora ("não", "agora não", "sem dinheiro", "já tenho", "depois eu vejo", "não tenho interesse").',
-    '- DUVIDA: faz uma pergunta ou comentário sem decidir (sobre aparelho, qualidade, canais, como funciona).',
+    '- DUVIDA: faz uma pergunta ou comentário sem decidir (sobre o produto, condições, prazos, como funciona).',
     '- SAIR: pede para não receber mais mensagens, reclama do contato ou pede para ser removido.',
     '',
     'COMO RESPONDER EM CADA CASO:',
-    '- POSITIVO: comemore com naturalidade, confirme o interesse e apresente o próximo passo acima. Faça no máximo uma pergunta simples para avançar (ex.: qual aparelho vai usar).',
+    '- POSITIVO: comemore com naturalidade, confirme o interesse e apresente o próximo passo acima. Faça no máximo uma pergunta simples para avançar (ex.: qual modelo ou opção prefere).',
     '- NEGATIVO: agradeça e respeite a decisão, sem insistir nem pressionar. Diga que fica à disposição. Nunca mencione que vai mandar outra mensagem.',
     '- DUVIDA: responda a dúvida usando a BASE abaixo e termine convidando para o próximo passo.',
     '- SAIR: peça desculpas pelo incômodo em uma frase e confirme que não vai mais enviar mensagens.',
