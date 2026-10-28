@@ -62,11 +62,11 @@ function Config() {
           <h2>Comportamento</h2>
           <label className="row"><input type="checkbox" checked={f.enabled} onChange={(e) => setF({ ...f, enabled: e.target.checked })} /> IA ativada (permite o bloco "Resposta com IA" nos fluxos)</label>
           <label className="row"><input type="checkbox" checked={f.autoReply} onChange={(e) => setF({ ...f, autoReply: e.target.checked })} /> Responder automaticamente quando nenhum fluxo for acionado</label>
-          <Field label="Instruções" hint="Quem é a empresa, o que vende, como atender. A IA usa a base de conhecimento para fatos."><textarea rows={6} value={f.instructions} onChange={(e) => setF({ ...f, instructions: e.target.value })} /></Field>
+          <Field label="Instruções" hint="Quem é a empresa, o que vende, preços e como atender. A IA também usa a base de conhecimento."><textarea rows={6} value={f.instructions} onChange={(e) => setF({ ...f, instructions: e.target.value })} /></Field>
           <Field label="Tom de voz"><input value={f.tone} onChange={(e) => setF({ ...f, tone: e.target.value })} /></Field>
           <Field label="Palavras que pedem humano" hint="Separadas por vírgula"><input value={f.handoffKeywords} onChange={(e) => setF({ ...f, handoffKeywords: e.target.value })} /></Field>
           <Field label="Mensagem de transferência/fallback"><textarea rows={2} required value={f.fallbackMessage} onChange={(e) => setF({ ...f, fallbackMessage: e.target.value })} /></Field>
-          <div className="alert info small">Regra fixa: a IA não informa preços, prazos ou políticas que não estejam na base de conhecimento. Se citar um valor não confirmado, a resposta é bloqueada e a conversa vai para um atendente.</div>
+          <div className="alert info small">A IA informa valores, planos, prazos e passo a passo usando as Instruções acima e a base de conhecimento. Mantenha os preços atualizados nesses lugares.</div>
           {!ro && <button className="btn primary" disabled={busy}>{busy ? 'Salvando…' : 'Salvar configurações'}</button>}
         </fieldset>
       </form>

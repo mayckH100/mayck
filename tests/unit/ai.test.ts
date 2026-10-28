@@ -39,7 +39,7 @@ describe('Regras anti-invenção', () => {
   });
   it('o prompt de sistema contém as regras e o contexto', () => {
     const p = buildSystemPrompt({ instructions: 'Seja breve', tone: 'amigável' }, 'CTX-123');
-    expect(p).toContain('Nunca invente preços');
+    expect(p).toContain('informar preços');
     expect(p).toContain('CTX-123');
     expect(p).toContain('[TRANSFERIR]');
     expect(p).toContain('amigável');

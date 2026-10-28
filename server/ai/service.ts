@@ -3,7 +3,7 @@ import { decryptOrNull } from '../lib/crypto.js';
 import { parseJson } from '../lib/json.js';
 import { createProvider, type ChatMessage } from './providers.js';
 import { rank, chunkText } from './rag.js';
-import { inventedPrices, isSensitiveQuestion, HANDOFF_TOKEN } from './guard.js';
+import { HANDOFF_TOKEN } from './guard.js';
 import { normalize } from '../flows/logic.js';
 
 export interface AiReply {
@@ -33,9 +33,9 @@ export function buildSystemPrompt(s: { instructions: string; tone: string }, con
     'Você é o assistente virtual de atendimento no WhatsApp desta empresa. Responda em português do Brasil, em mensagens curtas e claras.',
     `Tom de voz: ${s.tone || 'cordial e objetivo'}.`,
     s.instructions ? `Instruções da empresa:\n${s.instructions}` : '',
-    'REGRAS OBRIGATÓRIAS:',
-    '- Use SOMENTE as informações do CONTEXTO abaixo para falar de preços, valores, planos, prazos, políticas, garantias, trocas ou reembolsos.',
-    '- Nunca invente preços, políticas, prazos ou promessas. Se a informação não estiver no contexto, diga que vai verificar com a equipe.',
+    'COMO ATENDER:',
+    '- Você pode e deve informar preços, valores, planos, prazos, políticas e passo a passo, dar instruções e tirar dúvidas, usando as Instruções da empresa e o CONTEXTO abaixo.',
+    '- Use os valores exatamente como aparecem nas Instruções ou no CONTEXTO. Se um valor ou regra não aparecer em nenhum dos dois, diga que vai confirmar com a equipe em vez de inventar.',
     `- Se não souber responder, se o cliente pedir um humano ou se o assunto exigir uma pessoa, responda exatamente ${HANDOFF_TOKEN}.`,
     '### CONTEXTO',
     context || '(nenhuma informação relevante encontrada na base de conhecimento)',
@@ -48,7 +48,7 @@ const startOfMonth = (d = new Date()) => new Date(d.getFullYear(), d.getMonth(),
 
 /**
  * Gera a resposta da IA para uma mensagem do contato, aplicando:
- * palavras de transferência, limites de uso, RAG, regra anti-invenção, fallback e registro de uso.
+ * palavras de transferência, limites de uso, RAG, fallback e registro de uso.
  */
 export async function generateAiReply(args: { orgId: string; conversationId: string; text: string; extraInstructions?: string }): Promise<AiReply> {
   const { orgId, conversationId, text } = args;
@@ -74,11 +74,6 @@ export async function generateAiReply(args: { orgId: string; conversationId: str
   const hits = await retrieve(orgId, text, 3);
   const context = hits.map((h) => `[${h.item.title}]\n${h.item.text}`).join('\n\n');
 
-  // Pergunta sobre preço/política sem base de conhecimento relevante: não arrisca, transfere.
-  if (isSensitiveQuestion(text) && !hits.length) {
-    await prisma.aiUsage.create({ data: { orgId, conversationId, provider: s.provider, model: s.model, success: true, handoff: true, error: 'Pergunta sensível sem base de conhecimento' } });
-    return { text: 'Não tenho essa informação confirmada aqui. ' + s.fallbackMessage, handoff: true, reason: 'Pergunta sobre preço/política sem informação na base', usedContext: false };
-  }
 
   const history = await prisma.message.findMany({
     where: { orgId, conversationId, direction: { in: ['IN', 'OUT'] }, status: { not: 'FAILED' } },
@@ -100,11 +95,6 @@ export async function generateAiReply(args: { orgId: string; conversationId: str
       if (!r.text || r.text.includes(HANDOFF_TOKEN)) {
         await prisma.aiUsage.create({ data: { ...base, success: true, handoff: true } });
         return { text: s.fallbackMessage, handoff: true, reason: 'IA não soube responder', usedContext: !!hits.length };
-      }
-      const invented = inventedPrices(r.text, context);
-      if (invented.length) {
-        await prisma.aiUsage.create({ data: { ...base, success: true, handoff: true, error: `Resposta bloqueada: preço não confirmado (${invented.join(', ')})` } });
-        return { text: 'Prefiro não passar um valor sem confirmação. ' + s.fallbackMessage, handoff: true, reason: 'Resposta citava preço fora da base de conhecimento', usedContext: !!hits.length };
       }
       await prisma.aiUsage.create({ data: { ...base, success: true } });
       return { text: r.text, handoff: false, usedContext: !!hits.length };

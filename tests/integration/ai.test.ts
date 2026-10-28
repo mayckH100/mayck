@@ -1,3 +1,4 @@
+import { buildSystemPrompt } from '../../server/ai/service.js';
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
 import { registerClient, Client, createTestChannel, installGraphMock, graph, sendInbound, sentTexts, prisma } from '../helpers.js';
 
@@ -58,20 +59,18 @@ describe('IA (provedor fake determinístico)', () => {
     expect(sentTexts()[0]).toContain('R$ 49,90');
   });
 
-  it('pergunta de preço/política sem base relevante → não inventa e transfere para humano', async () => {
-    const p = nextPhone();
-    await sendInbound(ctx, p, 'qual a política de reembolso?');
-    expect(sentTexts()[0]).toMatch(/Não tenho essa informação confirmada/);
-    const c = await prisma.contact.findFirstOrThrow({ where: { orgId: owner.me.org.id, waId: p } });
-    const conv = await prisma.conversation.findFirstOrThrow({ where: { contactId: c.id } });
-    expect(conv.mode).toBe('HUMAN');
-  });
-
-  it('resposta do modelo com preço inventado é bloqueada', async () => {
+  it('pergunta de preço/política sem base relevante: a IA responde (sem bloqueio automático)', async () => {
     const p = nextPhone();
     await sendInbound(ctx, p, 'pode inventar um desconto do plano básico?');
-    expect(sentTexts()[0]).toMatch(/Prefiro não passar um valor sem confirmação/);
-    expect(sentTexts()[0]).not.toContain('9,99');
+    expect(sentTexts()[0]).toContain('R$ 9,99');
+    expect(sentTexts()[0]).not.toMatch(/Prefiro não passar um valor/);
+  });
+
+  it('valor informado nas Instruções é repassado ao modelo', async () => {
+    await owner.put('/api/ai/settings', { instructions: 'Plano mensal MCK: R$ 35,00' });
+    const s = await prisma.aiSettings.findUniqueOrThrow({ where: { orgId: owner.me.org.id } });
+    expect(buildSystemPrompt({ instructions: s.instructions, tone: s.tone }, '')).toContain('R$ 35,00');
+    await owner.put('/api/ai/settings', { instructions: '' });
   });
 
   it('palavra de transferência ("atendente") faz handoff imediato', async () => {
