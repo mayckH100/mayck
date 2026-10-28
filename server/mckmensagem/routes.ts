@@ -8,7 +8,7 @@ import { parseJson } from '../lib/json.js';
 import { LEAD_STATUS, CONSENT_SOURCES, toE164 } from './constants.js';
 import type { Lead, Campaign } from '@prisma/client';
 import { isProductActive } from '../billing/service.js';
-import { getLeadAiSettings, classifyLeadMessage, buildQualifyPrompt } from './qualificacao.js';
+import { getLeadAiSettings, classifyLeadMessage, buildQualifyPrompt, DEFAULT_PROMPT_TEMPLATE, PROMPT_VARIABLES, lockedPromptTail } from './qualificacao.js';
 
 export const mckmensagemRouter = Router();
 
@@ -411,6 +411,7 @@ const leadAiSchema = z.object({
   retryDays: z.number().int().min(1).max(60).optional(),
   maxAttempts: z.number().int().min(1).max(10).optional(),
   retryMessage: z.string().trim().min(1).max(1000).optional(),
+  promptTemplate: z.string().max(8000).nullable().optional(),
 });
 
 async function leadAiView(orgId: string) {
@@ -424,6 +425,7 @@ async function leadAiView(orgId: string) {
   return {
     settings, flows, aiReady: !!(ai?.apiKeyEnc || ai?.provider === 'fake'), aiProvider: ai?.provider ?? null, aiModel: ai?.model ?? null,
     counts: { aguardando, qualificados },
+    defaultPromptTemplate: DEFAULT_PROMPT_TEMPLATE, promptVariables: PROMPT_VARIABLES, lockedPrompt: lockedPromptTail('(trechos da base de conhecimento)').trim(),
     prompt: buildQualifyPrompt(settings as any, { tone: ai?.tone ?? '', companyInstructions: ai?.instructions ?? '', knowledge: '(trechos da base de conhecimento encontrados para a mensagem do lead)', leadName: '{nome}', attempts: 0, maxAttempts: settings.maxAttempts }),
   };
 }
@@ -435,6 +437,10 @@ mckmensagemRouter.get('/ia-leads', ah(async (req, res) => {
 mckmensagemRouter.put('/ia-leads', ah(async (req, res) => {
   const orgId = orgOf(req);
   const data = leadAiSchema.parse(req.body);
+  if (data.promptTemplate !== undefined) {
+    const t = data.promptTemplate?.trim() ?? '';
+    data.promptTemplate = !t || t === DEFAULT_PROMPT_TEMPLATE.trim() ? null : t;
+  }
   if (data.positiveAction === 'FLOW') {
     const flowId = data.positiveFlowId ?? (await getLeadAiSettings(orgId)).positiveFlowId;
     if (!flowId || !(await prisma.flow.findFirst({ where: { id: flowId, orgId } }))) throw new HttpError(400, 'Escolha o fluxo que o lead qualificado deve receber');

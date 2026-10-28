@@ -4,11 +4,12 @@ import { useApi, Async, Field, useAction } from '../../ui';
 
 interface Settings {
   enabled: boolean; instructions: string; offer: string; positiveAction: 'HANDOFF' | 'FLOW' | 'BOT';
-  positiveFlowId: string | null; retryDays: number; maxAttempts: number; retryMessage: string;
+  positiveFlowId: string | null; retryDays: number; maxAttempts: number; retryMessage: string; promptTemplate: string | null;
 }
 interface View {
   settings: Settings; flows: { id: string; name: string }[]; aiReady: boolean; aiProvider: string | null; aiModel: string | null;
   counts: { aguardando: number; qualificados: number }; prompt: string;
+  defaultPromptTemplate: string; promptVariables: string[]; lockedPrompt: string;
 }
 interface TestResult { intent: 'POSITIVO' | 'NEGATIVO' | 'DUVIDA' | 'SAIR'; reply: string; summary: string }
 
@@ -17,12 +18,13 @@ const INTENT_LABEL: Record<TestResult['intent'], string> = {
 };
 
 function Form({ view, onSaved }: { view: View; onSaved: (v: View) => void }) {
-  const [f, setF] = useState<Settings>(view.settings);
+  const withTpl = (st: Settings) => ({ ...st, promptTemplate: st.promptTemplate ?? view.defaultPromptTemplate });
+  const [f, setF] = useState<Settings>(withTpl(view.settings));
   const { busy, run } = useAction();
   const [texto, setTexto] = useState('Oi, como funciona o teste?');
   const [test, setTest] = useState<TestResult | null>(null);
   const [showPrompt, setShowPrompt] = useState(false);
-  useEffect(() => setF(view.settings), [view.settings]);
+  useEffect(() => setF(withTpl(view.settings)), [view.settings]);
   const set = <K extends keyof Settings>(k: K, v: Settings[K]) => setF((x) => ({ ...x, [k]: v }));
 
   const save = async () => {
@@ -109,8 +111,18 @@ function Form({ view, onSaved }: { view: View; onSaved: (v: View) => void }) {
       </div>
 
       <div className="card stack">
-        <button className="btn sm" onClick={() => setShowPrompt((s) => !s)}>{showPrompt ? 'Ocultar' : 'Ver'} o prompt que a IA recebe</button>
-        {showPrompt && <pre style={{ whiteSpace: 'pre-wrap', fontSize: 12 }}>{view.prompt}</pre>}
+        <h3>Prompt da IA</h3>
+        <p className="muted small">Edite como a IA pensa e responde. As variáveis entre chaves são trocadas automaticamente: {view.promptVariables.map((v) => <code key={v} style={{ marginRight: 6 }}>{v}</code>)}</p>
+        <textarea rows={18} style={{ fontFamily: 'monospace', fontSize: 12 }} value={f.promptTemplate ?? ''} onChange={(e) => set('promptTemplate', e.target.value)} />
+        <div className="row" style={{ gap: 8, justifyContent: 'space-between', flexWrap: 'wrap' }}>
+          <button className="btn sm" onClick={() => set('promptTemplate', view.defaultPromptTemplate)}>Restaurar padrão</button>
+          <button className="btn primary" disabled={busy} onClick={save}>Salvar prompt</button>
+        </div>
+        <button className="btn sm" onClick={() => setShowPrompt((x) => !x)}>{showPrompt ? 'Ocultar' : 'Ver'} a parte fixa (não editável)</button>
+        {showPrompt && <>
+          <p className="muted small">Esta parte é sempre adicionada no final: é o formato que o sistema lê para mover o lead (Qualificado, Aguardando, Descartado). Por isso não pode ser alterada.</p>
+          <pre style={{ whiteSpace: 'pre-wrap', fontSize: 12 }}>{view.lockedPrompt}</pre>
+        </>}
       </div>
     </div>
   );

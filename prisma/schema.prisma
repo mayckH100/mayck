@@ -390,6 +390,7 @@ model LeadAiSettings {
   offer           String   @default("") // próximo passo oferecido a quem tem interesse (ex.: teste grátis de 1h)
   positiveAction  String   @default("HANDOFF") // HANDOFF (atendente) | FLOW (inicia um fluxo do MCKBOT) | BOT (segue no robô/IA)
   positiveFlowId  String?
+  promptTemplate  String? // prompt editável pelo cliente; vazio = padrão do sistema
   retryDays       Int      @default(3)
   maxAttempts     Int      @default(3)
   retryMessage    String   @default("Oi {nome}! Passando de novo por aqui 😊 Ainda posso te ajudar? Se quiser, libero um teste grátis pra você conhecer, sem compromisso.")

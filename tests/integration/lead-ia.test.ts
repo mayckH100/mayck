@@ -91,6 +91,18 @@ describe('MCK Mensagens — IA de qualificação de leads', () => {
     expect(lead.optOutAt).toBeTruthy();
   });
 
+  it('prompt editável: salva o do cliente, mantém a parte fixa e volta ao padrão', async () => {
+    const r = await owner.put('/api/mckmensagem/ia-leads', { promptTemplate: 'Você vende carros. Próximo passo: {proximo_passo}. Lead: {nome}.' });
+    expect(r.status).toBe(200);
+    expect(r.body.settings.promptTemplate).toContain('Você vende carros');
+    expect(r.body.prompt).toContain('Você vende carros. Próximo passo: teste grátis de 1 hora. Lead: {nome}.'.replace('{nome}', '{nome}'));
+    expect(r.body.prompt).toContain('FORMATO DA SUA SAÍDA');
+    const t = await owner.post('/api/mckmensagem/ia-leads/testar', { texto: 'quero sim' });
+    expect(t.body.intent).toBe('POSITIVO');
+    const back = await owner.put('/api/mckmensagem/ia-leads', { promptTemplate: r.body.defaultPromptTemplate });
+    expect(back.body.settings.promptTemplate).toBeNull();
+  });
+
   it('testar: classifica sem enviar nada', async () => {
     const r = await owner.post('/api/mckmensagem/ia-leads/testar', { texto: 'pode mandar o teste' });
     expect(r.status).toBe(200);

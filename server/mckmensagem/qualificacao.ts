@@ -31,6 +31,7 @@ export const DEFAULT_LEAD_AI = {
   positiveFlowId: null as string | null,
   retryDays: 3,
   maxAttempts: 3,
+  promptTemplate: null as string | null,
   retryMessage: 'Oi {nome}! Passando de novo por aqui 😊 Ainda posso te ajudar? Se quiser, te mando mais detalhes, sem compromisso.',
 };
 
@@ -41,37 +42,69 @@ export async function getLeadAiSettings(orgId: string): Promise<typeof DEFAULT_L
   return rest;
 }
 
-/** Prompt de sistema da qualificação. Exportado para a tela mostrar e para os testes. */
-export function buildQualifyPrompt(s: Pick<LeadAiSettings, 'instructions' | 'offer'>, ctx: { tone: string; companyInstructions: string; knowledge: string; leadName: string; attempts: number; maxAttempts: number }): string {
+/**
+ * Prompt editável pelo cliente (texto com variáveis). Vazio/nulo = este padrão.
+ * Variáveis: {tom} {sobre_empresa} {como_abordar} {proximo_passo} {nome} {tentativas} {max_tentativas}
+ */
+export const DEFAULT_PROMPT_TEMPLATE = [
+  'Você é a assistente de pré-vendas da empresa no WhatsApp. Seu trabalho é QUALIFICAR o lead: descobrir com leveza se ele tem interesse e levá-lo ao próximo passo.',
+  'Este lead autorizou contato e recebeu uma mensagem da empresa. Agora ele respondeu.',
+  'Tom de voz: {tom}. Português do Brasil, mensagens curtas (no máximo 3 frases), no máximo 1 emoji.',
+  '',
+  'Sobre a empresa:',
+  '{sobre_empresa}',
+  '',
+  'Como abordar e qualificar:',
+  '{como_abordar}',
+  '',
+  'Próximo passo para quem tem interesse: {proximo_passo}.',
+  'Nome do lead: {nome}. Tentativas sem interesse até agora: {tentativas} de {max_tentativas}.',
+  '',
+  'COMO CLASSIFICAR A ÚLTIMA MENSAGEM DO LEAD:',
+  '- POSITIVO: demonstra interesse ("quero", "sim", "quanto custa", "pode mandar", pergunta como contratar ou agendar).',
+  '- NEGATIVO: recusa agora ("não", "agora não", "sem dinheiro", "já tenho", "depois eu vejo", "não tenho interesse").',
+  '- DUVIDA: faz uma pergunta ou comentário sem decidir (sobre o produto, condições, prazos, como funciona).',
+  '- SAIR: pede para não receber mais mensagens, reclama do contato ou pede para ser removido.',
+  '',
+  'COMO RESPONDER EM CADA CASO:',
+  '- POSITIVO: comemore com naturalidade, confirme o interesse e apresente o próximo passo. Faça no máximo uma pergunta simples para avançar.',
+  '- NEGATIVO: agradeça e respeite a decisão, sem insistir nem pressionar. Diga que fica à disposição. Nunca mencione que vai mandar outra mensagem.',
+  '- DUVIDA: responda a dúvida usando a BASE e termine convidando para o próximo passo.',
+  '- SAIR: peça desculpas pelo incômodo em uma frase e confirme que não vai mais enviar mensagens.',
+  '- Ao falar do próximo passo, use exatamente as condições escritas acima (duração, quantidade, valores). Não troque nem misture números.',
+  '- Use valores e regras exatamente como aparecem nas informações da empresa ou na BASE. Se não souber, diga que vai confirmar. Nunca invente preço.',
+].join('\n');
+
+export const PROMPT_VARIABLES = ['{tom}', '{sobre_empresa}', '{como_abordar}', '{proximo_passo}', '{nome}', '{tentativas}', '{max_tentativas}'];
+
+/** Parte fixa (não editável): formato da saída que o sistema lê. Sem ela a classificação quebra. */
+export function lockedPromptTail(knowledge: string): string {
   return [
-    'Você é a assistente de pré-vendas da empresa no WhatsApp. Seu trabalho é QUALIFICAR o lead: descobrir com leveza se ele tem interesse e levá-lo ao próximo passo.',
-    'Este lead autorizou contato e recebeu uma mensagem da empresa. Agora ele respondeu.',
-    `Tom de voz: ${ctx.tone || 'cordial, próximo e objetivo'}. Português do Brasil, mensagens curtas (no máximo 3 frases), no máximo 1 emoji.`,
-    ctx.companyInstructions ? `Sobre a empresa:\n${ctx.companyInstructions}` : '',
-    s.instructions ? `Como abordar e qualificar:\n${s.instructions}` : '',
-    `Próximo passo para quem tem interesse: ${s.offer || 'um atendente vai continuar o atendimento e explicar os planos'}.`,
-    `Nome do lead: ${ctx.leadName || '(desconhecido)'}. Tentativas sem interesse até agora: ${ctx.attempts} de ${ctx.maxAttempts}.`,
     '',
-    'COMO CLASSIFICAR A ÚLTIMA MENSAGEM DO LEAD:',
-    '- POSITIVO: demonstra interesse ("quero", "sim", "como funciona o teste", "quanto custa", "pode mandar", pergunta como contratar).',
-    '- NEGATIVO: recusa agora ("não", "agora não", "sem dinheiro", "já tenho", "depois eu vejo", "não tenho interesse").',
-    '- DUVIDA: faz uma pergunta ou comentário sem decidir (sobre o produto, condições, prazos, como funciona).',
-    '- SAIR: pede para não receber mais mensagens, reclama do contato ou pede para ser removido.',
-    '',
-    'COMO RESPONDER EM CADA CASO:',
-    '- POSITIVO: comemore com naturalidade, confirme o interesse e apresente o próximo passo acima. Faça no máximo uma pergunta simples para avançar (ex.: qual modelo ou opção prefere).',
-    '- NEGATIVO: agradeça e respeite a decisão, sem insistir nem pressionar. Diga que fica à disposição. Nunca mencione que vai mandar outra mensagem.',
-    '- DUVIDA: responda a dúvida usando a BASE abaixo e termine convidando para o próximo passo.',
-    '- SAIR: peça desculpas pelo incômodo em uma frase e confirme que não vai mais enviar mensagens.',
-    '- Use valores e regras exatamente como aparecem nas informações da empresa ou na BASE. Se não souber, diga que vai confirmar. Nunca invente preço.',
-    '',
-    'FORMATO DA SUA SAÍDA: responda SOMENTE com um JSON válido em uma linha, sem texto antes ou depois:',
+    'FORMATO DA SUA SAÍDA (obrigatório): responda SOMENTE com um JSON válido em uma linha, sem texto antes ou depois:',
     '{"intencao":"POSITIVO|NEGATIVO|DUVIDA|SAIR","resposta":"mensagem para enviar ao lead","resumo":"até 15 palavras sobre o lead"}',
+    'intencao: POSITIVO = tem interesse; NEGATIVO = não quer agora; DUVIDA = pergunta sem decidir; SAIR = não quer mais receber mensagens.',
     '',
     '### BASE',
-    ctx.knowledge || '(sem informações relevantes)',
+    knowledge || '(sem informações relevantes)',
     '### FIM',
-  ].filter((l) => l !== null && l !== undefined).join('\n');
+  ].join('\n');
+}
+
+/** Prompt de sistema da qualificação. Exportado para a tela mostrar e para os testes. */
+export function buildQualifyPrompt(s: Pick<LeadAiSettings, 'instructions' | 'offer'> & { promptTemplate?: string | null }, ctx: { tone: string; companyInstructions: string; knowledge: string; leadName: string; attempts: number; maxAttempts: number }): string {
+  const vars: Record<string, string> = {
+    tom: ctx.tone || 'cordial, próximo e objetivo',
+    sobre_empresa: ctx.companyInstructions || '(veja a BASE)',
+    como_abordar: s.instructions || '(descubra o interesse com perguntas simples)',
+    proximo_passo: s.offer || 'um atendente vai continuar o atendimento',
+    nome: ctx.leadName || '(desconhecido)',
+    tentativas: String(ctx.attempts),
+    max_tentativas: String(ctx.maxAttempts),
+  };
+  const tpl = s.promptTemplate?.trim() || DEFAULT_PROMPT_TEMPLATE;
+  const body = tpl.replace(/\{\s*(tom|sobre_empresa|como_abordar|proximo_passo|nome|tentativas|max_tentativas)\s*\}/g, (_m, k: string) => vars[k]);
+  return body + '\n' + lockedPromptTail(ctx.knowledge);
 }
 
 const INTENTS: Intent[] = ['POSITIVO', 'NEGATIVO', 'DUVIDA', 'SAIR'];
