@@ -500,7 +500,7 @@ model Automacao {
   id          String    @id @default(cuid())
   orgId       String
   nome        String
-  categoria   String // LEMBRETE | MARKETING
+  categoria   String // LEMBRETE | MARKETING | COBRANCA
   canais      String    @default("[\"WHATSAPP\"]") // JSON: WHATSAPP e/ou EMAIL
   channelId   String? // canal WhatsApp (vazio = o conectado da organização)
   assunto     String? // assunto do e-mail
@@ -513,6 +513,7 @@ model Automacao {
   maxEnvios   Int?
   status      String    @default("RASCUNHO") // RASCUNHO | ATIVA | PAUSADA | CANCELADA | CONCLUIDA
   geradoAte   DateTime? // horizonte até onde as ocorrências já foram geradas
+  reenvio     String? // COBRANCA: JSON { offsets: [-1,0,1,3,7], horario: "10:00", maxPorBoleto: 5, mensagem? }
   createdById String?
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
@@ -539,9 +540,14 @@ model Ocorrencia {
   editada      Boolean   @default(false)
   lockedAt     DateTime?
   enviadoEm    DateTime?
+  indice       Int? // posição do envio na sequência (1 = primeiro), usada para os anexos por mensagem
+  tipo         String    @default("ENVIO") // ENVIO | REENVIO (cobrança relativa ao vencimento)
+  boletoId     String? // cobrança: boleto principal desta mensagem
+  partesEnviadas Int     @default(0) // WhatsApp: texto + anexos já enviados (retentativa não repete partes)
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
+  @@index([boletoId, status])
   @@index([status, executarEm])
   @@index([orgId, agendadoPara])
   @@index([automacaoId, status])
@@ -563,10 +569,13 @@ model MensagemHistorico {
   agendadoPara DateTime?
   enviadoEm    DateTime?
   provedorId   String?
-  status       String // ENVIADA | FALHOU | IGNORADA | CANCELADA | TENTANDO
+  status       String // ENVIADA | FALHOU | IGNORADA | CANCELADA | TENTANDO | RECEBIDA
   erro         String?
   tentativas   Int       @default(0)
   operadorId   String?
+  anexos       String? // JSON: [{ arquivoId, nome, boletoId? }]
+  boletoId     String?
+  comprovanteId String?
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
@@ -584,6 +593,10 @@ model AutomacaoConfig {
   limiteDiario  Int      @default(500)
   maxTentativas Int      @default(3)
   backoffSeg    Int      @default(60)
+  tiposArquivo  String   @default("pdf,png,jpg,webp") // extensões permitidas para anexos e comprovantes
+  tamanhoMaxMb  Int      @default(10)
+  reenvioPadrao String   @default("{\"offsets\":[-1,0,1,3,7],\"horario\":\"10:00\",\"maxPorBoleto\":5}")
+  notificarComprovantes Boolean @default(true) // e-mail aos administradores quando chega comprovante
   updatedAt     DateTime @updatedAt
 }
 
@@ -599,4 +612,147 @@ model ModeloMensagem {
   updatedAt DateTime @updatedAt
 
   @@index([orgId, categoria])
+}
+
+// ---------------- Automações e Cobranças — FASE 2 (boletos, arquivos, comprovantes, pagamentos) ----------------
+
+/// Metadados de um arquivo (boleto, fatura, documento, comprovante). O conteúdo fica em ArquivoConteudo (Postgres bytea).
+model Arquivo {
+  id          String   @id @default(cuid())
+  orgId       String
+  clienteId   String? // vazio = documento genérico (pode ir para qualquer cliente)
+  nome        String
+  mime        String
+  tamanho     Int
+  sha256      String
+  origem      String   @default("UPLOAD") // UPLOAD | WHATSAPP | EMAIL
+  descricao   String?
+  criadoPorId String?
+  createdAt   DateTime @default(now())
+
+  @@index([orgId, clienteId])
+  @@index([orgId, sha256])
+}
+
+model ArquivoConteudo {
+  arquivoId String @id
+  dados     Bytes
+}
+
+/// Boleto/fatura/parcela de um cliente. status = financeiro; statusEnvio = mensagem (não se confundem).
+model Boleto {
+  id                      String    @id @default(cuid())
+  orgId                   String
+  clienteId               String
+  descricao               String
+  numeroDocumento         String?
+  parcela                 Int?
+  totalParcelas           Int?
+  valorCentavos           Int
+  valorAtualizadoCentavos Int?
+  jurosCentavos           Int       @default(0)
+  multaCentavos           Int       @default(0)
+  descontoCentavos        Int       @default(0)
+  valorPagoCentavos       Int       @default(0) // soma dos pagamentos não estornados
+  emissao                 DateTime?
+  vencimento              DateTime // meio-dia UTC da data de vencimento
+  codigoBarras            String?
+  linhaDigitavel          String?
+  linkPagamento           String?
+  arquivoId               String?
+  status                  String    @default("PENDENTE") // RASCUNHO | PENDENTE | VENCIDO | EM_ANALISE | PARCIAL | PAGO | CANCELADO
+  statusEnvio             String    @default("NAO_ENVIADO") // NAO_ENVIADO | ENVIADO | FALHOU
+  enviadoEm               DateTime?
+  envios                  Int       @default(0)
+  pagoEm                  DateTime?
+  origemBaixa             String? // MANUAL | COMPROVANTE
+  observacoes             String?
+  criadoPorId             String?
+  createdAt               DateTime  @default(now())
+  updatedAt               DateTime  @updatedAt
+
+  @@index([orgId, status])
+  @@index([orgId, clienteId])
+  @@index([orgId, vencimento])
+}
+
+/// Histórico de alterações de um boleto (só inserção: nada é apagado).
+model BoletoEvento {
+  id         String   @id @default(cuid())
+  orgId      String
+  boletoId   String
+  tipo       String // CRIADO | EDITADO | ENVIADO | VENCIDO | COMPROVANTE | PAGAMENTO | ESTORNO | CANCELADO | REABERTO | ANEXO
+  descricao  String
+  dados      String? // JSON
+  operadorId String?
+  createdAt  DateTime @default(now())
+
+  @@index([boletoId, createdAt])
+}
+
+/// Pagamento (baixa) de um boleto. Estorno não apaga: marca estornadoEm.
+model Pagamento {
+  id             String    @id @default(cuid())
+  orgId          String
+  boletoId       String
+  clienteId      String
+  valorCentavos  Int
+  pagoEm         DateTime
+  forma          String?
+  origem         String    @default("MANUAL") // MANUAL | COMPROVANTE
+  comprovanteId  String?
+  observacoes    String?
+  operadorId     String?
+  estornadoEm    DateTime?
+  estornoMotivo  String?
+  estornadoPorId String?
+  createdAt      DateTime  @default(now())
+
+  @@index([orgId, pagoEm])
+  @@index([boletoId])
+}
+
+/// Comprovante recebido (WhatsApp/e-mail) ou enviado pelo operador. Receber ≠ pagar: só a revisão gera baixa.
+model Comprovante {
+  id                     String    @id @default(cuid())
+  orgId                  String
+  clienteId              String?
+  boletoId               String?
+  arquivoId              String?
+  origem                 String    @default("UPLOAD") // UPLOAD | WHATSAPP | EMAIL
+  origemId               String? // id da mensagem no provedor (idempotência)
+  texto                  String? // legenda/mensagem recebida
+  sha256                 String?
+  valorDetectadoCentavos Int?
+  dataDetectada          String?
+  transacaoId            String?
+  instituicao            String?
+  confianca              Int       @default(0) // 0–100
+  analise                String? // JSON: motivos da identificação
+  duplicadoDeId          String?
+  status                 String    @default("EM_ANALISE") // EM_ANALISE | APROVADO | REJEITADO
+  revisadoPorId          String?
+  revisadoEm             DateTime?
+  motivoRevisao          String?
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+
+  @@unique([orgId, origemId])
+  @@index([orgId, status])
+  @@index([orgId, clienteId])
+  @@index([orgId, sha256])
+}
+
+/// Anexo de uma automação. envio = N → vai só na N-ésima mensagem da sequência; vazio → em todas. ordem = ordem dentro da mensagem.
+model AutomacaoAnexo {
+  id          String  @id @default(cuid())
+  orgId       String
+  automacaoId String
+  envio       Int?
+  ordem       Int     @default(0)
+  arquivoId   String?
+  boletoId    String? // COBRANCA: envia o arquivo do boleto e usa os dados da parcela nas variáveis
+
+  @@index([automacaoId])
+  @@index([boletoId])
 }
