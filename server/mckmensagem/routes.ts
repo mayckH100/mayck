@@ -27,22 +27,120 @@ const hhmm = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'Use o formato HH:MM'
 
 // ---------------- Leads ----------------
 
-mckmensagemRouter.get('/leads', ah(async (req, res) => {
-  const q = z.object({
-    q: z.string().max(100).optional(), status: z.enum(LEAD_STATUS).optional(), tag: z.string().max(40).optional(),
-    campaignId: z.string().optional(), page: z.coerce.number().int().min(1).default(1),
-  }).parse(req.query);
-  const orgId = orgOf(req);
+/** Filtro de leads (lista, seleção "todos que atendem ao filtro" e ações em massa). campaignId="none" = sem campanha. */
+const leadFilterSchema = z.object({
+  q: z.string().max(100).optional(), status: z.enum(LEAD_STATUS).optional(), tag: z.string().max(40).optional(),
+  campaignId: z.string().max(40).optional(), notCampaignId: z.string().max(40).optional(), optOut: z.enum(['sim', 'nao']).optional(),
+});
+type LeadFilter = z.infer<typeof leadFilterSchema>;
+
+function leadWhere(orgId: string, q: LeadFilter) {
   const where: any = { orgId };
   if (q.status) where.status = q.status;
-  if (q.campaignId) where.campaignId = q.campaignId;
+  if (q.campaignId) where.campaignId = q.campaignId === 'none' ? null : q.campaignId;
+  if (q.notCampaignId) where.AND = [{ OR: [{ campaignId: null }, { campaignId: { not: q.notCampaignId } }] }];
+  if (q.optOut) where.optOutAt = q.optOut === 'sim' ? { not: null } : null;
   if (q.tag) where.tags = { contains: JSON.stringify(q.tag) };
   if (q.q) where.OR = [{ name: { contains: q.q } }, { phone: { contains: q.q.replace(/[^\d+]/g, '') || q.q } }];
+  return where;
+}
+
+mckmensagemRouter.get('/leads', ah(async (req, res) => {
+  const q = leadFilterSchema.extend({ page: z.coerce.number().int().min(1).default(1), pageSize: z.coerce.number().int().min(1).max(200).default(50) }).parse(req.query);
+  const where = leadWhere(orgOf(req), q);
   const [items, total] = await Promise.all([
-    prisma.lead.findMany({ where, orderBy: { createdAt: 'desc' }, take: 50, skip: (q.page - 1) * 50 }),
+    prisma.lead.findMany({ where, orderBy: { createdAt: 'desc' }, take: q.pageSize, skip: (q.page - 1) * q.pageSize }),
     prisma.lead.count({ where }),
   ]);
-  res.json({ items: items.map(leadView), total, page: q.page, pageSize: 50 });
+  res.json({ items: items.map(leadView), total, page: q.page, pageSize: q.pageSize });
+}));
+
+export const BULK_MAX = 10_000;
+const bulkSchema = z.object({
+  ids: z.array(z.string().min(1).max(40)).min(1).max(BULK_MAX).optional(),
+  filter: leadFilterSchema.optional(),
+  action: z.enum(['setCampaign', 'removeCampaign', 'addTags', 'removeTags', 'setStatus', 'optOut', 'optIn', 'delete']),
+  campaignId: z.string().min(1).optional(),
+  tags: tagsSchema.optional(),
+  status: z.enum(LEAD_STATUS).optional(),
+  /** Campanha em andamento/pausada: também coloca os elegíveis na fila de envio (padrão: sim). */
+  addToQueue: z.boolean().default(true),
+}).refine((b) => !!b.ids !== !!b.filter, 'Informe "ids" ou "filter" (um dos dois)')
+  .refine((b) => b.action !== 'setCampaign' || !!b.campaignId, 'Escolha a campanha')
+  .refine((b) => !['addTags', 'removeTags'].includes(b.action) || !!b.tags?.length, 'Informe ao menos uma etiqueta')
+  .refine((b) => b.action !== 'setStatus' || !!b.status, 'Escolha o status');
+
+/**
+ * Ações em massa nos contatos: por lista de ids ou por "todos que atendem ao filtro" (limite de 10.000 por vez).
+ * Respeita isolamento por organização, a regra 402 (middleware) e grava auditoria.
+ */
+mckmensagemRouter.post('/leads/bulk', ah(async (req, res) => {
+  const b = bulkSchema.parse(req.body);
+  const orgId = orgOf(req);
+  const where = b.ids ? { orgId, id: { in: [...new Set(b.ids)] } } : leadWhere(orgId, b.filter!);
+  const matched = await prisma.lead.count({ where });
+  if (matched > BULK_MAX) throw new HttpError(400, `A seleção tem ${matched} contatos; o limite por operação é ${BULK_MAX}. Refine os filtros.`);
+  const leads = matched ? await prisma.lead.findMany({ where, select: { id: true, tags: true, optOutAt: true, consentAt: true, status: true, campaignId: true } }) : [];
+  const ids = leads.map((l) => l.id);
+  let updated = 0, queued = 0;
+  const chunks = <T,>(arr: T[], n = 500) => Array.from({ length: Math.ceil(arr.length / n) }, (_, i) => arr.slice(i * n, i * n + n));
+  let campaign: Campaign | null = null;
+  if (b.action === 'setCampaign') campaign = await getCampaign(orgId, b.campaignId!);
+  if (b.action === 'removeCampaign' && b.campaignId) campaign = await getCampaign(orgId, b.campaignId);
+
+  switch (b.action) {
+    case 'setCampaign': {
+      for (const part of chunks(ids)) updated += (await prisma.lead.updateMany({ where: { orgId, id: { in: part } }, data: { campaignId: campaign!.id } })).count;
+      if (b.addToQueue && (campaign!.status === 'EM_ANDAMENTO' || campaign!.status === 'PAUSADA')) {
+        const elegiveis = leads.filter((l) => !l.optOutAt && l.consentAt && l.status !== 'DESCARTADO').map((l) => l.id);
+        for (const part of chunks(elegiveis)) {
+          const ja = new Set((await prisma.campaignRecipient.findMany({ where: { campaignId: campaign!.id, leadId: { in: part } }, select: { leadId: true } })).map((r) => r.leadId));
+          const novos = part.filter((id) => !ja.has(id)).map((leadId) => ({ campaignId: campaign!.id, leadId }));
+          if (novos.length) queued += (await prisma.campaignRecipient.createMany({ data: novos })).count;
+        }
+      }
+      break;
+    }
+    case 'removeCampaign': {
+      // Sem campaignId: tira de qualquer campanha. Com campaignId: só de quem está nela. Envios já feitos ficam no histórico.
+      const alvo = campaign ? leads.filter((l) => l.campaignId === campaign!.id).map((l) => l.id) : ids;
+      for (const part of chunks(alvo)) {
+        updated += (await prisma.lead.updateMany({ where: { orgId, id: { in: part } }, data: { campaignId: null } })).count;
+        const camps = campaign ? [campaign.id] : [...new Set(leads.filter((l) => l.campaignId).map((l) => l.campaignId!))];
+        if (camps.length) await prisma.campaignRecipient.deleteMany({ where: { campaignId: { in: camps }, leadId: { in: part }, status: 'PENDENTE' } });
+      }
+      break;
+    }
+    case 'addTags': case 'removeTags': {
+      for (const l of leads) {
+        const atual = parseJson<string[]>(l.tags, []);
+        const novo = b.action === 'addTags' ? [...new Set([...atual, ...b.tags!])].slice(0, 30) : atual.filter((t) => !b.tags!.includes(t));
+        if (novo.length === atual.length && novo.every((t, i) => t === atual[i])) continue;
+        await prisma.lead.update({ where: { id: l.id }, data: { tags: JSON.stringify(novo) } });
+        updated++;
+      }
+      break;
+    }
+    case 'setStatus':
+      for (const part of chunks(ids)) updated += (await prisma.lead.updateMany({ where: { orgId, id: { in: part } }, data: { status: b.status! } })).count;
+      break;
+    case 'optOut': {
+      const now = new Date();
+      for (const part of chunks(ids)) updated += (await prisma.lead.updateMany({ where: { orgId, id: { in: part }, optOutAt: null }, data: { optOutAt: now } })).count;
+      break;
+    }
+    case 'optIn':
+      for (const part of chunks(ids)) updated += (await prisma.lead.updateMany({ where: { orgId, id: { in: part }, optOutAt: { not: null } }, data: { optOutAt: null } })).count;
+      break;
+    case 'delete':
+      for (const part of chunks(ids)) {
+        await prisma.campaignRecipient.deleteMany({ where: { leadId: { in: part } } });
+        updated += (await prisma.lead.deleteMany({ where: { orgId, id: { in: part } } })).count;
+      }
+      break;
+  }
+  await audit(req, 'mckmensagem.lead.bulk', { meta: { action: b.action, por: b.ids ? 'ids' : 'filtro', filtro: b.filter ?? null, matched, updated, queued, campaignId: b.campaignId ?? null, status: b.status ?? null, tags: b.tags ?? null } });
+  res.json({ matched, updated, queued });
 }));
 
 const leadCreate = z.object({
