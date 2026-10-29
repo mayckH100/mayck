@@ -12,11 +12,34 @@ export type QrStatus = 'NOT_CONNECTED' | 'CONNECTING' | 'QR_PENDING' | 'CONNECTE
 
 /** Subconjunto do socket do Baileys usado aqui (facilita testes com socket simulado). */
 export interface QrSocket {
-  sendMessage(jid: string, content: AnyMessageContent): Promise<{ key?: { id?: string | null } } | undefined>;
+  sendMessage(jid: string, content: AnyMessageContent): Promise<{ key?: { id?: string | null }; message?: unknown } | undefined>;
   logout?(msg?: string): Promise<void>;
   end?(error: Error | undefined): void;
   user?: { id: string } | null;
 }
+
+/**
+ * Mensagens enviadas recentemente, por id. Quando o celular do cliente não consegue decifrar
+ * uma mensagem ("Aguardando mensagem"), ele pede reenvio e o Baileys chama getMessage:
+ * sem este cache o reenvio falha e a mensagem fica presa em "Aguardando mensagem".
+ */
+const SENT_CACHE_MAX = 5000;
+const sentCache = new Map<string, unknown>();
+export function rememberSent(id: string, message: unknown) {
+  if (!id || !message) return;
+  sentCache.delete(id);
+  sentCache.set(id, message);
+  while (sentCache.size > SENT_CACHE_MAX) sentCache.delete(sentCache.keys().next().value as string);
+}
+export function recallSent(id: string | null | undefined) { return id ? sentCache.get(id) : undefined; }
+/** Contador de tentativas de reenvio compartilhado entre reconexões (evita loop de retry). */
+const retryCounts = new Map<string, unknown>();
+const msgRetryCounterCache = {
+  get: <T>(k: string) => retryCounts.get(k) as T | undefined,
+  set: <T>(k: string, v: T) => { retryCounts.set(k, v); if (retryCounts.size > 5000) retryCounts.delete(retryCounts.keys().next().value as string); },
+  del: (k: string) => { retryCounts.delete(k); },
+  flushAll: () => { retryCounts.clear(); },
+};
 
 interface Session {
   channelId: string;
@@ -138,7 +161,8 @@ class QrSessionManager {
         markOnlineOnConnect: false,
         syncFullHistory: false,
         generateHighQualityLinkPreview: false,
-        getMessage: async () => undefined,
+        getMessage: async (key) => recallSent(key.id) as never,
+        msgRetryCounterCache: msgRetryCounterCache as never,
       });
       sock.ev.on('creds.update', () => { saveCreds().catch((e) => silentLogger.error(e, 'falha ao salvar credenciais')); });
     } catch (e) {
@@ -298,6 +322,7 @@ class QrSessionManager {
     const r = await s.sock.sendMessage(waIdToJid(waId), content);
     const id = r?.key?.id;
     if (!id) throw new Error('O WhatsApp não confirmou o envio da mensagem');
+    rememberSent(id, r?.message);
     return { waMessageId: id };
   }
 
