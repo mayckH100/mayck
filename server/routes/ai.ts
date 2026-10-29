@@ -1,7 +1,8 @@
 import { Router } from 'express';
+import { assertPublicUrl } from '../lib/ssrf.js';
 import { z } from 'zod';
 import { prisma } from '../db.js';
-import { ah, notFound } from '../lib/http.js';
+import { ah, notFound, badRequest } from '../lib/http.js';
 import { orgOf, requireRole } from '../auth/session.js';
 import { encrypt, decryptOrNull, maskSecret } from '../lib/crypto.js';
 import { audit } from '../lib/audit.js';
@@ -36,6 +37,9 @@ aiRouter.put('/settings', admins, ah(async (req, res) => {
   }).parse(req.body);
   const orgId = orgOf(req);
   const { apiKey, clearApiKey, handoffKeywords, baseUrl, ...rest } = body;
+  if (baseUrl) {
+    try { await assertPublicUrl(baseUrl); } catch (e) { throw badRequest(`URL da IA recusada: ${(e as Error).message}`); }
+  }
   await prisma.aiSettings.upsert({
     where: { orgId },
     create: { orgId },

@@ -2,8 +2,7 @@ import { prisma } from '../db.js';
 import { config } from '../config.js';
 import { parseJson, getPath } from '../lib/json.js';
 import { renderTemplate, renderDeep } from '../lib/template.js';
-import { assertPublicUrl } from '../lib/ssrf.js';
-import { httpFetch } from '../lib/fetcher.js';
+import { safeFetch } from '../lib/ssrf.js';
 import { decryptOrNull } from '../lib/crypto.js';
 import { sendOutbound, handoffToHuman, resolveChannel, isQrChannel } from '../whatsapp/messaging.js';
 import { getMenuSettings, isMenuCommand, withMenuReturn, type MenuSettings } from './menuReturn.js';
@@ -181,8 +180,7 @@ async function executeNode(node: FlowNode, run: FlowRun, runVars: Record<string,
       }
       const method = String(d.method ?? 'GET').toUpperCase();
       try {
-        await assertPublicUrl(url);
-        const res = await httpFetch(url, {
+        const res = await safeFetch(url, {
           method, headers,
           body: ['POST', 'PUT', 'PATCH'].includes(method) && d.body ? JSON.stringify(renderDeep(parseJson(d.body, {}), vars)) : undefined,
           signal: AbortSignal.timeout(Number(d.timeoutMs) || 10000),

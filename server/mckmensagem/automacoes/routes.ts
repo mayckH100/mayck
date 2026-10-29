@@ -161,7 +161,8 @@ automacoesRouter.get('/clientes/export', ah(async (req, res) => {
   if (!podeEscrever(req)) throw forbidden('Exportação restrita a administradores');
   const orgId = orgOf(req);
   const items = await prisma.cliente.findMany({ where: { orgId }, orderBy: { nome: 'asc' } });
-  const esc = (v: unknown) => { const s = v == null ? '' : String(v); return /[",\n;]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
+  const esc = (v: unknown) => { const s = v == null ? '' : String(v); const t = /^[=+\-@\t\r]/.test(s) ? `'${s}` : s; // evita fórmula ao abrir no Excel/Planilhas
+    return /[",\n;]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t; };
   const ymdOf = (d: Date | null) => (d ? d.toISOString().slice(0, 10) : '');
   const rows = items.map((c) => [c.nome, c.documento, c.telefone, c.whatsapp, c.email, c.emailSecundario, c.empresa, c.plano, ymdOf(c.dataContratacao), ymdOf(c.dataVencimento),
     c.valorCentavos != null ? (c.valorCentavos / 100).toFixed(2) : '', c.parcelas, c.formaPagamento, c.status, c.consentimentoAt ? 'sim' : 'nao', c.marketingOptOutAt ? 'sim' : 'nao'].map(esc).join(','));

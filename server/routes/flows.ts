@@ -8,8 +8,7 @@ import { graphSchema, validateGraph, defaultGraph, type FlowGraph } from '../flo
 import { parseJson } from '../lib/json.js';
 import { startFlow, withConversationLock } from '../flows/engine.js';
 import { getMenuSettings, parseWords } from '../flows/menuReturn.js';
-import { assertPublicUrl } from '../lib/ssrf.js';
-import { httpFetch } from '../lib/fetcher.js';
+import { safeFetch } from '../lib/ssrf.js';
 import { renderDeep, renderTemplate } from '../lib/template.js';
 import { decryptOrNull } from '../lib/crypto.js';
 
@@ -200,9 +199,8 @@ flowsRouter.post('/http-test', editors, ah(async (req, res) => {
     if (integ.authHeaderName && secret) headers[integ.authHeaderName] = secret;
   }
   try {
-    await assertPublicUrl(url);
     const started = Date.now();
-    const r = await httpFetch(url, { method: body.method, headers, body: ['POST', 'PUT', 'PATCH'].includes(body.method) && body.body ? JSON.stringify(renderDeep(parseJson(body.body, {}), vars)) : undefined, signal: AbortSignal.timeout(10000) });
+    const r = await safeFetch(url, { method: body.method, headers, body: ['POST', 'PUT', 'PATCH'].includes(body.method) && body.body ? JSON.stringify(renderDeep(parseJson(body.body, {}), vars)) : undefined, signal: AbortSignal.timeout(10000) });
     const text = await r.text();
     let json: unknown = null;
     try { json = JSON.parse(text); } catch { /* resposta não é JSON */ }

@@ -37,7 +37,8 @@ webhookRouter.post('/whatsapp/:channelId', limiter, raw({ type: '*/*', limit: '2
   const secret = decryptOrNull(channel.appSecretEnc);
   const rawBody = Buffer.isBuffer(req.body) ? req.body : Buffer.from('');
   if (!secret || !verifyHubSignature(rawBody, req.header('x-hub-signature-256'), secret)) {
-    await prisma.channel.update({ where: { id: channel.id }, data: { lastError: 'Webhook recebido com assinatura inválida' } });
+    // Grava o aviso uma vez (sem escrever no banco a cada requisição forjada).
+    if (channel.lastError !== 'Webhook recebido com assinatura inválida') await prisma.channel.update({ where: { id: channel.id }, data: { lastError: 'Webhook recebido com assinatura inválida' } });
     return res.status(401).json({ error: 'Assinatura inválida' });
   }
   let body: unknown;

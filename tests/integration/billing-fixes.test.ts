@@ -156,12 +156,15 @@ describe('Correções de cobrança, Mercado Pago e superadmin', () => {
   });
 
   // ---------- SUPERADMIN_EMAILS ----------
-  it('SUPERADMIN_EMAILS promove no login (e no cadastro), ignora maiúsculas/espaços e nunca remove', async () => {
+  it('SUPERADMIN_EMAILS promove no login só com e-mail confirmado, ignora maiúsculas/espaços e nunca remove', async () => {
     const email = `${uniq('boot')}@teste.dev`;
     delete process.env.SUPERADMIN_EMAILS;
     const c = await registerClient({ email });
     expect(c.me.isSuperAdmin).toBe(false);
     process.env.SUPERADMIN_EMAILS = ` outro@teste.dev , ${email.toUpperCase()} `;
+    // E-mail ainda não confirmado: não promove (impede tomar a vaga de um e-mail da lista sem ser dono dele)
+    expect((await loginClient(email, PASS)).res.body.isSuperAdmin).toBe(false);
+    await prisma.user.update({ where: { email }, data: { emailVerifiedAt: new Date() } });
     const { res } = await loginClient(email, PASS);
     expect(res.status).toBe(200);
     expect(res.body.isSuperAdmin).toBe(true);
@@ -169,10 +172,10 @@ describe('Correções de cobrança, Mercado Pago e superadmin', () => {
     process.env.SUPERADMIN_EMAILS = 'outro@teste.dev';
     const again = await loginClient(email, PASS);
     expect(again.res.body.isSuperAdmin).toBe(true);
-    // Cadastro novo com e-mail da lista já nasce superadmin; fora da lista, não
+    // Cadastro novo com e-mail da lista NÃO nasce superadmin (e-mail ainda não confirmado)
     const e2 = `${uniq('boot2')}@teste.dev`;
     process.env.SUPERADMIN_EMAILS = e2;
-    expect((await registerClient({ email: e2 })).me.isSuperAdmin).toBe(true);
+    expect((await registerClient({ email: e2 })).me.isSuperAdmin).toBe(false);
     expect((await registerClient()).me.isSuperAdmin).toBe(false);
     delete process.env.SUPERADMIN_EMAILS;
   });
@@ -180,7 +183,9 @@ describe('Correções de cobrança, Mercado Pago e superadmin', () => {
   it('syncSuperAdmins (startup) promove usuários existentes da lista e não mexe nos outros', async () => {
     const a = await registerClient();
     const b = await registerClient();
-    process.env.SUPERADMIN_EMAILS = a.me.user.email;
+    const pend = await registerClient(); // na lista, mas sem e-mail confirmado: não promove
+    await prisma.user.updateMany({ where: { id: { in: [a.me.user.id, b.me.user.id] } }, data: { emailVerifiedAt: new Date() } });
+    process.env.SUPERADMIN_EMAILS = `${a.me.user.email},${pend.me.user.email}`;
     expect(await syncSuperAdmins()).toBe(1);
     expect((await prisma.user.findUniqueOrThrow({ where: { id: a.me.user.id } })).isSuperAdmin).toBe(true);
     expect((await prisma.user.findUniqueOrThrow({ where: { id: b.me.user.id } })).isSuperAdmin).toBe(false);
@@ -196,6 +201,7 @@ describe('Correções de cobrança, Mercado Pago e superadmin', () => {
     process.env.SUPERADMIN_EMAILS = email;
     const admin = await registerClient({ email });
     delete process.env.SUPERADMIN_EMAILS;
+    await prisma.user.update({ where: { email }, data: { isSuperAdmin: true } });
 
     mp.methods = { status: 200, body: [{ id: 'pix' }] };
     const ok = await admin.get('/api/master/settings');

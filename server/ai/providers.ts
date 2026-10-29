@@ -1,4 +1,5 @@
 import { httpFetch } from '../lib/fetcher.js';
+import { safeFetch } from '../lib/ssrf.js';
 
 export interface ChatMessage { role: 'system' | 'user' | 'assistant'; content: string }
 export interface ChatResult { text: string; promptTokens: number; completionTokens: number }
@@ -9,7 +10,9 @@ export class OpenAICompatibleProvider implements AiProvider {
   name = 'openai';
   constructor(private apiKey: string, private baseUrl = 'https://api.openai.com/v1') {}
   async chat(messages: ChatMessage[], opts: ChatOptions): Promise<ChatResult> {
-    const res = await httpFetch(`${this.baseUrl.replace(/\/$/, '')}/chat/completions`, {
+    // URL própria do cliente (compatível com OpenAI): passa pela proteção SSRF.
+    const doFetch = this.baseUrl === 'https://api.openai.com/v1' ? httpFetch : safeFetch;
+    const res = await doFetch(`${this.baseUrl.replace(/\/$/, '')}/chat/completions`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${this.apiKey}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ model: opts.model, messages, temperature: opts.temperature, max_tokens: opts.maxTokens }),

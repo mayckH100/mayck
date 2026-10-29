@@ -17,13 +17,16 @@ export const isBootstrapSuperAdmin = (email: string) => superAdminEmails().inclu
 export async function syncSuperAdmins(): Promise<number> {
   const emails = superAdminEmails();
   if (!emails.length) return 0;
-  const r = await prisma.user.updateMany({ where: { email: { in: emails }, isSuperAdmin: false }, data: { isSuperAdmin: true } });
+  // Só contas com e-mail confirmado: impede que alguém cadastre um e-mail da lista que ainda não tem conta e vire superadmin.
+  const r = await prisma.user.updateMany({ where: { email: { in: emails }, isSuperAdmin: false, emailVerifiedAt: { not: null } }, data: { isSuperAdmin: true } });
   return r.count;
 }
 
 /** Promove um usuário específico (no login), se estiver na lista. */
-export async function ensureSuperAdmin(user: { id: string; email: string; isSuperAdmin: boolean }): Promise<boolean> {
+export async function ensureSuperAdmin(user: { id: string; email: string; isSuperAdmin: boolean; emailVerifiedAt?: Date | null }): Promise<boolean> {
   if (user.isSuperAdmin || !isBootstrapSuperAdmin(user.email)) return false;
+  if (!user.emailVerifiedAt) return false; // e-mail precisa estar confirmado
+
   await prisma.user.update({ where: { id: user.id }, data: { isSuperAdmin: true } });
   return true;
 }

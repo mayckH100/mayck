@@ -34,6 +34,22 @@ const loginLimiter = rateLimit({
   message: { error: 'Muitas tentativas. Aguarde alguns minutos e tente novamente.' },
 });
 
+// Limite por IP (qualquer e-mail): barra teste de senhas em massa e criação de contas em série.
+const loginIpLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: () => config.LOGIN_RATE_LIMIT * 5,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  message: { error: 'Muitas tentativas deste endereço. Aguarde alguns minutos e tente novamente.' },
+});
+const registerIpLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  limit: () => config.LOGIN_RATE_LIMIT,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  message: { error: 'Muitos cadastros deste endereço. Tente novamente mais tarde.' },
+});
+
 export async function meResponse(userId: string, orgId: string | null, csrfToken: string) {
   const user = await prisma.user.findUniqueOrThrow({ where: { id: userId } });
   const memberships = await prisma.membership.findMany({ where: { userId }, include: { org: true }, orderBy: { createdAt: 'asc' } });
@@ -50,7 +66,7 @@ export async function meResponse(userId: string, orgId: string | null, csrfToken
   };
 }
 
-authRouter.post('/register', loginLimiter, ah(async (req, res) => {
+authRouter.post('/register', registerIpLimiter, loginLimiter, ah(async (req, res) => {
   const body = z.object({ name: z.string().trim().min(2).max(100), email, password, orgName: z.string().trim().min(2).max(100) }).parse(req.body);
   const exists = await prisma.user.findUnique({ where: { email: body.email } });
   if (exists) throw new HttpError(409, 'Já existe uma conta com este e-mail');
@@ -68,7 +84,7 @@ authRouter.post('/register', loginLimiter, ah(async (req, res) => {
   res.status(201).json(await meResponse(user.id, org.id, csrf));
 }));
 
-authRouter.post('/login', loginLimiter, ah(async (req, res) => {
+authRouter.post('/login', loginIpLimiter, loginLimiter, ah(async (req, res) => {
   const body = z.object({ email, password: z.string().min(1).max(200) }).parse(req.body);
   const user = await prisma.user.findUnique({ where: { email: body.email } });
   // Compara mesmo quando o usuário não existe, para não vazar por tempo de resposta quais e-mails têm conta.
@@ -211,7 +227,7 @@ authRouter.get('/reset/:token', ah(async (req, res) => {
   res.json({ valid });
 }));
 
-authRouter.post('/reset', loginLimiter, ah(async (req, res) => {
+authRouter.post('/reset', loginIpLimiter, loginLimiter, ah(async (req, res) => {
   const body = z.object({ token: z.string().min(20).max(200), password, app: z.enum(['mckbot', 'mensagem']).optional() }).parse(req.body);
   const row = await consumeToken(body.token, 'RESET_PASSWORD');
   if (!row) throw new HttpError(400, 'Link inválido ou expirado. Peça um novo em "Esqueci minha senha".');
@@ -227,11 +243,12 @@ authRouter.post('/reset', loginLimiter, ah(async (req, res) => {
   res.json({ ok: true });
 }));
 
-authRouter.post('/verify-email', ah(async (req, res) => {
+authRouter.post('/verify-email', loginIpLimiter, ah(async (req, res) => {
   const { token } = z.object({ token: z.string().min(20).max(200) }).parse(req.body);
   const row = await consumeToken(token, 'VERIFY_EMAIL');
   if (!row) throw new HttpError(400, 'Link de confirmação inválido ou expirado.');
-  await prisma.user.update({ where: { id: row.userId }, data: { emailVerifiedAt: new Date() } });
+  const verified = await prisma.user.update({ where: { id: row.userId }, data: { emailVerifiedAt: new Date() } });
+  if (await ensureSuperAdmin(verified)) await audit(req, 'auth.superadmin_bootstrap', { userId: verified.id, meta: { email: verified.email } });
   await audit(req, 'auth.email_verified', { userId: row.userId, entity: 'user', entityId: row.userId });
   res.json({ ok: true });
 }));

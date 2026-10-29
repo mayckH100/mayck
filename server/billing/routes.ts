@@ -8,7 +8,9 @@ import { PRODUCTS, PRODUCT_LABEL, CYCLES, PLAN_PRODUCTS, getSettings, getSubscri
 import { CouponError, MIN_FINAL_CENTS, loadValidCoupon, priceWithCoupon, publicCouponView, quotesFor } from './coupons.js';
 import { billingConfigured, createPreference, getPayment, MpError, mpFriendly, parseReference, verifySignature } from './mercadopago.js';
 
-const baseUrlOf = (req: Request) => `${req.protocol}://${req.get('host')}`;
+import { appUrl } from '../lib/mailer.js';
+// URL pública fixa (APP_URL/RENDER_EXTERNAL_URL) para o aviso e o retorno do Mercado Pago; o cabeçalho Host só vale fora de produção.
+const baseUrlOf = (req: Request) => appUrl(req);
 
 export type ProcessResult = { ok: boolean; renewed: boolean; duplicated?: boolean; revoked?: boolean; reason?: string; orgId?: string };
 

@@ -177,7 +177,8 @@ mckmensagemRouter.get('/leads/export', ah(async (req, res) => {
   const leads = await prisma.lead.findMany({ where: { orgId }, orderBy: { createdAt: 'asc' } });
   const esc = (v: unknown) => {
     const s = v == null ? '' : v instanceof Date ? v.toISOString() : String(v);
-    return /[",\n;]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    const t = /^[=+\-@\t\r]/.test(s) ? `'${s}` : s; // evita fórmula ao abrir no Excel/Planilhas
+    return /[",\n;]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t;
   };
   const header = ['phone', 'name', 'tags', 'status', 'consentSource', 'consentAt', 'optOutAt', 'campaignId', 'createdAt'];
   const rows = leads.map((l) => [l.phone, l.name, parseJson<string[]>(l.tags, []).join('|'), l.status, l.consentSource, l.consentAt, l.optOutAt, l.campaignId, l.createdAt].map(esc).join(','));
