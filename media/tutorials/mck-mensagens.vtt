@@ -1,476 +1,476 @@
 WEBVTT
 
-00:00:00.300 --> 00:00:00.559
+00:00:00.300 --> 00:00:00.560
 Olá!
 
-00:00:00.559 --> 00:00:07.215
+00:00:00.560 --> 00:00:07.263
 Neste tutorial você vai aprender, passo a passo, a usar a IA de qualificação de leads do MCK Mensagens.
 
-00:00:07.215 --> 00:00:13.096
+00:00:07.263 --> 00:00:13.185
 Ela conversa com as pessoas que responderam às suas campanhas, descobre quem tem interesse,
 
-00:00:13.096 --> 00:00:19.106
+00:00:13.185 --> 00:00:19.238
 encaminha os interessados para o próximo passo e agenda novas tentativas para quem disse não.
 
-00:00:19.106 --> 00:00:24.276
+00:00:19.238 --> 00:00:24.444
 Para os exemplos, vamos usar uma loja de carros seminovos, a AutoPrime Veículos.
 
-00:00:25.500 --> 00:00:27.762
+00:00:25.640 --> 00:00:27.965
 Primeiro, acesse o MCK Mensagens.
 
-00:00:27.762 --> 00:00:34.206
+00:00:27.965 --> 00:00:34.587
 Você pode entrar direto pelo endereço barra mensagem, ou, se estiver no MCKBOT, usar o atalho.
 
-00:00:34.206 --> 00:00:40.239
+00:00:34.587 --> 00:00:40.787
 Esta é a tela inicial, o Painel, com o resumo dos seus contatos, campanhas e resultados.
 
-00:00:40.239 --> 00:00:42.295
+00:00:40.787 --> 00:00:42.901
 No topo fica o menu principal:
 
-00:00:42.295 --> 00:00:48.876
+00:00:42.901 --> 00:00:49.664
 Painel, Contatos, Campanhas, IA de qualificação, Automações e Cobranças, Assinatura e Tutoriais.
 
-00:00:49.700 --> 00:00:56.684
+00:00:50.460 --> 00:00:57.444
 Para configurar a inteligência artificial que qualifica os leads, clique em IA de qualificação,
 
-00:00:56.684 --> 00:00:57.860
+00:00:57.444 --> 00:00:58.620
 no menu do topo.
 
-00:00:58.660 --> 00:01:01.065
+00:00:59.420 --> 00:01:01.825
 Esta é a tela da IA de qualificação.
 
-00:01:01.065 --> 00:01:03.737
+00:01:01.825 --> 00:01:04.497
 Logo no início aparecem dois contadores.
 
-00:01:03.737 --> 00:01:08.280
+00:01:04.497 --> 00:01:09.040
 Leads qualificados mostra quantas pessoas já demonstraram interesse.
 
-00:01:08.280 --> 00:01:14.559
+00:01:09.040 --> 00:01:15.319
 Em aguardo mostra quantos leads disseram não por enquanto e já têm uma nova tentativa agendada
 
-00:01:14.559 --> 00:01:15.628
+00:01:15.319 --> 00:01:16.388
 automaticamente.
 
-00:01:16.460 --> 00:01:22.037
+00:01:17.220 --> 00:01:22.899
 O primeiro item é a caixa Ativar IA de qualificação nas respostas das campanhas.
 
-00:01:22.037 --> 00:01:23.292
+00:01:22.899 --> 00:01:24.176
 Ela vem desligada.
 
-00:01:23.292 --> 00:01:29.636
+00:01:24.176 --> 00:01:30.636
 Quando você marca essa caixa e salva, toda vez que um lead abordado por campanha responder,
 
-00:01:29.636 --> 00:01:36.188
+00:01:30.636 --> 00:01:37.308
 a IA lê a resposta, entende se a pessoa tem interesse, responde e move o lead automaticamente.
 
-00:01:36.188 --> 00:01:39.465
+00:01:37.308 --> 00:01:40.644
 Para desligar, é só desmarcar e salvar de novo.
 
-00:01:39.465 --> 00:01:40.023
+00:01:40.644 --> 00:01:41.212
 Atenção:
 
-00:01:40.023 --> 00:01:45.948
+00:01:41.212 --> 00:01:47.246
 a qualificação usa a mesma inteligência artificial configurada no MCKBOT, no menu IA,
 
-00:01:45.948 --> 00:01:49.364
+00:01:47.246 --> 00:01:50.724
 com a mesma chave e a mesma base de conhecimento.
 
-00:01:50.193 --> 00:01:53.204
+00:01:51.553 --> 00:01:54.564
 Agora preencha o campo Como abordar e qualificar.
 
-00:01:53.204 --> 00:01:57.197
+00:01:54.564 --> 00:01:58.557
 Aqui você explica para a IA o que a sua empresa vende, para quem,
 
-00:01:57.197 --> 00:02:00.700
+00:01:58.557 --> 00:02:02.060
 e o que ela precisa perguntar para descobrir o interesse.
 
-00:02:00.700 --> 00:02:01.744
+00:02:02.060 --> 00:02:03.104
 No nosso exemplo:
 
-00:02:01.744 --> 00:02:04.509
+00:02:03.104 --> 00:02:05.869
 somos uma loja de carros seminovos revisados,
 
-00:02:04.509 --> 00:02:08.748
+00:02:05.869 --> 00:02:10.108
 com garantia e financiamento; descubra o modelo que a pessoa procura,
 
-00:02:08.748 --> 00:02:14.032
+00:02:10.108 --> 00:02:15.392
 a faixa de preço e se tem carro para a troca, e destaque o test drive sem compromisso.
 
-00:02:14.032 --> 00:02:17.841
+00:02:15.392 --> 00:02:19.201
 Quanto mais claro for esse texto, melhores ficam as respostas.
 
-00:02:18.660 --> 00:02:22.306
+00:02:20.020 --> 00:02:23.666
 Logo abaixo, em Próximo passo para quem tem interesse,
 
-00:02:22.306 --> 00:02:26.222
+00:02:23.666 --> 00:02:27.582
 escreva o que a IA deve oferecer quando o lead disser sim.
 
-00:02:26.222 --> 00:02:27.032
+00:02:27.582 --> 00:02:28.392
 Por exemplo:
 
-00:02:27.032 --> 00:02:32.299
+00:02:28.392 --> 00:02:33.659
 agendar um test drive na loja e fazer uma simulação de financiamento gratuita.
 
-00:02:32.299 --> 00:02:36.012
+00:02:33.659 --> 00:02:37.372
 É isso que a IA vai propor a quem demonstrar interesse.
 
-00:02:36.810 --> 00:02:40.854
+00:02:38.170 --> 00:02:42.214
 Agora vamos configurar o que acontece em cada tipo de resposta.
 
-00:02:40.854 --> 00:02:44.257
+00:02:42.214 --> 00:02:45.617
 Começando pelo bloco Quando o lead responde POSITIVO.
 
-00:02:44.257 --> 00:02:50.227
+00:02:45.617 --> 00:02:51.587
 Nesse caso, o lead passa para o status Qualificado e a IA confirma o interesse apresentando o
 
-00:02:50.227 --> 00:02:52.410
+00:02:51.587 --> 00:02:53.770
 próximo passo que você configurou.
 
-00:02:53.210 --> 00:02:57.887
+00:02:54.570 --> 00:02:59.505
 No campo Depois da resposta da IA você escolhe o que acontece em seguida.
 
-00:02:57.887 --> 00:02:59.745
+00:02:59.505 --> 00:03:01.466
 Transferir para um atendente:
 
-00:02:59.745 --> 00:03:04.807
+00:03:01.466 --> 00:03:06.807
 a conversa vai para a fila humana no Inbox do MCKBOT, para um vendedor assumir.
 
-00:03:04.807 --> 00:03:06.537
+00:03:06.807 --> 00:03:08.632
 Iniciar um fluxo do MCKBOT:
 
-00:03:06.537 --> 00:03:09.997
+00:03:08.632 --> 00:03:12.283
 quando você escolhe essa opção, aparece o campo Fluxo,
 
-00:03:09.997 --> 00:03:16.148
+00:03:12.283 --> 00:03:18.773
 para selecionar qual fluxo ativo deve começar, por exemplo o fluxo de agendamento de test drive.
 
-00:03:16.148 --> 00:03:18.710
+00:03:18.773 --> 00:03:21.478
 E Continuar com o robô e a IA do MCKBOT:
 
-00:03:18.710 --> 00:03:21.914
+00:03:21.478 --> 00:03:24.858
 a conversa segue no atendimento automático normal.
 
-00:03:22.743 --> 00:03:28.920
+00:03:25.660 --> 00:03:31.837
 Em Mensagem extra, que é opcional, você pode escrever um texto fixo que será enviado logo depois da
 
-00:03:28.920 --> 00:03:33.786
+00:03:31.837 --> 00:03:36.703
 resposta da IA, como um link de agendamento, o catálogo ou o endereço da loja.
 
-00:03:33.786 --> 00:03:38.341
+00:03:36.703 --> 00:03:41.257
 Use a variável nome entre chaves para chamar a pessoa pelo primeiro nome.
 
-00:03:38.341 --> 00:03:42.583
+00:03:41.257 --> 00:03:45.500
 Já a Etiqueta do contato é a marcação que o lead qualificado recebe.
 
-00:03:42.583 --> 00:03:47.512
+00:03:45.500 --> 00:03:50.428
 O padrão é lead traço qualificado, mas você pode trocar pelo nome que preferir,
 
-00:03:47.512 --> 00:03:49.695
+00:03:50.428 --> 00:03:52.612
 para filtrar esses contatos depois.
 
-00:03:50.493 --> 00:03:54.002
+00:03:53.410 --> 00:03:56.918
 Agora o bloco Quando o lead responde NEGATIVO.
 
-00:03:54.002 --> 00:03:58.196
+00:03:56.918 --> 00:04:01.113
 Aqui a IA sempre agradece, com educação e sem insistir.
 
-00:03:58.196 --> 00:04:00.789
+00:04:01.113 --> 00:04:03.706
 Depois disso, você escolhe a ação.
 
-00:04:01.627 --> 00:04:03.971
+00:04:04.543 --> 00:04:06.983
 No campo Ação existem quatro opções.
 
-00:04:03.971 --> 00:04:08.463
+00:04:06.983 --> 00:04:11.660
 Deixar em aguardo e tentar de novo depois, que é a opção recomendada.
 
-00:04:08.463 --> 00:04:10.221
+00:04:11.660 --> 00:04:13.490
 Iniciar um fluxo do MCKBOT.
 
-00:04:10.221 --> 00:04:12.110
+00:04:13.490 --> 00:04:15.456
 Transferir para um atendente.
 
-00:04:12.110 --> 00:04:15.691
+00:04:15.456 --> 00:04:19.183
 Ou Descartar o lead, para não abordar mais essa pessoa.
 
-00:04:16.493 --> 00:04:20.817
+00:04:20.010 --> 00:04:24.334
 Com a opção de aguardar e tentar de novo, aparecem mais dois campos.
 
-00:04:20.817 --> 00:04:22.662
+00:04:24.334 --> 00:04:26.178
 Nova tentativa após, em dias:
 
-00:04:22.662 --> 00:04:26.541
+00:04:26.178 --> 00:04:30.057
 é quanto tempo o sistema espera para chamar o lead outra vez.
 
-00:04:26.541 --> 00:04:27.876
+00:04:30.057 --> 00:04:31.393
 O padrão é três dias.
 
-00:04:27.876 --> 00:04:30.038
+00:04:31.393 --> 00:04:33.555
 E Descartar depois de quantos não:
 
-00:04:30.038 --> 00:04:31.628
+00:04:33.555 --> 00:04:35.144
 é o limite de tentativas.
 
-00:04:31.628 --> 00:04:37.351
+00:04:35.144 --> 00:04:40.867
 Se a pessoa disser não esse número de vezes, ela passa a Descartado e não é mais abordada.
 
-00:04:37.351 --> 00:04:38.813
+00:04:40.867 --> 00:04:42.330
 O padrão também é três.
 
-00:04:39.627 --> 00:04:46.203
+00:04:43.143 --> 00:04:49.720
 Em Mensagem da nova tentativa, escreva o texto que será enviado quando chegar a data da nova abordagem.
 
-00:04:46.203 --> 00:04:48.757
+00:04:49.720 --> 00:04:52.274
 Use nome entre chaves para personalizar.
 
-00:04:48.757 --> 00:04:49.331
+00:04:52.274 --> 00:04:52.848
 Uma dica:
 
-00:04:49.331 --> 00:04:56.355
+00:04:52.848 --> 00:04:59.871
 traga uma novidade, como chegada de novos carros ou uma condição especial, em vez de repetir a mesma mensagem.
 
-00:04:57.160 --> 00:05:00.746
+00:05:00.677 --> 00:05:04.263
 Ainda no bloco negativo, você pode editar as etiquetas:
 
-00:05:00.746 --> 00:05:06.158
+00:05:04.263 --> 00:05:09.675
 Etiqueta em aguardo, que por padrão é lead traço aguardando, e Etiqueta descartado,
 
-00:05:06.158 --> 00:05:08.701
+00:05:09.675 --> 00:05:12.218
 que por padrão é lead traço descartado.
 
-00:05:08.701 --> 00:05:11.896
+00:05:12.218 --> 00:05:15.413
 Elas ajudam a filtrar e organizar esses contatos.
 
-00:05:12.700 --> 00:05:15.966
+00:05:16.217 --> 00:05:19.561
 No bloco Quando o lead tem DÚVIDA, escolha a ação:
 
-00:05:15.966 --> 00:05:18.839
+00:05:19.561 --> 00:05:22.504
 a IA responde e conduz para o próximo passo,
 
-00:05:18.839 --> 00:05:24.783
+00:05:22.504 --> 00:05:28.590
 usando a base de conhecimento; iniciar um fluxo do MCKBOT; ou transferir para um atendente.
 
-00:05:24.783 --> 00:05:26.742
+00:05:28.590 --> 00:05:30.597
 E repare no aviso logo abaixo:
 
-00:05:26.742 --> 00:05:31.836
+00:05:30.597 --> 00:05:35.814
 se o lead pedir para sair, ele recebe opt-out na hora e nunca mais é abordado.
 
-00:05:31.836 --> 00:05:36.604
+00:05:35.814 --> 00:05:40.697
 Essa é uma regra fixa, que protege o seu número de denúncias e bloqueios.
 
-00:05:37.433 --> 00:05:39.184
+00:05:41.497 --> 00:05:43.247
 Terminou de configurar?
 
-00:05:39.184 --> 00:05:40.477
+00:05:43.247 --> 00:05:44.541
 Clique em Salvar.
 
-00:05:40.477 --> 00:05:41.238
+00:05:44.541 --> 00:05:45.302
 Lembre-se:
 
-00:05:41.238 --> 00:05:43.673
+00:05:45.302 --> 00:05:47.737
 nada é aplicado antes de salvar.
 
-00:05:44.500 --> 00:05:45.137
+00:05:48.563 --> 00:05:49.200
 Pronto!
 
-00:05:45.137 --> 00:05:50.956
+00:05:49.200 --> 00:05:55.019
 A mensagem IA de qualificação salva confirma que deu tudo certo.
 
-00:05:51.767 --> 00:05:53.875
+00:05:55.830 --> 00:05:57.939
 Mais abaixo fica o Prompt da IA.
 
-00:05:53.875 --> 00:05:59.344
+00:05:57.939 --> 00:06:03.408
 É o texto de instruções que define como a inteligência artificial pensa e responde.
 
-00:05:59.344 --> 00:06:06.527
+00:06:03.408 --> 00:06:10.590
 Ele já vem com um modelo padrão pronto para usar, mas você pode editar livremente para o seu tipo de negócio.
 
-00:06:07.327 --> 00:06:10.965
+00:06:11.390 --> 00:06:15.105
 As variáveis entre chaves são trocadas automaticamente.
 
-00:06:10.965 --> 00:06:14.207
+00:06:15.105 --> 00:06:18.414
 Tom, pelo tom de voz configurado na IA do MCKBOT.
 
-00:06:14.207 --> 00:06:17.316
+00:06:18.414 --> 00:06:21.588
 Sobre empresa, pelas instruções da sua empresa.
 
-00:06:17.316 --> 00:06:21.682
+00:06:21.588 --> 00:06:26.046
 Como abordar, pelo que você escreveu em Como abordar e qualificar.
 
-00:06:21.682 --> 00:06:24.857
+00:06:26.046 --> 00:06:29.288
 Próximo passo, pela oferta para os interessados.
 
-00:06:24.857 --> 00:06:27.041
+00:06:29.288 --> 00:06:31.516
 Nome, pelo primeiro nome do lead.
 
-00:06:27.041 --> 00:06:30.613
+00:06:31.516 --> 00:06:35.164
 Tentativas, pelo número de vezes que ele já disse não.
 
-00:06:30.613 --> 00:06:33.391
+00:06:35.164 --> 00:06:38.000
 E max tentativas, pelo limite configurado.
 
-00:06:33.391 --> 00:06:38.287
+00:06:38.000 --> 00:06:42.998
 Mantenha essas variáveis no texto para a IA receber as informações certas.
 
-00:06:39.087 --> 00:06:45.458
+00:06:43.800 --> 00:06:50.172
 Se você editou e quer voltar ao texto original, clique em Restaurar padrão e depois em Salvar prompt.
 
-00:06:45.458 --> 00:06:50.127
+00:06:50.172 --> 00:06:54.840
 Depois de qualquer alteração, sempre clique em Salvar prompt para aplicar.
 
-00:06:50.953 --> 00:06:56.191
+00:06:55.667 --> 00:07:00.905
 Em Ver a parte fixa, você confere o trecho que é sempre adicionado no final do prompt.
 
-00:06:56.191 --> 00:07:01.429
+00:07:00.905 --> 00:07:06.143
 Ele define o formato de resposta que o sistema lê para mover o lead entre Qualificado,
 
-00:07:01.429 --> 00:07:02.891
+00:07:06.143 --> 00:07:07.605
 Aguardando e Descartado.
 
-00:07:02.891 --> 00:07:05.449
+00:07:07.605 --> 00:07:10.163
 Por isso essa parte não pode ser alterada.
 
-00:07:06.287 --> 00:07:09.583
+00:07:11.000 --> 00:07:14.296
 Antes de colocar para rodar, use a área Testar.
 
-00:07:09.583 --> 00:07:14.492
+00:07:14.296 --> 00:07:19.205
 Você escreve uma resposta como se fosse um lead e vê o que a IA faria.
 
-00:07:14.492 --> 00:07:18.138
+00:07:19.205 --> 00:07:22.851
 Nada é enviado no WhatsApp e nenhum lead é alterado.
 
-00:07:18.138 --> 00:07:20.663
+00:07:22.851 --> 00:07:25.376
 O teste usa a configuração já salva.
 
-00:07:21.487 --> 00:07:22.431
+00:07:26.200 --> 00:07:27.145
 Vamos testar.
 
-00:07:22.431 --> 00:07:23.231
+00:07:27.145 --> 00:07:27.944
 Escrevemos:
 
-00:07:23.231 --> 00:07:26.647
+00:07:27.944 --> 00:07:31.360
 tenho interesse sim, vocês têm SUV até 120 mil?
 
-00:07:26.647 --> 00:07:28.028
+00:07:31.360 --> 00:07:32.741
 Posso ir no sábado?
 
-00:07:28.028 --> 00:07:35.005
+00:07:32.741 --> 00:07:39.718
 Ao clicar em Testar, a IA classifica como Interessado, positivo, mostra a resposta que enviaria,
 
-00:07:35.005 --> 00:07:39.511
+00:07:39.718 --> 00:07:44.224
 já oferecendo o test drive e a simulação, e um resumo do lead.
 
-00:07:40.307 --> 00:07:42.283
+00:07:45.020 --> 00:07:46.997
 Agora uma resposta negativa:
 
-00:07:42.283 --> 00:07:45.601
+00:07:46.997 --> 00:07:50.315
 agora não, obrigado, acabei de trocar de carro.
 
-00:07:45.601 --> 00:07:49.696
+00:07:50.315 --> 00:07:54.409
 A IA classifica como Sem interesse, agradece sem insistir,
 
-00:07:49.696 --> 00:07:54.779
+00:07:54.409 --> 00:07:59.492
 e na vida real o lead iria para Aguardando, com nova tentativa agendada.
 
-00:07:55.577 --> 00:07:56.365
+00:08:00.290 --> 00:08:01.079
 Uma dúvida:
 
-00:07:56.365 --> 00:07:58.659
+00:08:01.079 --> 00:08:03.373
 os carros de vocês têm garantia?
 
-00:07:58.659 --> 00:08:06.545
+00:08:03.373 --> 00:08:11.258
 A IA classifica como Dúvida, responde usando a base de conhecimento e já conduz de volta para o próximo passo.
 
-00:08:07.377 --> 00:08:15.993
+00:08:12.090 --> 00:08:20.706
 E se a pessoa pedir para sair, a IA identifica o pedido e o lead recebe opt-out na hora, sem novas mensagens.
 
-00:08:16.797 --> 00:08:18.944
+00:08:21.510 --> 00:08:23.657
 Lembrando de onde vêm esses leads:
 
-00:08:18.944 --> 00:08:20.144
+00:08:23.657 --> 00:08:24.857
 das suas Campanhas.
 
-00:08:20.144 --> 00:08:26.395
+00:08:24.857 --> 00:08:31.109
 Aqui, por exemplo, a campanha Feirão de Novembro aborda os contatos com uma mensagem personalizada,
 
-00:08:26.395 --> 00:08:29.553
+00:08:31.109 --> 00:08:34.266
 respeitando o limite diário e a janela de horário.
 
-00:08:29.553 --> 00:08:34.605
+00:08:34.266 --> 00:08:39.318
 Quando alguém responde à campanha, é a IA de qualificação que assume a conversa.
 
-00:08:35.407 --> 00:08:38.075
+00:08:40.120 --> 00:08:42.788
 Agora vamos ver o resultado na prática.
 
-00:08:38.075 --> 00:08:41.017
+00:08:42.788 --> 00:08:45.730
 Em Contatos, cada lead mostra o seu status.
 
-00:08:41.017 --> 00:08:44.575
+00:08:45.730 --> 00:08:49.288
 Vamos entender os principais status da qualificação.
 
-00:08:45.407 --> 00:08:46.239
+00:08:50.120 --> 00:08:50.953
 Qualificado:
 
-00:08:46.239 --> 00:08:48.390
+00:08:50.953 --> 00:08:53.103
 o lead respondeu com interesse.
 
-00:08:48.390 --> 00:08:55.397
+00:08:53.103 --> 00:09:00.110
 A IA já ofereceu o próximo passo e a conversa seguiu a ação configurada, por exemplo com um vendedor.
 
-00:08:55.397 --> 00:08:58.103
+00:09:00.110 --> 00:09:02.816
 Ele recebe a etiqueta lead qualificado.
 
-00:08:58.940 --> 00:08:59.650
+00:09:03.653 --> 00:09:04.364
 Aguardando:
 
-00:08:59.650 --> 00:09:01.588
+00:09:04.364 --> 00:09:06.301
 o lead disse não por enquanto.
 
-00:09:01.588 --> 00:09:07.916
+00:09:06.301 --> 00:09:12.629
 Ele tem uma nova tentativa agendada para daqui a alguns dias, e recebe a etiqueta lead aguardando.
 
-00:09:08.740 --> 00:09:09.525
+00:09:13.453 --> 00:09:14.239
 Respondeu:
 
-00:09:09.525 --> 00:09:12.666
+00:09:14.239 --> 00:09:17.380
 o lead respondeu, mas ainda não decidiu.
 
-00:09:12.666 --> 00:09:17.692
+00:09:17.380 --> 00:09:22.405
 Normalmente fez uma pergunta, e a IA está conduzindo a conversa.
 
-00:09:18.490 --> 00:09:19.228
+00:09:23.203 --> 00:09:23.942
 Descartado:
 
-00:09:19.228 --> 00:09:26.143
+00:09:23.942 --> 00:09:30.856
 o lead atingiu o limite de respostas negativas, foi descartado pela ação escolhida, ou pediu para sair.
 
-00:09:26.143 --> 00:09:27.754
+00:09:30.856 --> 00:09:32.467
 Ele não é mais abordado.
 
-00:09:28.557 --> 00:09:33.050
+00:09:33.270 --> 00:09:37.763
 No Painel, o gráfico Contatos por status mostra o funil completo:
 
-00:09:33.050 --> 00:09:39.133
+00:09:37.763 --> 00:09:43.847
 novos, contatados, que responderam, qualificados, em aguardo, convertidos e descartados.
 
-00:09:39.133 --> 00:09:43.005
+00:09:43.847 --> 00:09:47.718
 Assim você acompanha o desempenho das campanhas e da IA.
 
-00:09:43.823 --> 00:09:44.325
+00:09:48.537 --> 00:09:49.038
 Pronto!
 
-00:09:44.325 --> 00:09:45.327
+00:09:49.038 --> 00:09:50.041
 Recapitulando:
 
-00:09:45.327 --> 00:09:52.059
+00:09:50.041 --> 00:09:56.773
 ative a IA, explique como abordar e qual é o próximo passo, defina o que acontece no positivo,
 
-00:09:52.059 --> 00:09:56.786
+00:09:56.773 --> 00:10:01.499
 no negativo e na dúvida, ajuste o prompt se quiser, teste e salve.
 
-00:09:56.786 --> 00:10:04.664
+00:10:01.499 --> 00:10:09.377
 A partir daí, a IA trabalha por você, separando os interessados e reabordando quem disse não no momento certo.
 
-00:10:04.664 --> 00:10:06.311
+00:10:09.377 --> 00:10:11.025
 Até o próximo tutorial!
 

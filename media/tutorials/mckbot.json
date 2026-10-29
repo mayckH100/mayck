@@ -1,6 +1,6 @@
 {
  "title": "MCKBOT — guia completo do painel",
- "duration": 507,
+ "duration": 508,
  "chapters": [
   {
    "title": "Introdução",
@@ -8,111 +8,111 @@
   },
   {
    "title": "Menu lateral",
-   "start": 18.43
+   "start": 19.01
   },
   {
    "title": "Visão geral",
-   "start": 43.9
+   "start": 44.48
   },
   {
    "title": "Status e falhas",
-   "start": 61.84
+   "start": 62.42
   },
   {
    "title": "Canais WhatsApp",
-   "start": 80.04
+   "start": 80.62
   },
   {
    "title": "Canal conectado",
-   "start": 101.65
+   "start": 102.82
   },
   {
    "title": "Inbox",
-   "start": 118.72
+   "start": 119.89
   },
   {
    "title": "Conversa",
-   "start": 140.35
+   "start": 141.52
   },
   {
    "title": "Assumir e encerrar",
-   "start": 157.78
+   "start": 158.95
   },
   {
    "title": "Responder",
-   "start": 174.11
+   "start": 175.28
   },
   {
    "title": "Kanban",
-   "start": 188.45
+   "start": 189.62
   },
   {
    "title": "Contatos",
-   "start": 207.39
+   "start": 208.56
   },
   {
    "title": "Novo contato e importar",
-   "start": 218.27
+   "start": 219.44
   },
   {
    "title": "Fluxos",
-   "start": 233.42
+   "start": 234.59
   },
   {
    "title": "Editor visual",
-   "start": 256.09
+   "start": 257.26
   },
   {
    "title": "Montando o fluxo",
-   "start": 280.24
+   "start": 281.41
   },
   {
    "title": "Salvar e versões",
-   "start": 304.39
+   "start": 305.56
   },
   {
    "title": "Voltar ao menu",
-   "start": 318.13
+   "start": 319.3
   },
   {
    "title": "IA: provedor e modelo",
-   "start": 335.2
+   "start": 336.37
   },
   {
    "title": "IA: comportamento",
-   "start": 347.62
+   "start": 348.79
   },
   {
    "title": "Base de conhecimento",
-   "start": 369.62
+   "start": 370.79
   },
   {
    "title": "Testar a IA",
-   "start": 391.62
+   "start": 392.79
   },
   {
    "title": "Integrações",
-   "start": 405.55
+   "start": 406.72
   },
   {
    "title": "Relatórios",
-   "start": 420.97
+   "start": 422.14
   },
   {
    "title": "Equipe",
-   "start": 436.05
+   "start": 437.22
   },
   {
    "title": "Plano, Auditoria e Perfil",
-   "start": 453.32
+   "start": 454.49
   },
   {
    "title": "Boas práticas",
-   "start": 472.65
+   "start": 473.82
   },
   {
    "title": "Conclusão",
-   "start": 487.45
+   "start": 488.62
   }
  ]
 }

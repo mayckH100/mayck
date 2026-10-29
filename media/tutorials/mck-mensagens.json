@@ -1,6 +1,6 @@
 {
  "title": "MCK Mensagens — IA de qualificação de leads",
- "duration": 607,
+ "duration": 612,
  "chapters": [
   {
    "title": "Introdução",
@@ -8,139 +8,139 @@
   },
   {
    "title": "Acessando o MCK Mensagens",
-   "start": 25.2
+   "start": 25.34
   },
   {
    "title": "Abrindo a IA de qualificação",
-   "start": 49.4
+   "start": 50.16
   },
   {
    "title": "Contadores",
-   "start": 58.36
+   "start": 59.12
   },
   {
    "title": "Ativar e desativar",
-   "start": 76.16
+   "start": 76.92
   },
   {
    "title": "Como abordar e qualificar",
-   "start": 109.89
+   "start": 111.25
   },
   {
    "title": "Próximo passo",
-   "start": 138.36
+   "start": 139.72
   },
   {
    "title": "Resposta positiva",
-   "start": 156.51
+   "start": 157.87
   },
   {
    "title": "Ação no positivo",
-   "start": 172.91
+   "start": 174.27
   },
   {
    "title": "Mensagem extra e etiqueta",
-   "start": 202.44
+   "start": 205.36
   },
   {
    "title": "Resposta negativa",
-   "start": 230.19
+   "start": 233.11
   },
   {
    "title": "Ação no negativo",
-   "start": 241.33
+   "start": 244.24
   },
   {
    "title": "Dias e limite de tentativas",
-   "start": 256.19
+   "start": 259.71
   },
   {
    "title": "Mensagem da nova tentativa",
-   "start": 279.33
+   "start": 282.84
   },
   {
    "title": "Etiquetas do negativo",
-   "start": 296.86
+   "start": 300.38
   },
   {
    "title": "Dúvida e opt-out",
-   "start": 312.4
+   "start": 315.92
   },
   {
    "title": "Salvar",
-   "start": 337.13
+   "start": 341.2
   },
   {
    "title": "Configuração salva",
-   "start": 344.2
+   "start": 348.26
   },
   {
    "title": "Prompt da IA",
-   "start": 351.47
+   "start": 355.53
   },
   {
    "title": "Variáveis do prompt",
-   "start": 367.03
+   "start": 371.09
   },
   {
    "title": "Restaurar padrão e salvar prompt",
-   "start": 398.79
+   "start": 403.5
   },
   {
    "title": "Parte fixa",
-   "start": 410.65
+   "start": 415.37
   },
   {
    "title": "Área Testar",
-   "start": 425.99
+   "start": 430.7
   },
   {
    "title": "Teste positivo",
-   "start": 441.19
+   "start": 445.9
   },
   {
    "title": "Teste negativo",
-   "start": 460.01
+   "start": 464.72
   },
   {
    "title": "Teste de dúvida",
-   "start": 475.28
+   "start": 479.99
   },
   {
    "title": "Teste de opt-out",
-   "start": 487.08
+   "start": 491.79
   },
   {
    "title": "De onde vêm os leads",
-   "start": 496.5
+   "start": 501.21
   },
   {
    "title": "Status dos leads",
-   "start": 515.11
+   "start": 519.82
   },
   {
    "title": "Status Qualificado",
-   "start": 525.11
+   "start": 529.82
   },
   {
    "title": "Status Aguardando",
-   "start": 538.64
+   "start": 543.35
   },
   {
    "title": "Status Respondeu",
-   "start": 548.44
+   "start": 553.15
   },
   {
    "title": "Status Descartado",
-   "start": 558.19
+   "start": 562.9
   },
   {
    "title": "Acompanhando no Painel",
-   "start": 568.26
+   "start": 572.97
   },
   {
    "title": "Conclusão",
-   "start": 583.52
+   "start": 588.24
   }
  ]
 }
