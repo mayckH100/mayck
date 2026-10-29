@@ -44,3 +44,22 @@ export function SubBadge({ status }: { status: SubStatus }) {
 }
 
 export const subOf = (subs: SubscriptionView[] | undefined, p: string) => subs?.find((s) => s.product === p);
+
+// ---------- Cupom de desconto ----------
+export interface CouponQuote { originalCents: number; discountCents: number; finalCents: number }
+export interface AppliedCoupon {
+  coupon: { code: string; type: 'PERCENT' | 'FIXED'; value: number; product: string; cycles: string; validUntil: string | null };
+  quotes: Partial<Record<PlanProduct, Partial<Record<Cycle, CouponQuote>>>>;
+}
+const COUPON_KEY = 'mck_cupom';
+export const normalizeCoupon = (v: string | null | undefined) => String(v ?? '').trim().toUpperCase().replace(/\s+/g, '');
+/** Guarda o ?cupom= do link do parceiro (sobrevive ao cadastro/login até a tela de assinatura). */
+export function rememberCouponFromUrl(search = typeof window !== 'undefined' ? window.location.search : '') {
+  try {
+    const c = normalizeCoupon(new URLSearchParams(search).get('cupom'));
+    if (/^[A-Z0-9_-]{3,30}$/.test(c)) localStorage.setItem(COUPON_KEY, c);
+  } catch { /* sem localStorage */ }
+}
+export const storedCoupon = () => { try { return localStorage.getItem(COUPON_KEY) || ''; } catch { return ''; } };
+export const clearStoredCoupon = () => { try { localStorage.removeItem(COUPON_KEY); } catch { /* ignore */ } };
+export const couponLabel = (c: AppliedCoupon['coupon']) => (c.type === 'PERCENT' ? `${c.value}% de desconto` : `${fmtBRL(c.value)} de desconto`);

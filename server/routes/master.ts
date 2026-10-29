@@ -10,6 +10,8 @@ import {
   effectiveStatus, getSettings, getSubscription, getWebhookSecret, updateSettings,
   renew, block, unblock, activateManual, setValidUntil,
 } from '../billing/service.js';
+import { COUPON_CYCLES, COUPON_PRODUCTS, CODE_RE, MIN_FINAL_CENTS, normalizeCode } from '../billing/coupons.js';
+import { DEFAULT_SITE, getSiteSettings, updateSiteSettings } from '../lib/site-settings.js';
 
 /**
  * Painel Master (superadmin da plataforma). Montado em /api/master com requireSuperAdmin.
@@ -266,4 +268,125 @@ masterRouter.put('/settings', ah(async (req, res) => {
   await updateSettings({ ...body, mpWebhookSecret: body.mpWebhookSecret === undefined ? undefined : body.mpWebhookSecret || null });
   await audit(req, 'master.settings.update', { orgId: null, entity: 'platform_settings', entityId: 'default', meta: { trialDays: body.trialDays, prices: body.prices, mpWebhookSecretChanged: body.mpWebhookSecret !== undefined } });
   res.json(await settingsView());
+}));
+
+// ---------- Cupons de desconto ----------
+type CouponRow = { id: string; code: string; partner: string | null; type: string; value: number; product: string; cycles: string; validUntil: Date | null; maxUses: number | null; active: boolean; createdAt: Date; updatedAt: Date };
+async function couponStats(ids: string[]) {
+  const rows = await prisma.couponRedemption.groupBy({
+    by: ['couponId'], where: { couponId: { in: ids }, status: 'CONFIRMADO' },
+    _count: { _all: true }, _sum: { finalCents: true, discountCents: true },
+  });
+  const anyUse = await prisma.couponRedemption.groupBy({ by: ['couponId'], where: { couponId: { in: ids } }, _count: { _all: true } });
+  const used = new Set(anyUse.map((r) => r.couponId));
+  return { map: new Map(rows.map((r) => [r.couponId, { uses: r._count._all, revenueCents: r._sum.finalCents ?? 0, discountCents: r._sum.discountCents ?? 0 }])), used };
+}
+function couponView(c: CouponRow, st?: { uses: number; revenueCents: number; discountCents: number }, everUsed = false) {
+  const now = Date.now();
+  const uses = st?.uses ?? 0;
+  const state = !c.active ? 'INATIVO' : c.validUntil && c.validUntil.getTime() < now ? 'EXPIRADO' : c.maxUses !== null && uses >= c.maxUses ? 'ESGOTADO' : 'ATIVO';
+  return {
+    id: c.id, code: c.code, partner: c.partner, type: c.type, value: c.value, product: c.product, cycles: c.cycles,
+    validUntil: iso(c.validUntil), maxUses: c.maxUses, active: c.active, state, uses,
+    revenueCents: st?.revenueCents ?? 0, discountCents: st?.discountCents ?? 0, deletable: !everUsed,
+    createdAt: c.createdAt.toISOString(), updatedAt: c.updatedAt.toISOString(),
+  };
+}
+
+masterRouter.get('/coupons', ah(async (_req, res) => {
+  const items = await prisma.coupon.findMany({ orderBy: { createdAt: 'desc' } });
+  const { map, used } = await couponStats(items.map((c) => c.id));
+  res.json({ items: items.map((c) => couponView(c, map.get(c.id), used.has(c.id))), products: COUPON_PRODUCTS, cycles: COUPON_CYCLES, minFinalCents: MIN_FINAL_CENTS });
+}));
+
+const dateOnly = /^\d{4}-\d{2}-\d{2}$/;
+const couponSchema = z.object({
+  code: z.string().trim().max(40).transform(normalizeCode).refine((v) => CODE_RE.test(v), 'Código: 3 a 30 caracteres, só letras, números, - e _'),
+  partner: z.string().trim().max(120).nullable().optional(),
+  type: z.enum(['PERCENT', 'FIXED']),
+  value: z.number().int().positive().max(100_000_000),
+  product: z.enum(COUPON_PRODUCTS),
+  cycles: z.enum(COUPON_CYCLES).default('ALL'),
+  // Data sem hora: vale até o fim do dia (horário de Brasília).
+  validUntil: z.string().datetime({ offset: true }).or(z.string().regex(dateOnly)).nullable().optional(),
+  maxUses: z.number().int().positive().max(10_000_000).nullable().optional(),
+  active: z.boolean().default(true),
+}).superRefine((v, ctx) => {
+  if (v.type === 'PERCENT' && (v.value < 1 || v.value > 99)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['value'], message: 'Percentual entre 1 e 99' });
+});
+const toDate = (v: string | null | undefined) => {
+  if (v === undefined) return undefined;
+  if (v === null || v === '') return null;
+  const d = dateOnly.test(v) ? new Date(`${v}T23:59:59-03:00`) : new Date(v);
+  if (Number.isNaN(d.getTime())) throw badRequest('Data inválida');
+  return d;
+};
+const couponData = (b: z.infer<typeof couponSchema>) => ({
+  code: b.code, partner: b.partner?.trim() || null, type: b.type, value: b.value, product: b.product, cycles: b.cycles,
+  validUntil: toDate(b.validUntil) ?? null, maxUses: b.maxUses ?? null, active: b.active,
+});
+
+masterRouter.post('/coupons', ah(async (req, res) => {
+  const b = couponSchema.parse(req.body);
+  if (await prisma.coupon.findUnique({ where: { code: b.code } })) throw new HttpError(409, `Já existe um cupom com o código ${b.code}`);
+  const c = await prisma.coupon.create({ data: { ...couponData(b), createdBy: req.auth!.userId } });
+  await audit(req, 'master.coupon.create', { orgId: null, entity: 'coupon', entityId: c.id, meta: couponData(b) });
+  res.status(201).json(couponView(c));
+}));
+
+masterRouter.put('/coupons/:id', ah(async (req, res) => {
+  const cur = await prisma.coupon.findUnique({ where: { id: req.params.id } });
+  if (!cur) throw notFound('Cupom');
+  const b = couponSchema.parse(req.body);
+  const { map, used } = await couponStats([cur.id]);
+  if (b.code !== cur.code) {
+    if (used.has(cur.id)) throw new HttpError(409, 'Este cupom já foi usado: o código não pode mudar. Crie um novo cupom.');
+    if (await prisma.coupon.findUnique({ where: { code: b.code } })) throw new HttpError(409, `Já existe um cupom com o código ${b.code}`);
+  }
+  const data = couponData(b);
+  const c = await prisma.coupon.update({ where: { id: cur.id }, data });
+  const changed = Object.fromEntries(Object.entries(data).filter(([k, v]) => {
+    const old = (cur as any)[k];
+    return (old instanceof Date ? old.toISOString() : old) !== (v instanceof Date ? v.toISOString() : v);
+  }));
+  await audit(req, 'master.coupon.update', { orgId: null, entity: 'coupon', entityId: c.id, meta: { code: c.code, changed } });
+  res.json(couponView(c, map.get(c.id), used.has(c.id)));
+}));
+
+masterRouter.post('/coupons/:id/active', ah(async (req, res) => {
+  const { active } = z.object({ active: z.boolean() }).parse(req.body);
+  const cur = await prisma.coupon.findUnique({ where: { id: req.params.id } });
+  if (!cur) throw notFound('Cupom');
+  const c = await prisma.coupon.update({ where: { id: cur.id }, data: { active } });
+  await audit(req, active ? 'master.coupon.activate' : 'master.coupon.deactivate', { orgId: null, entity: 'coupon', entityId: c.id, meta: { code: c.code } });
+  const { map, used } = await couponStats([c.id]);
+  res.json(couponView(c, map.get(c.id), used.has(c.id)));
+}));
+
+/** Exclusão só para cupom nunca usado; usado, apenas desativar (mantém histórico e relatórios). */
+masterRouter.delete('/coupons/:id', ah(async (req, res) => {
+  const cur = await prisma.coupon.findUnique({ where: { id: req.params.id } });
+  if (!cur) throw notFound('Cupom');
+  if (await prisma.couponRedemption.count({ where: { couponId: cur.id } })) throw new HttpError(409, 'Cupom já usado não pode ser excluído. Desative-o.');
+  await prisma.coupon.delete({ where: { id: cur.id } });
+  await audit(req, 'master.coupon.delete', { orgId: null, entity: 'coupon', entityId: cur.id, meta: { code: cur.code } });
+  res.json({ ok: true });
+}));
+
+// ---------- Site oficial (/empresa) ----------
+masterRouter.get('/site', ah(async (_req, res) => res.json({ ...(await getSiteSettings()), defaults: DEFAULT_SITE })));
+
+masterRouter.put('/site', ah(async (req, res) => {
+  const b = z.object({
+    contactEmail: z.string().trim().email('E-mail de contato inválido').max(200).optional(),
+    whatsapp: z.string().trim().max(30).transform((v) => v.replace(/\D/g, '')).refine((v) => v === '' || (v.length >= 10 && v.length <= 15), 'WhatsApp: informe DDI + DDD + número, ex.: 5511999999999').optional(),
+    facebookUrl: z.string().trim().max(300).refine((v) => v === '' || /^https:\/\/(www\.|m\.)?(facebook|fb)\.com\//i.test(v), 'Use um link https://www.facebook.com/...').optional(),
+    tutorialsPublic: z.boolean().optional(),
+    promoCoupon: z.string().trim().max(40).transform(normalizeCode).optional(),
+    promoText: z.string().trim().max(200).optional(),
+  }).parse(req.body);
+  if (b.promoCoupon && !(await prisma.coupon.findUnique({ where: { code: b.promoCoupon } }))) throw badRequest(`Cupom ${b.promoCoupon} não existe. Crie o cupom antes de colocá-lo em destaque.`);
+  const next = await updateSiteSettings({ ...b, facebookUrl: b.facebookUrl === '' ? DEFAULT_SITE.facebookUrl : b.facebookUrl });
+  await audit(req, 'master.site.update', { orgId: null, entity: 'platform_settings', entityId: 'site', meta: b });
+  res.json({ ...next, defaults: DEFAULT_SITE });
 }));

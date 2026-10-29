@@ -1,4 +1,4 @@
-import { Router, type Request } from 'express';
+import { Router, type Request, type Response } from 'express';
 import path from 'node:path';
 import { existsSync, readFileSync, statSync, createReadStream } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -15,7 +15,7 @@ import { getSubscription, effectiveStatus, type Product } from '../billing/servi
  */
 export const TUTORIAL_APPS = { mckbot: 'MCKBOT', 'mck-mensagens': 'MCKMENSAGEM' } as const satisfies Record<string, Product>;
 export type TutorialApp = keyof typeof TUTORIAL_APPS;
-const isApp = (v: string): v is TutorialApp => Object.prototype.hasOwnProperty.call(TUTORIAL_APPS, v);
+export const isApp = (v: string): v is TutorialApp => Object.prototype.hasOwnProperty.call(TUTORIAL_APPS, v);
 
 function mediaDir() {
   const here = path.dirname(fileURLToPath(import.meta.url));
@@ -35,7 +35,7 @@ export async function tutorialAccess(orgId: string | null, app: TutorialApp, isS
   return { allowed: false, reason: st === 'TRIAL' ? 'teste_gratis' : st === 'VENCIDA' ? 'vencida' : 'bloqueada' };
 }
 
-function meta(app: TutorialApp) {
+export function meta(app: TutorialApp) {
   const f = path.join(mediaDir(), `${app}.json`);
   if (!existsSync(f)) return null;
   try { return JSON.parse(readFileSync(f, 'utf8')) as { title: string; duration: number; chapters: { title: string; start: number }[] }; } catch { return null; }
@@ -61,16 +61,27 @@ tutorialsRouter.get('/:app', ah(async (req, res) => {
 tutorialsRouter.get('/:app/captions.vtt', ah(async (req, res) => {
   const { app, access } = await guard(req);
   if (!access.allowed) throw forbidden('Disponível para assinantes');
-  const f = path.join(mediaDir(), `${app}.vtt`);
-  if (!existsSync(f)) throw notFound('Legenda');
-  res.setHeader('Cache-Control', 'private, no-store');
-  res.type('text/vtt; charset=utf-8').send(readFileSync(f, 'utf8'));
+  sendTutorialCaptions(res, app);
 }));
 
 /** Vídeo com suporte a Range (streaming e pulo de capítulos). */
 tutorialsRouter.get('/:app/video', ah(async (req, res) => {
   const { app, access } = await guard(req);
   if (!access.allowed) throw forbidden('Disponível para assinantes');
+  sendTutorialVideo(req, res, app);
+}));
+
+export const tutorialAvailable = (app: TutorialApp) => !!meta(app) && existsSync(path.join(mediaDir(), `${app}.mp4`));
+
+export function sendTutorialCaptions(res: Response, app: TutorialApp) {
+  const f = path.join(mediaDir(), `${app}.vtt`);
+  if (!existsSync(f)) throw notFound('Legenda');
+  res.setHeader('Cache-Control', 'private, no-store');
+  res.type('text/vtt; charset=utf-8').send(readFileSync(f, 'utf8'));
+}
+
+/** Envia o MP4 do tutorial (com Range). O acesso já deve ter sido checado por quem chama. */
+export function sendTutorialVideo(req: Request, res: Response, app: TutorialApp) {
   const f = path.join(mediaDir(), `${app}.mp4`);
   if (!existsSync(f)) throw notFound('Vídeo');
   const size = statSync(f).size;
@@ -98,4 +109,4 @@ tutorialsRouter.get('/:app/video', ah(async (req, res) => {
   res.setHeader('Content-Length', String(size));
   if (req.method === 'HEAD') return void res.end();
   createReadStream(f).pipe(res);
-}));
+}

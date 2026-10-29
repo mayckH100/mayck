@@ -69,20 +69,32 @@ export async function checkMpCredential(): Promise<{ ok: boolean; message: strin
   return result;
 }
 
-export const buildReference = (orgId: string, product: PlanProduct, cycle: Cycle) => `mckbot|${orgId}|${product}|${cycle}`;
-export function parseReference(ref: unknown): { orgId: string; product: PlanProduct; cycle: Cycle } | null {
+/**
+ * Referência externa do pagamento: "mckbot|<orgId>|<produto>|<ciclo>" e, com cupom,
+ * "|c=<couponId>:<descontoCentavos>". Só o servidor cria preferências (com o token do MP),
+ * então o desconto gravado aqui é o calculado no servidor no momento do checkout.
+ */
+export const buildReference = (orgId: string, product: PlanProduct, cycle: Cycle, coupon?: { id: string; discountCents: number } | null) =>
+  `mckbot|${orgId}|${product}|${cycle}` + (coupon ? `|c=${coupon.id}:${Math.round(coupon.discountCents)}` : '');
+export function parseReference(ref: unknown): { orgId: string; product: PlanProduct; cycle: Cycle; coupon: { id: string; discountCents: number } | null } | null {
   if (typeof ref !== 'string') return null;
   const parts = ref.split('|');
-  if (parts.length !== 4 || parts[0] !== 'mckbot' || !parts[1]) return null;
-  const [, orgId, product, cycle] = parts;
+  if ((parts.length !== 4 && parts.length !== 5) || parts[0] !== 'mckbot' || !parts[1]) return null;
+  const [, orgId, product, cycle, extra] = parts;
   if (!isPlanProduct(product) || !isCycle(cycle)) return null;
-  return { orgId, product, cycle };
+  let coupon: { id: string; discountCents: number } | null = null;
+  if (extra !== undefined) {
+    const m = /^c=([A-Za-z0-9_-]{1,40}):(\d{1,9})$/.exec(extra);
+    if (!m) return null;
+    coupon = { id: m[1], discountCents: Number(m[2]) };
+  }
+  return { orgId, product, cycle, coupon };
 }
 
-export async function createPreference(input: { orgId: string; product: PlanProduct; cycle: Cycle; title: string; amountCents: number; baseUrl: string; payerEmail?: string; returnPath?: string }) {
+export async function createPreference(input: { orgId: string; product: PlanProduct; cycle: Cycle; title: string; amountCents: number; coupon?: { id: string; discountCents: number } | null; baseUrl: string; payerEmail?: string; returnPath?: string }) {
   const body = {
     items: [{ id: `${input.product}-${input.cycle}`, title: input.title, quantity: 1, currency_id: 'BRL', unit_price: Math.round(input.amountCents) / 100 }],
-    external_reference: buildReference(input.orgId, input.product, input.cycle),
+    external_reference: buildReference(input.orgId, input.product, input.cycle, input.coupon),
     notification_url: `${input.baseUrl}/api/billing/mp/webhook`,
     statement_descriptor: 'MCKBOT',
     back_urls: {

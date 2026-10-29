@@ -6,6 +6,7 @@ import { Field } from '../../ui';
 import { MCKBOT_URL } from '../common';
 import { InstallButton } from '../../pwa';
 import { PlansShowcase, ForgotPassword, ResetPassword, VerifyEmail } from '../../pages/PublicAuth';
+import { normalizeCoupon, storedCoupon } from '../../billing';
 
 export function MmBrand() {
   return <div className="mm-brand"><img src="/mensagem-logo.svg" alt="" /> MCK Mensagens</div>;
@@ -76,13 +77,14 @@ export function MmRegister() {
   const nav = useNavigate();
   const [sp] = useSearchParams();
   const plano = sp.get('plano');
+  const cupom = normalizeCoupon(sp.get('cupom')) || storedCoupon();
   const [f, setF] = useState({ name: '', email: '', password: '', orgName: '' });
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     setBusy(true); setError('');
-    try { setMe(await post('/auth/register', { ...f, app: 'mensagem' })); nav(plano && PLAN_NAME[plano] ? '/assinatura' : '/'); } catch (err) { setError((err as Error).message); } finally { setBusy(false); }
+    try { setMe(await post('/auth/register', { ...f, app: 'mensagem' })); nav(cupom ? `/assinatura?cupom=${encodeURIComponent(cupom)}` : plano && PLAN_NAME[plano] ? '/assinatura' : '/'); } catch (err) { setError((err as Error).message); } finally { setBusy(false); }
   };
   const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement>) => setF({ ...f, [k]: e.target.value });
   return (
@@ -91,6 +93,7 @@ export function MmRegister() {
         <MmBrand />
         <h2 style={{ textAlign: 'center' }}>Criar conta</h2>
         {plano && PLAN_NAME[plano] && <div className="alert info">Plano escolhido: <strong>{PLAN_NAME[plano]}</strong>. Você começa no teste grátis e assina quando quiser, em Assinatura.</div>}
+        {cupom && <div className="alert info">Cupom de desconto <strong>{cupom}</strong> guardado: ele já aparece aplicado em Assinatura quando você for assinar.</div>}
         {error && <div className="alert err" role="alert">{error}</div>}
         <Field label="Seu nome"><input required minLength={2} value={f.name} onChange={set('name')} autoComplete="name" /></Field>
         <Field label="E-mail"><input type="email" required value={f.email} onChange={set('email')} autoComplete="email" /></Field>

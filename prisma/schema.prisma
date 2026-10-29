@@ -473,7 +473,44 @@ model PlatformSettings {
   trialDays          Int      @default(7)
   pricesJson         String   @default("{\"MCKBOT\":{\"MENSAL\":3990,\"ANUAL\":39900},\"MCKMENSAGEM\":{\"MENSAL\":4500,\"ANUAL\":45000},\"COMBO\":{\"MENSAL\":6990,\"ANUAL\":69900}}")
   mpWebhookSecretEnc String?
+  siteJson           String   @default("{}") // Site oficial (/empresa): contato, Facebook, tutoriais públicos, promoção em destaque
   updatedAt          DateTime @updatedAt
+}
+
+// ---------- Cupons de desconto (parcerias com influenciadores/empresas) ----------
+model Coupon {
+  id          String             @id @default(cuid())
+  code        String             @unique // MAIÚSCULO, ex.: INFLU10
+  partner     String? // influenciador ou empresa parceira
+  type        String // PERCENT | FIXED
+  value       Int // PERCENT: 1..99 (%); FIXED: centavos
+  product     String             @default("ALL") // ALL | MCKBOT | MCKMENSAGEM | COMBO
+  cycles      String             @default("ALL") // ALL | MENSAL | ANUAL
+  validUntil  DateTime?
+  maxUses     Int?
+  active      Boolean            @default(true)
+  createdBy   String?
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+  redemptions CouponRedemption[]
+}
+
+// Uso do cupom: gravado só quando o pagamento é confirmado (webhook/confirm do Mercado Pago).
+model CouponRedemption {
+  id            String   @id @default(cuid())
+  couponId      String
+  coupon        Coupon   @relation(fields: [couponId], references: [id])
+  orgId         String
+  product       String
+  cycle         String
+  mpPaymentId   String   @unique
+  originalCents Int
+  discountCents Int
+  finalCents    Int
+  status        String   @default("CONFIRMADO") // CONFIRMADO | ESTORNADO
+  createdAt     DateTime @default(now())
+
+  @@index([couponId, status])
 }
 
 /// "Voltar ao menu": comando global do cliente final do WhatsApp (por organização).

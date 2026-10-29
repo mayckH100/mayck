@@ -27,6 +27,7 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(req.url);
   if (url.origin !== self.location.origin) return;
   if (url.pathname.startsWith('/api/') || url.pathname === '/api' || url.pathname.startsWith('/.well-known/')) return;
+  if (url.pathname === '/empresa' || url.pathname.startsWith('/empresa/')) return; // site institucional: sem cache do app
 
   if (req.mode === 'navigate') {
     const shell = url.pathname === '/mensagem' || url.pathname.startsWith('/mensagem/') ? '/mensagem/' : '/';

@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { post } from '../api';
 import { useAuth, type SubscriptionView, type SubStatus } from '../auth';
 import { useApi, Async, Loading, useAction } from '../ui';
-import { CYCLE_LABEL, PLAN_PRODUCTS, PRODUCT_LABEL, SubBadge, daysLeft, fmtBRL, fmtDay, type Cycle, type PlanProduct } from '../billing';
+import { CYCLE_LABEL, PLAN_PRODUCTS, PRODUCT_LABEL, SubBadge, clearStoredCoupon, couponLabel, daysLeft, fmtBRL, fmtDay, normalizeCoupon, storedCoupon, type AppliedCoupon, type Cycle, type PlanProduct } from '../billing';
 
 export interface BillingStatus {
   subscriptions: SubscriptionView[];
@@ -41,13 +41,66 @@ export function comboView(subs: SubscriptionView[]): { status: SubStatus; validU
   return { status, validUntil };
 }
 
-export function ProductCard({ product, sub, prices, configured, app, desc, label }: { product: PlanProduct; sub: { status: SubStatus; validUntil: string; cycle?: string } | null; prices: Record<Cycle, number>; configured: boolean; app?: 'mckbot' | 'mensagem'; desc?: string; label?: string }) {
+/**
+ * Cupom de desconto da tela de assinatura: vem do link do parceiro (?cupom=CODIGO, guardado no cadastro)
+ * ou é digitado pelo cliente. A validação e o preço final são do servidor (/billing/coupon).
+ */
+export function useCoupon() {
+  const [sp] = useSearchParams();
+  const initial = normalizeCoupon(sp.get('cupom')) || storedCoupon();
+  const [code, setCode] = useState(initial);
+  const [applied, setApplied] = useState<AppliedCoupon | null>(null);
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const apply = async (c = code) => {
+    const norm = normalizeCoupon(c);
+    setCode(norm); setError('');
+    if (!norm) { setApplied(null); return; }
+    setBusy(true);
+    try { setApplied(await post<AppliedCoupon>('/billing/coupon', { code: norm })); } catch (e) { setApplied(null); setError((e as Error).message); } finally { setBusy(false); }
+  };
+  const remove = () => { setApplied(null); setCode(''); setError(''); clearStoredCoupon(); };
+  useEffect(() => { if (initial) void apply(initial); }, []); // link de parceiro: aplica sozinho
+  return { code, setCode, applied, error, busy, apply, remove, fromLink: !!initial };
+}
+export type CouponState = ReturnType<typeof useCoupon>;
+
+export function CouponBox({ state }: { state: CouponState }) {
+  const { code, setCode, applied, error, busy, apply, remove } = state;
+  return (
+    <div className="card stack" style={{ gap: 8 }}>
+      <form className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'flex-end' }} onSubmit={(e) => { e.preventDefault(); void apply(); }}>
+        <label className="f" style={{ flex: '1 1 220px', margin: 0 }}>
+          Cupom de desconto
+          <input value={code} onChange={(e) => setCode(e.target.value.toUpperCase())} placeholder="Ex.: PARCEIRO10" maxLength={30} aria-label="Cupom de desconto" autoCapitalize="characters" />
+        </label>
+        <button className="btn" disabled={busy || !code.trim()}>{busy ? 'Validando…' : 'Aplicar'}</button>
+        {applied && <button type="button" className="btn sm" onClick={remove}>Remover cupom</button>}
+      </form>
+      {error && <div className="alert err small" role="alert" style={{ margin: 0 }}>{error}</div>}
+      {applied && (
+        <div className="alert ok small" role="status" style={{ margin: 0 }}>
+          Cupom <strong>{applied.coupon.code}</strong> aplicado: {couponLabel(applied.coupon)}
+          {applied.coupon.product !== 'ALL' && <> no plano {PRODUCT_LABEL[applied.coupon.product as PlanProduct] ?? applied.coupon.product}</>}
+          {applied.coupon.cycles !== 'ALL' && <> ({CYCLE_LABEL[applied.coupon.cycles]?.toLowerCase()})</>}
+          {applied.coupon.validUntil && <> · válido até {fmtDay(applied.coupon.validUntil)}</>}. O preço com desconto aparece em cada plano abaixo.
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function ProductCard({ product, sub, prices, configured, app, desc, label, coupon }: { product: PlanProduct; sub: { status: SubStatus; validUntil: string; cycle?: string } | null; prices: Record<Cycle, number>; configured: boolean; app?: 'mckbot' | 'mensagem'; desc?: string; label?: string; coupon?: AppliedCoupon | null }) {
   const [cycle, setCycle] = useState<Cycle>('MENSAL');
   const { busy, run } = useAction();
   const left = sub ? daysLeft(sub.validUntil) : 0;
   const saving = prices.MENSAL * 12 - prices.ANUAL;
+  const q = coupon?.quotes[product]?.[cycle] ?? null;
   const pay = async () => {
-    const r = await run(() => post<{ init_point: string }>('/billing/checkout', app ? { product, cycle, app } : { product, cycle }));
+    const body: Record<string, string> = { product, cycle };
+    if (app) body.app = app;
+    if (q && coupon) body.coupon = coupon.coupon.code;
+    const r = await run(() => post<{ init_point: string }>('/billing/checkout', body));
     if (r?.init_point) window.location.href = r.init_point;
   };
   return (
@@ -63,16 +116,28 @@ export function ProductCard({ product, sub, prices, configured, app, desc, label
         </div>
       )}
       <div className="grid g2" style={{ gap: 8 }}>
-        {(['MENSAL', 'ANUAL'] as Cycle[]).map((c) => (
+        {(['MENSAL', 'ANUAL'] as Cycle[]).map((c) => {
+          const cq = coupon?.quotes[product]?.[c] ?? null;
+          return (
           <label key={c} className="card" style={{ padding: 10, cursor: 'pointer', boxShadow: 'none', borderColor: cycle === c ? 'var(--brand)' : undefined }}>
             <div className="row"><input type="radio" name={`cycle-${product}`} checked={cycle === c} onChange={() => setCycle(c)} /> <strong>{CYCLE_LABEL[c]}</strong></div>
-            <div style={{ fontSize: 18, fontWeight: 700 }}>{fmtBRL(prices[c])}</div>
+            {cq ? <div><s className="small muted">{fmtBRL(cq.originalCents)}</s> <span style={{ fontSize: 18, fontWeight: 700 }}>{fmtBRL(cq.finalCents)}</span></div>
+              : <div style={{ fontSize: 18, fontWeight: 700 }}>{fmtBRL(prices[c])}</div>}
             <div className="small muted">{c === 'MENSAL' ? 'por mês' : saving > 0 ? `por ano · economize ${fmtBRL(saving)}` : 'por ano'}</div>
           </label>
-        ))}
+          );
+        })}
       </div>
+      {q && coupon && (
+        <div className="small" style={{ lineHeight: 1.6 }} aria-label="Resumo do desconto">
+          <div className="row between"><span>Preço do plano</span><span>{fmtBRL(q.originalCents)}</span></div>
+          <div className="row between" style={{ color: 'var(--green, #15803d)' }}><span>Cupom {coupon.coupon.code}</span><span>− {fmtBRL(q.discountCents)}</span></div>
+          <div className="row between"><strong>Total</strong><strong>{fmtBRL(q.finalCents)}</strong></div>
+        </div>
+      )}
+      {coupon && !q && <div className="small muted">O cupom {coupon.coupon.code} não vale para este plano/ciclo.</div>}
       <button className="btn primary" disabled={!configured || busy} onClick={pay}>
-        {busy ? 'Abrindo pagamento…' : `Pagar ${fmtBRL(prices[cycle])} (Pix ou cartão)`}
+        {busy ? 'Abrindo pagamento…' : `Pagar ${fmtBRL(q ? q.finalCents : prices[cycle])} (Pix ou cartão)`}
       </button>
     </div>
   );
@@ -120,7 +185,8 @@ export default function Plan() {
   const [result, setResult] = useState<{ kind: 'ok' | 'warn' | 'err'; text: string } | null>(null);
   const done = useRef<string | null>(null);
   // Comparação de planos: só quando não há plano pago ativo, quando o cliente pede para trocar/renovar ou veio da vitrine (?plano=).
-  const [compare, setCompare] = useState<boolean>(() => sp.has('plano'));
+  const [compare, setCompare] = useState<boolean>(() => sp.has('plano') || sp.has('cupom'));
+  const coupon = useCoupon();
 
   useEffect(() => {
     const key = paymentId ?? billingBack;
@@ -137,7 +203,7 @@ export default function Plan() {
     }
     setConfirming(true);
     post<ConfirmResult>('/billing/confirm', { paymentId })
-      .then((r) => { setResult(reasonText(r)); state.setData((d) => (d ? { ...d, subscriptions: r.subscriptions } : d)); refresh(); })
+      .then((r) => { setResult(reasonText(r)); if (r.renewed || r.duplicated) clearStoredCoupon(); state.setData((d) => (d ? { ...d, subscriptions: r.subscriptions } : d)); refresh(); })
       .catch((e) => setResult({ kind: 'err', text: (e as Error).message }))
       .finally(() => { setConfirming(false); setSp(new URLSearchParams(), { replace: true }); });
   }, [paymentId, billingBack]);
@@ -151,7 +217,7 @@ export default function Plan() {
         const subs = b.subscriptions;
         const combo = comboView(subs);
         const paid = subs.filter((x) => x.status === 'ATIVA');
-        const showCompare = compare || paid.length === 0;
+        const showCompare = compare || paid.length === 0 || !!coupon.applied;
         return (
           <div className="stack">
             <CurrentPlan subs={subs} prices={b.prices} />
@@ -164,10 +230,11 @@ export default function Plan() {
               <>
                 {!b.configured && <div className="alert warn">Pagamento ainda não configurado. O pagamento online estará disponível em breve; enquanto isso, fale com o suporte para ativar ou renovar a sua assinatura.</div>}
                 <h2 style={{ margin: '8px 0 0' }}>{paid.length ? 'Renovar ou trocar de plano' : 'Escolha seu plano'}</h2>
+                <CouponBox state={coupon} />
                 <div className="grid g3">
                   {PLAN_PRODUCTS.map((p) => {
                     const s = p === 'COMBO' ? combo : subs.find((x) => x.product === p) ?? null;
-                    return <ProductCard key={p} product={p} sub={s} prices={b.prices[p]} configured={b.configured} />;
+                    return <ProductCard key={p} product={p} sub={s} prices={b.prices[p]} configured={b.configured} coupon={coupon.applied} />;
                   })}
                 </div>
                 <p className="small muted">O pagamento é processado pelo Mercado Pago. Ao renovar antes do vencimento, o novo período é somado ao que ainda resta. Novos clientes têm {b.trialDays} dia(s) de teste grátis.</p>

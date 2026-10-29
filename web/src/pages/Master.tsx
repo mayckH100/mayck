@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { post, put } from '../api';
+import { del, post, put } from '../api';
 import { useAuth, type SubscriptionView, type SubStatus } from '../auth';
 import { useApi, Async, Empty, Field, Loading, Modal, fmtDate, fmtNum, useAction } from '../ui';
 import {
@@ -44,6 +44,8 @@ const ACTION_LABEL: Record<string, string> = {
   'master.client.renew': 'Master: assinatura renovada', 'master.client.activate': 'Master: assinatura ativada', 'master.client.set-date': 'Master: vencimento definido',
   'master.client.block': 'Master: assinatura bloqueada', 'master.client.deactivate': 'Master: assinatura desativada', 'master.client.unblock': 'Master: assinatura desbloqueada',
   'master.user.update': 'Master: usuário alterado', 'master.settings.update': 'Master: configurações alteradas',
+  'master.coupon.create': 'Master: cupom criado', 'master.coupon.update': 'Master: cupom editado', 'master.coupon.activate': 'Master: cupom ativado',
+  'master.coupon.deactivate': 'Master: cupom desativado', 'master.coupon.delete': 'Master: cupom excluído', 'master.site.update': 'Master: site oficial alterado',
   'billing.checkout': 'Pagamento iniciado', 'billing.mp.renovado': 'Pagamento aprovado (renovação)', 'billing.mp.valor_divergente': 'Pagamento com valor divergente',
   'auth.login': 'Login', 'auth.login_failed': 'Login falhou', 'auth.register': 'Cadastro',
 };
@@ -452,7 +454,7 @@ function Activity() {
   );
 }
 
-function SettingsTab() {
+function PlatformSettingsForm() {
   const state = useApi<Settings>('/master/settings');
   const [prices, setPrices] = useState<Record<string, string>>({});
   const [trial, setTrial] = useState('');
@@ -545,6 +547,175 @@ function SettingsTab() {
   );
 }
 
+// ---------- Cupons de desconto ----------
+interface Coupon {
+  id: string; code: string; partner: string | null; type: 'PERCENT' | 'FIXED'; value: number; product: string; cycles: string;
+  validUntil: string | null; maxUses: number | null; active: boolean; state: 'ATIVO' | 'INATIVO' | 'EXPIRADO' | 'ESGOTADO';
+  uses: number; revenueCents: number; discountCents: number; deletable: boolean; createdAt: string;
+}
+const COUPON_PRODUCT_LABEL: Record<string, string> = { ALL: 'Todos os planos', MCKBOT: 'MCKBOT', MCKMENSAGEM: 'MCK Mensagens', COMBO: 'Combo' };
+const COUPON_CYCLE_LABEL: Record<string, string> = { ALL: 'Mensal e anual', MENSAL: 'Só mensal', ANUAL: 'Só anual' };
+const COUPON_STATE_CLS: Record<Coupon['state'], string> = { ATIVO: 'green', INATIVO: '', EXPIRADO: 'amber', ESGOTADO: 'amber' };
+const COUPON_STATE_LABEL: Record<Coupon['state'], string> = { ATIVO: 'Ativo', INATIVO: 'Inativo', EXPIRADO: 'Expirado', ESGOTADO: 'Esgotado' };
+const couponValue = (c: Pick<Coupon, 'type' | 'value'>) => (c.type === 'PERCENT' ? `${c.value}%` : fmtBRL(c.value));
+
+function CouponModal({ coupon, onClose, onSaved }: { coupon: Coupon | null; onClose: () => void; onSaved: () => void }) {
+  const [f, setF] = useState({
+    code: coupon?.code ?? '', partner: coupon?.partner ?? '', type: coupon?.type ?? 'PERCENT', value: coupon ? (coupon.type === 'PERCENT' ? String(coupon.value) : centsToInput(coupon.value)) : '',
+    product: coupon?.product ?? 'ALL', cycles: coupon?.cycles ?? 'ALL', validUntil: coupon?.validUntil ? toDateInput(coupon.validUntil) : '',
+    maxUses: coupon?.maxUses ? String(coupon.maxUses) : '', active: coupon?.active ?? true,
+  });
+  const [err, setErr] = useState('');
+  const { busy, run } = useAction();
+  const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => setF({ ...f, [k]: e.target.value });
+  const codeLocked = !!coupon && !coupon.deletable;
+  const submit = async (e: FormEvent) => {
+    e.preventDefault(); setErr('');
+    const value = f.type === 'PERCENT' ? Number(f.value) : parseBRL(f.value);
+    if (f.type === 'PERCENT' && (!Number.isInteger(value) || value! < 1 || value! > 99)) return setErr('Percentual: número inteiro de 1 a 99.');
+    if (f.type === 'FIXED' && (value === null || value <= 0)) return setErr('Valor fixo inválido. Use, por exemplo, 10,00.');
+    const maxUses = f.maxUses.trim() ? Number(f.maxUses) : null;
+    if (maxUses !== null && (!Number.isInteger(maxUses) || maxUses < 1)) return setErr('Limite de usos: número inteiro maior que zero, ou deixe em branco.');
+    const body = { code: f.code.trim().toUpperCase(), partner: f.partner.trim() || null, type: f.type, value, product: f.product, cycles: f.cycles, validUntil: f.validUntil || null, maxUses, active: f.active };
+    const r = await run(() => (coupon ? put(`/master/coupons/${coupon.id}`, body) : post('/master/coupons', body)), coupon ? 'Cupom salvo' : 'Cupom criado');
+    if (r) { onSaved(); onClose(); }
+  };
+  return (
+    <Modal title={coupon ? `Editar cupom ${coupon.code}` : 'Novo cupom'} onClose={onClose}>
+      <form className="stack" onSubmit={submit}>
+        {err && <div className="alert err small" role="alert">{err}</div>}
+        <div className="grid g2">
+          <Field label="Código" hint={codeLocked ? 'Cupom já usado: o código não muda.' : 'Maiúsculas, números, - e _. Ex.: INFLU10'}>
+            <input required value={f.code} disabled={codeLocked} maxLength={30} pattern="[A-Za-z0-9_-]{3,30}" onChange={(e) => setF({ ...f, code: e.target.value.toUpperCase().replace(/\s+/g, '') })} />
+          </Field>
+          <Field label="Parceiro (opcional)" hint="Influenciador ou empresa"><input value={f.partner} maxLength={120} onChange={set('partner')} /></Field>
+        </div>
+        <div className="grid g2">
+          <Field label="Tipo de desconto">
+            <select value={f.type} onChange={(e) => setF({ ...f, type: e.target.value as 'PERCENT' | 'FIXED', value: '' })}><option value="PERCENT">Percentual (%)</option><option value="FIXED">Valor fixo (R$)</option></select>
+          </Field>
+          <Field label={f.type === 'PERCENT' ? 'Desconto (%)' : 'Desconto (R$)'} hint="O valor final nunca fica abaixo de R$ 1,00.">
+            <input required inputMode={f.type === 'PERCENT' ? 'numeric' : 'decimal'} value={f.value} onChange={set('value')} placeholder={f.type === 'PERCENT' ? '10' : '10,00'} />
+          </Field>
+        </div>
+        <div className="grid g2">
+          <Field label="Produto"><select value={f.product} onChange={set('product')}>{Object.entries(COUPON_PRODUCT_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></Field>
+          <Field label="Ciclos de cobrança"><select value={f.cycles} onChange={set('cycles')}>{Object.entries(COUPON_CYCLE_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></Field>
+        </div>
+        <div className="grid g2">
+          <Field label="Validade (opcional)" hint="Vale até o fim do dia (Brasília). Em branco: sem prazo."><input type="date" value={f.validUntil} onChange={set('validUntil')} /></Field>
+          <Field label="Limite de usos total (opcional)" hint="Conta só pagamentos confirmados."><input type="number" min={1} value={f.maxUses} onChange={set('maxUses')} /></Field>
+        </div>
+        <label className="row small"><input type="checkbox" checked={f.active} onChange={(e) => setF({ ...f, active: e.target.checked })} /> Cupom ativo</label>
+        <div className="row" style={{ justifyContent: 'flex-end' }}>
+          <button type="button" className="btn" onClick={onClose}>Cancelar</button>
+          <button className="btn primary" disabled={busy}>{busy ? 'Salvando…' : coupon ? 'Salvar cupom' : 'Criar cupom'}</button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+function CouponsSection() {
+  const state = useApi<{ items: Coupon[] }>('/master/coupons');
+  const [editing, setEditing] = useState<Coupon | null | 'new'>(null);
+  const { run } = useAction();
+  const toggle = async (c: Coupon) => { if (await run(() => post(`/master/coupons/${c.id}/active`, { active: !c.active }), c.active ? 'Cupom desativado' : 'Cupom ativado')) state.reload(); };
+  const remove = async (c: Coupon) => {
+    if (!confirm(`Excluir o cupom ${c.code}? Ele nunca foi usado.`)) return;
+    if (await run(() => del(`/master/coupons/${c.id}`), 'Cupom excluído')) state.reload();
+  };
+  const link = (c: Coupon) => `${window.location.origin}/cadastro?cupom=${encodeURIComponent(c.code)}`;
+  return (
+    <div className="card stack">
+      <div className="row between" style={{ flexWrap: 'wrap', gap: 8 }}>
+        <div><h2 style={{ margin: 0 }}>Cupons de desconto</h2><p className="small muted" style={{ margin: 0 }}>Para parcerias com influenciadores e empresas. Link do parceiro: /cadastro?cupom=CODIGO (o cupom já entra aplicado na assinatura).</p></div>
+        <button type="button" className="btn primary" onClick={() => setEditing('new')}>Novo cupom</button>
+      </div>
+      <Async state={state}>{(d) => d.items.length === 0 ? <Empty title="Nenhum cupom ainda">Crie o primeiro cupom em “Novo cupom”.</Empty> : (
+        <div className="table-wrap">
+          <table>
+            <thead><tr><th>Código</th><th>Parceiro</th><th>Desconto</th><th>Vale para</th><th>Validade</th><th>Usos</th><th>Receita</th><th>Descontos</th><th>Situação</th><th></th></tr></thead>
+            <tbody>{d.items.map((c) => (
+              <tr key={c.id}>
+                <td style={{ whiteSpace: 'nowrap' }}><strong className="mono">{c.code}</strong></td>
+                <td>{c.partner ?? <span className="muted">—</span>}</td>
+                <td>{couponValue(c)}</td>
+                <td className="small">{COUPON_PRODUCT_LABEL[c.product] ?? c.product}<br /><span className="muted">{COUPON_CYCLE_LABEL[c.cycles] ?? c.cycles}</span></td>
+                <td className="small">{c.validUntil ? fmtDay(c.validUntil) : <span className="muted">sem prazo</span>}</td>
+                <td>{fmtNum(c.uses)}{c.maxUses ? <span className="muted"> / {fmtNum(c.maxUses)}</span> : null}</td>
+                <td>{fmtBRL(c.revenueCents)}</td>
+                <td>{fmtBRL(c.discountCents)}</td>
+                <td><span className={`badge ${COUPON_STATE_CLS[c.state]}`}>{COUPON_STATE_LABEL[c.state]}</span></td>
+                <td>
+                  <div className="row" style={{ gap: 4, flexWrap: 'nowrap' }}>
+                    <button type="button" className="btn sm" onClick={() => setEditing(c)}>Editar</button>
+                    <button type="button" className="btn sm" onClick={() => toggle(c)}>{c.active ? 'Desativar' : 'Ativar'}</button>
+                    <button type="button" className="btn sm" title="Copiar link do parceiro" onClick={() => { void navigator.clipboard?.writeText(link(c)); }}>Link</button>
+                    {c.deletable && <button type="button" className="btn sm danger" onClick={() => remove(c)}>Excluir</button>}
+                  </div>
+                </td>
+              </tr>
+            ))}</tbody>
+          </table>
+        </div>
+      )}</Async>
+      <p className="small muted">Usos, receita e descontos contam só pagamentos confirmados pelo Mercado Pago (estornos saem da conta). Cupom já usado não pode ser excluído, apenas desativado.</p>
+      {editing && <CouponModal coupon={editing === 'new' ? null : editing} onClose={() => setEditing(null)} onSaved={state.reload} />}
+    </div>
+  );
+}
+
+// ---------- Site oficial (/empresa) ----------
+interface SiteSettings { contactEmail: string; whatsapp: string; facebookUrl: string; tutorialsPublic: boolean; promoCoupon: string; promoText: string }
+function SiteSettingsSection() {
+  const state = useApi<SiteSettings>('/master/site');
+  const [f, setF] = useState<SiteSettings | null>(null);
+  const { busy, run } = useAction();
+  useEffect(() => { if (state.data) setF({ contactEmail: state.data.contactEmail, whatsapp: state.data.whatsapp, facebookUrl: state.data.facebookUrl, tutorialsPublic: state.data.tutorialsPublic, promoCoupon: state.data.promoCoupon, promoText: state.data.promoText }); }, [state.data]);
+  const set = (k: keyof SiteSettings) => (e: React.ChangeEvent<HTMLInputElement>) => f && setF({ ...f, [k]: e.target.value });
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!f) return;
+    const r = await run(() => put<SiteSettings>('/master/site', { ...f, promoCoupon: f.promoCoupon.trim().toUpperCase() }), 'Site oficial atualizado');
+    if (r) state.setData(r);
+  };
+  return (
+    <Async state={state}>{() => f && (
+      <form className="card stack" onSubmit={submit}>
+        <div className="row between" style={{ flexWrap: 'wrap', gap: 8 }}>
+          <div><h2 style={{ margin: 0 }}>Site oficial</h2><p className="small muted" style={{ margin: 0 }}>O que aparece no site da empresa (/empresa). Os preços já vêm da tabela acima.</p></div>
+          <a className="btn sm" href="/empresa/" target="_blank" rel="noopener">Abrir o site</a>
+        </div>
+        <div className="grid g2">
+          <Field label="E-mail de contato"><input type="email" required value={f.contactEmail} onChange={set('contactEmail')} /></Field>
+          <Field label="WhatsApp de contato (opcional)" hint="DDI + DDD + número, ex.: 5511999999999. Em branco: não aparece."><input inputMode="tel" value={f.whatsapp} onChange={set('whatsapp')} /></Field>
+        </div>
+        <Field label="Página do Facebook" hint="Link https://www.facebook.com/..."><input type="url" value={f.facebookUrl} onChange={set('facebookUrl')} /></Field>
+        <label className="row small"><input type="checkbox" checked={f.tutorialsPublic} onChange={(e) => setF({ ...f, tutorialsPublic: e.target.checked })} /> Tutoriais completos públicos no site (desligado: só assinantes assistem, dentro dos apps)</label>
+        <div className="grid g2">
+          <Field label="Promoção em destaque: cupom (opcional)" hint="Aparece como faixa no site só enquanto o cupom estiver ativo e válido."><input value={f.promoCoupon} onChange={(e) => setF({ ...f, promoCoupon: e.target.value.toUpperCase() })} placeholder="Ex.: INFLU10" /></Field>
+          <Field label="Texto da promoção (opcional)" hint="Até 200 caracteres."><input value={f.promoText} maxLength={200} onChange={set('promoText')} placeholder="Ex.: 10% de desconto no primeiro mês" /></Field>
+        </div>
+        <div className="row" style={{ justifyContent: 'flex-end' }}>
+          <button type="button" className="btn" onClick={state.reload}>Descartar alterações</button>
+          <button className="btn primary" disabled={busy}>{busy ? 'Salvando…' : 'Salvar site oficial'}</button>
+        </div>
+      </form>
+    )}</Async>
+  );
+}
+
+function SettingsTab() {
+  return (
+    <div className="stack">
+      <PlatformSettingsForm />
+      <CouponsSection />
+      <SiteSettingsSection />
+    </div>
+  );
+}
+
 // ---------- Página ----------
 export default function Master() {
   const { me } = useAuth();
@@ -560,6 +731,11 @@ export default function Master() {
     <>
       <div className="page-head">
         <div><h1>Painel Master</h1><p className="muted">Administração da plataforma: clientes, assinaturas, pagamentos e configurações.</p></div>
+        <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+          <a className="btn" href="/empresa/" target="_blank" rel="noopener">Site oficial</a>
+          <a className="btn sm" href="/empresa/planos.html" target="_blank" rel="noopener">Planos</a>
+          <a className="btn sm" href="/empresa/ajuda.html" target="_blank" rel="noopener">Ajuda</a>
+        </div>
       </div>
       {orgId ? <ClientDetailView orgId={orgId} /> : (
         <>

@@ -25,6 +25,7 @@ import { kanbanRouter } from './routes/kanban.js';
 import { conversationsRouter } from './routes/conversations.js';
 import { teamRouter } from './routes/team.js';
 import { plansRouter, publicPlansRouter } from './routes/plans.js';
+import { publicSiteRouter } from './routes/site.js';
 import { integrationsRouter } from './routes/integrations.js';
 import { dashboardRouter } from './routes/dashboard.js';
 import { profileRouter, orgRouter, auditRouter } from './routes/misc.js';
@@ -66,6 +67,7 @@ export function createApp() {
 
   app.use('/api/auth', authRouter);
   app.use('/api/public/plans', publicPlansRouter); // vitrine de planos, sem login
+  app.use('/api/public/site', publicSiteRouter); // site oficial /empresa: contato, Facebook, promoção, tutoriais (sem login, só leitura)
   app.use('/api/profile', profileRouter);
   app.use('/api/master', requireSuperAdmin, masterRouter);
   app.use('/api/org', requireOrg, orgRouter);
@@ -110,6 +112,9 @@ export function createApp() {
     // MCK Mensagens: app separado (entrada própria) servido em /mensagem e /mensagem/*.
     const mensagemHtml = path.join(webDir, 'mensagem.html');
     if (existsSync(mensagemHtml)) app.get(['/mensagem', '/mensagem/*'], (_req, res) => res.sendFile(mensagemHtml));
+    // Site institucional MCK DESENVOLVIMENTO (páginas estáticas em web/public/empresa).
+    const empresaHtml = path.join(webDir, 'empresa', 'index.html');
+    if (existsSync(empresaHtml)) app.get(['/empresa', '/empresa/'], (_req, res) => res.sendFile(empresaHtml));
     app.get('*', (_req, res) => res.sendFile(path.join(webDir, 'index.html')));
   }
 
