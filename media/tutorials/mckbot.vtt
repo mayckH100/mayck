@@ -1,0 +1,356 @@
+WEBVTT
+
+00:00:00.300 --> 00:00:00.554
+Olá!
+
+00:00:00.554 --> 00:00:04.624
+Neste tutorial você vai conhecer em detalhes o painel do MCKBOT,
+
+00:00:04.624 --> 00:00:10.601
+a plataforma de atendimento automático no WhatsApp com robô, fluxos e inteligência artificial.
+
+00:00:10.601 --> 00:00:17.532
+Vamos usar como exemplo uma loja de carros seminovos, a AutoPrime Veículos, e passar por cada menu do painel.
+
+00:00:18.730 --> 00:00:23.011
+Depois de entrar com seu e-mail e senha, você chega ao painel.
+
+00:00:23.011 --> 00:00:25.979
+À esquerda fica o menu, dividido em grupos.
+
+00:00:25.979 --> 00:00:26.808
+Atendimento:
+
+00:00:26.808 --> 00:00:28.534
+Inbox, Kanban e Contatos.
+
+00:00:28.534 --> 00:00:29.224
+Automação:
+
+00:00:29.224 --> 00:00:33.574
+Fluxos, Inteligência artificial, Canais WhatsApp e Integrações.
+
+00:00:33.574 --> 00:00:34.057
+Gestão:
+
+00:00:34.057 --> 00:00:36.681
+Relatórios, Equipe, Plano e Auditoria.
+
+00:00:36.681 --> 00:00:38.476
+E Conta, com o seu Perfil.
+
+00:00:38.476 --> 00:00:43.378
+No topo aparecem o nome da empresa, o seu papel e o atalho Criar fluxo.
+
+00:00:44.197 --> 00:00:46.228
+A primeira tela é a Visão geral.
+
+00:00:46.228 --> 00:00:52.511
+Ela mostra, em tempo real, as conversas abertas, as que aguardam atendimento humano, as encerradas,
+
+00:00:52.511 --> 00:00:58.096
+o total de contatos, as mensagens recebidas e enviadas nas últimas vinte e quatro horas,
+
+00:00:58.096 --> 00:01:01.333
+os fluxos ativos e a taxa de sucesso das execuções.
+
+00:01:02.137 --> 00:01:06.414
+Mais abaixo você confere o status das integrações, ou seja,
+
+00:01:06.414 --> 00:01:14.244
+se o WhatsApp está conectado e se a IA está ativa, o uso da IA nos últimos trinta dias e as falhas recentes.
+
+00:01:14.244 --> 00:01:19.537
+Se algo der errado no envio de uma mensagem, é aqui que aparece primeiro.
+
+00:01:20.337 --> 00:01:24.331
+O primeiro passo para usar o MCKBOT é conectar o seu WhatsApp.
+
+00:01:24.331 --> 00:01:27.616
+Vá em Canais WhatsApp e clique em Adicionar número.
+
+00:01:27.616 --> 00:01:31.868
+A conexão é feita por QR code, do mesmo jeito que no WhatsApp Web:
+
+00:01:31.868 --> 00:01:37.730
+no celular, abra o WhatsApp, toque em Aparelhos conectados, depois em Conectar um aparelho,
+
+00:01:37.730 --> 00:01:41.145
+e aponte a câmera para o QR code que aparece na tela.
+
+00:01:41.947 --> 00:01:46.186
+Com o número conectado, o canal mostra o status Conectado, o número,
+
+00:01:46.186 --> 00:01:50.675
+e quantas mensagens foram enviadas hoje, nos últimos sete e trinta dias.
+
+00:01:50.675 --> 00:01:53.979
+Aqui você também pode desconectar ou excluir o canal.
+
+00:01:53.979 --> 00:01:58.219
+Em Avançado fica a opção da API oficial da Meta, para quem preferir.
+
+00:01:59.017 --> 00:02:04.194
+O Inbox é onde ficam todas as conversas do WhatsApp, compartilhadas com a sua equipe.
+
+00:02:04.194 --> 00:02:07.057
+Ele se atualiza sozinho a cada poucos segundos.
+
+00:02:07.057 --> 00:02:12.783
+Use as abas para ver as conversas abertas, as que aguardam atendimento humano e as encerradas,
+
+00:02:12.783 --> 00:02:16.072
+e a busca para encontrar alguém pelo nome ou telefone.
+
+00:02:16.072 --> 00:02:19.849
+A etiqueta humano indica que a conversa está com um atendente.
+
+00:02:20.647 --> 00:02:24.106
+Ao clicar em uma conversa, você vê todo o histórico.
+
+00:02:24.106 --> 00:02:29.096
+As mensagens respondidas automaticamente aparecem identificadas, como aqui,
+
+00:02:29.096 --> 00:02:34.751
+em que a IA respondeu sobre o Onix, ofereceu o test drive e explicou o financiamento,
+
+00:02:34.751 --> 00:02:37.279
+usando a base de conhecimento da loja.
+
+00:02:38.077 --> 00:02:40.545
+No topo da conversa ficam os controles.
+
+00:02:40.545 --> 00:02:42.760
+Assumir passa a conversa para você:
+
+00:02:42.760 --> 00:02:45.987
+o robô para de responder e você atende manualmente.
+
+00:02:45.987 --> 00:02:49.214
+Depois, é possível devolver a conversa para o robô.
+
+00:02:49.214 --> 00:02:53.581
+O seletor mostra a etapa do funil, e Encerrar finaliza o atendimento.
+
+00:02:54.410 --> 00:02:58.421
+Para responder, escreva na caixa de mensagem e clique em Enviar.
+
+00:02:58.421 --> 00:03:03.810
+Marcando Nota interna, o texto fica visível só para a equipe e não vai para o cliente.
+
+00:03:03.810 --> 00:03:07.946
+E com Enviar fluxo você dispara um fluxo pronto para esse contato.
+
+00:03:08.750 --> 00:03:13.584
+No Kanban, os contatos aparecem como cartões, organizados por etapa do funil:
+
+00:03:13.584 --> 00:03:16.786
+Novo, Em atendimento, Qualificado, Ganho e Perdido.
+
+00:03:16.786 --> 00:03:22.625
+Arraste os cartões entre as colunas, ou use o seletor de cada cartão, para atualizar a etapa.
+
+00:03:22.625 --> 00:03:26.894
+Você pode criar novas colunas e abrir a conversa direto pelo cartão.
+
+00:03:27.690 --> 00:03:29.706
+Em Contatos fica o seu CRM:
+
+00:03:29.706 --> 00:03:34.933
+nome, telefone, etiquetas e a data da última mensagem de cada cliente.
+
+00:03:34.933 --> 00:03:37.770
+Pesquise por nome, telefone ou e-mail.
+
+00:03:38.570 --> 00:03:44.659
+Clique em Novo contato para cadastrar alguém manualmente, ou em Importar para trazer uma planilha.
+
+00:03:44.659 --> 00:03:47.827
+Em Abrir, você vê os detalhes do contato, as notas,
+
+00:03:47.827 --> 00:03:52.922
+os campos coletados pelos fluxos e as ferramentas da LGPD, como exportar os dados.
+
+00:03:53.720 --> 00:03:56.049
+Os Fluxos são as automações do robô.
+
+00:03:56.049 --> 00:03:58.183
+Cada fluxo começa por um gatilho:
+
+00:03:58.183 --> 00:04:03.617
+uma palavra-chave, a primeira mensagem do contato, qualquer mensagem, ou um horário.
+
+00:04:03.617 --> 00:04:08.598
+Na lista você vê o status, a versão, quantas vezes foi executado, e as ações:
+
+00:04:08.598 --> 00:04:11.444
+Abrir, Pausar, Duplicar, Exportar e Excluir.
+
+00:04:11.444 --> 00:04:15.584
+Para criar um, clique em Novo fluxo, ou importe um arquivo JSON.
+
+00:04:16.387 --> 00:04:18.708
+Este é o editor visual de fluxos.
+
+00:04:18.708 --> 00:04:20.607
+À esquerda ficam os blocos:
+
+00:04:20.607 --> 00:04:27.500
+Início, Enviar texto, Enviar mídia, Menu de opções, Perguntar e salvar, Condição, Resposta com IA,
+
+00:04:27.500 --> 00:04:32.916
+Aguardar, Webhook HTTP, Etiqueta ou etapa, Transferir para humano e Encerrar.
+
+00:04:32.916 --> 00:04:39.739
+Arraste os blocos para a área central e ligue as saídas, as bolinhas, à entrada do próximo bloco.
+
+00:04:40.537 --> 00:04:45.231
+Neste exemplo, o fluxo de boas-vindas começa na primeira mensagem do cliente,
+
+00:04:45.231 --> 00:04:47.244
+mostra um menu com quatro opções:
+
+00:04:47.244 --> 00:04:52.060
+ver carros, agendar test drive, simular financiamento ou falar com um vendedor,
+
+00:04:52.060 --> 00:04:54.438
+e cada opção leva a um bloco diferente.
+
+00:04:54.438 --> 00:04:59.804
+Clique em um bloco para editar o texto e as opções no painel de propriedades, à direita,
+
+00:04:59.804 --> 00:05:03.889
+onde também ficam as variáveis disponíveis, como o nome do contato.
+
+00:05:04.687 --> 00:05:07.682
+No topo, Salvar grava uma nova versão do fluxo.
+
+00:05:07.682 --> 00:05:10.868
+Em Versões você pode voltar a uma versão anterior,
+
+00:05:10.868 --> 00:05:17.623
+em Execuções acompanha cada vez que o fluxo rodou, e em Pausar o fluxo deixa de responder temporariamente.
+
+00:05:18.427 --> 00:05:21.402
+Ainda em Fluxos, existe a opção Voltar ao menu.
+
+00:05:21.402 --> 00:05:27.544
+Em qualquer etapa, se o cliente digitar uma das palavras configuradas, como zero, menu ou voltar,
+
+00:05:27.544 --> 00:05:31.090
+o robô cancela a etapa atual e reenvia o menu principal.
+
+00:05:31.090 --> 00:05:34.699
+Você escolhe as palavras e qual fluxo funciona como menu.
+
+00:05:35.497 --> 00:05:37.633
+Agora a Inteligência artificial.
+
+00:05:37.633 --> 00:05:44.709
+Na aba Configuração, escolha o provedor, por exemplo o Google Gemini, o modelo, e cole a sua chave de API.
+
+00:05:44.709 --> 00:05:47.113
+A chave fica salva de forma cifrada.
+
+00:05:47.917 --> 00:05:54.261
+Em Comportamento, ative a IA e marque Responder automaticamente quando nenhum fluxo for acionado.
+
+00:05:54.261 --> 00:05:58.120
+Assim, qualquer pergunta fora do menu é respondida pela IA.
+
+00:05:58.120 --> 00:06:03.484
+Em Instruções, explique quem é a assistente, o que a empresa vende e como atender.
+
+00:06:03.484 --> 00:06:09.109
+Defina também o tom de voz e as palavras que pedem atendimento humano, como atendente.
+
+00:06:09.917 --> 00:06:16.409
+Na aba Base de conhecimento, clique em Documento para adicionar informações que a IA deve saber:
+
+00:06:16.409 --> 00:06:20.467
+perguntas frequentes, tabela de preços, políticas, horários.
+
+00:06:20.467 --> 00:06:25.607
+No exemplo, temos endereço e horários, financiamento, garantia e test drive.
+
+00:06:25.607 --> 00:06:31.085
+O texto é dividido em trechos e os mais relevantes vão para a IA a cada pergunta.
+
+00:06:31.917 --> 00:06:38.481
+Na aba Testar, você simula a pergunta de um cliente e vê a resposta da IA com a sua configuração
+
+00:06:38.481 --> 00:06:40.805
+real, sem enviar nada no WhatsApp.
+
+00:06:40.805 --> 00:06:45.045
+E na aba Uso, acompanha as requisições e os tokens consumidos.
+
+00:06:45.850 --> 00:06:52.307
+Em Integrações, você conecta a API do seu sistema, como uma loja virtual, um ERP ou um CRM.
+
+00:06:52.307 --> 00:06:57.841
+A credencial fica cifrada e é usada pelo bloco Webhook HTTP dentro dos fluxos,
+
+00:06:57.841 --> 00:07:00.466
+por exemplo para consultar o estoque.
+
+00:07:01.270 --> 00:07:07.344
+Em Relatórios, escolha o período e veja as mensagens recebidas e enviadas, as novas conversas,
+
+00:07:07.344 --> 00:07:12.642
+o tempo médio da primeira resposta, gráficos por dia e o desempenho de cada fluxo:
+
+00:07:12.642 --> 00:07:15.550
+execuções, concluídas, transferidas e falhas.
+
+00:07:16.350 --> 00:07:19.066
+Em Equipe, convide seus colaboradores.
+
+00:07:19.066 --> 00:07:23.355
+Informe o e-mail, escolha o papel e clique em Gerar convite.
+
+00:07:23.355 --> 00:07:25.714
+O Proprietário tem acesso a tudo.
+
+00:07:25.714 --> 00:07:29.502
+O Administrador cuida de fluxos, IA, canais e equipe.
+
+00:07:29.502 --> 00:07:32.790
+E o Atendente acessa Inbox, Kanban e Contatos.
+
+00:07:33.617 --> 00:07:38.962
+No grupo Gestão, em Plano você acompanha a sua assinatura, a validade e faz a renovação,
+
+00:07:38.962 --> 00:07:43.093
+e em Auditoria fica o registro de tudo o que foi alterado no painel.
+
+00:07:43.093 --> 00:07:48.743
+Já em Perfil, você atualiza seus dados, troca a sua senha e ajusta o nome e o fuso horário da
+
+00:07:48.743 --> 00:07:52.145
+empresa, usado nos gatilhos de horário e nos relatórios.
+
+00:07:52.950 --> 00:07:55.680
+Por fim, leia as Boas práticas no WhatsApp:
+
+00:07:55.680 --> 00:08:01.902
+elas explicam como evitar bloqueios, respeitar quem pede para sair e manter o seu número saudável.
+
+00:08:01.902 --> 00:08:06.918
+E na área Tutoriais, os assinantes encontram os vídeos como este, com legendas.
+
+00:08:07.750 --> 00:08:08.197
+Pronto!
+
+00:08:08.197 --> 00:08:11.454
+Agora você conhece as principais funções do MCKBOT:
+
+00:08:11.454 --> 00:08:17.074
+conectar o WhatsApp, atender no Inbox, organizar o funil no Kanban, cuidar dos contatos,
+
+00:08:17.074 --> 00:08:23.268
+criar fluxos, configurar a inteligência artificial, integrar sistemas e acompanhar os resultados.
+
+00:08:23.268 --> 00:08:26.014
+Bons atendimentos e até o próximo tutorial!
+
