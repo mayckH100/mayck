@@ -64,6 +64,15 @@ if (config.ENABLE_WHATSAPP_QR === 'true') {
     .catch((e) => console.error('[whatsapp-qr] falha ao restaurar sessões', e));
 }
 
+// Render Free hiberna após ~15 min sem tráfego de entrada e derruba o socket do WhatsApp.
+// Um ping no próprio endereço público a cada 10 min mantém a instância (e o QR) sempre conectada.
+const keepAliveBase = (process.env.PUBLIC_URL || process.env.RENDER_EXTERNAL_URL || '').replace(/\/$/, '');
+if (config.ENABLE_WHATSAPP_QR === 'true' && keepAliveBase && process.env.NODE_ENV === 'production') {
+  setInterval(() => {
+    fetch(`${keepAliveBase}/api/health`).catch(() => undefined);
+  }, 10 * 60 * 1000).unref?.();
+}
+
 const shutdown = () => {
   qrManager.shutdown().catch(() => undefined);
   server.close(() => prisma.$disconnect().finally(() => process.exit(0)));

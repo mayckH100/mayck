@@ -211,6 +211,11 @@ class QrSessionManager {
         await this.persist(s.channelId, { status: 'NOT_CONNECTED', lastError: s.lastError });
         return;
       }
+      if (code === DisconnectReason.badSession && s.attempts < 3) {
+        // Erro 500 costuma ser passageiro (rede/servidor do WhatsApp): tenta de novo antes de apagar a sessão.
+        this.scheduleRetry(s, `Sessão instável (código ${code})`);
+        return;
+      }
       if (code === DisconnectReason.badSession || code === DisconnectReason.multideviceMismatch || code === DisconnectReason.forbidden) {
         await this.handleLoggedOut(s, `Sessão inválida (código ${code}). Conecte de novo pelo QR code.`);
         return;
