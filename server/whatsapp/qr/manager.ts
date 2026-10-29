@@ -161,7 +161,14 @@ class QrSessionManager {
         markOnlineOnConnect: false,
         syncFullHistory: false,
         generateHighQualityLinkPreview: false,
-        getMessage: async (key) => recallSent(key.id) as never,
+        getMessage: async (key) => {
+          // 1) cache em memória; 2) após reinício/deploy, recupera o texto salvo no banco para reenviar.
+          const cached = recallSent(key.id);
+          if (cached) return cached as never;
+          if (!key.id) return undefined;
+          const m = await prisma.message.findFirst({ where: { channelId: s.channelId, waMessageId: key.id, direction: 'OUT' }, select: { body: true } }).catch(() => null);
+          return (m?.body ? { conversation: m.body } : undefined) as never;
+        },
         msgRetryCounterCache: msgRetryCounterCache as never,
       });
       sock.ev.on('creds.update', () => { saveCreds().catch((e) => silentLogger.error(e, 'falha ao salvar credenciais')); });
