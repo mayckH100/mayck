@@ -193,7 +193,7 @@ authRouter.post('/orgs', requireAuth, ah(async (req, res) => {
 }));
 
 // ---- Convites ----
-authRouter.get('/invite/:token', ah(async (req, res) => {
+authRouter.get('/invite/:token', loginIpLimiter, ah(async (req, res) => {
   const inv = await prisma.invitation.findUnique({ where: { tokenHash: sha256(req.params.token) } });
   if (!inv || inv.acceptedAt || inv.expiresAt < new Date()) throw new HttpError(404, 'Convite inválido ou expirado');
   const org = await prisma.organization.findUnique({ where: { id: inv.orgId } });
@@ -261,6 +261,12 @@ const forgotIpLimiter = rateLimit({
   message: { error: 'Muitos pedidos de redefinição. Aguarde alguns minutos e tente novamente.' },
 });
 
+/** Gera e envia por e-mail um link de redefinição de senha (1 h). Usado pelo "Esqueci minha senha" e pelo Perfil logado. */
+export async function sendResetLink(req: Request, user: { id: string; email: string; name: string }, app: AppBrand) {
+  const token = await issueToken(user.id, 'RESET_PASSWORD', RESET_TTL_MS, req.ip);
+  sendMailLater(resetMail({ to: user.email, name: user.name, app, url: appPath(app, `/redefinir-senha?token=${token}`, req), req }));
+}
+
 const FORGOT_MSG = 'Se existir uma conta com este e-mail, enviamos um link para redefinir a senha. Confira a caixa de entrada e o spam.';
 
 authRouter.post('/forgot', forgotIpLimiter, forgotLimiter, ah(async (req, res) => {
@@ -275,16 +281,15 @@ authRouter.post('/forgot', forgotIpLimiter, forgotLimiter, ah(async (req, res) =
         await audit(req, 'auth.forgot_unknown', { meta: { email: body.email } });
         return;
       }
-      const token = await issueToken(user.id, 'RESET_PASSWORD', RESET_TTL_MS, req.ip);
+      await sendResetLink(req, user, app);
       await audit(req, 'auth.forgot', { userId: user.id });
-      sendMailLater(resetMail({ to: user.email, name: user.name, app, url: appPath(app, `/redefinir-senha?token=${token}`, req), req }));
     } catch (e) {
       console.error('[auth] forgot:', (e as Error).message);
     }
   })();
 }));
 
-authRouter.get('/reset/:token', ah(async (req, res) => {
+authRouter.get('/reset/:token', loginIpLimiter, ah(async (req, res) => {
   const row = await prisma.authToken.findUnique({ where: { tokenHash: sha256(req.params.token) } });
   const valid = !!row && row.kind === 'RESET_PASSWORD' && !row.usedAt && row.expiresAt > new Date();
   res.json({ valid });
@@ -317,7 +322,7 @@ authRouter.post('/verify-email', loginIpLimiter, ah(async (req, res) => {
   res.json({ ok: true });
 }));
 
-authRouter.post('/resend-verification', requireAuth, ah(async (req, res) => {
+authRouter.post('/resend-verification', requireAuth, forgotLimiter, ah(async (req, res) => {
   const user = await prisma.user.findUniqueOrThrow({ where: { id: req.auth!.userId } });
   if (user.emailVerifiedAt) return void res.json({ ok: true, alreadyVerified: true });
   const app = brandOf(req.body?.app);

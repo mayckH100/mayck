@@ -5,6 +5,7 @@ import { decryptOrNull, safeEqual } from '../lib/crypto.js';
 import { verifyHubSignature } from '../whatsapp/signature.js';
 import { processWebhook } from '../whatsapp/inbound.js';
 import { config } from '../config.js';
+import { safeErrorForLog } from '../lib/http.js';
 
 /**
  * Webhook da WhatsApp Cloud API — uma URL por canal: /api/webhooks/whatsapp/:channelId
@@ -51,7 +52,7 @@ webhookRouter.post('/whatsapp/:channelId', limiter, raw({ type: '*/*', limit: '2
     const result = await processWebhook(channel, body);
     return res.status(200).json(result);
   } catch (e) {
-    console.error('[webhook] erro ao processar', e);
+    console.error('[webhook] erro ao processar', safeErrorForLog(e));
     await prisma.channel.update({ where: { id: channel.id }, data: { lastError: `Erro ao processar webhook: ${(e as Error).message}` } });
     // 500 faz a Meta reenviar; a idempotência por message id evita duplicidade no reenvio.
     return res.status(500).json({ error: 'Falha ao processar' });

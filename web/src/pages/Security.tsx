@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { del, post } from '../api';
 import { useAuth, type Me } from '../auth';
-import { Field, useApi, Async, fmtDate, useToast } from '../ui';
+import { Field, useApi, Async, fmtDate, useToast, useAction } from '../ui';
 
 /** Etapa do código (2FA) no login. Usada pelo MCKBOT e pelo MCK Mensagens. */
 export function MfaLoginStep({ mfaToken, app, onDone, onCancel }: { mfaToken: string; app: 'mckbot' | 'mensagem'; onDone: (me: Me) => void; onCancel: () => void }) {
@@ -186,6 +186,36 @@ export function SessionsCard() {
   );
 }
 
+/** Trocar senha (sabendo a atual) ou receber link de redefinição no e-mail (para quem esqueceu a atual). */
+export function PasswordCard({ app = 'mckbot' }: { app?: 'mckbot' | 'mensagem' }) {
+  const { me } = useAuth();
+  const toast = useToast();
+  const [pw, setPw] = useState({ current: '', next: '', confirm: '' });
+  const [sent, setSent] = useState('');
+  const { busy, run } = useAction();
+  return (
+    <form className="card stack" onSubmit={async (e) => {
+      e.preventDefault();
+      if (pw.next !== pw.confirm) { toast('A confirmação não confere com a nova senha', 'err'); return; }
+      if (await run(() => post('/profile/password', { current: pw.current, next: pw.next }), 'Senha alterada. Outras sessões foram encerradas.')) setPw({ current: '', next: '', confirm: '' });
+    }}>
+      <h2>Trocar senha</h2>
+      <Field label="Senha atual"><input type="password" required autoComplete="current-password" value={pw.current} onChange={(e) => setPw({ ...pw, current: e.target.value })} /></Field>
+      <Field label="Nova senha" hint="Mínimo de 8 caracteres"><input type="password" required minLength={8} autoComplete="new-password" value={pw.next} onChange={(e) => setPw({ ...pw, next: e.target.value })} /></Field>
+      <Field label="Confirmar nova senha"><input type="password" required minLength={8} autoComplete="new-password" value={pw.confirm} onChange={(e) => setPw({ ...pw, confirm: e.target.value })} /></Field>
+      <button className="btn primary" disabled={busy}>Trocar senha</button>
+      <div className="small muted" style={{ borderTop: '1px solid var(--line, #e5e7eb)', paddingTop: 12 }}>
+        Não lembra a senha atual? Enviamos um link de redefinição para <strong>{me?.user.email}</strong>.
+      </div>
+      <button type="button" className="btn" disabled={busy} onClick={async () => {
+        const r = await run(() => post<{ message: string }>('/profile/password-reset-link', { app }));
+        if (r) { setSent(r.message); toast(r.message); }
+      }}>Receber link de redefinição por e-mail</button>
+      {sent && <div className="alert ok" role="status">{sent}</div>}
+    </form>
+  );
+}
+
 /** Seção completa de segurança da conta. */
 export function SecuritySection() {
   return (
@@ -200,7 +230,8 @@ export function SecuritySection() {
 export default function SecurityPage() {
   return (
     <>
-      <div className="page-head"><div><h1>Segurança da conta</h1><p className="muted">Verificação em duas etapas e sessões abertas. Vale para MCKBOT e MCK Mensagens (mesma conta).</p></div></div>
+      <div className="page-head"><div><h1>Segurança da conta</h1><p className="muted">Senha, verificação em duas etapas e sessões abertas. Vale para MCKBOT e MCK Mensagens (mesma conta).</p></div></div>
+      <div className="grid g2"><PasswordCard app="mensagem" /></div>
       <SecuritySection />
     </>
   );

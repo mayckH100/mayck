@@ -148,10 +148,28 @@ export async function restoreBackupFile(file: Buffer, key?: Buffer): Promise<Rec
 }
 
 // ---------------- Destinos ----------------
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+/** Destino do backup por e-mail: BACKUP_EMAIL; se ausente, o próprio SMTP_USER (a conta que envia), quando for um e-mail. */
+export function backupEmailTo(): string | null {
+  const explicit = (process.env.BACKUP_EMAIL || '').trim();
+  if (explicit) return EMAIL_RE.test(explicit) ? explicit : null;
+  const smtpUser = (process.env.SMTP_USER || '').trim();
+  return EMAIL_RE.test(smtpUser) ? smtpUser : null;
+}
+
 export function backupDestinations() {
   const gh = !!(process.env.BACKUP_GITHUB_TOKEN && process.env.BACKUP_GITHUB_REPO);
-  const email = !!(process.env.BACKUP_EMAIL && smtpConfigured());
-  return { github: gh, githubRepo: gh ? process.env.BACKUP_GITHUB_REPO! : null, email, emailTo: email ? process.env.BACKUP_EMAIL! : null };
+  const to = smtpConfigured() ? backupEmailTo() : null;
+  return { github: gh, githubRepo: gh ? process.env.BACKUP_GITHUB_REPO! : null, email: !!to, emailTo: to };
+}
+
+/** Backup automático: ligado quando ENABLE_BACKUP=true, ou por padrão quando houver destino (SMTP/GitHub). ENABLE_BACKUP=false desliga. */
+export function backupAutoEnabled(): boolean {
+  const flag = process.env.ENABLE_BACKUP;
+  if (flag === 'false') return false;
+  if (flag === 'true') return true;
+  const d = backupDestinations();
+  return d.github || d.email;
 }
 
 async function gh(method: string, path: string, body?: unknown) {
@@ -192,14 +210,16 @@ async function uploadGithub(name: string, file: Buffer): Promise<string> {
 }
 
 async function sendEmail(name: string, file: Buffer): Promise<string> {
+  const to = backupEmailTo();
+  if (!to) throw new Error('E-mail: destino do backup não definido');
   if (file.length > 15 * 1024 * 1024) throw new Error('Backup maior que 15 MB: grande demais para e-mail');
   const r = await sendMailResult({
-    to: process.env.BACKUP_EMAIL!, subject: `Backup MCK ${name}`,
+    to, subject: `Backup MCK ${name}`,
     text: `Backup diário cifrado do banco MCK (${(file.length / 1024).toFixed(0)} KB). Guarde este arquivo. Para restaurar, use scripts/backup-restore.mjs com a mesma MASTER_KEY/BACKUP_KEY do servidor.`,
     attachments: [{ filename: name, content: file, contentType: 'application/octet-stream' }],
   });
   if (!r.ok) throw new Error(`E-mail: ${r.error}`);
-  return `email:${process.env.BACKUP_EMAIL}`;
+  return `email:${to}`;
 }
 
 export const backupFileName = (d = new Date()) => `mck-${d.toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' })}.bkp`;
@@ -219,7 +239,7 @@ export async function runBackup(trigger: 'AUTO' | 'MANUAL', userId?: string | nu
     const errors: string[] = [];
     if (dest.github) await uploadGithub(name, data).then((l) => locations.push(l), (e) => errors.push((e as Error).message));
     if (dest.email) await sendEmail(name, data).then((l) => locations.push(l), (e) => errors.push((e as Error).message));
-    if (!dest.github && !dest.email) errors.push('Nenhum destino configurado (BACKUP_GITHUB_TOKEN/BACKUP_GITHUB_REPO ou BACKUP_EMAIL). O arquivo pode ser baixado no Painel Master.');
+    if (!dest.github && !dest.email) errors.push('Nenhum destino configurado (BACKUP_GITHUB_TOKEN/BACKUP_GITHUB_REPO ou SMTP/BACKUP_EMAIL). O arquivo pode ser baixado no Painel Master.');
     const ok = locations.length > 0;
     const upd = await prisma.backupRun.update({
       where: { id: run.id },

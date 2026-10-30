@@ -65,13 +65,33 @@ export async function loadSession(req: Request, _res: Response, next: NextFuncti
 
 const SAFE = new Set(['GET', 'HEAD', 'OPTIONS']);
 
+/** Origens próprias aceitas em requisições que alteram dados (CORS restrito: nenhum outro site pode agir em nome do usuário). */
+export function allowedOrigins(req: Request): Set<string> {
+  const out = new Set<string>();
+  for (const raw of [process.env.APP_URL, process.env.PUBLIC_URL, process.env.RENDER_EXTERNAL_URL, ...(process.env.ALLOWED_ORIGINS || '').split(',')]) {
+    try { if (raw && raw.trim()) out.add(new URL(raw.trim()).origin); } catch { /* ignora valor inválido */ }
+  }
+  const host = req.get('host');
+  if (host) out.add(`${req.protocol}://${host}`);
+  return out;
+}
+
+function originOk(req: Request): boolean {
+  const origin = req.headers.origin;
+  if (origin === undefined) return true; // app nativo/curl/testes; o cabeçalho X-Requested-With já exige preflight em navegadores
+  if (origin === 'null') return false; // iframe sandbox / arquivo local
+  return allowedOrigins(req).has(origin);
+}
+
 /**
  * Proteção CSRF:
+ *  - requisições mutáveis vindas de navegador só são aceitas da origem do próprio app (cabeçalho Origin);
  *  - toda requisição mutável exige o cabeçalho X-Requested-With: mckbot (força preflight CORS, que não habilitamos);
  *  - se houver sessão, exige também X-CSRF-Token igual ao token da sessão (double submit ligado à sessão).
  */
 export function csrfProtection(req: Request, _res: Response, next: NextFunction) {
   if (SAFE.has(req.method)) return next();
+  if (!originOk(req)) return next(new HttpError(403, 'Origem não permitida'));
   if (req.headers['x-requested-with'] !== 'mckbot') return next(new HttpError(403, 'Falha na verificação CSRF'));
   if (req.auth && req.headers['x-csrf-token'] !== req.auth.csrfToken) {
     return next(new HttpError(403, 'Token CSRF inválido'));

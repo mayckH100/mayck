@@ -109,11 +109,11 @@
       var best = p.id === 'COMBO', price = p.prices[cycle], l = LINKS[p.id] || LINKS.MCKBOT;
       var save = cycle === 'ANUAL' && p.annualSavings > 0 ? 'Economize ' + brl(p.annualSavings) + ' por ano' : (cycle === 'ANUAL' ? '' : 'ou ' + brl(p.prices.ANUAL) + ' no plano anual');
       return '<div class="plan' + (best ? ' best' : '') + '">' + (best ? '<span class="badge">Mais completo</span>' : '') +
-        '<h3>' + p.label + '</h3><p class="muted" style="color:var(--muted);margin:0">' + p.desc + '</p>' +
+        '<h3>' + esc(p.label) + '</h3><p class="muted" style="color:var(--muted);margin:0">' + esc(p.desc) + '</p>' +
         '<div class="price">' + brl(price) + ' <small>/' + (cycle === 'MENSAL' ? 'mês' : 'ano') + '</small></div><div class="save">' + save + '</div>' +
-        '<ul class="check">' + p.features.map(function (x) { return '<li>' + x.replace(/</g, '&lt;') + '</li>'; }).join('') + '</ul>' +
+        '<ul class="check">' + p.features.map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul>' +
         '<div class="acts"><a class="btn red block" href="' + l.trial + '">Começar teste grátis de ' + data.trialDays + ' dias</a>' +
-        '<a class="btn ghost block" href="' + l.trial + '">Assinar ' + p.label.replace('Combo MCKBOT + MCK Mensagens', 'o Combo') + '</a>' +
+        '<a class="btn ghost block" href="' + l.trial + '">Assinar ' + esc(p.label.replace('Combo MCKBOT + MCK Mensagens', 'o Combo')) + '</a>' +
         '<a href="' + l.login + '" style="text-align:center;font-size:14px">Já sou cliente: entrar e renovar</a></div></div>';
     }).join('');
   }

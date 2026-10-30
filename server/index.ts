@@ -8,7 +8,7 @@ import { tickLeadRetries } from './mckmensagem/qualificacao.js';
 import { tickAutomacoes } from './mckmensagem/automacoes/engine.js';
 import { handleQrMessage, handleQrStatus } from './whatsapp/inbound.js';
 import { syncSuperAdmins } from './auth/superadmin.js';
-import { maybeDailyBackup } from './lib/backup.js';
+import { maybeDailyBackup, backupAutoEnabled } from './lib/backup.js';
 import { tickAgendaReminders } from './agenda/service.js';
 
 const app = createApp();
@@ -63,7 +63,8 @@ if (config.ENABLE_MCKMENSAGEM_CRON === 'true' && config.NODE_ENV !== 'test') {
 }
 
 // Backup diário automático do banco (cifrado), a partir das 3h de Brasília. Confere a cada 30 min (e 2 min após iniciar).
-if (process.env.ENABLE_BACKUP !== 'false' && config.NODE_ENV !== 'test') {
+// Ligado por padrão quando há SMTP (e-mail para BACKUP_EMAIL ou SMTP_USER) ou GitHub privado configurado.
+if (backupAutoEnabled() && config.NODE_ENV !== 'test') {
   const backupTick = () => { maybeDailyBackup().catch((e) => console.error('[backup]', e)); };
   setTimeout(backupTick, 2 * 60_000).unref();
   setInterval(backupTick, 30 * 60_000).unref();

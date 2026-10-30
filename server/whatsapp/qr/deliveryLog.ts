@@ -49,7 +49,7 @@ export async function recordDeliveryEvent(channelId: string, orgId: string | nul
   if (!h || h.hour !== hour) hourly.set(channelId, { hour, n: 1 });
   else if (++h.n > MAX_PER_HOUR) return false;
   const numero = jidToNumber(ev.jid) ?? ev.jid;
-  if (process.env.NODE_ENV !== 'test') console.warn(`[whatsapp-qr] ${ev.action} canal=${channelId} contato=${numero ?? '?'} msg=${ev.msgId ?? '?'}`);
+  if (process.env.NODE_ENV !== 'test') console.warn(`[whatsapp-qr] ${ev.action} canal=${channelId} contato=${numero ? `***${String(numero).slice(-4)}` : '?'} msg=${ev.msgId ?? '?'}`); // número mascarado no log (completo só na Auditoria)
   await prisma.auditLog.create({
     data: {
       orgId, action: ev.action, entity: 'contact', entityId: numero ?? undefined,

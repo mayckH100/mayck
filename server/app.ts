@@ -37,12 +37,24 @@ export function createApp() {
   app.disable('x-powered-by');
   app.use(helmet({
     contentSecurityPolicy: {
+      useDefaults: true,
       directives: {
-        defaultSrc: ["'self'"], imgSrc: ["'self'", 'data:', 'https:'], styleSrc: ["'self'", "'unsafe-inline'"],
-        scriptSrc: ["'self'"], connectSrc: ["'self'"], frameAncestors: ["'none'"],
+        defaultSrc: ["'self'"], imgSrc: ["'self'", 'data:', 'blob:', 'https:'], mediaSrc: ["'self'", 'blob:', 'data:'], styleSrc: ["'self'", "'unsafe-inline'"],
+        scriptSrc: ["'self'"], connectSrc: ["'self'"], frameAncestors: ["'none'"], objectSrc: ["'none'"], baseUri: ["'self'"],
+        formAction: ["'self'"], workerSrc: ["'self'"], manifestSrc: ["'self'"],
       },
     },
+    // HTTPS obrigatório por 1 ano no navegador (Render serve tudo em HTTPS).
+    strictTransportSecurity: { maxAge: 31536000, includeSubDomains: true },
+    frameguard: { action: 'deny' }, // X-Frame-Options: DENY (anti-clickjacking)
+    noSniff: true,
+    referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
   }));
+  app.use((_req, res, next) => {
+    // Recursos sensíveis do aparelho desligados para qualquer página/iframe.
+    res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()');
+    next();
+  });
 
   // Webhook antes do JSON parser: precisa do corpo bruto para validar a assinatura.
   app.use('/api/webhooks', webhookRouter);

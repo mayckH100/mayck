@@ -6,6 +6,14 @@ import { orgOf, requireRole } from '../auth/session.js';
 import { audit } from '../lib/audit.js';
 import { randomToken, sha256 } from '../lib/crypto.js';
 import { PLANS } from './plans.js';
+import rateLimit from 'express-rate-limit';
+
+// Convites: no máximo 30 por hora por usuário (evita uso do app para disparo de e-mails/links em massa).
+const inviteLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, limit: 30, standardHeaders: 'draft-7', legacyHeaders: false,
+  keyGenerator: (req) => `inv:${req.auth?.userId ?? req.ip}`,
+  message: { error: 'Muitos convites em pouco tempo. Tente novamente mais tarde.' },
+});
 
 export const teamRouter = Router();
 
@@ -16,7 +24,7 @@ teamRouter.get('/', ah(async (req, res) => {
   res.json({ members: members.map((m) => ({ id: m.id, role: m.role, createdAt: m.createdAt, user: m.user })), invites });
 }));
 
-teamRouter.post('/invites', requireRole('OWNER', 'ADMIN'), ah(async (req, res) => {
+teamRouter.post('/invites', requireRole('OWNER', 'ADMIN'), inviteLimiter, ah(async (req, res) => {
   const body = z.object({ email: z.string().trim().toLowerCase().email(), role: z.enum(['ADMIN', 'AGENT']) }).parse(req.body);
   const orgId = orgOf(req);
   const org = await prisma.organization.findUniqueOrThrow({ where: { id: orgId } });
