@@ -46,12 +46,21 @@ export async function flushAuthState(channelId?: string): Promise<void> {
   await Promise.all(pending.map((p) => (p ?? Promise.resolve()).catch(() => undefined)));
 }
 
+/**
+ * Pareamento por código pedido mas não concluído: o Baileys grava creds.me (o número digitado)
+ * e creds.pairingCode antes de o celular confirmar. Essa sessão não vale: reconectar com ela
+ * mandaria um "login" de aparelho que não existe. Pareamento concluído marca creds.registered.
+ */
+export function isPendingPairing(creds: Partial<AuthenticationCreds> | null | undefined): boolean {
+  return !!creds?.pairingCode && !creds.registered;
+}
+
 export async function hasSavedSession(channelId: string): Promise<boolean> {
   const row = await prisma.waAuthState.findUnique({ where: { channelId_type_keyId: { channelId, type: CREDS, keyId: '' } } });
   if (!row) return false;
   try {
     const creds = open(row.dataEnc) as AuthenticationCreds;
-    return !!creds.me?.id;
+    return !!creds.me?.id && !isPendingPairing(creds);
   } catch {
     return false;
   }
@@ -70,6 +79,11 @@ export async function useDbAuthState(channelId: string): Promise<{ state: Authen
     creds = row ? (open(row.dataEnc) as AuthenticationCreds) : initAuthCreds();
   } catch {
     // Dado ilegível (ex.: MASTER_KEY trocada): recomeça com um novo pareamento.
+    await clearAuthState(channelId);
+    creds = initAuthCreds();
+  }
+  if (isPendingPairing(creds)) {
+    // Código de pareamento que não foi usado: recomeça do zero (novo QR ou novo código).
     await clearAuthState(channelId);
     creds = initAuthCreds();
   }

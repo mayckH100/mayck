@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { get, post, patch, del } from '../api';
 import { useAuth } from '../auth';
 import { useApi, Async, Empty, useAction, Modal, Field, fmtDate, StatusBadge, useToast, copy } from '../ui';
@@ -15,8 +15,8 @@ export default function Channels() {
   return (
     <>
       <div className="page-head">
-        <div><h1>Canais WhatsApp</h1><p className="muted">Conecte seu número pelo <strong>QR code</strong>, do mesmo jeito que o WhatsApp Web. A API oficial da Meta continua disponível como opção avançada.</p></div>
-        {admin && <button className="btn primary" disabled={busy} onClick={() => run(() => post('/channels', { name: 'WhatsApp principal', provider: 'whatsapp_qr' }), 'Canal criado — agora clique em "Conectar por QR code"').then(state.reload)}>+ Adicionar número</button>}
+        <div><h1>Canais WhatsApp</h1><p className="muted">Conecte seu número pelo <strong>QR code</strong> ou pelo <strong>código de 8 caracteres</strong> (Conectar com número de telefone), do mesmo jeito que o WhatsApp Web. A API oficial da Meta continua disponível como opção avançada.</p></div>
+        {admin && <button className="btn primary" disabled={busy} onClick={() => run(() => post('/channels', { name: 'WhatsApp principal', provider: 'whatsapp_qr' }), 'Canal criado — agora clique em "Conectar WhatsApp"').then(state.reload)}>+ Adicionar número</button>}
       </div>
       <Async state={state}>{(list) => list.length === 0 ? (
         <div className="card"><Empty title="Nenhum número configurado">Adicione um número e conecte pelo QR code usando o WhatsApp do seu celular. Enquanto isso, o status fica "não conectado" e nada é enviado.</Empty></div>
@@ -41,7 +41,7 @@ export default function Channels() {
               </div>
               {admin && (
                 <div className="row">
-                  {c.status !== 'CONNECTED' && <button className="btn sm primary" onClick={() => setQrFor(c)}>Conectar por QR code</button>}
+                  {c.status !== 'CONNECTED' && <button className="btn sm primary" onClick={() => setQrFor(c)}>Conectar WhatsApp</button>}
                   {c.provider === 'whatsapp_qr' && c.status !== 'NOT_CONNECTED' && <button className="btn sm" disabled={busy} onClick={() => { if (confirm('Desconectar este número? O aparelho será removido de "Aparelhos conectados" no celular e será preciso ler o QR code de novo.')) run(() => post(`/channels/${c.id}/qr/disconnect`), 'Número desconectado').then(state.reload); }}>Desconectar</button>}
                   <button className="btn sm danger" disabled={busy} onClick={() => { if (confirm('Excluir este canal?')) run(() => del(`/channels/${c.id}`), 'Canal excluído').then(state.reload); }}>Excluir</button>
                 </div>
@@ -123,8 +123,35 @@ function ChannelConfig({ channel, onClose, onSaved }: { channel: any; onClose: (
   );
 }
 
-/** Tela de pareamento: gera o QR e consulta o status a cada 3 segundos. */
+/** Tela de conexão: duas abas — QR code ou código de pareamento pelo número (igual ao WhatsApp Web). */
 function QrConnect({ channel, onClose }: { channel: any; onClose: () => void }) {
+  const [tab, setTab] = useState<'qr' | 'code'>('qr');
+  const [connected, setConnected] = useState<any>(null);
+  return (
+    <Modal title={`Conectar WhatsApp — ${channel.name}`} onClose={onClose}>
+      <div className="stack">
+        {connected ? (
+          <>
+            <div className="alert info">✅ WhatsApp conectado{connected.phone ? <> ao número <strong>{connected.phone}</strong></> : null}. As mensagens recebidas já entram no Inbox, nos fluxos e na IA.</div>
+            <button className="btn primary" onClick={onClose}>Concluir</button>
+          </>
+        ) : (
+          <>
+            <div className="tabs" role="tablist">
+              <button type="button" role="tab" aria-selected={tab === 'qr'} className={tab === 'qr' ? 'on' : ''} onClick={() => setTab('qr')}>QR code</button>
+              <button type="button" role="tab" aria-selected={tab === 'code'} className={tab === 'code' ? 'on' : ''} onClick={() => setTab('code')}>Código pelo número</button>
+            </div>
+            {tab === 'qr' ? <QrTab channel={channel} onConnected={setConnected} /> : <CodeTab channel={channel} onConnected={setConnected} />}
+            <p className="small muted">Atenção: esta conexão não é a API oficial da Meta. Use para atendimento e evite disparos em massa para não ter o número restringido pelo WhatsApp. Depois de conectar, o WhatsApp desconecta aparelhos se o celular ficar 14 dias sem ser usado.</p>
+          </>
+        )}
+      </div>
+    </Modal>
+  );
+}
+
+/** Aba QR code: gera o QR e consulta o status a cada 3 segundos. */
+function QrTab({ channel, onConnected }: { channel: any; onConnected: (r: any) => void }) {
   const [info, setInfo] = useState<any>(null);
   const [err, setErr] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
@@ -138,7 +165,7 @@ function QrConnect({ channel, onClose }: { channel: any; onClose: () => void }) 
         const r = await get(`/channels/${channel.id}/qr`);
         if (!alive) return;
         setInfo(r);
-        if (r.status === 'CONNECTED') { toast(`WhatsApp conectado: ${r.phone ?? ''}`, 'ok'); return; }
+        if (r.status === 'CONNECTED') { toast(`WhatsApp conectado: ${r.phone ?? ''}`, 'ok'); onConnected(r); return; }
         if (r.status === 'NOT_CONNECTED' && r.lastError) return; // QR expirou: usuário decide gerar outro
       } catch (e) {
         if (alive) setErr((e as Error).message);
@@ -150,6 +177,7 @@ function QrConnect({ channel, onClose }: { channel: any; onClose: () => void }) 
         const r = await post(`/channels/${channel.id}/qr/start`);
         if (!alive) return;
         setInfo(r);
+        if (r.status === 'CONNECTED') { onConnected(r); return; }
       } catch (e) {
         if (alive) setErr((e as Error).message);
         return;
@@ -163,39 +191,131 @@ function QrConnect({ channel, onClose }: { channel: any; onClose: () => void }) 
   const status = info?.status;
 
   return (
-    <Modal title={`Conectar por QR code — ${channel.name}`} onClose={onClose}>
-      <div className="stack">
-        {err && <div className="alert warn small">{err}</div>}
-        {status === 'CONNECTED' ? (
-          <>
-            <div className="alert info">✅ WhatsApp conectado{info.phone ? <> ao número <strong>{info.phone}</strong></> : null}. As mensagens recebidas já entram no Inbox, nos fluxos e na IA.</div>
-            <button className="btn primary" onClick={onClose}>Concluir</button>
-          </>
+    <>
+      {err && <div className="alert warn small">{err}</div>}
+      <ol className="small" style={{ margin: 0, paddingLeft: 18 }}>
+        <li>Abra o <strong>WhatsApp</strong> no celular do número que você quer conectar.</li>
+        <li>Toque em <strong>Mais opções (⋮)</strong> no Android ou <strong>Configurações</strong> no iPhone.</li>
+        <li>Toque em <strong>Aparelhos conectados</strong> › <strong>Conectar aparelho</strong>.</li>
+        <li>Aponte a câmera do celular para o QR code abaixo.</li>
+      </ol>
+      <div style={{ display: 'flex', justifyContent: 'center', minHeight: 260, alignItems: 'center' }}>
+        {info?.qr ? (
+          <img src={info.qr} alt="QR code para conectar o WhatsApp" width={260} height={260} style={{ background: '#fff', padding: 8, borderRadius: 8 }} />
+        ) : status === 'NOT_CONNECTED' && info?.lastError ? (
+          <div className="stack" style={{ alignItems: 'center' }}>
+            <div className="alert warn small">{info.lastError}</div>
+            <button className="btn primary" onClick={restart}>Gerar novo QR code</button>
+          </div>
         ) : (
-          <>
-            <ol className="small" style={{ margin: 0, paddingLeft: 18 }}>
-              <li>Abra o <strong>WhatsApp</strong> no celular do número que você quer conectar.</li>
-              <li>Toque em <strong>Mais opções (⋮)</strong> no Android ou <strong>Configurações</strong> no iPhone.</li>
-              <li>Toque em <strong>Aparelhos conectados</strong> › <strong>Conectar aparelho</strong>.</li>
-              <li>Aponte a câmera do celular para o QR code abaixo.</li>
-            </ol>
-            <div style={{ display: 'flex', justifyContent: 'center', minHeight: 260, alignItems: 'center' }}>
-              {info?.qr ? (
-                <img src={info.qr} alt="QR code para conectar o WhatsApp" width={260} height={260} style={{ background: '#fff', padding: 8, borderRadius: 8 }} />
-              ) : status === 'NOT_CONNECTED' && info?.lastError ? (
-                <div className="stack" style={{ alignItems: 'center' }}>
-                  <div className="alert warn small">{info.lastError}</div>
-                  <button className="btn primary" onClick={restart}>Gerar novo QR code</button>
-                </div>
-              ) : (
-                <span className="muted small">{status === 'CONNECTING' ? 'Conectando ao WhatsApp…' : 'Gerando QR code…'}</span>
-              )}
-            </div>
-            <p className="small muted">O QR code muda sozinho a cada poucos segundos — é normal. Depois de ler, aguarde alguns segundos até aparecer "Conectado". O celular precisa ter o WhatsApp instalado e com internet só para o pareamento; depois a conexão continua mesmo com o celular desligado, mas o WhatsApp desconecta aparelhos se o celular ficar 14 dias sem ser usado.</p>
-            <p className="small muted">Atenção: o modo QR não é a API oficial da Meta. Use para atendimento e evite disparos em massa para não ter o número restringido pelo WhatsApp.</p>
-          </>
+          <span className="muted small">{status === 'CONNECTING' ? 'Conectando ao WhatsApp…' : 'Gerando QR code…'}</span>
         )}
       </div>
-    </Modal>
+      <p className="small muted">O QR code muda sozinho a cada poucos segundos — é normal. Depois de ler, aguarde alguns segundos até aparecer "Conectado". Sem câmera ou lendo pelo próprio celular? Use a aba <strong>Código pelo número</strong>.</p>
+    </>
+  );
+}
+
+/** Valida DDI + número no navegador (o servidor valida de novo). */
+function checkPairingPhone(ddi: string, number: string): string | null {
+  const d = ddi.replace(/\D/g, ''), n = number.replace(/\D/g, '');
+  if (!d) return 'Informe o DDI (código do país). Brasil: 55.';
+  if (!n) return 'Informe o DDD e o número.';
+  const all = d + n;
+  if (all.length < 10 || all.length > 15) return 'Número inválido: confira DDD e número.';
+  if (d === '55') {
+    if (n.length !== 10 && n.length !== 11) return 'Use DDD + número, ex.: 11 99999-0000.';
+    const ddd = Number(n.slice(0, 2));
+    if (ddd < 11 || ddd % 10 === 0) return 'DDD inválido.';
+    if (n.length === 11 && n[2] !== '9') return 'Celular com 9 dígitos deve começar com 9 depois do DDD.';
+  }
+  return null;
+}
+
+/** Aba "Código pelo número": pede o código de 8 caracteres e mostra com contagem de validade. */
+function CodeTab({ channel, onConnected }: { channel: any; onConnected: (r: any) => void }) {
+  const [ddi, setDdi] = useState('55');
+  const [number, setNumber] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [res, setRes] = useState<{ code: string; expiresAt: string; phone: string; remaining?: number } | null>(null);
+  const [now, setNow] = useState(Date.now());
+  const [ended, setEnded] = useState<string | null>(null);
+  const toast = useToast();
+  const timer = useRef<number | null>(null);
+
+  // Contagem regressiva + consulta do status enquanto o código estiver na tela.
+  useEffect(() => {
+    if (!res) return;
+    let alive = true;
+    const tick = window.setInterval(() => setNow(Date.now()), 1000);
+    const poll = async () => {
+      try {
+        const r = await get(`/channels/${channel.id}/qr`);
+        if (!alive) return;
+        if (r.status === 'CONNECTED') { toast(`WhatsApp conectado: ${r.phone ?? ''}`, 'ok'); onConnected(r); return; }
+        if (!r.pairing && r.status !== 'CONNECTING') { setEnded(r.lastError ?? 'Este código não vale mais. Gere outro código.'); return; }
+      } catch { /* tenta de novo */ }
+      if (alive) timer.current = window.setTimeout(poll, 3000);
+    };
+    timer.current = window.setTimeout(poll, 3000);
+    return () => { alive = false; window.clearInterval(tick); if (timer.current) window.clearTimeout(timer.current); };
+  }, [res?.code, channel.id]);
+
+  const generate = async (e?: FormEvent) => {
+    e?.preventDefault();
+    const invalid = checkPairingPhone(ddi, number);
+    if (invalid) { setErr(invalid); return; }
+    setBusy(true); setErr(null); setEnded(null);
+    try {
+      const r = await post(`/channels/${channel.id}/qr/pairing-code`, { phone: `+${ddi.replace(/\D/g, '')}${number.replace(/\D/g, '')}` });
+      setRes(r); setNow(Date.now());
+    } catch (e2) {
+      setErr((e2 as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const left = res ? Math.max(0, Math.round((new Date(res.expiresAt).getTime() - now) / 1000)) : 0;
+  const expired = !!res && (left === 0 || !!ended);
+
+  return (
+    <>
+      {!res ? (
+        <form className="stack" onSubmit={generate}>
+          <p className="small" style={{ margin: 0 }}>Digite o número do WhatsApp que você quer conectar. Vamos gerar um código de 8 caracteres para digitar no celular — sem precisar ler QR code.</p>
+          <div className="row" style={{ gap: 8, alignItems: 'flex-end' }}>
+            <Field label="DDI"><input aria-label="DDI" inputMode="numeric" style={{ width: 70 }} value={`+${ddi}`} onChange={(e) => setDdi(e.target.value.replace(/\D/g, '').slice(0, 4))} /></Field>
+            <div style={{ flex: 1 }}><Field label="DDD + número" hint="Ex.: 11 99999-0000"><input aria-label="DDD e número" inputMode="tel" autoComplete="tel-national" placeholder="11 99999-0000" value={number} onChange={(e) => setNumber(e.target.value.replace(/[^\d\s()-]/g, '').slice(0, 20))} /></Field></div>
+          </div>
+          {err && <div className="alert warn small">{err}</div>}
+          <button className="btn primary" disabled={busy}>{busy ? 'Gerando código… (até 20 s)' : 'Gerar código'}</button>
+        </form>
+      ) : (
+        <div className="stack">
+          <ol className="small" style={{ margin: 0, paddingLeft: 18 }}>
+            <li>No celular do número <strong>{res.phone}</strong>, abra o <strong>WhatsApp</strong>.</li>
+            <li>Toque em <strong>Mais opções (⋮)</strong> no Android ou <strong>Configurações</strong> no iPhone › <strong>Aparelhos conectados</strong> › <strong>Conectar aparelho</strong>.</li>
+            <li>Toque em <strong>Conectar com número de telefone</strong> e digite o código abaixo.</li>
+          </ol>
+          <div style={{ textAlign: 'center', padding: '12px 0' }}>
+            <div className="mono" aria-label="Código de pareamento" style={{ fontSize: 34, fontWeight: 700, letterSpacing: 4, opacity: expired ? 0.35 : 1, userSelect: 'all' }}>{res.code}</div>
+            {expired ? (
+              <div className="alert warn small" style={{ marginTop: 8 }}>{ended ?? 'O código expirou. Gere outro código.'}</div>
+            ) : (
+              <div className="small muted" style={{ marginTop: 6 }}>Válido por mais {Math.floor(left / 60)}:{String(left % 60).padStart(2, '0')} · aguardando você digitar no celular…</div>
+            )}
+          </div>
+          <div className="row" style={{ justifyContent: 'center' }}>
+            {!expired && <button type="button" className="btn sm" onClick={() => copy(res.code.replace('-', ''), toast)}>Copiar código</button>}
+            <button type="button" className={`btn sm${expired ? ' primary' : ''}`} disabled={busy} onClick={() => generate()}>{busy ? 'Gerando…' : 'Gerar outro código'}</button>
+            <button type="button" className="btn sm" disabled={busy} onClick={() => { setRes(null); setEnded(null); setErr(null); }}>Trocar número</button>
+          </div>
+          {err && <div className="alert warn small">{err}</div>}
+          <p className="small muted">Gerar outro código invalida o anterior. Limite: 5 códigos por hora por canal{typeof res.remaining === 'number' ? ` (restam ${res.remaining})` : ''}.</p>
+        </div>
+      )}
+    </>
   );
 }

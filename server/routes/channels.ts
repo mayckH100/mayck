@@ -1,13 +1,14 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { prisma } from '../db.js';
-import { ah, notFound, badRequest } from '../lib/http.js';
+import { ah, notFound, badRequest, HttpError } from '../lib/http.js';
 import { orgOf, requireRole } from '../auth/session.js';
 import { encrypt, decryptOrNull, randomToken, maskSecret } from '../lib/crypto.js';
 import { checkPhoneNumber } from '../whatsapp/cloudClient.js';
 import { audit } from '../lib/audit.js';
 import { config } from '../config.js';
 import { qrManager } from '../whatsapp/qr/manager.js';
+import { normalizePairingPhone, pairingPerHour } from '../whatsapp/qr/pairing.js';
 import { PROVIDER_CLOUD, PROVIDER_QR, isQrChannel } from '../whatsapp/messaging.js';
 import type { Channel } from '@prisma/client';
 
@@ -88,7 +89,7 @@ channelsRouter.patch('/:id', requireRole('OWNER', 'ADMIN'), ah(async (req, res) 
 channelsRouter.post('/:id/verify', requireRole('OWNER', 'ADMIN'), ah(async (req, res) => {
   const c = await prisma.channel.findFirst({ where: { id: req.params.id, orgId: orgOf(req) } });
   if (!c) throw notFound('Canal');
-  if (isQrChannel(c)) throw badRequest('Este canal usa conexão por QR code. Use "Conectar por QR code" ou cadastre as credenciais da API oficial.');
+  if (isQrChannel(c)) throw badRequest('Este canal usa conexão por QR code. Use "Conectar WhatsApp" ou cadastre as credenciais da API oficial.');
   const token = decryptOrNull(c.accessTokenEnc);
   if (!c.phoneNumberId || !token || !c.appSecretEnc) throw badRequest('Preencha Phone Number ID, token de acesso e App Secret antes de verificar');
   let updated: Channel;
@@ -115,6 +116,7 @@ async function qrView(c: Channel) {
     phone: live.phone ?? fresh.displayPhone,
     connectedAt: fresh.connectedAt,
     lastError: live.lastError ?? fresh.lastError,
+    pairing: live.pairing,
   };
 }
 
@@ -129,6 +131,43 @@ channelsRouter.post('/:id/qr/start', requireRole('OWNER', 'ADMIN'), ah(async (re
   await qrManager.start(c.id);
   await audit(req, 'channel.qr_start', { entity: 'channel', entityId: c.id });
   res.json(await qrView(c));
+}));
+
+/**
+ * Conectar com número de telefone: gera o código de pareamento de 8 caracteres (XXXX-XXXX).
+ * Só Proprietário/Administrador; até N códigos por canal por hora (contados na Auditoria, valem
+ * entre instâncias e reinícios). O código vai só na resposta: nunca em log nem na Auditoria.
+ */
+channelsRouter.post('/:id/qr/pairing-code', requireRole('OWNER', 'ADMIN'), ah(async (req, res) => {
+  let c = await prisma.channel.findFirst({ where: { id: req.params.id, orgId: orgOf(req) } });
+  if (!c) throw notFound('Canal');
+  const { phone } = z.object({ phone: z.string().max(40) }).parse(req.body ?? {});
+  const check = normalizePairingPhone(phone);
+  if (!check.ok) throw badRequest(check.error);
+  const limit = pairingPerHour();
+  const since = new Date(Date.now() - 3600e3);
+  const recent = await prisma.auditLog.findMany({
+    where: { orgId: c.orgId, entity: 'channel', entityId: c.id, action: { in: ['channel.pairing_code', 'channel.pairing_code_falha'] }, createdAt: { gte: since } },
+    select: { createdAt: true }, orderBy: { createdAt: 'asc' },
+  });
+  if (recent.length >= limit) {
+    const waitMin = Math.max(1, Math.ceil((recent[0].createdAt.getTime() + 3600e3 - Date.now()) / 60e3));
+    res.set('Retry-After', String(waitMin * 60));
+    throw new HttpError(429, `Limite de ${limit} códigos por hora para este canal. Tente de novo em ${waitMin} min ou use o QR code.`);
+  }
+  if (!isQrChannel(c)) {
+    c = await prisma.channel.update({ where: { id: c.id }, data: { provider: PROVIDER_QR, status: 'NOT_CONNECTED', lastError: null } });
+  }
+  try {
+    const r = await qrManager.requestPairingCode(c.id, check.digits);
+    await audit(req, 'channel.pairing_code', { entity: 'channel', entityId: c.id, meta: { phone: r.phone } });
+    res.set('Cache-Control', 'no-store');
+    res.json({ ...(await qrView(c)), code: r.code, expiresAt: r.expiresAt, phone: r.phone, remaining: Math.max(0, limit - recent.length - 1) });
+  } catch (e) {
+    const status = e instanceof HttpError ? e.status : 500;
+    await audit(req, 'channel.pairing_code_falha', { entity: 'channel', entityId: c.id, meta: { status } }).catch(() => undefined);
+    throw e;
+  }
 }));
 
 /** Estado atual + QR como data URL PNG (a tela consulta a cada poucos segundos). */

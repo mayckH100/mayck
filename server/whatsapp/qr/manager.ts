@@ -8,6 +8,8 @@ import { useDbAuthState, clearAuthState, hasSavedSession, flushAuthState } from 
 import { acquireLease, renewLease, releaseLease } from './lease.js';
 import { saveSent, loadSent, pruneSent } from './sentStore.js';
 import { describeEvent, recordDeliveryEvent } from './deliveryLog.js';
+import { PAIRING_CODE_TTL_MS, formatPairingCode, maskPhone } from './pairing.js';
+import { HttpError } from '../../lib/http.js';
 import { parseBaileysMessage, mapBaileysStatus, buildQrContent, waIdToJid, jidToNumber } from './parse.js';
 import type { OutboundPayload } from '../cloudClient.js';
 
@@ -18,6 +20,8 @@ export interface QrSocket {
   sendMessage(jid: string, content: AnyMessageContent): Promise<{ key?: { id?: string | null }; message?: unknown } | undefined>;
   logout?(msg?: string): Promise<void>;
   end?(error: Error | undefined): void;
+  /** Código de pareamento (Conectar com número de telefone). Só antes de registrar o aparelho. */
+  requestPairingCode?(phoneNumber: string): Promise<string>;
   user?: { id: string } | null;
 }
 
@@ -62,6 +66,8 @@ interface Session {
   leaseTimer: NodeJS.Timeout | null;
   waitingLease: boolean;
   orgId: string | null;
+  /** Código de pareamento ativo neste socket (o código em si nunca fica guardado aqui nem vai para log). */
+  pairing: { expiresAt: number; phone: string } | null;
 }
 
 const isTest = () => process.env.NODE_ENV === 'test';
@@ -72,6 +78,8 @@ const sendWaitMs = () => Number(process.env.QR_SEND_WAIT_MS ?? (isTest() ? 0 : 2
 const READY_FALLBACK_MS = 4000;
 const LEASE_RETRY_MS = 5000;
 const LEASE_RENEW_MS = 20_000;
+/** Quanto o pedido de código espera o socket novo ficar pronto para parear. */
+const pairWaitMs = () => Number(process.env.QR_PAIR_WAIT_MS ?? (isTest() ? 300 : 25_000));
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 async function waitUntil(cond: () => boolean, timeoutMs: number, stepMs = 200) {
@@ -149,7 +157,7 @@ class QrSessionManager {
   private session(channelId: string): Session {
     let s = this.sessions.get(channelId);
     if (!s) {
-      s = { channelId, sock: null, status: 'NOT_CONNECTED', qr: null, qrDataUrl: null, attempts: 0, timer: null, stopped: true, generation: 0, phone: null, lastError: null, ready: false, readyTimer: null, leaseTimer: null, waitingLease: false, orgId: null };
+      s = { channelId, sock: null, status: 'NOT_CONNECTED', qr: null, qrDataUrl: null, attempts: 0, timer: null, stopped: true, generation: 0, phone: null, lastError: null, ready: false, readyTimer: null, leaseTimer: null, waitingLease: false, orgId: null, pairing: null };
       this.sessions.set(channelId, s);
     }
     return s;
@@ -162,7 +170,8 @@ class QrSessionManager {
   /** Estado atual para a API (QR como data URL PNG). */
   info(channelId: string) {
     const s = this.sessions.get(channelId);
-    return { live: !!s && !s.stopped, status: s?.status ?? null, qr: s?.status === 'QR_PENDING' ? s.qrDataUrl : null, phone: s?.phone ?? null, lastError: s?.lastError ?? null };
+    const pairing = s && !s.stopped && s.status !== 'CONNECTED' && s.pairing ? { expiresAt: new Date(s.pairing.expiresAt).toISOString(), phone: s.pairing.phone } : null;
+    return { live: !!s && !s.stopped, status: s?.status ?? null, qr: s?.status === 'QR_PENDING' && !pairing ? s.qrDataUrl : null, phone: s?.phone ?? null, lastError: s?.lastError ?? null, pairing };
   }
 
   isConnected(channelId: string) {
@@ -181,6 +190,8 @@ class QrSessionManager {
   /** Inicia (ou reinicia) a conexão de um canal. Idempotente se já estiver ativo. */
   async start(channelId: string, opts: { force?: boolean } = {}) {
     const s = this.session(channelId);
+    // Voltando do "Código pelo número" para o QR: descarta o código pendente e abre um socket novo.
+    if (s.pairing && s.status !== 'CONNECTED') { s.pairing = null; opts = { ...opts, force: true }; }
     if (!s.stopped && s.sock && !opts.force) return this.info(channelId);
     s.stopped = false;
     s.attempts = 0;
@@ -231,6 +242,7 @@ class QrSessionManager {
     s.status = 'CONNECTING';
     s.qr = null;
     s.qrDataUrl = null;
+    s.pairing = null;
 
     // Trava única: nunca abrir a mesma sessão em duas instâncias (deploy do Render) ao mesmo tempo.
     let leased = false;
@@ -367,8 +379,10 @@ class QrSessionManager {
         // QR não escaneado a tempo: para e espera o usuário clicar em "Conectar" de novo.
         s.stopped = true;
         s.status = 'NOT_CONNECTED';
-        s.qr = null; s.qrDataUrl = null;
-        s.lastError = 'O QR code expirou sem ser escaneado. Clique em "Conectar por QR code" para gerar outro.';
+        s.lastError = s.pairing
+          ? 'O código de pareamento expirou sem ser usado. Clique em "Gerar outro código".'
+          : 'O QR code expirou sem ser escaneado. Clique em "Gerar novo QR code" ou use a aba "Código pelo número".';
+        s.qr = null; s.qrDataUrl = null; s.pairing = null;
         await this.persist(s.channelId, { status: 'NOT_CONNECTED', lastError: s.lastError });
         return;
       }
@@ -391,7 +405,7 @@ class QrSessionManager {
     this.clearLeaseTimer(s);
     s.ready = false;
     s.status = 'NOT_CONNECTED';
-    s.qr = null; s.qrDataUrl = null; s.phone = null;
+    s.qr = null; s.qrDataUrl = null; s.phone = null; s.pairing = null;
     s.lastError = reason;
     await clearAuthState(s.channelId);
     await releaseLease(s.channelId);
@@ -428,10 +442,61 @@ class QrSessionManager {
       try { sock?.end?.(undefined); } catch { /* ignora */ }
     }
     s.status = 'NOT_CONNECTED';
-    s.qr = null; s.qrDataUrl = null; s.lastError = null;
+    s.qr = null; s.qrDataUrl = null; s.lastError = null; s.pairing = null;
     await flushAuthState(channelId);
     await releaseLease(channelId);
     if (opts.logout) await this.persist(channelId, { status: 'NOT_CONNECTED', waJid: null, lastError: null });
+  }
+
+  private pairingInFlight = new Set<string>();
+
+  /**
+   * Código de pareamento ("Conectar com número de telefone"). Só para canal ainda NÃO registrado:
+   * abre (ou reaproveita) um socket novo, espera o WhatsApp oferecer o pareamento (mesmo momento
+   * em que o QR apareceria) e pede o código de 8 caracteres para o número informado.
+   * Respeita a trava única por canal (connect() só abre o socket com a trava em mãos).
+   * O código volta só para quem pediu: nunca é registrado em log nem na Auditoria.
+   */
+  async requestPairingCode(channelId: string, digits: string): Promise<{ code: string; expiresAt: string; phone: string }> {
+    if (this.pairingInFlight.has(channelId)) throw new HttpError(409, 'Já estou gerando um código para este canal. Aguarde alguns segundos.');
+    this.pairingInFlight.add(channelId);
+    try {
+      const s = this.session(channelId);
+      if (s.status === 'CONNECTED' && s.sock) throw new HttpError(409, 'Este canal já está conectado. Desconecte antes de conectar outro número.');
+      if (await hasSavedSession(channelId)) throw new HttpError(409, 'Este canal já tem uma sessão do WhatsApp salva (reconectando). Clique em "Desconectar" antes de conectar por código.');
+      // Sempre um socket novo: o prazo do pareamento começa agora (o socket de um QR aberto há
+      // um tempo expiraria antes do código) e um código anterior deixa de valer.
+      await this.openForPairing(s);
+      const ok = await waitUntil(() => s.stopped || s.waitingLease || (s.status === 'QR_PENDING' && !!s.sock), pairWaitMs());
+      if (s.waitingLease) throw new HttpError(503, 'O servidor está terminando uma atualização. Tente de novo em alguns segundos.');
+      const sock = s.sock;
+      if (!ok || s.stopped || !sock || s.status !== 'QR_PENDING') throw new HttpError(504, 'Não consegui falar com o WhatsApp agora. Tente de novo em instantes.');
+      if (!sock.requestPairingCode) throw new HttpError(501, 'Esta versão da conexão não suporta código de pareamento. Use o QR code.');
+      const gen = s.generation;
+      let raw: string;
+      try {
+        raw = await sock.requestPairingCode(digits);
+      } catch (e) {
+        throw new HttpError(502, `O WhatsApp recusou o pedido de código: ${(e as Error).message?.slice(0, 120) || 'erro desconhecido'}. Confira o número e tente de novo.`);
+      }
+      if (gen !== s.generation || s.sock !== sock) throw new HttpError(504, 'A conexão caiu enquanto o código era gerado. Tente de novo.');
+      const expiresAt = Date.now() + PAIRING_CODE_TTL_MS;
+      const phone = maskPhone(digits);
+      s.pairing = { expiresAt, phone };
+      s.lastError = null;
+      return { code: formatPairingCode(raw), expiresAt: new Date(expiresAt).toISOString(), phone };
+    } finally {
+      this.pairingInFlight.delete(channelId);
+    }
+  }
+
+  /** Abre um socket novo, sem sessão registrada, para o pareamento por código. */
+  protected async openForPairing(s: Session) {
+    s.stopped = false;
+    s.attempts = 0;
+    s.lastError = null;
+    s.pairing = null;
+    await this.connect(s);
   }
 
   /** Ao iniciar o servidor: reconecta todos os canais QR que têm sessão salva. */
