@@ -9,6 +9,7 @@ import { tickAutomacoes } from './mckmensagem/automacoes/engine.js';
 import { handleQrMessage, handleQrStatus } from './whatsapp/inbound.js';
 import { syncSuperAdmins } from './auth/superadmin.js';
 import { maybeDailyBackup } from './lib/backup.js';
+import { tickAgendaReminders } from './agenda/service.js';
 
 const app = createApp();
 const server = app.listen(config.PORT, () => {
@@ -25,6 +26,13 @@ if (config.ENABLE_SCHEDULER === 'true') {
   setInterval(() => {
     scheduledTick().catch((e) => console.error('[agendador]', e));
   }, 5000).unref();
+  // Agenda: lembrete por WhatsApp para o contato antes da reunião/tarefa (a cada minuto).
+  let agendaRunning = false;
+  setInterval(() => {
+    if (agendaRunning) return;
+    agendaRunning = true;
+    tickAgendaReminders().catch((e) => console.error('[agenda]', e)).finally(() => { agendaRunning = false; });
+  }, 60_000).unref();
   setInterval(() => {
     prisma.session.deleteMany({ where: { expiresAt: { lt: new Date() } } }).catch(() => undefined);
   }, 3600e3).unref();

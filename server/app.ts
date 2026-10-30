@@ -29,6 +29,7 @@ import { publicSiteRouter } from './routes/site.js';
 import { integrationsRouter } from './routes/integrations.js';
 import { dashboardRouter } from './routes/dashboard.js';
 import { profileRouter, orgRouter, auditRouter } from './routes/misc.js';
+import { agendaRouter, publicAgendaRouter, googleCallbackRouter } from './agenda/routes.js';
 
 export function createApp() {
   const app = express();
@@ -68,6 +69,8 @@ export function createApp() {
   app.use('/api/auth', authRouter);
   app.use('/api/public/plans', publicPlansRouter); // vitrine de planos, sem login
   app.use('/api/public/site', publicSiteRouter); // site oficial /empresa: contato, Facebook, promoção, tutoriais (sem login, só leitura)
+  app.use('/api/public/agenda', publicAgendaRouter); // evento (.ics/página "Adicionar à agenda") e feed webcal por URL secreta
+  app.use('/api/agenda/google/callback', googleCallbackRouter); // retorno do OAuth do Google (sessão + state assinado)
   app.use('/api/profile', profileRouter);
   app.use('/api/master', requireSuperAdmin, masterRouter);
   app.use('/api/org', requireOrg, orgRouter);
@@ -80,6 +83,7 @@ export function createApp() {
   app.use('/api/team', requireOrg, teamRouter);
   app.use('/api/plans', requireOrg, plansRouter);
   app.use('/api/billing', requireOrg, billingRouter);
+  app.use('/api/agenda', requireOrg, requireMckbotForWrites, agendaRouter);
   app.use('/api/integrations', requireOrg, requireMckbotForWrites, integrationsRouter);
   app.use('/api/audit', requireOrg, auditRouter);
   app.use('/api/tutorials', requireOrg, tutorialsRouter); // vídeos só para assinantes pagos (rota autenticada, com Range)

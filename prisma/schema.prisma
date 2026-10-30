@@ -882,3 +882,80 @@ model AutomacaoAnexo {
   @@index([automacaoId])
   @@index([boletoId])
 }
+
+// ===================== Agenda (reuniões e tarefas na agenda do celular) =====================
+
+/// Reunião ou tarefa com data/hora. Vai para a agenda do celular via .ics, link "Adicionar à agenda",
+/// feed assinável (webcal) e, se conectado, Google Agenda (OAuth).
+model Appointment {
+  id              String    @id @default(cuid())
+  orgId           String
+  kind            String    @default("MEETING") // MEETING | TASK
+  title           String
+  description     String?
+  location        String?
+  startAt         DateTime
+  durationMin     Int       @default(30)
+  reminderMin     Int       @default(60) // lembrete antes do início (0 = sem lembrete)
+  status          String    @default("SCHEDULED") // SCHEDULED | DONE | CANCELLED
+  source          String    @default("MANUAL") // MANUAL | AI | KANBAN
+  contactId       String?
+  conversationId  String?
+  assignedUserId  String?
+  createdById     String?
+  notifyContact   Boolean   @default(true)
+  /// Versão do evento (SEQUENCE do iCalendar): sobe a cada alteração para o celular atualizar.
+  sequence        Int       @default(0)
+  googleEventId   String?
+  googleAccountId String?
+  reminderSentAt  DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([orgId, startAt])
+  @@index([orgId, assignedUserId])
+  @@index([status, startAt])
+}
+
+/// Feed de calendário assinável (URL secreta). userId nulo = agenda da empresa inteira.
+model CalendarFeed {
+  id         String    @id @default(cuid())
+  orgId      String
+  userId     String?
+  tokenHash  String    @unique
+  tokenEnc   String // token cifrado (para mostrar o link de novo ao dono)
+  createdAt  DateTime  @default(now())
+  lastUsedAt DateTime?
+  revokedAt  DateTime?
+
+  @@index([orgId, userId])
+}
+
+/// Conta Google Agenda conectada por usuário/empresa (OAuth). Só o refresh token cifrado fica salvo.
+model GoogleCalendarAccount {
+  id              String   @id @default(cuid())
+  orgId           String
+  userId          String
+  email           String?
+  refreshTokenEnc String
+  calendarId      String   @default("primary")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([orgId, userId])
+}
+
+/// Configuração da Agenda por empresa (horário de atendimento e agendamento pela IA).
+model AgendaSettings {
+  id                 String   @id @default(cuid())
+  orgId              String   @unique
+  aiBooking          Boolean  @default(false)
+  workStart          String   @default("09:00")
+  workEnd            String   @default("18:00")
+  workDays           String   @default("1,2,3,4,5") // 0=domingo … 6=sábado
+  defaultDurationMin Int      @default(30)
+  minNoticeMin       Int      @default(60)
+  notifyContact      Boolean  @default(true)
+  reminderMin        Int      @default(60)
+  updatedAt          DateTime @updatedAt
+}

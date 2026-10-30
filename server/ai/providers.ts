@@ -69,6 +69,14 @@ export class FakeProvider implements AiProvider {
       const text = JSON.stringify({ intencao, resposta: `Resposta ${intencao.toLowerCase()} da IA`, resumo: `lead ${intencao.toLowerCase()}` });
       return { text, promptTokens: 20, completionTokens: 10 };
     }
+    // Agenda: "agendar" escolhe o 1º horário livre do prompt; "quero o horário X" confirma esse horário.
+    if (system.includes('HORÁRIOS LIVRES:') && /agendar|marcar|confirm/i.test(user)) {
+      const pick = user.match(/(\d{4}-\d{2}-\d{2}T\d{2}:\d{2})/)?.[1] ?? system.split('HORÁRIOS LIVRES:')[1].match(/(\d{4}-\d{2}-\d{2}T\d{2}:\d{2})/)?.[1];
+      if (pick) {
+        const text = `Combinado, reunião marcada!\n[AGENDAR:{"inicio":"${pick}","duracao":30,"titulo":"Reunião de teste"}]`;
+        return { text, promptTokens: 30, completionTokens: 20 };
+      }
+    }
     const rawCtx = system.split('### CONTEXTO')[1]?.split('### FIM')[0]?.trim() ?? '';
     const ctx = rawCtx.startsWith('(nenhuma informação') ? '' : rawCtx;
     const text = ctx ? `Segundo nossas informações: ${ctx.split('\n').find((l) => l.trim() && !l.startsWith('['))?.trim()}` : '[TRANSFERIR]';

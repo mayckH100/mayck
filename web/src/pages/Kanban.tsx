@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { post, patch, del } from '../api';
 import { useAuth } from '../auth';
 import { useApi, Async, useAction, initials, fmtDate, Modal, Field } from '../ui';
+import { AppointmentModal, newDraft, type ApptDraft } from './Agenda';
 
 export default function Kanban() {
   const [q, setQ] = useState('');
@@ -10,9 +11,10 @@ export default function Kanban() {
   const [sort, setSort] = useState('last_desc');
   const state = useApi<any>(`/kanban?sort=${sort}&q=${encodeURIComponent(query)}`, [sort, query]);
   const { run } = useAction();
-  const { can } = useAuth();
+  const { can, me } = useAuth();
   const [over, setOver] = useState<string | null>(null);
   const [edit, setEdit] = useState<any>(null);
+  const [task, setTask] = useState<ApptDraft | null>(null);
   const move = async (contactId: string, stageId: string | null) => {
     if (!state.data) return;
     state.setData({ ...state.data, contacts: state.data.contacts.map((c: any) => (c.id === contactId ? { ...c, stageId } : c)) });
@@ -57,7 +59,10 @@ export default function Kanban() {
                       <div className="row" style={{ marginTop: 4 }}>{c.tags.length ? c.tags.map((t: string) => <span key={t} className="badge">{t}</span>) : <span className="small muted">Sem etiquetas</span>}</div>
                       <div className="row between small" style={{ marginTop: 6 }}>
                         <span className="muted">{fmtDate(c.lastMessageAt)}</span>
-                        {c.conversationId && <Link to={`/inbox/${c.conversationId}`}>Abrir conversa</Link>}
+                        <span className="row" style={{ gap: 6 }}>
+                          <button type="button" className="btn ghost sm" title="Agendar reunião ou tarefa com prazo (vai para a agenda do celular)" onClick={() => setTask(newDraft({ kind: 'TASK', title: `Retornar para ${c.name ?? c.phone}`, contactId: c.id, contactLabel: c.name ? `${c.name} (${c.phone})` : c.phone, assignedUserId: me?.user.id ?? null, notifyContact: false, source: 'KANBAN' }))}>📅 Agendar</button>
+                          {c.conversationId && <Link to={`/inbox/${c.conversationId}`}>Abrir conversa</Link>}
+                        </span>
                       </div>
                       <select aria-label="Mover para" className="small" style={{ marginTop: 6, padding: 4 }} value={c.stageId ?? ''} onChange={(e) => move(c.id, e.target.value || null)}>
                         {cols.map((o: any) => <option key={o.id ?? 'none'} value={o.id ?? ''}>{o.name}</option>)}
@@ -70,6 +75,7 @@ export default function Kanban() {
           </div>
         );
       }}</Async>
+      {task && <AppointmentModal draft={task} onClose={() => setTask(null)} onSaved={() => setTask(null)} />}
       {edit && (
         <Modal title={edit.id ? 'Editar coluna' : 'Nova coluna'} onClose={() => setEdit(null)}>
           <form className="stack" onSubmit={async (e) => {

@@ -8,6 +8,7 @@ import { InstallButton } from './pwa';
 import Dashboard from './pages/Dashboard';
 import Inbox from './pages/Inbox';
 import Kanban from './pages/Kanban';
+import Agenda from './pages/Agenda';
 import Contacts from './pages/Contacts';
 import Flows from './pages/Flows';
 import FlowEditor from './pages/FlowEditor';
@@ -28,6 +29,7 @@ const NAV: { to: string; label: string; icon: string; roles?: Role[]; sep?: stri
   { to: '/', label: 'Visão geral', icon: '◧' },
   { to: '/inbox', label: 'Inbox', icon: '✉', sep: 'Atendimento' },
   { to: '/kanban', label: 'Kanban', icon: '▦' },
+  { to: '/agenda', label: 'Agenda', icon: '📅' },
   { to: '/contatos', label: 'Contatos', icon: '☺' },
   { to: '/fluxos', label: 'Fluxos', icon: '⇄', sep: 'Automação' },
   { to: '/ia', label: 'Inteligência artificial', icon: '✦' },
@@ -183,6 +185,7 @@ export default function App() {
             <Route path="/inbox" element={<Inbox />} />
             <Route path="/inbox/:id" element={<Inbox />} />
             <Route path="/kanban" element={<Kanban />} />
+            <Route path="/agenda" element={<Agenda />} />
             <Route path="/contatos" element={<Contacts />} />
             <Route path="/fluxos" element={<Flows />} />
             <Route path="/fluxos/:id" element={<FlowEditor />} />

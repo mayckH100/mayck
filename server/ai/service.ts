@@ -5,6 +5,7 @@ import { createProvider, type ChatMessage } from './providers.js';
 import { rank, chunkText } from './rag.js';
 import { HANDOFF_TOKEN } from './guard.js';
 import { normalize } from '../flows/logic.js';
+import { agendaPromptSection, applyAgendaTag } from '../agenda/ai.js';
 
 export interface AiReply {
   text: string | null; // texto a enviar ao contato (null = nada)
@@ -79,8 +80,10 @@ export async function generateAiReply(args: { orgId: string; conversationId: str
     where: { orgId, conversationId, direction: { in: ['IN', 'OUT'] }, status: { not: 'FAILED' } },
     orderBy: { createdAt: 'desc' }, take: 10,
   });
+  // Agenda: horários livres + regra do marcador [AGENDAR:{...}] (só se a empresa ligou o agendamento pela IA).
+  const agenda = await agendaPromptSection(orgId).catch(() => '');
   const messages: ChatMessage[] = [
-    { role: 'system', content: buildSystemPrompt({ instructions: [s.instructions, args.extraInstructions].filter(Boolean).join('\n'), tone: s.tone }, context) },
+    { role: 'system', content: buildSystemPrompt({ instructions: [s.instructions, args.extraInstructions, agenda].filter(Boolean).join('\n'), tone: s.tone }, context) },
     ...history.reverse().slice(0, -1).map((m) => ({ role: (m.direction === 'IN' ? 'user' : 'assistant') as 'user' | 'assistant', content: m.body ?? '' })),
     { role: 'user', content: text },
   ];
@@ -97,7 +100,12 @@ export async function generateAiReply(args: { orgId: string; conversationId: str
         return { text: s.fallbackMessage, handoff: true, reason: 'IA não soube responder', usedContext: !!hits.length };
       }
       await prisma.aiUsage.create({ data: { ...base, success: true } });
-      return { text: r.text, handoff: false, usedContext: !!hits.length };
+      // Marcador de agendamento: cria o compromisso (com checagem de conflito) e troca pelo link da agenda.
+      const booked = await applyAgendaTag({ orgId, conversationId, text: r.text }).catch((e) => {
+        console.error('[agenda-ia]', (e as Error).message);
+        return { text: r.text.replace(/\[AGENDAR:[\s\S]*?\]/i, '').trim() };
+      });
+      return { text: booked.text || r.text, handoff: false, usedContext: !!hits.length };
     } catch (e) {
       lastError = (e as Error).message;
       if (/não configurada|desconhecido|não pode ser usado/.test(lastError)) break; // erro de configuração: não adianta repetir

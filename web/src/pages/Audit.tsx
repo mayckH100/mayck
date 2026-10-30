@@ -10,6 +10,10 @@ const LABEL: Record<string, string> = {
   'auth.mfa_recovery_regenerated': '2FA: novos códigos de recuperação', 'auth.login_new_device': 'Login em aparelho novo', 'auth.account_locked': 'Conta bloqueada (senhas erradas)',
   'auth.login_locked': 'Tentativa com conta bloqueada', 'auth.session_revoked': 'Sessão encerrada', 'auth.sessions_revoked': 'Sessões encerradas', 'auth.password_reset': 'Senha redefinida', 'profile.password_change': 'Senha alterada',
   'inbox.send': 'Mensagem enviada', 'inbox.close': 'Conversa encerrada', 'inbox.take': 'Conversa assumida', 'inbox.to_bot': 'Devolvida ao robô', 'contact.create': 'Contato criado', 'contact.update': 'Contato alterado', 'contact.import': 'Contatos importados', 'kanban.move': 'Kanban: contato movido',
+  'agenda.create': 'Agenda: compromisso criado', 'agenda.ai_create': 'Agenda: IA agendou no WhatsApp', 'agenda.update': 'Agenda: compromisso alterado', 'agenda.cancel': 'Agenda: compromisso cancelado',
+  'agenda.done': 'Agenda: concluído', 'agenda.delete': 'Agenda: compromisso excluído', 'agenda.send': 'Agenda: link reenviado ao contato', 'agenda.settings': 'Agenda configurada',
+  'agenda.feed_create': 'Agenda: link de assinatura criado', 'agenda.feed_revoke': 'Agenda: link de assinatura revogado', 'agenda.google_connect': 'Google Agenda conectado',
+  'agenda.google_disconnect': 'Google Agenda desconectado', 'agenda.google_falha': 'Google Agenda: falha',
 };
 
 export default function Audit() {
