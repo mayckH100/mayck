@@ -3,6 +3,38 @@ import { get, post, patch, del } from '../api';
 import { useAuth } from '../auth';
 import { useApi, Async, Empty, useAction, Modal, Field, fmtDate, StatusBadge, useToast, copy } from '../ui';
 
+/** "Quem responde automaticamente" no canal: só fluxos, só IA, ou fluxos + IA (padrão). */
+const AUTO_REPLY_OPTIONS: { v: 'flows' | 'ai' | 'both'; label: string; help: string }[] = [
+  { v: 'flows', label: 'Só fluxos', help: 'Só os fluxos respondem as mensagens deste número; a IA nunca responde sozinha.' },
+  { v: 'ai', label: 'Só IA', help: 'Nenhum fluxo é disparado neste número; só a IA responde (quando estiver ligada em IA).' },
+  { v: 'both', label: 'Fluxos + IA', help: 'Padrão: os fluxos respondem primeiro e a IA responde o que nenhum fluxo pegar.' },
+];
+
+function AutoReplyModeSelector({ c, admin, busy, onPick }: { c: any; admin: boolean; busy: boolean; onPick: (v: string, label: string) => void }) {
+  const current = c.autoReplyMode ?? 'both';
+  return (
+    <div className="stack small" style={{ gap: 6 }} title={admin ? undefined : 'Só Proprietário ou Administrador pode alterar'}>
+      <strong>Quem responde automaticamente</strong>
+      <div className="row" role="radiogroup" aria-label="Quem responde automaticamente" style={{ gap: 4, flexWrap: 'wrap' }}>
+        {AUTO_REPLY_OPTIONS.map((o) => (
+          <button
+            key={o.v}
+            type="button"
+            role="radio"
+            aria-checked={current === o.v}
+            className={`btn sm${current === o.v ? ' primary' : ''}`}
+            disabled={!admin || busy}
+            onClick={() => { if (current !== o.v) onPick(o.v, o.label); }}
+          >{o.label}</button>
+        ))}
+      </div>
+      <ul className="muted" style={{ margin: 0, paddingLeft: 18 }}>
+        {AUTO_REPLY_OPTIONS.map((o) => <li key={o.v} style={current === o.v ? { fontWeight: 600 } : undefined}>{o.label}: {o.help}</li>)}
+      </ul>
+    </div>
+  );
+}
+
 export default function Channels() {
   const state = useApi<any[]>('/channels');
   const { can } = useAuth();
@@ -55,6 +87,7 @@ export default function Channels() {
                   {c.status !== 'CONNECTED' && <div className="alert warn small">Não conectado: {c.lastError ?? 'preencha as credenciais e clique em "Verificar conexão".'}</div>}
                 </>
               )}
+              <AutoReplyModeSelector c={c} admin={admin} busy={busy} onPick={(v, label) => run(() => patch(`/channels/${c.id}`, { autoReplyMode: v }), `Quem responde automaticamente: ${label}`).then(state.reload)} />
               <div className="grid g4" style={{ gap: 8 }}>
                 {[['Hoje', c.stats.today], ['7 dias', c.stats.d7], ['30 dias', c.stats.d30], ['Total', c.stats.total]].map(([l, v]) => <div key={l as string} className="stat"><div className="l">{l}</div><div className="v" style={{ fontSize: 18 }}>{v}</div></div>)}
               </div>

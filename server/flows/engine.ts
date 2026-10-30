@@ -13,6 +13,7 @@ import {
 } from './logic.js';
 import type { Conversation, Contact, FlowRun, Message } from '@prisma/client';
 import type { OutboundPayload } from '../whatsapp/cloudClient.js';
+import type { AutoReplyMode } from '../whatsapp/autoReplyMode.js';
 
 // ---------- Trava por conversa (evita processamento concorrente/duplicado) ----------
 const locks = new Map<string, Promise<unknown>>();
@@ -433,10 +434,27 @@ export async function isFreeTextMenuMiss(run: FlowRun, text: string, replyId?: s
  * Decide o que fazer com uma mensagem recebida em modo BOT:
  * 1) retomar fluxo que aguarda resposta; 2) iniciar fluxo por gatilho; 3) IA automática; 4) nada.
  */
-export async function automateInbound(conv: Conversation, contact: Contact, message: Message, opts: { isFirst: boolean; replyId?: string }) {
+export async function automateInbound(conv: Conversation, contact: Contact, message: Message, opts: { isFirst: boolean; replyId?: string; mode?: AutoReplyMode }) {
   // Assinatura do MCKBOT inativa: a mensagem já foi gravada, mas nenhuma automação roda.
   if (!(await isProductActive(conv.orgId, 'MCKBOT'))) return 'subscription_inactive' as const;
   const text = message.body ?? '';
+  // "Quem responde automaticamente" do canal (padrão "both" = comportamento original abaixo).
+  const mode: AutoReplyMode = opts.mode ?? 'both';
+  if (mode === 'ai') {
+    // Só IA: nenhum fluxo é disparado nem retomado por mensagens deste canal. Um fluxo que ficou
+    // esperando resposta (de antes da troca de modo) é encerrado para a conversa não ficar presa.
+    const waitingRuns = await prisma.flowRun.findMany({ where: { conversationId: conv.id, status: 'WAITING', waitType: 'reply' } });
+    for (const w of waitingRuns) {
+      const c = await prisma.flowRun.updateMany({ where: { id: w.id, status: 'WAITING' }, data: { status: 'CANCELLED', finishedAt: new Date(), waitType: null } });
+      if (c.count === 1) await prisma.flowRunStep.create({ data: { orgId: w.orgId, runId: w.id, flowId: w.flowId, nodeId: w.currentNodeId ?? '', nodeType: 'menu', status: 'warn', detail: 'Canal no modo "Só IA": fluxo encerrado e a mensagem foi para a IA.' } });
+    }
+    const aiSettings = await prisma.aiSettings.findUnique({ where: { orgId: conv.orgId } });
+    if (!(aiSettings?.enabled && aiSettings.autoReply)) return 'none' as const;
+    const r = await generateAiReply({ orgId: conv.orgId, conversationId: conv.id, text });
+    if (r.text) await sendOutbound({ conversation: conv, contact, payload: { type: 'text', text: r.text }, sender: 'ai' });
+    if (r.handoff) await handoffToHuman(conv, r.reason ?? 'IA');
+    return 'ai' as const;
+  }
   // "Voltar ao menu": vale em qualquer etapa (antes de retomar a espera atual).
   const menuSettings = await getMenuSettings(conv.orgId);
   if (isMenuCommand(menuSettings, text, opts.replyId)) {
@@ -449,7 +467,8 @@ export async function automateInbound(conv: Conversation, contact: Contact, mess
   }
   const waiting = await prisma.flowRun.findFirst({ where: { conversationId: conv.id, status: 'WAITING', waitType: 'reply' }, orderBy: { startedAt: 'desc' } });
   const ai = await prisma.aiSettings.findUnique({ where: { orgId: conv.orgId } });
-  const aiOn = !!(ai?.enabled && ai.autoReply);
+  // Só fluxos: a IA nunca responde automaticamente neste canal (tudo segue como se ela estivesse desligada).
+  const aiOn = mode !== 'flows' && !!(ai?.enabled && ai.autoReply);
   if (waiting) {
     // Cliente escreveu uma pergunta livre em vez de escolher uma opção do menu:
     // em vez de "Opção inválida", tenta outro fluxo pelo gatilho e, se não houver, a IA responde.

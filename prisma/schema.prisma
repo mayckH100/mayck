@@ -169,6 +169,7 @@ model Channel {
   qrLeaseUntil   DateTime? // modo QR: validade da trava; expira sozinha se a instância cair
   replySavedContacts  Boolean   @default(false) // modo QR: responder automaticamente contatos salvos na agenda do celular (padrão: não)
   addressBookSyncedAt DateTime? // modo QR: quando a agenda do celular foi sincronizada por completo pela última vez
+  autoReplyMode       String    @default("both") // quem responde automaticamente neste canal: flows (só fluxos) | ai (só IA) | both (fluxos + IA, padrão)
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 

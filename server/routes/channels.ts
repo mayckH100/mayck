@@ -11,6 +11,7 @@ import { qrManager } from '../whatsapp/qr/manager.js';
 import { normalizePairingPhone, pairingPerHour } from '../whatsapp/qr/pairing.js';
 import { countSavedPhoneContacts } from '../whatsapp/qr/addressBook.js';
 import { PROVIDER_CLOUD, PROVIDER_QR, isQrChannel } from '../whatsapp/messaging.js';
+import { AUTO_REPLY_MODES, autoReplyModeOf } from '../whatsapp/autoReplyMode.js';
 import type { Channel } from '@prisma/client';
 
 export const channelsRouter = Router();
@@ -37,6 +38,7 @@ async function view(c: Channel, req: import('express').Request) {
     webhookUrl: `${publicUrl(req)}/api/webhooks/whatsapp/${c.id}`,
     lastError: c.lastError, lastWebhookAt: c.lastWebhookAt, lastCheckedAt: c.lastCheckedAt, createdAt: c.createdAt,
     stats: { today, d7, d30, total }, graphApiVersion: config.GRAPH_API_VERSION,
+    autoReplyMode: autoReplyModeOf(c),
     ...(isQrChannel(c) ? {
       replySavedContacts: c.replySavedContacts,
       addressBook: { syncedAt: c.addressBookSyncedAt, savedContacts: await countSavedPhoneContacts(c.id) },
@@ -67,6 +69,8 @@ const credsSchema = z.object({
   appSecret: z.string().trim().min(8).max(200).optional(),
   /** Modo QR: responder automaticamente também os contatos salvos na agenda do celular. */
   replySavedContacts: z.boolean().optional(),
+  /** Quem responde automaticamente neste canal: flows (só fluxos) | ai (só IA) | both (fluxos + IA). */
+  autoReplyMode: z.enum(AUTO_REPLY_MODES).optional(),
 });
 
 channelsRouter.patch('/:id', requireRole('OWNER', 'ADMIN'), ah(async (req, res) => {
@@ -85,6 +89,7 @@ channelsRouter.patch('/:id', requireRole('OWNER', 'ADMIN'), ah(async (req, res) 
       accessTokenEnc: body.accessToken ? encrypt(body.accessToken) : undefined,
       appSecretEnc: body.appSecret ? encrypt(body.appSecret) : undefined,
       replySavedContacts: body.replySavedContacts ?? undefined,
+      autoReplyMode: body.autoReplyMode ?? undefined,
       // Credenciais alteradas exigem nova verificação real antes de marcar como conectado.
       ...(credsChanged ? { status: 'NOT_CONNECTED', lastError: null, provider: PROVIDER_CLOUD, waJid: null } : {}),
     },
@@ -92,7 +97,11 @@ channelsRouter.patch('/:id', requireRole('OWNER', 'ADMIN'), ah(async (req, res) 
   if (body.replySavedContacts !== undefined && body.replySavedContacts !== c.replySavedContacts) {
     await audit(req, 'channel.reply_saved_contacts', { entity: 'channel', entityId: c.id, meta: { antes: c.replySavedContacts, depois: body.replySavedContacts } });
   }
-  const otherFields = Object.keys(body).filter((k) => k !== 'replySavedContacts');
+  const modeAntes = autoReplyModeOf(c);
+  if (body.autoReplyMode !== undefined && body.autoReplyMode !== modeAntes) {
+    await audit(req, 'channel.auto_reply_mode', { entity: 'channel', entityId: c.id, meta: { antes: modeAntes, depois: body.autoReplyMode } });
+  }
+  const otherFields = Object.keys(body).filter((k) => k !== 'replySavedContacts' && k !== 'autoReplyMode');
   if (otherFields.length) await audit(req, 'channel.update', { entity: 'channel', entityId: c.id, meta: { fields: otherFields } });
   res.json(await view(updated, req));
 }));
