@@ -167,6 +167,8 @@ model Channel {
   lastCheckedAt  DateTime?
   qrLeaseOwner   String? // modo QR: instância do servidor que segura a sessão (evita 2 conexões no deploy)
   qrLeaseUntil   DateTime? // modo QR: validade da trava; expira sozinha se a instância cair
+  replySavedContacts  Boolean   @default(false) // modo QR: responder automaticamente contatos salvos na agenda do celular (padrão: não)
+  addressBookSyncedAt DateTime? // modo QR: quando a agenda do celular foi sincronizada por completo pela última vez
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 
@@ -184,6 +186,20 @@ model WaAuthState {
   updatedAt DateTime @updatedAt
 
   @@unique([channelId, type, keyId])
+  @@index([channelId])
+}
+
+/// Agenda do celular conectado (modo QR): quais números/LIDs estão salvos como contato no aparelho.
+/// Vem da sincronização do WhatsApp (app-state "contactAction"). Só o fato de estar salvo — o nome não é guardado.
+/// jidKey = dígitos do número (5511999990000) ou "lid:<id>" para contatos identificados por LID.
+model WaPhoneContact {
+  id        String   @id @default(cuid())
+  channelId String
+  jidKey    String
+  saved     Boolean  @default(true)
+  updatedAt DateTime @updatedAt
+
+  @@unique([channelId, jidKey])
   @@index([channelId])
 }
 
@@ -222,6 +238,7 @@ model Contact {
   vars          String    @default("{}")
   stageId       String?
   optOut        Boolean   @default(false)
+  savedInPhone  Boolean   @default(false) // salvo na agenda do celular de algum número QR conectado (informativo)
   lastMessageAt DateTime?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt

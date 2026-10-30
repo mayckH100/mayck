@@ -29,6 +29,25 @@ export default function Channels() {
                 <>
                   <div className="small">{c.status === 'CONNECTED' ? <>Número conectado: <strong>{c.displayPhone ?? '—'}</strong></> : (c.displayPhone ? <span className="muted">Último número: {c.displayPhone}</span> : 'Conexão por QR code (WhatsApp Web)')}</div>
                   {c.status !== 'CONNECTED' && c.lastError && <div className="alert warn small">{c.lastError}</div>}
+                  <label className="row small" style={{ gap: 8, alignItems: 'flex-start', cursor: admin ? 'pointer' : 'default' }} title={admin ? undefined : 'Só Proprietário ou Administrador pode alterar'}>
+                    <input
+                      type="checkbox"
+                      checked={!!c.replySavedContacts}
+                      disabled={!admin || busy}
+                      onChange={(e) => { const v = e.target.checked; run(() => patch(`/channels/${c.id}`, { replySavedContacts: v }), v ? 'O robô vai responder todos os contatos' : 'O robô não vai responder contatos salvos na agenda do celular').then(state.reload); }}
+                    />
+                    <span>
+                      <strong>Responder contatos salvos na agenda do celular</strong>
+                      <span className="muted" style={{ display: 'block' }}>
+                        {c.replySavedContacts
+                          ? 'O robô, a IA e os fluxos respondem todo mundo.'
+                          : 'Desmarcado: quem está salvo na agenda do celular conectado não recebe resposta automática (a mensagem aparece no Inbox para você responder). Contatos não salvos continuam recebendo.'}
+                        {c.addressBook && (c.addressBook.syncedAt || c.addressBook.savedContacts > 0)
+                          ? ` · ${c.addressBook.savedContacts} contato(s) salvo(s) sincronizado(s).`
+                          : (c.status === 'CONNECTED' ? ' · Sincronizando a agenda do celular (pode levar 1–2 minutos após conectar).' : '')}
+                      </span>
+                    </span>
+                  </label>
                 </>
               ) : (
                 <>

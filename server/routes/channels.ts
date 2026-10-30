@@ -9,6 +9,7 @@ import { audit } from '../lib/audit.js';
 import { config } from '../config.js';
 import { qrManager } from '../whatsapp/qr/manager.js';
 import { normalizePairingPhone, pairingPerHour } from '../whatsapp/qr/pairing.js';
+import { countSavedPhoneContacts } from '../whatsapp/qr/addressBook.js';
 import { PROVIDER_CLOUD, PROVIDER_QR, isQrChannel } from '../whatsapp/messaging.js';
 import type { Channel } from '@prisma/client';
 
@@ -36,6 +37,10 @@ async function view(c: Channel, req: import('express').Request) {
     webhookUrl: `${publicUrl(req)}/api/webhooks/whatsapp/${c.id}`,
     lastError: c.lastError, lastWebhookAt: c.lastWebhookAt, lastCheckedAt: c.lastCheckedAt, createdAt: c.createdAt,
     stats: { today, d7, d30, total }, graphApiVersion: config.GRAPH_API_VERSION,
+    ...(isQrChannel(c) ? {
+      replySavedContacts: c.replySavedContacts,
+      addressBook: { syncedAt: c.addressBookSyncedAt, savedContacts: await countSavedPhoneContacts(c.id) },
+    } : {}),
   };
 }
 
@@ -60,6 +65,8 @@ const credsSchema = z.object({
   wabaId: z.string().trim().regex(/^\d{5,30}$/, 'WABA ID deve conter apenas dígitos').optional().or(z.literal('')),
   accessToken: z.string().trim().min(20).max(1000).optional(),
   appSecret: z.string().trim().min(8).max(200).optional(),
+  /** Modo QR: responder automaticamente também os contatos salvos na agenda do celular. */
+  replySavedContacts: z.boolean().optional(),
 });
 
 channelsRouter.patch('/:id', requireRole('OWNER', 'ADMIN'), ah(async (req, res) => {
@@ -77,11 +84,16 @@ channelsRouter.patch('/:id', requireRole('OWNER', 'ADMIN'), ah(async (req, res) 
       wabaId: body.wabaId === '' ? null : body.wabaId ?? undefined,
       accessTokenEnc: body.accessToken ? encrypt(body.accessToken) : undefined,
       appSecretEnc: body.appSecret ? encrypt(body.appSecret) : undefined,
+      replySavedContacts: body.replySavedContacts ?? undefined,
       // Credenciais alteradas exigem nova verificação real antes de marcar como conectado.
       ...(credsChanged ? { status: 'NOT_CONNECTED', lastError: null, provider: PROVIDER_CLOUD, waJid: null } : {}),
     },
   });
-  await audit(req, 'channel.update', { entity: 'channel', entityId: c.id, meta: { fields: Object.keys(body) } });
+  if (body.replySavedContacts !== undefined && body.replySavedContacts !== c.replySavedContacts) {
+    await audit(req, 'channel.reply_saved_contacts', { entity: 'channel', entityId: c.id, meta: { antes: c.replySavedContacts, depois: body.replySavedContacts } });
+  }
+  const otherFields = Object.keys(body).filter((k) => k !== 'replySavedContacts');
+  if (otherFields.length) await audit(req, 'channel.update', { entity: 'channel', entityId: c.id, meta: { fields: otherFields } });
   res.json(await view(updated, req));
 }));
 

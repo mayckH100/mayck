@@ -133,6 +133,8 @@ export interface InboundMessage {
   replyId?: string;
   mediaId?: string;
   fileName?: string;
+  /** Modo QR: LID do remetente (ex.: "123456@lid"), quando conhecido, para não duplicar o contato. */
+  lid?: string;
 }
 export interface StatusUpdate {
   phoneNumberId: string;

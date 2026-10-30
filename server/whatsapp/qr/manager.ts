@@ -1,6 +1,6 @@
 import makeWASocket, {
-  Browsers, DisconnectReason, fetchLatestBaileysVersion, makeCacheableSignalKeyStore,
-  type AnyMessageContent, type WAMessage, type WAMessageUpdate, type ConnectionState, type WAVersion,
+  Browsers, DisconnectReason, fetchLatestBaileysVersion, makeCacheableSignalKeyStore, jidNormalizedUser,
+  type AnyMessageContent, type WAMessage, type WAMessageUpdate, type ConnectionState, type WAVersion, type GroupMetadata,
 } from '@whiskeysockets/baileys';
 import QRCode from 'qrcode';
 import { prisma } from '../../db.js';
@@ -10,7 +10,9 @@ import { saveSent, loadSent, pruneSent } from './sentStore.js';
 import { describeEvent, recordDeliveryEvent } from './deliveryLog.js';
 import { PAIRING_CODE_TTL_MS, formatPairingCode, maskPhone } from './pairing.js';
 import { HttpError } from '../../lib/http.js';
-import { parseBaileysMessage, mapBaileysStatus, buildQrContent, waIdToJid, jidToNumber } from './parse.js';
+import { parseBaileysMessage, mapBaileysStatus, buildQrContent, waIdToJid, jidToNumber, lidOf } from './parse.js';
+import { applyPhoneContacts, type PhoneContactUpdate } from './addressBook.js';
+import { TtlCache } from './ttlCache.js';
 import type { OutboundPayload } from '../cloudClient.js';
 
 export type QrStatus = 'NOT_CONNECTED' | 'CONNECTING' | 'QR_PENDING' | 'CONNECTED' | 'ERROR';
@@ -22,7 +24,13 @@ export interface QrSocket {
   end?(error: Error | undefined): void;
   /** Código de pareamento (Conectar com número de telefone). Só antes de registrar o aparelho. */
   requestPairingCode?(phoneNumber: string): Promise<string>;
-  user?: { id: string } | null;
+  user?: { id: string; lid?: string } | null;
+  /** Baileys 7: mapeamento LID ↔ número (só conhece pares já vistos no tráfego/sincronização). */
+  signalRepository?: { lidMapping?: { getPNForLID(lid: string): Promise<string | null>; getLIDForPN?(pn: string): Promise<string | null> } };
+  /** Baileys 7: ressincronizar coleções do app-state (agenda do celular = "critical_unblock_low"). */
+  resyncAppState?(collections: readonly string[], isInitialSync: boolean): Promise<void>;
+  authState?: { keys: { set(data: Record<string, Record<string, unknown>>): Promise<void> | void } };
+  appStatePatchMutex?: { mutex<T>(code: () => Promise<T>): Promise<T> };
 }
 
 /**
@@ -39,14 +47,16 @@ export function rememberSent(id: string, message: unknown) {
   while (sentCache.size > SENT_CACHE_MAX) sentCache.delete(sentCache.keys().next().value as string);
 }
 export function recallSent(id: string | null | undefined) { return id ? sentCache.get(id) : undefined; }
-/** Contador de tentativas de reenvio compartilhado entre reconexões (evita loop de retry). */
-const retryCounts = new Map<string, unknown>();
-const msgRetryCounterCache = {
-  get: <T>(k: string) => retryCounts.get(k) as T | undefined,
-  set: <T>(k: string, v: T) => { retryCounts.set(k, v); if (retryCounts.size > 5000) retryCounts.delete(retryCounts.keys().next().value as string); },
-  del: (k: string) => { retryCounts.delete(k); },
-  flushAll: () => { retryCounts.clear(); },
-};
+/** Contador de tentativas de reenvio compartilhado entre reconexões (evita loop de retry); vale 1 h, como no Baileys. */
+const msgRetryCounterCache = new TtlCache(60 * 60_000, 5000);
+/** Lista de aparelhos de cada contato: 5 min (padrão do Baileys), um cache por socket — nunca reaproveita lista velha após reconectar. */
+const USER_DEVICES_TTL_MS = 5 * 60_000;
+/** Metadados de grupo (recomendação do Baileys 7: evita consultar o WhatsApp a cada envio para grupo). */
+const GROUP_META_TTL_MS = 10 * 60_000;
+/** Depois de conectar, quanto esperar a sincronização inicial antes de puxar a agenda do celular de novo. */
+const addressBookDelayMs = () => Number(process.env.QR_ADDRESSBOOK_DELAY_MS ?? (isTest() ? 0 : 45_000));
+/** Coleção do app-state em que o WhatsApp guarda os contatos salvos na agenda do celular. */
+const ADDRESS_BOOK_COLLECTION = 'critical_unblock_low';
 
 interface Session {
   channelId: string;
@@ -68,6 +78,9 @@ interface Session {
   orgId: string | null;
   /** Código de pareamento ativo neste socket (o código em si nunca fica guardado aqui nem vai para log). */
   pairing: { expiresAt: number; phone: string } | null;
+  /** Gravações da agenda do celular em fila (uma por vez por canal). */
+  contactsChain: Promise<unknown>;
+  addressBookTimer: NodeJS.Timeout | null;
 }
 
 const isTest = () => process.env.NODE_ENV === 'test';
@@ -141,6 +154,39 @@ async function waVersion(): Promise<WAVersion | undefined> {
   }
 }
 
+/**
+ * Mensagem recebida de um contato identificado só por LID (remoteJid "...@lid", sem remoteJidAlt):
+ * tenta descobrir o número pelo mapeamento LID→número que o Baileys já conhece, para o contato ser
+ * o mesmo de antes (identificado pelo número) e não um contato duplicado.
+ */
+export async function resolveSenderPn(sock: QrSocket, m: WAMessage): Promise<void> {
+  const key = m.key as (WAMessage['key'] & { remoteJidAlt?: string | null }) | undefined;
+  if (!key || key.fromMe) return;
+  const lid = lidOf(key.remoteJid);
+  if (!lid || jidToNumber(key.remoteJidAlt)) return;
+  const pn = await sock.signalRepository?.lidMapping?.getPNForLID(lid).catch(() => null);
+  if (pn && jidToNumber(pn)) key.remoteJidAlt = jidNormalizedUser(pn);
+}
+
+/** Completa número/LID dos contatos da agenda pelo mapeamento do Baileys (para as duas identidades valerem). */
+export async function completeContactPairs(sock: QrSocket, list: PhoneContactUpdate[]): Promise<PhoneContactUpdate[]> {
+  const map = sock.signalRepository?.lidMapping;
+  if (!map) return list;
+  const out: PhoneContactUpdate[] = [];
+  for (const c of list) {
+    if (!c || !('name' in c)) continue;
+    const ids = [c.id, c.lid, c.phoneNumber];
+    let lid = ids.map((j) => lidOf(j)).find(Boolean) ?? null;
+    let pn = ids.find((j) => jidToNumber(j)) ?? null;
+    try {
+      if (lid && !pn) pn = (await map.getPNForLID(lid)) ?? null;
+      if (pn && !lid && map.getLIDForPN) lid = (await map.getLIDForPN(jidNormalizedUser(pn))) ?? null;
+    } catch { /* mapeamento indisponível: grava só o que veio */ }
+    out.push({ ...c, lid: lid ?? c.lid ?? null, phoneNumber: pn ?? c.phoneNumber ?? null });
+  }
+  return out;
+}
+
 type InboundHandler = (channelId: string, msg: WAMessage) => Promise<void>;
 type StatusHandler = (channelId: string, update: WAMessageUpdate) => Promise<void>;
 
@@ -157,7 +203,7 @@ class QrSessionManager {
   private session(channelId: string): Session {
     let s = this.sessions.get(channelId);
     if (!s) {
-      s = { channelId, sock: null, status: 'NOT_CONNECTED', qr: null, qrDataUrl: null, attempts: 0, timer: null, stopped: true, generation: 0, phone: null, lastError: null, ready: false, readyTimer: null, leaseTimer: null, waitingLease: false, orgId: null, pairing: null };
+      s = { channelId, sock: null, status: 'NOT_CONNECTED', qr: null, qrDataUrl: null, attempts: 0, timer: null, stopped: true, generation: 0, phone: null, lastError: null, ready: false, readyTimer: null, leaseTimer: null, waitingLease: false, orgId: null, pairing: null, contactsChain: Promise.resolve(), addressBookTimer: null };
       this.sessions.set(channelId, s);
     }
     return s;
@@ -210,6 +256,8 @@ class QrSessionManager {
     s.leaseTimer = null;
     if (s.readyTimer) clearTimeout(s.readyTimer);
     s.readyTimer = null;
+    if (s.addressBookTimer) clearTimeout(s.addressBookTimer);
+    s.addressBookTimer = null;
   }
 
   /** Renova a trava enquanto a sessão estiver ativa; se outra instância assumiu, encerra este socket. */
@@ -274,6 +322,7 @@ class QrSessionManager {
       await flushAuthState(s.channelId);
       const { state, saveCreds } = await useDbAuthState(s.channelId);
       const version = await waVersion();
+      const groupCache = new TtlCache(GROUP_META_TTL_MS, 500);
       sock = makeWASocket({
         ...(version ? { version } : {}),
         auth: { creds: state.creds, keys: makeCacheableSignalKeyStore(state.keys, silentLogger) },
@@ -298,7 +347,13 @@ class QrSessionManager {
           return (m?.body ? { conversation: m.body } : undefined) as never;
         },
         msgRetryCounterCache: msgRetryCounterCache as never,
+        userDevicesCache: new TtlCache(USER_DEVICES_TTL_MS, 5000) as never,
+        cachedGroupMetadata: async (jid) => groupCache.get<GroupMetadata>(jid),
       });
+      // Grupo mudou (participantes, assunto…): descarta os metadados guardados.
+      sock.ev.on('groups.update', (ups) => { for (const g of ups) if (g.id) groupCache.del(g.id); });
+      sock.ev.on('group-participants.update', (u) => { groupCache.del(u.id); });
+      sock.ev.on('groups.upsert', (gs) => { for (const g of gs) groupCache.set(g.id, g); });
       sock.ev.on('creds.update', () => { saveCreds().catch((e) => silentLogger.error(e, 'falha ao salvar credenciais')); });
     } catch (e) {
       this.scheduleRetry(s, `Falha ao iniciar a conexão: ${(e as Error).message}`);
@@ -314,8 +369,17 @@ class QrSessionManager {
         if (m.messageStubType === 2 /* CIPHERTEXT: não decifrada */ && !m.key?.fromMe) {
           recordDeliveryEvent(s.channelId, s.orgId, { action: 'whatsapp.decrypt_falha', jid: m.key?.remoteJid ?? null, msgId: m.key?.id ?? null }).catch(() => undefined);
         }
-        this.onInbound?.(s.channelId, m).catch((e) => silentLogger.error(e, 'erro ao processar mensagem recebida'));
+        resolveSenderPn(sock, m)
+          .then(() => this.onInbound?.(s.channelId, m))
+          .catch((e) => silentLogger.error(e, 'erro ao processar mensagem recebida'));
       }
+    });
+    // Agenda do celular: contatos salvos (sincronização do app-state). Só o fato "salvo" é gravado.
+    sock.ev.on('contacts.upsert', (list) => { if (gen === s.generation) this.queuePhoneContacts(s, sock, list as PhoneContactUpdate[]); });
+    sock.ev.on('contacts.update', (list) => {
+      if (gen !== s.generation) return;
+      const withName = (list as PhoneContactUpdate[]).filter((c) => c && 'name' in c && c.id);
+      if (withName.length) this.queuePhoneContacts(s, sock, withName);
     });
     sock.ev.on('messages.update', (updates) => {
       if (gen !== s.generation) return;
@@ -350,6 +414,7 @@ class QrSessionManager {
       s.phone = num ? `+${num}` : null;
       await this.persist(s.channelId, { status: 'CONNECTED', waJid: jid, displayPhone: s.phone ?? undefined, connectedAt: new Date(), lastError: null, lastCheckedAt: new Date() });
       console.log(`[whatsapp-qr] canal ${s.channelId} conectado (${s.phone ?? 'número não informado'})`);
+      this.scheduleAddressBookSync(s, gen);
     }
     if (u.receivedPendingNotifications && s.status === 'CONNECTED') {
       s.ready = true;
@@ -401,6 +466,57 @@ class QrSessionManager {
     }
   }
 
+  /** Grava em fila (por canal) os contatos da agenda, completando o par número↔LID pelo mapeamento do Baileys. */
+  private queuePhoneContacts(s: Session, sock: QrSocket, list: PhoneContactUpdate[]) {
+    if (!list?.length) return;
+    s.contactsChain = s.contactsChain
+      .catch(() => undefined)
+      .then(async () => {
+        if (s.orgId === null) {
+          const ch = await prisma.channel.findUnique({ where: { id: s.channelId }, select: { orgId: true } });
+          s.orgId = ch?.orgId ?? null;
+        }
+        return applyPhoneContacts(s.channelId, s.orgId, await completeContactPairs(sock, list));
+      })
+      .catch((e) => silentLogger.error(e, 'falha ao gravar a agenda do celular'));
+  }
+
+  /**
+   * Agenda do celular: na primeira conexão o WhatsApp manda a agenda inteira na sincronização inicial.
+   * Sessões pareadas antes desta versão já passaram por essa sincronização sem guardarmos os contatos,
+   * então, uma vez por canal, pedimos de novo a coleção completa (snapshot) — depois disso só chegam
+   * as alterações (contato salvo/apagado no celular).
+   */
+  private scheduleAddressBookSync(s: Session, gen: number) {
+    if (s.addressBookTimer) clearTimeout(s.addressBookTimer);
+    s.addressBookTimer = setTimeout(() => {
+      s.addressBookTimer = null;
+      if (gen !== s.generation || s.stopped || !s.sock) return;
+      this.syncAddressBook(s.channelId).catch((e) => silentLogger.error(e, 'falha ao sincronizar a agenda do celular'));
+    }, addressBookDelayMs());
+    s.addressBookTimer.unref?.();
+  }
+
+  /** Puxa a agenda do celular completa uma vez por canal (ou sempre, com force). */
+  async syncAddressBook(channelId: string, opts: { force?: boolean } = {}): Promise<boolean> {
+    const s = this.sessions.get(channelId);
+    const sock = s?.sock;
+    if (!s || !sock || s.status !== 'CONNECTED') return false;
+    const ch = await prisma.channel.findUnique({ where: { id: channelId }, select: { addressBookSyncedAt: true } });
+    if (ch?.addressBookSyncedAt && !opts.force) return false;
+    if (!sock.resyncAppState || !sock.authState?.keys) return false;
+    // Sem a versão salva da coleção, o Baileys pede o snapshot inteiro e emite contacts.upsert para cada contato.
+    const run = async () => {
+      await sock.authState!.keys.set({ 'app-state-sync-version': { [ADDRESS_BOOK_COLLECTION]: null } });
+      await sock.resyncAppState!([ADDRESS_BOOK_COLLECTION], false);
+    };
+    // Mesma trava que o Baileys usa ao gravar alterações do app-state (não cruza com outra sincronização).
+    if (sock.appStatePatchMutex) await sock.appStatePatchMutex.mutex(run); else await run();
+    await s.contactsChain.catch(() => undefined);
+    await this.persist(channelId, { addressBookSyncedAt: new Date() });
+    return true;
+  }
+
   private async handleLoggedOut(s: Session, reason: string) {
     s.stopped = true;
     this.clearTimer(s);
@@ -411,7 +527,7 @@ class QrSessionManager {
     s.lastError = reason;
     await clearAuthState(s.channelId);
     await releaseLease(s.channelId);
-    await this.persist(s.channelId, { status: 'NOT_CONNECTED', waJid: null, lastError: reason });
+    await this.persist(s.channelId, { status: 'NOT_CONNECTED', waJid: null, lastError: reason, addressBookSyncedAt: null });
   }
 
   private scheduleRetry(s: Session, reason: string) {
@@ -447,7 +563,7 @@ class QrSessionManager {
     s.qr = null; s.qrDataUrl = null; s.lastError = null; s.pairing = null;
     await flushAuthState(channelId);
     await releaseLease(channelId);
-    if (opts.logout) await this.persist(channelId, { status: 'NOT_CONNECTED', waJid: null, lastError: null });
+    if (opts.logout) await this.persist(channelId, { status: 'NOT_CONNECTED', waJid: null, lastError: null, addressBookSyncedAt: null });
   }
 
   private pairingInFlight = new Set<string>();
@@ -604,6 +720,12 @@ class QrSessionManager {
       s.readyTimer = setTimeout(() => { s.ready = true; }, 300);
     }
     return s;
+  }
+  /** Somente testes: entrega contatos sincronizados como se viessem do evento contacts.upsert. */
+  async phoneContactsForTests(channelId: string, sock: QrSocket, list: PhoneContactUpdate[]) {
+    const s = this.session(channelId);
+    this.queuePhoneContacts(s, sock, list);
+    await s.contactsChain;
   }
   setConnectingForTests(channelId: string) {
     const s = this.session(channelId);

@@ -1,5 +1,5 @@
 import {
-  normalizeMessageContent, isJidGroup, isJidBroadcast, isJidStatusBroadcast, isJidNewsletter, jidDecode,
+  normalizeMessageContent, isJidGroup, isJidBroadcast, isJidStatusBroadcast, isJidNewsletter, jidDecode, jidNormalizedUser,
   type WAMessage, type AnyMessageContent,
 } from '@whiskeysockets/baileys';
 import type { InboundMessage, OutboundPayload } from '../cloudClient.js';
@@ -16,8 +16,31 @@ export function jidToNumber(jid?: string | null): string | null {
   if (!jid) return null;
   const d = jidDecode(jid);
   if (!d?.user) return null;
-  if (d.server !== 's.whatsapp.net' && d.server !== 'c.us') return null;
+  if (d.server !== 's.whatsapp.net' && d.server !== 'c.us' && d.server !== 'hosted') return null;
   return /^\d{6,20}$/.test(d.user) ? d.user : null;
+}
+
+/** JID @lid normalizado (sem aparelho), ou null se não for LID. */
+export function lidOf(jid?: string | null): string | null {
+  if (!jid) return null;
+  const d = jidDecode(jid);
+  if (!d?.user || (d.server !== 'lid' && d.server !== 'hosted.lid')) return null;
+  return jidNormalizedUser(jid);
+}
+
+/**
+ * Identidades do remetente de uma conversa individual. Desde a migração do WhatsApp para LID, a
+ * mensagem pode chegar com remoteJid "...@lid"; o Baileys 7 informa o outro lado em key.remoteJidAlt
+ * (número quando remoteJid é LID e vice-versa). `senderPn` é o campo antigo (6.x), mantido por segurança.
+ */
+export function senderIdentities(key: { remoteJid?: string | null; remoteJidAlt?: string | null; senderPn?: string | null } | null | undefined): { phone: string | null; lid: string | null } {
+  const remote = key?.remoteJid ?? null;
+  const alt = key?.remoteJidAlt ?? null;
+  const legacyPn = key?.senderPn ?? null;
+  return {
+    phone: jidToNumber(remote) ?? jidToNumber(alt) ?? jidToNumber(legacyPn),
+    lid: lidOf(remote) ?? lidOf(alt),
+  };
 }
 
 /** waId salvo no contato → JID de envio. waId pode ser só dígitos ou um JID completo (ex.: contato só com LID). */
@@ -37,8 +60,10 @@ export function parseBaileysMessage(msg: WAMessage): InboundMessage | null {
   if (!remote || isJidGroup(remote) || isJidBroadcast(remote) || isJidStatusBroadcast(remote) || isJidNewsletter(remote)) return null;
   if (!key.id) return null;
 
-  // Contato identificado por LID: usa o número real quando o WhatsApp informa (senderPn).
-  const from = jidToNumber(remote) ?? jidToNumber(key.senderPn) ?? (remote.endsWith('@lid') ? remote : null);
+  // Contato identificado por LID: usa o número real quando conhecido (remoteJidAlt / mapeamento LID→número);
+  // sem o número, o contato fica identificado pelo próprio LID (o envio para LID também funciona).
+  const ids = senderIdentities(key as never);
+  const from = ids.phone ?? ids.lid;
   if (!from) return null;
 
   const content = normalizeMessageContent(msg.message);
@@ -73,6 +98,7 @@ export function parseBaileysMessage(msg: WAMessage): InboundMessage | null {
     text,
     replyId,
     mediaId,
+    ...(ids.lid ? { lid: ids.lid } : {}),
   };
 }
 

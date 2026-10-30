@@ -7,6 +7,7 @@ import { applyStatus } from './messaging.js';
 import { automateInbound, withConversationLock } from '../flows/engine.js';
 import { normalize } from '../flows/logic.js';
 import { parseBaileysMessage, mapBaileysStatus } from './qr/parse.js';
+import { isSavedInPhone } from './qr/addressBook.js';
 import type { WAMessage, WAMessageUpdate } from '@whiskeysockets/baileys';
 import type { Channel } from '@prisma/client';
 import { onLeadInbound, onLeadOptOut } from '../mckmensagem/hooks.js';
@@ -48,22 +49,51 @@ function baixarCloud(channel: Channel, m: InboundMessage): BaixarMidia | undefin
   };
 }
 
+/**
+ * Contato da mensagem recebida. No modo QR o mesmo cliente pode aparecer pelo número ou pelo LID:
+ * um contato criado antes só com o LID passa a ser identificado pelo número quando ele fica conhecido
+ * (sem criar um segundo contato).
+ */
+async function findOrCreateContact(orgId: string, m: InboundMessage) {
+  let contact = await prisma.contact.findUnique({ where: { orgId_waId: { orgId, waId: m.from } } });
+  if (contact) return contact;
+  if (m.lid && m.lid !== m.from) {
+    const byLid = await prisma.contact.findUnique({ where: { orgId_waId: { orgId, waId: m.lid } } });
+    if (byLid) {
+      try {
+        return await prisma.contact.update({ where: { id: byLid.id }, data: { waId: m.from, phone: '+' + m.from } });
+      } catch {
+        contact = await prisma.contact.findUnique({ where: { orgId_waId: { orgId, waId: m.from } } });
+        return contact ?? byLid;
+      }
+    }
+  }
+  try {
+    return await prisma.contact.create({ data: { orgId, waId: m.from, phone: m.from.includes('@') ? m.from : '+' + m.from, name: m.profileName ?? null } });
+  } catch {
+    return prisma.contact.findUniqueOrThrow({ where: { orgId_waId: { orgId, waId: m.from } } });
+  }
+}
+
 export async function handleInboundMessage(channel: Channel, m: InboundMessage, baixar?: BaixarMidia): Promise<'ok' | 'duplicate'> {
   const orgId = channel.orgId;
   // Idempotência rápida: a Meta reenvia o mesmo evento em caso de timeout.
   const already = await prisma.message.findUnique({ where: { channelId_waMessageId: { channelId: channel.id, waMessageId: m.waMessageId } } });
   if (already) return 'duplicate';
 
-  let contact = await prisma.contact.findUnique({ where: { orgId_waId: { orgId, waId: m.from } } });
-  const isFirst = !contact || !contact.lastMessageAt;
-  if (!contact) {
-    try {
-      contact = await prisma.contact.create({ data: { orgId, waId: m.from, phone: m.from.includes('@') ? m.from : '+' + m.from, name: m.profileName ?? null } });
-    } catch {
-      contact = await prisma.contact.findUniqueOrThrow({ where: { orgId_waId: { orgId, waId: m.from } } });
-    }
-  } else if (!contact.name && m.profileName) {
+  let contact = await findOrCreateContact(orgId, m);
+  const isFirst = !contact.lastMessageAt;
+  if (!contact.name && m.profileName) {
     contact = await prisma.contact.update({ where: { id: contact.id }, data: { name: m.profileName } });
+  }
+
+  // Modo QR: contato salvo na agenda do celular conectado não recebe resposta automática
+  // (a menos que o canal permita). A mensagem continua entrando no Inbox normalmente.
+  let skipAutoReply = false;
+  if (channel.provider === 'whatsapp_qr') {
+    const saved = await isSavedInPhone(channel.id, [m.from, m.lid, contact.waId]).catch(() => false);
+    if (saved && !contact.savedInPhone) contact = await prisma.contact.update({ where: { id: contact.id }, data: { savedInPhone: true } });
+    skipAutoReply = saved && !channel.replySavedContacts;
   }
 
   return withConversationLock(`contact:${contact.id}`, async () => {
@@ -109,7 +139,7 @@ export async function handleInboundMessage(channel: Channel, m: InboundMessage, 
       await prisma.message.create({ data: { orgId, conversationId: conv.id, direction: 'INTERNAL', sender: 'system', type: 'note', body: 'Contato pediu para não receber mensagens automáticas (opt-out).', status: 'NOTE' } });
       return 'ok' as const;
     }
-    if (conv.mode === 'HUMAN' || contact.optOut) return 'ok' as const;
+    if (conv.mode === 'HUMAN' || contact.optOut || skipAutoReply) return 'ok' as const;
     await withConversationLock(conv.id, async () => {
       // MCK Mensagens: lead abordado por campanha que respondeu → IA de qualificação (quando ligada).
       if (m.type === 'text' && (await qualifyLeadInbound(conv!, contact!, m.text ?? ''))) return;

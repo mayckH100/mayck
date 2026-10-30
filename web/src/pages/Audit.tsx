@@ -3,7 +3,7 @@ import { useApi, Async, Empty, fmtDate } from '../ui';
 const LABEL: Record<string, string> = {
   'auth.login': 'Login', 'auth.login_failed': 'Login falhou', 'auth.register': 'Cadastro', 'flow.create': 'Fluxo criado', 'flow.save': 'Fluxo salvo', 'flow.activate': 'Fluxo ativado', 'flow.pause': 'Fluxo pausado',
   'flow.delete': 'Fluxo excluído', 'flow.duplicate': 'Fluxo duplicado', 'flow.restore': 'Versão restaurada', 'flow.import': 'Fluxo importado', 'flow.manual_start': 'Fluxo disparado manualmente',
-  'channel.create': 'Canal criado', 'channel.update': 'Canal alterado', 'channel.verify': 'Canal verificado', 'channel.delete': 'Canal excluído', 'channel.disconnect': 'Canal desconectado',
+  'channel.create': 'Canal criado', 'channel.update': 'Canal alterado', 'channel.reply_saved_contacts': 'Resposta a contatos salvos na agenda alterada', 'channel.verify': 'Canal verificado', 'channel.delete': 'Canal excluído', 'channel.disconnect': 'Canal desconectado',
   'ai.settings_update': 'IA configurada', 'ai.knowledge_create': 'Documento criado', 'ai.knowledge_update': 'Documento alterado', 'ai.knowledge_delete': 'Documento excluído',
   'lgpd.export': 'LGPD: dados exportados', 'lgpd.delete': 'LGPD: dados apagados', 'team.invite': 'Convite criado', 'team.remove': 'Membro removido', 'team.role_change': 'Papel alterado', 'team.invite_accepted': 'Convite aceito',
   'auth.mfa_enabled': '2FA ativada', 'auth.mfa_disabled': '2FA desativada', 'auth.mfa_failed': '2FA: código errado', 'auth.mfa_recovery_used': '2FA: código de recuperação usado',
