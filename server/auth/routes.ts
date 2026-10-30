@@ -4,7 +4,9 @@ import { z } from 'zod';
 import rateLimit from 'express-rate-limit';
 import { prisma } from '../db.js';
 import { ah, HttpError, badRequest } from '../lib/http.js';
-import { createSession, destroySession, requireAuth } from './session.js';
+import { createSession, destroySession, requireAuth, superAdminMfaRequired } from './session.js';
+import { securityRouter, registerFailure, clearFailures, lockRemainingMin, lockedError, trackDevice, checkSecondFactor } from './security.js';
+import type { Request, Response } from 'express';
 import { createOrganization } from './orgDefaults.js';
 import { audit } from '../lib/audit.js';
 import { sha256 } from '../lib/crypto.js';
@@ -15,6 +17,7 @@ import { randomToken } from '../lib/crypto.js';
 import { sendMailLater, welcomeMail, resetMail, passwordChangedMail, brandOf, appPath, type AppBrand } from '../lib/mailer.js';
 
 export const authRouter = Router();
+authRouter.use(securityRouter); // 2FA e sessões ativas
 
 let dummy: string | null = null;
 async function dummyHash() {
@@ -56,7 +59,7 @@ export async function meResponse(userId: string, orgId: string | null, csrfToken
   const current = memberships.find((m) => m.orgId === orgId) ?? null;
   const subscriptions = current ? await Promise.all(PRODUCTS.map((p) => getSubscriptionView(current.orgId, p))) : [];
   return {
-    user: { id: user.id, email: user.email, name: user.name, phone: user.phone, isSuperAdmin: user.isSuperAdmin, emailVerified: !!user.emailVerifiedAt },
+    user: { id: user.id, email: user.email, name: user.name, phone: user.phone, isSuperAdmin: user.isSuperAdmin, emailVerified: !!user.emailVerifiedAt, mfaEnabled: !!user.totpEnabledAt, mfaRequired: user.isSuperAdmin && superAdminMfaRequired() },
     isSuperAdmin: user.isSuperAdmin,
     subscriptions,
     org: current ? { id: current.org.id, name: current.org.name, plan: current.org.plan, timezone: current.org.timezone } : null,
@@ -74,6 +77,7 @@ authRouter.post('/register', registerIpLimiter, loginLimiter, ah(async (req, res
   await ensureSuperAdmin(user);
   const org = await createOrganization(user.id, body.orgName);
   const csrf = await createSession(res, req, user.id, org.id);
+  await trackDevice(req, res, user, org.id, brandOf(req.body?.app), false);
   await audit(req, 'auth.register', { orgId: org.id, userId: user.id, entity: 'user', entityId: user.id });
   // Boas-vindas + link de confirmação do e-mail (não bloqueia o login; falha de SMTP não afeta o cadastro).
   try {
@@ -84,24 +88,83 @@ authRouter.post('/register', registerIpLimiter, loginLimiter, ah(async (req, res
   res.status(201).json(await meResponse(user.id, org.id, csrf));
 }));
 
+const MFA_TTL_MS = 5 * 60 * 1000;
+const firstOrgId = async (userId: string) => (await prisma.membership.findFirst({ where: { userId }, orderBy: { createdAt: 'asc' } }))?.orgId ?? null;
+
+/** Etapa final do login (senha e, se ativa, 2FA já conferidas): zera falhas, cria sessão, confere aparelho e audita. */
+async function completeLogin(req: Request, res: Response, user: { id: string; email: string; name: string; isSuperAdmin: boolean; emailVerifiedAt: Date | null }, meta: Record<string, unknown>) {
+  await clearFailures(user.id);
+  if (await ensureSuperAdmin(user)) await audit(req, 'auth.superadmin_bootstrap', { userId: user.id, meta: { email: user.email } });
+  const orgId = await firstOrgId(user.id);
+  const csrf = await createSession(res, req, user.id, orgId);
+  const newDevice = await trackDevice(req, res, user, orgId, brandOf(req.body?.app));
+  await audit(req, 'auth.login', { orgId, userId: user.id, meta: { ...meta, newDevice } });
+  return meResponse(user.id, orgId, csrf);
+}
+
 authRouter.post('/login', loginIpLimiter, loginLimiter, ah(async (req, res) => {
   const body = z.object({ email, password: z.string().min(1).max(200) }).parse(req.body);
   const user = await prisma.user.findUnique({ where: { email: body.email } });
   // Compara mesmo quando o usuário não existe, para não vazar por tempo de resposta quais e-mails têm conta.
   const ok = await bcrypt.compare(body.password, user?.passwordHash ?? (await dummyHash()));
+  const app = brandOf(req.body?.app);
+  if (user) {
+    // Bloqueio temporário por conta (vale mesmo com a senha certa, até o prazo acabar).
+    const locked = lockRemainingMin(user);
+    if (locked > 0) {
+      await audit(req, 'auth.login_locked', { orgId: await firstOrgId(user.id), userId: user.id, meta: { email: body.email, minutes: locked } });
+      throw lockedError(locked);
+    }
+  }
   if (user && ok && user.disabledAt) {
     await audit(req, 'auth.login_disabled', { userId: user.id, meta: { email: body.email } });
     throw new HttpError(401, 'Esta conta está desativada. Fale com o suporte.');
   }
   if (!user || !ok) {
-    await audit(req, 'auth.login_failed', { meta: { email: body.email } });
+    const orgId = user ? await firstOrgId(user.id) : null;
+    await audit(req, 'auth.login_failed', { orgId, userId: user?.id ?? null, meta: { email: body.email } });
+    if (user) {
+      const minutes = await registerFailure(req, user, orgId, app, 'password');
+      if (minutes > 0) throw lockedError(minutes);
+    }
     throw new HttpError(401, 'E-mail ou senha incorretos');
   }
-  if (await ensureSuperAdmin(user)) await audit(req, 'auth.superadmin_bootstrap', { userId: user.id, meta: { email: user.email } });
-  const first = await prisma.membership.findFirst({ where: { userId: user.id }, orderBy: { createdAt: 'asc' } });
-  const csrf = await createSession(res, req, user.id, first?.orgId ?? null);
-  await audit(req, 'auth.login', { orgId: first?.orgId, userId: user.id });
-  res.json(await meResponse(user.id, first?.orgId ?? null, csrf));
+  if (user.totpEnabledAt) {
+    // Senha certa + 2FA ativa: devolve um token curto (5 min) para a etapa do código. Nenhuma sessão é criada ainda.
+    const token = randomToken(32);
+    await prisma.authToken.deleteMany({ where: { userId: user.id, kind: 'MFA_LOGIN' } });
+    await prisma.authToken.create({ data: { userId: user.id, kind: 'MFA_LOGIN', tokenHash: sha256(token), expiresAt: new Date(Date.now() + MFA_TTL_MS), ip: req.ip ?? null } });
+    return void res.json({ mfaRequired: true, mfaToken: token });
+  }
+  res.json(await completeLogin(req, res, user, { mfa: false }));
+}));
+
+authRouter.post('/login/mfa', loginIpLimiter, ah(async (req, res) => {
+  const body = z.object({ mfaToken: z.string().min(20).max(200), code: z.string().min(6).max(20) }).parse(req.body);
+  const row = await prisma.authToken.findUnique({ where: { tokenHash: sha256(body.mfaToken) } });
+  if (!row || row.kind !== 'MFA_LOGIN' || row.usedAt || row.expiresAt < new Date()) throw new HttpError(401, 'A etapa de verificação expirou. Entre de novo com e-mail e senha.');
+  const user = await prisma.user.findUniqueOrThrow({ where: { id: row.userId } });
+  const orgId = await firstOrgId(user.id);
+  const locked = lockRemainingMin(user);
+  if (locked > 0) {
+    await prisma.authToken.deleteMany({ where: { id: row.id } });
+    throw lockedError(locked);
+  }
+  if (user.disabledAt) throw new HttpError(401, 'Esta conta está desativada. Fale com o suporte.');
+  const method = await checkSecondFactor(user, body.code);
+  if (!method) {
+    await audit(req, 'auth.mfa_failed', { orgId, userId: user.id, meta: { context: 'login' } });
+    const minutes = await registerFailure(req, user, orgId, brandOf(req.body?.app), 'mfa');
+    if (minutes > 0) {
+      await prisma.authToken.deleteMany({ where: { id: row.id } });
+      throw lockedError(minutes);
+    }
+    throw new HttpError(401, 'Código inválido. Digite o código atual do app autenticador ou um código de recuperação.');
+  }
+  const used = await prisma.authToken.updateMany({ where: { id: row.id, usedAt: null }, data: { usedAt: new Date() } });
+  if (used.count !== 1) throw new HttpError(401, 'A etapa de verificação expirou. Entre de novo com e-mail e senha.');
+  if (method === 'recovery') await audit(req, 'auth.mfa_recovery_used', { orgId, userId: user.id });
+  res.json(await completeLogin(req, res, user, { mfa: method }));
 }));
 
 authRouter.post('/logout', ah(async (req, res) => {
@@ -164,7 +227,7 @@ authRouter.post('/accept-invite', loginLimiter, ah(async (req, res) => {
 // ---- Recuperação de senha e verificação de e-mail ----
 const RESET_TTL_MS = 60 * 60 * 1000; // 1 hora
 const VERIFY_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 dias
-type TokenKind = 'RESET_PASSWORD' | 'VERIFY_EMAIL';
+type TokenKind = 'RESET_PASSWORD' | 'VERIFY_EMAIL'; // + MFA_LOGIN (etapa do código no login)
 
 /** Gera um token aleatório; só o hash SHA-256 vai para o banco. Tokens anteriores do mesmo tipo deixam de valer. */
 async function issueToken(userId: string, kind: TokenKind, ttlMs: number, ip?: string) {
@@ -231,7 +294,8 @@ authRouter.post('/reset', loginIpLimiter, loginLimiter, ah(async (req, res) => {
   const body = z.object({ token: z.string().min(20).max(200), password, app: z.enum(['mckbot', 'mensagem']).optional() }).parse(req.body);
   const row = await consumeToken(body.token, 'RESET_PASSWORD');
   if (!row) throw new HttpError(400, 'Link inválido ou expirado. Peça um novo em "Esqueci minha senha".');
-  const user = await prisma.user.update({ where: { id: row.userId }, data: { passwordHash: await bcrypt.hash(body.password, 12) } });
+  // Nova senha também desbloqueia a conta (quem recebeu o link no e-mail provou ser o dono).
+  const user = await prisma.user.update({ where: { id: row.userId }, data: { passwordHash: await bcrypt.hash(body.password, 12), failedLogins: 0, lockedUntil: null } });
   // Invalida todas as sessões antigas (inclusive a atual, se houver) e os demais links de redefinição pendentes.
   await prisma.session.deleteMany({ where: { userId: user.id } });
   await prisma.authToken.deleteMany({ where: { userId: user.id, kind: 'RESET_PASSWORD', usedAt: null } });

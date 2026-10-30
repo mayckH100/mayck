@@ -33,3 +33,15 @@ services:
         sync: false
       - key: MAIL_FROM
         sync: false
+      # Escudo de segurança
+      # Backup diário cifrado do banco (grátis): repositório GitHub PRIVADO + token fine-grained (Contents: read/write só nele)
+      - key: BACKUP_GITHUB_REPO
+        sync: false # ex.: mayckH100/mck-backups (PRIVADO; o app recusa repositório público)
+      - key: BACKUP_GITHUB_TOKEN
+        sync: false
+      - key: BACKUP_EMAIL
+        sync: false # opcional: também envia o arquivo cifrado por e-mail (exige SMTP)
+      - key: ACCOUNT_LOCK_THRESHOLD
+        value: "5" # senhas/códigos errados seguidos até bloquear a conta
+      - key: ACCOUNT_LOCK_MINUTES
+        value: "15" # 1º bloqueio; dobra a cada nova falha (máx. 24 h)

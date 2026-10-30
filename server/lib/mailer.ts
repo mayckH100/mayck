@@ -164,3 +164,37 @@ export function passwordChangedMail(o: { to: string; name: string; app: AppBrand
   ], { label: 'Entrar', url: appPath(o.app, '/login', o.req) }, 'Se não foi você, redefina a senha imediatamente pelo link "Esqueci minha senha" e fale com o suporte.');
   return { to: o.to, subject: `Senha alterada no ${b.name}`, html, text, kind: 'password_changed' };
 }
+
+const nowBr = () => new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+
+/** Alerta de login em aparelho/navegador novo. */
+export function newDeviceMail(o: { to: string; name: string; app: AppBrand; ip?: string | null; device: string; req?: Request }): MailMessage {
+  const b = BRANDS[o.app];
+  const { html, text } = layout(o.app, o.req, 'Novo acesso à sua conta', [
+    `Olá, ${esc(o.name)}. Sua conta no ${b.name} acabou de ser acessada de um aparelho ou navegador que ainda não conhecíamos.`,
+    `<strong>Quando:</strong> ${nowBr()} (horário de Brasília)<br><strong>Aparelho:</strong> ${esc(o.device)}<br><strong>IP:</strong> ${esc(o.ip ?? 'desconhecido')}`,
+    'Se foi você, não precisa fazer nada.',
+  ], { label: 'Ver sessões ativas', url: appPath('mckbot', '/perfil', o.req) },
+  'Se NÃO foi você: troque a senha agora, encerre todas as sessões em Perfil &gt; Segurança e ative a verificação em duas etapas.');
+  return { to: o.to, subject: `Novo acesso à sua conta ${b.name}`, html, text, kind: 'login_new_device' };
+}
+
+/** Aviso de bloqueio temporário por tentativas erradas. */
+export function accountLockedMail(o: { to: string; name: string; app: AppBrand; minutes: number; ip?: string | null; req?: Request }): MailMessage {
+  const b = BRANDS[o.app];
+  const { html, text } = layout(o.app, o.req, 'Conta bloqueada temporariamente', [
+    `Olá, ${esc(o.name)}. Houve várias tentativas erradas de entrar na sua conta no ${b.name} (último IP: ${esc(o.ip ?? 'desconhecido')}).`,
+    `Por segurança, o login ficou bloqueado por <strong>${o.minutes} minuto(s)</strong>. Depois disso volta ao normal.`,
+  ], { label: 'Redefinir minha senha', url: appPath(o.app, '/esqueci-senha', o.req) },
+  'Se não foi você, redefina a senha e ative a verificação em duas etapas. Redefinir a senha também desbloqueia a conta.');
+  return { to: o.to, subject: `Tentativas de acesso bloqueadas no ${b.name}`, html, text, kind: 'account_locked' };
+}
+
+/** Aviso de mudança na verificação em duas etapas. */
+export function mfaChangedMail(o: { to: string; name: string; enabled: boolean; req?: Request }): MailMessage {
+  const { html, text } = layout('mckbot', o.req, o.enabled ? 'Verificação em duas etapas ativada' : 'Verificação em duas etapas desativada', [
+    `Olá, ${esc(o.name)}. A verificação em duas etapas da sua conta MCK foi <strong>${o.enabled ? 'ativada' : 'desativada'}</strong> em ${nowBr()} (horário de Brasília).`,
+    o.enabled ? 'A partir de agora, além da senha, o login pede o código do seu app autenticador. Guarde os códigos de recuperação em local seguro.' : 'Agora o login pede só a senha. Recomendamos manter a proteção ligada.',
+  ], undefined, 'Se não foi você, redefina a senha imediatamente e fale com o suporte.');
+  return { to: o.to, subject: o.enabled ? 'Verificação em duas etapas ativada' : 'Verificação em duas etapas desativada', html, text, kind: o.enabled ? 'mfa_enabled' : 'mfa_disabled' };
+}

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { patch, post } from '../api';
 import { useAuth } from '../auth';
 import { useAction, Field } from '../ui';
+import { SecuritySection } from './Security';
 
 export default function Profile() {
   const { me, refresh, can } = useAuth();
@@ -43,6 +44,8 @@ export default function Profile() {
           </form>
         )}
       </div>
+      <h2 id="seguranca" style={{ marginTop: 24 }}>Segurança</h2>
+      <SecuritySection />
     </>
   );
 }

@@ -14,6 +14,7 @@ import MmLeadAi from './pages/LeadAi';
 import MmSubscription from './pages/Subscription';
 import AutomacoesModulo from './pages/automacoes/Index';
 import Tutorials from '../Tutorials';
+import SecurityPage from '../pages/Security';
 
 const NAV = [
   { to: '/', label: 'Painel', icon: '◔' },
@@ -23,6 +24,7 @@ const NAV = [
   { to: '/automacoes', label: 'Automações e Cobranças', icon: '⏱' },
   { to: '/assinatura', label: 'Assinatura', icon: '◈' },
   { to: '/tutoriais', label: 'Tutoriais', icon: '▶' },
+  { to: '/seguranca', label: 'Segurança', icon: '⛨' },
 ];
 
 /** Aviso quando o MCK Mensagens está vencido/bloqueado ou a API respondeu 402. */
@@ -176,6 +178,7 @@ export default function MensagemApp() {
             <Route path="/automacoes/*" element={<AutomacoesModulo />} />
             <Route path="/assinatura" element={<MmSubscription />} />
             <Route path="/tutoriais" element={<Tutorials app="mck-mensagens" appName="MCK Mensagens" planPath="/assinatura" />} />
+            <Route path="/seguranca" element={<SecurityPage />} />
             <Route path="/plano" element={<Navigate to="/assinatura" replace />} />
             <Route path="*" element={<div className="empty"><div className="t">Página não encontrada</div><NavLink to="/">Voltar para o painel</NavLink></div>} />
           </Routes>

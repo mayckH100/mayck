@@ -6,6 +6,9 @@ import { config, isProd } from '../config.js';
 import type { Role } from '../types.js';
 
 export const COOKIE = 'mck_sid';
+/** 2FA obrigatória para superadmin (Painel Master). Desligável só por variável de ambiente (emergência/testes). */
+export const superAdminMfaRequired = () => process.env.SUPERADMIN_MFA_REQUIRED !== 'false';
+const SEEN_EVERY_MS = 5 * 60 * 1000;
 const TTL_MS = 7 * 24 * 3600 * 1000;
 
 export async function createSession(res: Response, req: Request, userId: string, orgId: string | null) {
@@ -40,7 +43,7 @@ export async function loadSession(req: Request, _res: Response, next: NextFuncti
     if (!token) return next();
     const session = await prisma.session.findUnique({ where: { id: sha256(token) } });
     if (!session || session.expiresAt < new Date()) return next();
-    const user = await prisma.user.findUnique({ where: { id: session.userId }, select: { isSuperAdmin: true, disabledAt: true } });
+    const user = await prisma.user.findUnique({ where: { id: session.userId }, select: { isSuperAdmin: true, disabledAt: true, totpEnabledAt: true } });
     if (!user || user.disabledAt) return next(); // usuário desativado: sessão não vale (401 nas rotas protegidas)
     let role: Role | null = null;
     let orgId = session.orgId;
@@ -49,7 +52,11 @@ export async function loadSession(req: Request, _res: Response, next: NextFuncti
       if (m) role = m.role as Role;
       else orgId = null; // removido da organização
     }
-    req.auth = { userId: session.userId, sessionId: session.id, csrfToken: session.csrfToken, orgId, role, isSuperAdmin: user.isSuperAdmin };
+    req.auth = { userId: session.userId, sessionId: session.id, csrfToken: session.csrfToken, orgId, role, isSuperAdmin: user.isSuperAdmin, mfaEnabled: !!user.totpEnabledAt };
+    // "Visto por último" para a tela Sessões ativas (no máximo uma escrita a cada 5 min por sessão).
+    if (!session.lastSeenAt || Date.now() - session.lastSeenAt.getTime() > SEEN_EVERY_MS) {
+      prisma.session.updateMany({ where: { id: session.id }, data: { lastSeenAt: new Date(), ip: req.ip } }).catch(() => undefined);
+    }
     next();
   } catch (e) {
     next(e);
@@ -92,6 +99,9 @@ export const requireRole = (...roles: Role[]) => (req: Request, _res: Response, 
 export function requireSuperAdmin(req: Request, _res: Response, next: NextFunction) {
   if (!req.auth) return next(new HttpError(401, 'Faça login para continuar'));
   if (!req.auth.isSuperAdmin) return next(forbidden('Acesso restrito ao administrador da plataforma'));
+  if (superAdminMfaRequired() && !req.auth.mfaEnabled) {
+    return next(new HttpError(403, 'Ative a verificação em duas etapas (app autenticador) para usar o Painel Master.', { code: 'MFA_REQUIRED' }));
+  }
   next();
 }
 

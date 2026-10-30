@@ -6,6 +6,9 @@ const LABEL: Record<string, string> = {
   'channel.create': 'Canal criado', 'channel.update': 'Canal alterado', 'channel.verify': 'Canal verificado', 'channel.delete': 'Canal excluído', 'channel.disconnect': 'Canal desconectado',
   'ai.settings_update': 'IA configurada', 'ai.knowledge_create': 'Documento criado', 'ai.knowledge_update': 'Documento alterado', 'ai.knowledge_delete': 'Documento excluído',
   'lgpd.export': 'LGPD: dados exportados', 'lgpd.delete': 'LGPD: dados apagados', 'team.invite': 'Convite criado', 'team.remove': 'Membro removido', 'team.role_change': 'Papel alterado', 'team.invite_accepted': 'Convite aceito',
+  'auth.mfa_enabled': '2FA ativada', 'auth.mfa_disabled': '2FA desativada', 'auth.mfa_failed': '2FA: código errado', 'auth.mfa_recovery_used': '2FA: código de recuperação usado',
+  'auth.mfa_recovery_regenerated': '2FA: novos códigos de recuperação', 'auth.login_new_device': 'Login em aparelho novo', 'auth.account_locked': 'Conta bloqueada (senhas erradas)',
+  'auth.login_locked': 'Tentativa com conta bloqueada', 'auth.session_revoked': 'Sessão encerrada', 'auth.sessions_revoked': 'Sessões encerradas', 'auth.password_reset': 'Senha redefinida', 'profile.password_change': 'Senha alterada',
   'inbox.send': 'Mensagem enviada', 'inbox.close': 'Conversa encerrada', 'inbox.take': 'Conversa assumida', 'inbox.to_bot': 'Devolvida ao robô', 'contact.create': 'Contato criado', 'contact.update': 'Contato alterado', 'contact.import': 'Contatos importados', 'kanban.move': 'Kanban: contato movido',
 };
 

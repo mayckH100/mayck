@@ -18,6 +18,7 @@ export default defineConfig({
       ENABLE_SCHEDULER: 'false',
       ENABLE_MCKMENSAGEM_CRON: 'false',
       GRAPH_API_BASE: 'https://graph.facebook.com',
+      SUPERADMIN_MFA_REQUIRED: 'false', // testes do Master; o teste de segurança liga de propósito
     },
     reporters: ['verbose'],
   },

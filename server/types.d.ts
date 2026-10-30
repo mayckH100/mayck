@@ -10,6 +10,7 @@ declare global {
         orgId: string | null;
         role: Role | null;
         isSuperAdmin: boolean;
+        mfaEnabled: boolean;
       };
       rawBody?: Buffer;
     }

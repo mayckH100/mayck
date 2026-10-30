@@ -8,6 +8,7 @@ import { tickLeadRetries } from './mckmensagem/qualificacao.js';
 import { tickAutomacoes } from './mckmensagem/automacoes/engine.js';
 import { handleQrMessage, handleQrStatus } from './whatsapp/inbound.js';
 import { syncSuperAdmins } from './auth/superadmin.js';
+import { maybeDailyBackup } from './lib/backup.js';
 
 const app = createApp();
 const server = app.listen(config.PORT, () => {
@@ -51,6 +52,13 @@ if (config.ENABLE_MCKMENSAGEM_CRON === 'true' && config.NODE_ENV !== 'test') {
   };
   setTimeout(ciclo, 10_000).unref();
   setInterval(ciclo, 15_000).unref();
+}
+
+// Backup diário automático do banco (cifrado), a partir das 3h de Brasília. Confere a cada 30 min (e 2 min após iniciar).
+if (process.env.ENABLE_BACKUP !== 'false' && config.NODE_ENV !== 'test') {
+  const backupTick = () => { maybeDailyBackup().catch((e) => console.error('[backup]', e)); };
+  setTimeout(backupTick, 2 * 60_000).unref();
+  setInterval(backupTick, 30 * 60_000).unref();
 }
 
 // WhatsApp por QR code (Baileys): reconecta os canais com sessão salva no banco.

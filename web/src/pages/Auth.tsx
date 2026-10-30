@@ -6,6 +6,7 @@ import { Field, useApi, Loading, ErrorBox } from '../ui';
 import { InstallButton } from '../pwa';
 import { PlansShowcase, ForgotPassword, ResetPassword, VerifyEmail } from './PublicAuth';
 import { normalizeCoupon, storedCoupon } from '../billing';
+import { MfaLoginStep } from './Security';
 
 export function Brand() {
   return <div className="brand"><img src="/logo.svg" alt="" /> MCKBOT</div>;
@@ -25,14 +26,21 @@ export function Login() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [mfaToken, setMfaToken] = useState<string | null>(null);
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     setBusy(true); setError('');
-    try { setMe(await post('/auth/login', { email, password })); nav('/'); } catch (err) { setError((err as Error).message); } finally { setBusy(false); }
+    try {
+      const r = await post('/auth/login', { email, password, app: 'mckbot' });
+      if (r?.mfaRequired) { setMfaToken(r.mfaToken); setPassword(''); } else { setMe(r); nav('/'); }
+    } catch (err) { setError((err as Error).message); } finally { setBusy(false); }
   };
   return (
     <div className="auth auth-wide">
       <div className="auth-col">
+        {mfaToken ? (
+          <div className="card stack"><Brand /><MfaLoginStep mfaToken={mfaToken} app="mckbot" onDone={(m) => { setMe(m); nav('/'); }} onCancel={() => setMfaToken(null)} /></div>
+        ) : (
         <form className="card stack" onSubmit={submit}>
           <Brand />
           <p className="muted" style={{ textAlign: 'center' }}>Atendimento no WhatsApp com fluxos e IA</p>
@@ -47,6 +55,7 @@ export function Login() {
             <a href="/mensagem/login" className="small">Ir para MCK Mensagens</a>
           </div>
         </form>
+        )}
         <PlansShowcase />
       </div>
     </div>

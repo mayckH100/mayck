@@ -12,6 +12,7 @@ import {
 } from '../billing/service.js';
 import { COUPON_CYCLES, COUPON_PRODUCTS, CODE_RE, MIN_FINAL_CENTS, normalizeCode } from '../billing/coupons.js';
 import { DEFAULT_SITE, getSiteSettings, updateSiteSettings } from '../lib/site-settings.js';
+import { backupDestinations, backupFileName, createBackupFile, runBackup } from '../lib/backup.js';
 
 /**
  * Painel Master (superadmin da plataforma). Montado em /api/master com requireSuperAdmin.
@@ -389,4 +390,30 @@ masterRouter.put('/site', ah(async (req, res) => {
   const next = await updateSiteSettings({ ...b, facebookUrl: b.facebookUrl === '' ? DEFAULT_SITE.facebookUrl : b.facebookUrl });
   await audit(req, 'master.site.update', { orgId: null, entity: 'platform_settings', entityId: 'site', meta: b });
   res.json({ ...next, defaults: DEFAULT_SITE });
+}));
+
+// ---------------- Segurança: backups do banco ----------------
+const backupView = (r: { id: string; trigger: string; status: string; startedAt: Date; finishedAt: Date | null; sizeBytes: number | null; rows: number | null; destination: string | null; location: string | null; error: string | null }) => ({
+  ...r, startedAt: r.startedAt.toISOString(), finishedAt: r.finishedAt?.toISOString() ?? null,
+});
+
+masterRouter.get('/backups', ah(async (_req, res) => {
+  const runs = await prisma.backupRun.findMany({ orderBy: { startedAt: 'desc' }, take: 20 });
+  const lastOk = await prisma.backupRun.findFirst({ where: { status: 'OK' }, orderBy: { startedAt: 'desc' } });
+  res.json({ destinations: backupDestinations(), runs: runs.map(backupView), lastOk: lastOk ? backupView(lastOk) : null });
+}));
+
+masterRouter.post('/backups/run', ah(async (req, res) => {
+  let result;
+  try { result = await runBackup('MANUAL', req.auth!.userId); } catch (e) { throw new HttpError(409, (e as Error).message); }
+  res.json(backupView(result.run));
+}));
+
+masterRouter.get('/backups/download', ah(async (req, res) => {
+  const { data, rows } = await createBackupFile();
+  await audit(req, 'backup.download', { orgId: null, entity: 'backup', meta: { sizeBytes: data.length, rows } });
+  res.setHeader('Content-Type', 'application/octet-stream');
+  res.setHeader('Content-Disposition', `attachment; filename="${backupFileName()}"`);
+  res.setHeader('Cache-Control', 'no-store');
+  res.send(data);
 }));

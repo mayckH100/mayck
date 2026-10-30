@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { del, post, put } from '../api';
 import { useAuth, type SubscriptionView, type SubStatus } from '../auth';
 import { useApi, Async, Empty, Field, Loading, Modal, fmtDate, fmtNum, useAction } from '../ui';
+import { TwoFactorCard } from './Security';
 import {
   CYCLES, CYCLE_LABEL, KIND_LABEL, PLAN_PRODUCTS, PRODUCTS, PRODUCT_LABEL, SOURCE_LABEL, STATUSES, STATUS_LABEL,
   SubBadge, centsToInput, daysLeft, fmtBRL, fmtDay, fmtMonth, parseBRL, toDateInput, type Cycle, type PlanProduct,
@@ -48,6 +49,10 @@ const ACTION_LABEL: Record<string, string> = {
   'master.coupon.deactivate': 'Master: cupom desativado', 'master.coupon.delete': 'Master: cupom excluído', 'master.site.update': 'Master: site oficial alterado',
   'billing.checkout': 'Pagamento iniciado', 'billing.mp.renovado': 'Pagamento aprovado (renovação)', 'billing.mp.valor_divergente': 'Pagamento com valor divergente',
   'auth.login': 'Login', 'auth.login_failed': 'Login falhou', 'auth.register': 'Cadastro',
+  'auth.mfa_enabled': '2FA ativada', 'auth.mfa_disabled': '2FA desativada', 'auth.mfa_failed': '2FA: código errado', 'auth.mfa_recovery_used': '2FA: código de recuperação usado',
+  'auth.mfa_recovery_regenerated': '2FA: novos códigos de recuperação', 'auth.login_new_device': 'Login em aparelho novo', 'auth.account_locked': 'Conta bloqueada (senhas erradas)',
+  'auth.login_locked': 'Tentativa com conta bloqueada', 'auth.session_revoked': 'Sessão encerrada', 'auth.sessions_revoked': 'Sessões encerradas',
+  'backup.success': 'Backup do banco concluído', 'backup.failed': 'Backup do banco falhou', 'backup.download': 'Backup baixado pelo Master',
 };
 const actionLabel = (a: string) => ACTION_LABEL[a] ?? a;
 const metaText = (m: any) => {
@@ -706,9 +711,45 @@ function SiteSettingsSection() {
   );
 }
 
+interface BackupRunView { id: string; trigger: string; status: string; startedAt: string; finishedAt: string | null; sizeBytes: number | null; rows: number | null; destination: string | null; location: string | null; error: string | null }
+interface BackupStatus { destinations: { github: boolean; githubRepo: string | null; email: boolean; emailTo: string | null }; runs: BackupRunView[]; lastOk: BackupRunView | null }
+
+function BackupSection() {
+  const state = useApi<BackupStatus>('/master/backups');
+  const { busy, run } = useAction();
+  const kb = (n: number | null) => (n === null ? '—' : n > 1024 * 1024 ? `${(n / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`);
+  return (
+    <div className="card stack">
+      <div className="row between"><h2>Backup do banco</h2>
+        <div className="row" style={{ gap: 8 }}>
+          <button className="btn" disabled={busy} onClick={async () => { if (await run(() => post('/master/backups/run'), 'Backup executado')) state.reload(); }}>{busy ? 'Fazendo backup…' : 'Fazer backup agora'}</button>
+          <a className="btn" href="/api/master/backups/download">Baixar backup (cifrado)</a>
+        </div>
+      </div>
+      <p className="muted small">Todo dia, a partir das 3h (Brasília), o banco inteiro é exportado, compactado e cifrado (AES-256). O arquivo só abre com a chave do servidor; para restaurar use scripts/backup-restore.mjs.</p>
+      <Async state={state}>{(b) => (
+        <>
+          {!b.destinations.github && !b.destinations.email
+            ? <div className="alert warn">Nenhum destino automático configurado. Defina no Render BACKUP_GITHUB_TOKEN + BACKUP_GITHUB_REPO (repositório PRIVADO) ou BACKUP_EMAIL. Enquanto isso, baixe o backup por aqui.</div>
+            : <div className="alert ok">Destino: {[b.destinations.github && `GitHub privado ${b.destinations.githubRepo}`, b.destinations.email && `e-mail ${b.destinations.emailTo}`].filter(Boolean).join(' + ')}. Último backup bem-sucedido: {b.lastOk ? fmtDate(b.lastOk.startedAt) : 'nenhum ainda'}.</div>}
+          {b.runs.length > 0 && (
+            <div className="table-wrap"><table><thead><tr><th>Quando</th><th>Tipo</th><th>Status</th><th>Tamanho</th><th>Registros</th><th>Detalhes</th></tr></thead>
+              <tbody>{b.runs.map((r) => (
+                <tr key={r.id}><td className="small">{fmtDate(r.startedAt)}</td><td className="small">{r.trigger === 'AUTO' ? 'Automático' : 'Manual'}</td>
+                  <td><span className={`badge ${r.status === 'OK' ? 'green' : r.status === 'FAILED' ? 'red' : 'amber'}`}>{r.status === 'OK' ? 'OK' : r.status === 'FAILED' ? 'Falhou' : 'Em andamento'}</span></td>
+                  <td className="small">{kb(r.sizeBytes)}</td><td className="small">{fmtNum(r.rows)}</td><td className="small">{r.error ?? r.location ?? ''}</td></tr>
+              ))}</tbody></table></div>
+          )}
+        </>
+      )}</Async>
+    </div>
+  );
+}
+
 function SettingsTab() {
   return (
     <div className="stack">
+      <BackupSection />
       <PlatformSettingsForm />
       <CouponsSection />
       <SiteSettingsSection />
@@ -726,6 +767,14 @@ export default function Master() {
   if (!me?.isSuperAdmin) {
     if (probe.loading) return <Loading />;
     if (!probe.data) return <><div className="page-head"><div><h1>Painel Master</h1></div></div><Forbidden /></>;
+  }
+  if (me?.user.mfaRequired && !me.user.mfaEnabled) {
+    return (
+      <>
+        <div className="page-head"><div><h1>Painel Master</h1><p className="muted">Proteção extra obrigatória para o administrador da plataforma.</p></div></div>
+        <div style={{ maxWidth: 560 }}><TwoFactorCard /></div>
+      </>
+    );
   }
   return (
     <>
