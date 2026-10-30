@@ -4,7 +4,10 @@ import makeWASocket, {
 } from '@whiskeysockets/baileys';
 import QRCode from 'qrcode';
 import { prisma } from '../../db.js';
-import { useDbAuthState, clearAuthState, hasSavedSession } from './authState.js';
+import { useDbAuthState, clearAuthState, hasSavedSession, flushAuthState } from './authState.js';
+import { acquireLease, renewLease, releaseLease } from './lease.js';
+import { saveSent, loadSent, pruneSent } from './sentStore.js';
+import { describeEvent, recordDeliveryEvent } from './deliveryLog.js';
 import { parseBaileysMessage, mapBaileysStatus, buildQrContent, waIdToJid, jidToNumber } from './parse.js';
 import type { OutboundPayload } from '../cloudClient.js';
 
@@ -53,6 +56,28 @@ interface Session {
   generation: number;
   phone: string | null;
   lastError: string | null;
+  /** Pronto para enviar: conexão aberta E notificações pendentes processadas (sessões do Signal em dia). */
+  ready: boolean;
+  readyTimer: NodeJS.Timeout | null;
+  leaseTimer: NodeJS.Timeout | null;
+  waitingLease: boolean;
+  orgId: string | null;
+}
+
+const isTest = () => process.env.NODE_ENV === 'test';
+/** Intervalo mínimo entre duas mensagens para o MESMO contato (evita rajadas que embaralham a criptografia). */
+const sendGapMs = () => Number(process.env.QR_SEND_GAP_MS ?? (isTest() ? 0 : 800));
+/** Quanto o envio espera a conexão voltar (ex.: reconectando, instância acordando) antes de falhar. */
+const sendWaitMs = () => Number(process.env.QR_SEND_WAIT_MS ?? (isTest() ? 0 : 25_000));
+const READY_FALLBACK_MS = 4000;
+const LEASE_RETRY_MS = 5000;
+const LEASE_RENEW_MS = 20_000;
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+async function waitUntil(cond: () => boolean, timeoutMs: number, stepMs = 200) {
+  const end = Date.now() + timeoutMs;
+  while (!cond() && Date.now() < end) await sleep(stepMs);
+  return cond();
 }
 
 /** Logger mínimo compatível com o ILogger do Baileys: só registra erros relevantes. */
@@ -62,6 +87,31 @@ const silentLogger = {
   trace() {}, debug() {}, info() {}, warn() {},
   error(obj: unknown, msg?: string) { if (process.env.NODE_ENV !== 'test') console.error('[whatsapp-qr]', msg ?? '', typeof obj === 'object' ? JSON.stringify(obj).slice(0, 500) : obj); },
 };
+
+/**
+ * Logger por canal: além dos erros, captura os avisos do Baileys sobre reenvio (retry) e falha
+ * de descriptografia e os registra na Auditoria por contato (medição do "Aguardando mensagem").
+ */
+export function channelLogger(channelId: string, orgId: () => string | null) {
+  const watch = (obj: unknown, msg?: string) => {
+    const ev = describeEvent(obj, typeof msg === 'string' ? msg : undefined);
+    if (ev) recordDeliveryEvent(channelId, orgId(), ev).catch(() => undefined);
+  };
+  const logger = {
+    level: 'debug',
+    child() { return logger; },
+    trace() {},
+    debug: watch,
+    info: watch,
+    warn: watch,
+    error(obj: unknown, msg?: string) {
+      watch(obj, msg);
+      if (msg === 'failed to decrypt message') return; // já registrado como evento (evita poluir o log)
+      silentLogger.error(obj, msg);
+    },
+  };
+  return logger;
+}
 
 const MAX_DELAY_MS = 5 * 60_000;
 export function backoffDelay(attempt: number): number {
@@ -99,7 +149,7 @@ class QrSessionManager {
   private session(channelId: string): Session {
     let s = this.sessions.get(channelId);
     if (!s) {
-      s = { channelId, sock: null, status: 'NOT_CONNECTED', qr: null, qrDataUrl: null, attempts: 0, timer: null, stopped: true, generation: 0, phone: null, lastError: null };
+      s = { channelId, sock: null, status: 'NOT_CONNECTED', qr: null, qrDataUrl: null, attempts: 0, timer: null, stopped: true, generation: 0, phone: null, lastError: null, ready: false, readyTimer: null, leaseTimer: null, waitingLease: false, orgId: null };
       this.sessions.set(channelId, s);
     }
     return s;
@@ -120,6 +170,14 @@ class QrSessionManager {
     return !!s && s.status === 'CONNECTED' && !!s.sock;
   }
 
+  /** Conectado ou reconectando (o envio espera a conexão voltar em vez de falhar na hora). */
+  canSend(channelId: string) {
+    const s = this.sessions.get(channelId);
+    if (!s) return false;
+    if (s.status === 'CONNECTED' && s.sock) return true;
+    return !s.stopped && s.status === 'CONNECTING' && sendWaitMs() > 0;
+  }
+
   /** Inicia (ou reinicia) a conexão de um canal. Idempotente se já estiver ativo. */
   async start(channelId: string, opts: { force?: boolean } = {}) {
     const s = this.session(channelId);
@@ -136,36 +194,92 @@ class QrSessionManager {
     s.timer = null;
   }
 
+  private clearLeaseTimer(s: Session) {
+    if (s.leaseTimer) clearInterval(s.leaseTimer);
+    s.leaseTimer = null;
+    if (s.readyTimer) clearTimeout(s.readyTimer);
+    s.readyTimer = null;
+  }
+
+  /** Renova a trava enquanto a sessão estiver ativa; se outra instância assumiu, encerra este socket. */
+  private startLeaseRenewal(s: Session, gen: number) {
+    if (s.leaseTimer) clearInterval(s.leaseTimer);
+    s.leaseTimer = setInterval(() => {
+      if (gen !== s.generation || s.stopped) return;
+      renewLease(s.channelId).then((ok) => {
+        if (ok || gen !== s.generation || s.stopped) return;
+        console.warn(`[whatsapp-qr] canal ${s.channelId}: outra instância assumiu a sessão; encerrando esta conexão`);
+        const sock = s.sock;
+        s.generation++;
+        s.sock = null;
+        s.ready = false;
+        try { sock?.end?.(undefined); } catch { /* ignora */ }
+        flushAuthState(s.channelId).finally(() => this.connect(s).catch((e) => this.scheduleRetry(s, (e as Error).message)));
+      }).catch(() => undefined); // banco fora do ar: mantém a trava atual até expirar
+    }, LEASE_RENEW_MS);
+    s.leaseTimer.unref?.();
+  }
+
   private async connect(s: Session) {
     this.clearTimer(s);
     const gen = ++s.generation;
     const old = s.sock;
     s.sock = null;
+    s.ready = false;
     try { old?.end?.(undefined); } catch { /* ignora */ }
 
     s.status = 'CONNECTING';
     s.qr = null;
     s.qrDataUrl = null;
+
+    // Trava única: nunca abrir a mesma sessão em duas instâncias (deploy do Render) ao mesmo tempo.
+    let leased = false;
+    try { leased = await acquireLease(s.channelId); } catch (e) { this.scheduleRetry(s, `Falha ao verificar a trava da sessão: ${(e as Error).message}`); return; }
+    if (gen !== s.generation || s.stopped) return;
+    if (!leased) {
+      if (!s.waitingLease) console.log(`[whatsapp-qr] canal ${s.channelId}: aguardando a instância anterior liberar a sessão`);
+      s.waitingLease = true;
+      s.lastError = 'Aguardando a instância anterior do servidor liberar a sessão (atualização em andamento).';
+      await this.persist(s.channelId, { status: 'CONNECTING', lastError: s.lastError });
+      this.clearTimer(s);
+      s.timer = setTimeout(() => { if (!s.stopped && gen === s.generation) this.connect(s).catch((e) => this.scheduleRetry(s, (e as Error).message)); }, LEASE_RETRY_MS);
+      s.timer.unref?.();
+      return;
+    }
+    if (s.waitingLease) { s.waitingLease = false; s.lastError = null; }
+    this.startLeaseRenewal(s, gen);
     await this.persist(s.channelId, { status: 'CONNECTING' });
+    if (s.orgId === null) {
+      const ch = await prisma.channel.findUnique({ where: { id: s.channelId }, select: { orgId: true } }).catch(() => null);
+      s.orgId = ch?.orgId ?? null;
+    }
+    pruneSent().catch(() => undefined);
+    const logger = channelLogger(s.channelId, () => s.orgId);
 
     let sock: ReturnType<typeof makeWASocket>;
     try {
+      // Garante que a conexão anterior terminou de gravar as chaves antes de lê-las de novo.
+      await flushAuthState(s.channelId);
       const { state, saveCreds } = await useDbAuthState(s.channelId);
       const version = await waVersion();
       sock = makeWASocket({
         ...(version ? { version } : {}),
         auth: { creds: state.creds, keys: makeCacheableSignalKeyStore(state.keys, silentLogger) },
-        logger: silentLogger,
+        logger: logger as never,
         browser: Browsers.ubuntu('MCKBOT'),
         printQRInTerminal: false,
         markOnlineOnConnect: false,
         syncFullHistory: false,
         generateHighQualityLinkPreview: false,
         getMessage: async (key) => {
-          // 1) cache em memória; 2) após reinício/deploy, recupera o texto salvo no banco para reenviar.
+          // Reenvio pedido pelo celular do cliente ("Aguardando mensagem"):
+          // 1) cache em memória; 2) mensagem completa salva no banco (mídia, documento, menu — igual à original);
+          // 3) mensagens antigas (antes desta versão): só o texto.
           const cached = recallSent(key.id);
           if (cached) return cached as never;
           if (!key.id) return undefined;
+          const full = await loadSent(s.channelId, key.id).catch(() => undefined);
+          if (full) return full as never;
           const m = await prisma.message.findFirst({ where: { channelId: s.channelId, waMessageId: key.id, direction: 'OUT' }, select: { body: true } }).catch(() => null);
           return (m?.body ? { conversation: m.body } : undefined) as never;
         },
@@ -183,6 +297,9 @@ class QrSessionManager {
     sock.ev.on('messages.upsert', ({ messages, type }) => {
       if (gen !== s.generation || type !== 'notify') return;
       for (const m of messages) {
+        if (m.messageStubType === 2 /* CIPHERTEXT: não decifrada */ && !m.key?.fromMe) {
+          recordDeliveryEvent(s.channelId, s.orgId, { action: 'whatsapp.decrypt_falha', jid: m.key?.remoteJid ?? null, msgId: m.key?.id ?? null }).catch(() => undefined);
+        }
         this.onInbound?.(s.channelId, m).catch((e) => silentLogger.error(e, 'erro ao processar mensagem recebida'));
       }
     });
@@ -206,6 +323,12 @@ class QrSessionManager {
       }
     }
     if (u.connection === 'open') {
+      // Só envia depois de processar o que chegou enquanto estava desconectado (chaves/sessões novas);
+      // se o aviso não vier, libera após alguns segundos.
+      s.ready = false;
+      if (s.readyTimer) clearTimeout(s.readyTimer);
+      s.readyTimer = setTimeout(() => { if (gen === s.generation) s.ready = true; }, READY_FALLBACK_MS);
+      s.readyTimer.unref?.();
       const jid = s.sock?.user?.id ?? null;
       const num = jidToNumber(jid);
       s.status = 'CONNECTED';
@@ -214,10 +337,14 @@ class QrSessionManager {
       await this.persist(s.channelId, { status: 'CONNECTED', waJid: jid, displayPhone: s.phone ?? undefined, connectedAt: new Date(), lastError: null, lastCheckedAt: new Date() });
       console.log(`[whatsapp-qr] canal ${s.channelId} conectado (${s.phone ?? 'número não informado'})`);
     }
+    if (u.receivedPendingNotifications && s.status === 'CONNECTED') {
+      s.ready = true;
+    }
     if (u.connection === 'close') {
       const err = u.lastDisconnect?.error as (Error & { output?: { statusCode?: number } }) | undefined;
       const code = err?.output?.statusCode;
       s.sock = null;
+      s.ready = false;
       if (s.stopped) return;
       if (code === DisconnectReason.loggedOut) {
         await this.handleLoggedOut(s, 'Sessão encerrada pelo celular (aparelho desconectado). Conecte de novo pelo QR code.');
@@ -227,6 +354,9 @@ class QrSessionManager {
         // Outra instância (ex.: novo deploy) assumiu a sessão: não disputa a conexão.
         s.stopped = true;
         s.status = 'NOT_CONNECTED';
+        this.clearLeaseTimer(s);
+        await flushAuthState(s.channelId);
+        await releaseLease(s.channelId);
         return;
       }
       if (code === DisconnectReason.restartRequired) {
@@ -258,10 +388,13 @@ class QrSessionManager {
   private async handleLoggedOut(s: Session, reason: string) {
     s.stopped = true;
     this.clearTimer(s);
+    this.clearLeaseTimer(s);
+    s.ready = false;
     s.status = 'NOT_CONNECTED';
     s.qr = null; s.qrDataUrl = null; s.phone = null;
     s.lastError = reason;
     await clearAuthState(s.channelId);
+    await releaseLease(s.channelId);
     await this.persist(s.channelId, { status: 'NOT_CONNECTED', waJid: null, lastError: reason });
   }
 
@@ -283,6 +416,8 @@ class QrSessionManager {
     s.stopped = true;
     s.generation++;
     this.clearTimer(s);
+    this.clearLeaseTimer(s);
+    s.ready = false;
     const sock = s.sock;
     s.sock = null;
     if (opts.logout) {
@@ -294,6 +429,8 @@ class QrSessionManager {
     }
     s.status = 'NOT_CONNECTED';
     s.qr = null; s.qrDataUrl = null; s.lastError = null;
+    await flushAuthState(channelId);
+    await releaseLease(channelId);
     if (opts.logout) await this.persist(channelId, { status: 'NOT_CONNECTED', waJid: null, lastError: null });
   }
 
@@ -312,24 +449,72 @@ class QrSessionManager {
     return i;
   }
 
+  /**
+   * Desligamento limpo (SIGTERM do Render no deploy): fecha os sockets, espera TODAS as chaves do
+   * Signal serem gravadas no banco e só então libera a trava para a instância nova conectar.
+   */
   async shutdown() {
+    const ids: string[] = [];
     for (const s of this.sessions.values()) {
+      const hadSock = !!s.sock || !s.stopped;
       s.stopped = true;
+      s.generation++;
+      s.ready = false;
       this.clearTimer(s);
+      this.clearLeaseTimer(s);
       try { s.sock?.end?.(undefined); } catch { /* ignora */ }
       s.sock = null;
+      if (hadSock) ids.push(s.channelId);
     }
+    if (!ids.length) return;
+    await sleep(isTest() ? 0 : 500); // últimas atualizações de credenciais emitidas no fechamento
+    await flushAuthState();
+    await Promise.all(ids.map((id) => releaseLease(id)));
+    console.log(`[whatsapp-qr] ${ids.length} sessão(ões) encerrada(s) com chaves salvas e trava liberada`);
   }
 
   /** Envia pelo socket do canal. Lança erro com mensagem em pt-BR quando não é possível. */
+  private sendChains = new Map<string, Promise<unknown>>();
+  private lastSendAt = new Map<string, number>();
+
   async send(channelId: string, waId: string, payload: OutboundPayload): Promise<{ waMessageId: string }> {
-    const s = this.sessions.get(channelId);
-    if (!s || !s.sock || s.status !== 'CONNECTED') throw new Error('WhatsApp (QR) não conectado: abra Canais WhatsApp e conecte pelo QR code');
     const content = buildQrContent(payload);
-    const r = await s.sock.sendMessage(waIdToJid(waId), content);
+    const jid = waIdToJid(waId);
+    // Fila por contato: uma mensagem por vez, com um pequeno intervalo entre elas.
+    const chainKey = `${channelId}:${jid}`;
+    const prev = this.sendChains.get(chainKey) ?? Promise.resolve();
+    const run = prev.catch(() => undefined).then(() => this.sendNow(channelId, chainKey, jid, content));
+    const tail = run.catch(() => undefined);
+    this.sendChains.set(chainKey, tail);
+    tail.then(() => { if (this.sendChains.get(chainKey) === tail) this.sendChains.delete(chainKey); });
+    return run;
+  }
+
+  private async sendNow(channelId: string, chainKey: string, jid: string, content: AnyMessageContent): Promise<{ waMessageId: string }> {
+    const notConnected = 'WhatsApp (QR) não conectado: abra Canais WhatsApp e conecte pelo QR code';
+    const s = this.sessions.get(channelId);
+    if (!s) throw new Error(notConnected);
+    // Reconectando/acordando: espera a conexão abrir em vez de enviar com sessão velha ou falhar.
+    if (!(s.status === 'CONNECTED' && s.sock)) {
+      if (s.stopped || sendWaitMs() <= 0) throw new Error(notConnected);
+      const ok = await waitUntil(() => (s.status === 'CONNECTED' && !!s.sock) || s.stopped, sendWaitMs());
+      if (!ok || s.stopped || !s.sock) throw new Error(notConnected);
+    }
+    // Logo após conectar: espera processar as notificações pendentes (chaves/sessões novas dos contatos).
+    if (!s.ready && s.readyTimer) await waitUntil(() => s.ready || !s.sock, READY_FALLBACK_MS + 1000);
+    const sock = s.sock;
+    if (!sock) throw new Error(notConnected);
+    const gap = sendGapMs();
+    const last = this.lastSendAt.get(chainKey);
+    if (gap > 0 && last) { const wait = last + gap - Date.now(); if (wait > 0) await sleep(wait); }
+    const r = await sock.sendMessage(jid, content);
+    this.lastSendAt.set(chainKey, Date.now());
+    if (this.lastSendAt.size > 5000) this.lastSendAt.delete(this.lastSendAt.keys().next().value as string);
     const id = r?.key?.id;
     if (!id) throw new Error('O WhatsApp não confirmou o envio da mensagem');
     rememberSent(id, r?.message);
+    // Guarda a mensagem completa para reenvio fiel mesmo após reinício/deploy.
+    if (r?.message) await saveSent(channelId, id, r.message).catch((e) => silentLogger.error(e, 'falha ao guardar mensagem enviada'));
     return { waMessageId: id };
   }
 
@@ -339,8 +524,23 @@ class QrSessionManager {
     s.sock = sock; s.status = status; s.stopped = !sock;
   }
   resetForTests() {
-    for (const s of this.sessions.values()) this.clearTimer(s);
+    for (const s of this.sessions.values()) { this.clearTimer(s); this.clearLeaseTimer(s); }
     this.sessions.clear();
+    this.sendChains.clear();
+    this.lastSendAt.clear();
+  }
+  /** Somente testes: simula a conexão aberta, com ou sem notificações pendentes já processadas. */
+  connectForTests(channelId: string, sock: QrSocket, ready: boolean) {
+    const s = this.session(channelId);
+    s.sock = sock; s.status = 'CONNECTED'; s.stopped = false; s.ready = ready;
+    if (!ready) {
+      s.readyTimer = setTimeout(() => { s.ready = true; }, 300);
+    }
+    return s;
+  }
+  setConnectingForTests(channelId: string) {
+    const s = this.session(channelId);
+    s.sock = null; s.status = 'CONNECTING'; s.stopped = false; s.ready = false;
   }
 }
 

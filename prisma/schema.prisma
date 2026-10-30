@@ -165,6 +165,8 @@ model Channel {
   lastError      String?
   lastWebhookAt  DateTime?
   lastCheckedAt  DateTime?
+  qrLeaseOwner   String? // modo QR: instância do servidor que segura a sessão (evita 2 conexões no deploy)
+  qrLeaseUntil   DateTime? // modo QR: validade da trava; expira sozinha se a instância cair
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 
@@ -183,6 +185,19 @@ model WaAuthState {
 
   @@unique([channelId, type, keyId])
   @@index([channelId])
+}
+
+/// Mensagens enviadas pelo modo QR (conteúdo completo, cifrado), para reenvio fiel quando o celular
+/// do cliente pede de novo ("Aguardando mensagem"). Guardadas por 14 dias.
+model WaSentMessage {
+  id          String   @id @default(cuid())
+  channelId   String
+  waMessageId String
+  dataEnc     String
+  createdAt   DateTime @default(now())
+
+  @@unique([channelId, waMessageId])
+  @@index([createdAt])
 }
 
 model KanbanStage {

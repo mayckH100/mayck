@@ -111,7 +111,7 @@ async function sendViaQr(
   fail: (error: string, attempts?: number) => Promise<Message>,
 ): Promise<Message> {
   if (payload.type === 'template') return fail('Modelos (templates) só existem na API oficial. No modo QR envie uma mensagem de texto.');
-  if (!qrManager.isConnected(channel.id)) return fail('WhatsApp (QR) não conectado: abra Canais WhatsApp e conecte pelo QR code');
+  if (!qrManager.canSend(channel.id)) return fail('WhatsApp (QR) não conectado: abra Canais WhatsApp e conecte pelo QR code');
   if (payload.type === 'image' || payload.type === 'video' || payload.type === 'audio' || payload.type === 'document') {
     try {
       await assertPublicUrl(payload.link);

@@ -81,9 +81,18 @@ if (config.ENABLE_WHATSAPP_QR === 'true' && keepAliveBase && process.env.NODE_EN
   }, 10 * 60 * 1000).unref?.();
 }
 
+// Desligamento limpo (SIGTERM no deploy do Render): primeiro fecha o WhatsApp e espera as chaves do
+// Signal serem gravadas e a trava da sessão ser liberada (no máximo 15 s); só depois fecha o banco.
+let shuttingDown = false;
 const shutdown = () => {
-  qrManager.shutdown().catch(() => undefined);
-  server.close(() => prisma.$disconnect().finally(() => process.exit(0)));
+  if (shuttingDown) return;
+  shuttingDown = true;
+  const limite = new Promise((r) => setTimeout(r, 15_000).unref());
+  Promise.race([qrManager.shutdown().catch((e) => console.error('[whatsapp-qr] falha no desligamento', e)), limite])
+    .finally(() => {
+      server.close(() => prisma.$disconnect().finally(() => process.exit(0)));
+      setTimeout(() => process.exit(0), 5000).unref();
+    });
 };
 process.on('SIGTERM', shutdown);
 process.on('SIGINT', shutdown);
