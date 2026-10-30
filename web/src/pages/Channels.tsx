@@ -299,6 +299,7 @@ function CodeTab({ channel, onConnected }: { channel: any; onConnected: (r: any)
             <li>Toque em <strong>Mais opções (⋮)</strong> no Android ou <strong>Configurações</strong> no iPhone › <strong>Aparelhos conectados</strong> › <strong>Conectar aparelho</strong>.</li>
             <li>Toque em <strong>Conectar com número de telefone</strong> e digite o código abaixo.</li>
           </ol>
+          <p className="small muted" style={{ margin: 0 }}>Se o celular disser que o número está incorreto, toque em <strong>Trocar número</strong> e digite sem o 9 extra depois do DDD (algumas contas antigas do WhatsApp usam o número com 8 dígitos).</p>
           <div style={{ textAlign: 'center', padding: '12px 0' }}>
             <div className="mono" aria-label="Código de pareamento" style={{ fontSize: 34, fontWeight: 700, letterSpacing: 4, opacity: expired ? 0.35 : 1, userSelect: 'all' }}>{res.code}</div>
             {expired ? (

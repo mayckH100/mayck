@@ -145,11 +145,12 @@ describe('WhatsApp QR — entrega confiável ("Aguardando mensagem")', () => {
     await recordDeliveryEvent(channelId, orgId, { action: 'whatsapp.decrypt_falha', jid: '5511970005002@s.whatsapp.net', msgId: 'IN9' });
     await new Promise((r) => setTimeout(r, 100));
     const rows = await prisma.auditLog.findMany({ where: { orgId, action: { startsWith: 'whatsapp.' } }, orderBy: { createdAt: 'asc' } });
-    expect(rows.map((r) => [r.action, r.entityId])).toEqual([
-      ['whatsapp.retry_pedido', '5511970005001'],
-      ['whatsapp.retry_limite', '5511970005001'],
+    // Eventos gravados no mesmo milissegundo podem vir em qualquer ordem: compara sem depender dela.
+    expect(rows.map((r) => [r.action, r.entityId]).sort()).toEqual([
       ['whatsapp.decrypt_falha', '5511970005002'],
+      ['whatsapp.retry_limite', '5511970005001'],
+      ['whatsapp.retry_pedido', '5511970005001'],
     ]);
-    expect(JSON.parse(rows[0].meta)).toMatchObject({ channelId, msgId: 'M1' });
+    expect(JSON.parse(rows.find((r) => r.action === 'whatsapp.retry_pedido')!.meta)).toMatchObject({ channelId, msgId: 'M1' });
   });
 });

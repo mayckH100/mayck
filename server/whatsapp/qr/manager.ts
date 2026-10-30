@@ -278,7 +278,9 @@ class QrSessionManager {
         ...(version ? { version } : {}),
         auth: { creds: state.creds, keys: makeCacheableSignalKeyStore(state.keys, silentLogger) },
         logger: logger as never,
-        browser: Browsers.ubuntu('MCKBOT'),
+        // O WhatsApp valida o nome do aparelho no pareamento por código ("Chrome (Ubuntu)");
+        // um nome próprio como "MCKBOT" faz o celular recusar com "Não foi possível conectar o dispositivo".
+        browser: Browsers.ubuntu('Chrome'),
         printQRInTerminal: false,
         markOnlineOnConnect: false,
         syncFullHistory: false,
