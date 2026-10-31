@@ -940,6 +940,9 @@ model Appointment {
   /// Destinatários dos avisos: cliente = notifyContact; responsável (atendente) e contatos adicionais.
   notifyAssignee  Boolean   @default(false)
   notifyExtras    Boolean   @default(true)
+  /// Dono(s) da empresa avisados por WhatsApp; equipe pré-configurada escolhida para este compromisso (JSON [{ name, phone }]).
+  notifyOwner     Boolean   @default(false)
+  teamContacts    String    @default("[]")
   reminderSentAt  DateTime?
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
@@ -991,6 +994,10 @@ model AgendaSettings {
   /// Padrões da empresa para os destinatários dos avisos de novos compromissos.
   notifyAssignee     Boolean  @default(false)
   notifyExtras       Boolean  @default(true)
+  /// Avisar por WhatsApp o(s) dono(s) da empresa (User.phone) a cada nova reunião.
+  notifyOwner        Boolean  @default(true)
+  /// Equipe pré-configurada (JSON, máx. 5): [{ name, phone, active }] — "active" = recebe avisos de reunião.
+  teamContacts       String   @default("[]")
   reminderMin        Int      @default(60)
   updatedAt          DateTime @updatedAt
 }

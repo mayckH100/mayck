@@ -11,7 +11,7 @@ import { appUrl } from '../lib/mailer.js';
 import { buildIcs, googleAddLink, outlookAddLink, verifyPublicEventToken } from './ics.js';
 import {
   createAppointment, updateAppointment, deleteAppointment, viewMany, getSettings, orgTz, freeSlots, findConflicts,
-  icsOf, publicEventUrl, escHtml, KIND_LABEL, notifyRecipients, hasRecipients, MAX_EXTRA_CONTACTS,
+  icsOf, publicEventUrl, escHtml, KIND_LABEL, notifyRecipients, hasRecipients, MAX_EXTRA_CONTACTS, MAX_TEAM_CONTACTS, normalizeTeamContacts, ownerPhones,
 } from './service.js';
 import { googleConfigured, googleRedirectUri, makeState, readState, authUrl, exchangeCode, revokeGoogle, forgetToken } from './google.js';
 import { parseLocal, humanPt, toLocalIso } from './time.js';
@@ -56,6 +56,9 @@ const baseSchema = z.object({
   extraContacts: z.array(z.object({ name: z.string().max(80).optional().nullable(), phone: z.string().max(30) })).max(MAX_EXTRA_CONTACTS, `No máximo ${MAX_EXTRA_CONTACTS} contatos adicionais por compromisso`).optional(),
   notifyAssignee: z.boolean().optional(),
   notifyExtras: z.boolean().optional(),
+  /** Dono(s) da empresa e membros da equipe pré-configurada (telefones) escolhidos para este compromisso. */
+  notifyOwner: z.boolean().optional(),
+  teamPhones: z.array(z.string().max(30)).max(MAX_TEAM_CONTACTS).optional(),
   force: z.boolean().optional(),
   source: z.enum(['MANUAL', 'KANBAN']).optional(),
 });
@@ -106,7 +109,9 @@ agendaRouter.post('/', ah(async (req, res) => {
 }));
 
 agendaRouter.get('/settings', ah(async (req, res) => {
-  res.json({ ...(await getSettings(orgOf(req))), timezone: await orgTz(orgOf(req)) });
+  const orgId = orgOf(req);
+  const owners = (await ownerPhones(orgId)).map((o) => ({ name: o.name, hasPhone: !!o.phone }));
+  res.json({ ...(await getSettings(orgId)), timezone: await orgTz(orgId), owners });
 }));
 
 agendaRouter.put('/settings', admins, ah(async (req, res) => {
@@ -115,13 +120,16 @@ agendaRouter.put('/settings', admins, ah(async (req, res) => {
     aiBooking: z.boolean(), workStart: hhmm, workEnd: hhmm, workDays: z.array(z.number().int().min(0).max(6)).min(1).max(7),
     defaultDurationMin: z.number().int().min(5).max(480), minNoticeMin: z.number().int().min(0).max(7 * 24 * 60),
     notifyContact: z.boolean(), reminderMin: z.number().int().min(0).max(7 * 24 * 60),
-    notifyAssignee: z.boolean().optional(), notifyExtras: z.boolean().optional(),
+    notifyAssignee: z.boolean().optional(), notifyExtras: z.boolean().optional(), notifyOwner: z.boolean().optional(),
+    teamContacts: z.array(z.object({ name: z.string().max(80).optional().nullable(), phone: z.string().max(30), active: z.boolean().optional() })).max(MAX_TEAM_CONTACTS, `No máximo ${MAX_TEAM_CONTACTS} membros da equipe`).optional(),
   }).parse(req.body);
   if (b.workEnd <= b.workStart) throw new HttpError(400, 'O fim do expediente deve ser depois do início');
   const orgId = orgOf(req);
-  const data = { ...b, workDays: [...new Set(b.workDays)].sort().join(',') };
+  const { teamContacts, ...rest } = b;
+  const data: any = { ...rest, workDays: [...new Set(b.workDays)].sort().join(',') };
+  if (teamContacts !== undefined) data.teamContacts = JSON.stringify(normalizeTeamContacts(teamContacts));
   await prisma.agendaSettings.upsert({ where: { orgId }, create: { orgId, ...data }, update: data });
-  await audit(req, 'agenda.settings', { entity: 'agenda', meta: data });
+  await audit(req, 'agenda.settings', { entity: 'agenda', meta: { ...data, teamContacts: teamContacts !== undefined ? teamContacts.length : undefined } });
   res.json(await getSettings(orgId));
 }));
 
@@ -221,7 +229,7 @@ agendaRouter.post('/:id/send', ah(async (req, res) => {
   if (!hasRecipients(a)) throw new HttpError(400, 'Nenhum destinatário marcado para este compromisso');
   if (a.notifyContact && a.contactId) {
     const contact = await prisma.contact.findFirst({ where: { id: a.contactId, orgId: a.orgId }, select: { optOut: true } });
-    if (contact?.optOut && !(a.notifyAssignee && a.assignedUserId) && !(a.notifyExtras && a.extraContacts !== '[]')) throw new HttpError(400, 'O contato pediu para não receber mensagens');
+    if (contact?.optOut && !a.notifyOwner && a.teamContacts === '[]' && !(a.notifyAssignee && a.assignedUserId) && !(a.notifyExtras && a.extraContacts !== '[]')) throw new HttpError(400, 'O contato pediu para não receber mensagens');
   }
   const results = await notifyRecipients(a, a.status === 'CANCELLED' ? 'cancelado' : 'criado', { req, sender: 'agent', authorUserId: req.auth!.userId });
   const ok = results.length > 0 && results.every((r) => r.ok);

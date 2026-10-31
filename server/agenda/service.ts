@@ -11,6 +11,7 @@ import { decryptOrNull } from '../lib/crypto.js';
 import { isProductActive } from '../billing/service.js';
 import { normalizePhone } from '../routes/contacts.js';
 import { parseJson } from '../lib/json.js';
+import { ensureStage } from '../lib/waiting.js';
 import { buildIcs, googleAddLink, outlookAddLink, publicEventToken } from './ics.js';
 import { googleBusy, upsertGoogleEvent, deleteGoogleEvent, googleConfigured, type GoogleAccountRow } from './google.js';
 import { humanPt, safeTz, zonedParts, zonedToUtc, hhmmToMin, toLocalIso } from './time.js';
@@ -22,6 +23,32 @@ export interface AgendaSettingsView {
   defaultDurationMin: number; minNoticeMin: number; notifyContact: boolean; reminderMin: number;
   /** Padrões dos destinatários: responsável (atendente) e contatos adicionais. */
   notifyAssignee: boolean; notifyExtras: boolean;
+  /** Avisar o(s) dono(s) da empresa (WhatsApp do perfil) a cada nova reunião. */
+  notifyOwner: boolean;
+  /** Equipe pré-configurada (máx. 5) — "active" = recebe avisos de reunião. */
+  teamContacts: TeamContact[];
+}
+
+export interface TeamContact { name: string; phone: string; active: boolean }
+export const MAX_TEAM_CONTACTS = 5;
+
+export const teamContactsOf = (raw: string | null | undefined): TeamContact[] =>
+  parseJson<TeamContact[]>(raw, []).filter((c) => c && typeof c.phone === 'string').map((c) => ({ name: String(c.name ?? ''), phone: c.phone, active: c.active !== false }));
+
+/** Valida e normaliza a equipe pré-configurada (nome e telefone obrigatórios, telefone válido e sem repetidos, máx. 5). */
+export function normalizeTeamContacts(list: { name?: string | null; phone: string; active?: boolean }[] | undefined | null): TeamContact[] {
+  const arr = list ?? [];
+  if (arr.length > MAX_TEAM_CONTACTS) throw new HttpError(400, `No máximo ${MAX_TEAM_CONTACTS} membros da equipe`);
+  const out: TeamContact[] = [];
+  for (const [i, c] of arr.entries()) {
+    const name = String(c?.name ?? '').trim().slice(0, 80);
+    if (!name) throw new HttpError(400, `Membro ${i + 1}: informe o nome`);
+    const phone = normalizePhone(String(c?.phone ?? ''));
+    if (!phone) throw new HttpError(400, `Membro ${i + 1}: telefone inválido`);
+    if (out.some((o) => o.phone === phone)) throw new HttpError(400, `Membro ${i + 1}: telefone repetido`);
+    out.push({ name, phone, active: c?.active !== false });
+  }
+  return out;
 }
 
 export async function getSettings(orgId: string): Promise<AgendaSettingsView> {
@@ -37,6 +64,8 @@ export async function getSettings(orgId: string): Promise<AgendaSettingsView> {
     notifyAssignee: s?.notifyAssignee ?? false,
     notifyExtras: s?.notifyExtras ?? true,
     reminderMin: s?.reminderMin ?? 60,
+    notifyOwner: s?.notifyOwner ?? true,
+    teamContacts: teamContactsOf(s?.teamContacts),
   };
 }
 
@@ -126,6 +155,7 @@ export function viewAppointment(a: Appointment, tz: string, maps: { contacts?: M
     startAt: a.startAt, endAt: endOf(a), localStart: toLocalIso(a.startAt, tz), durationMin: a.durationMin, reminderMin: a.reminderMin,
     status: a.status, source: a.source, notifyContact: a.notifyContact,
     notifyAssignee: a.notifyAssignee, notifyExtras: a.notifyExtras, extraContacts: extraContactsOf(a),
+    notifyOwner: a.notifyOwner, teamContacts: extraContactsOf({ extraContacts: a.teamContacts }),
     contactId: a.contactId, contact: c ? { id: c.id, name: c.name, phone: c.phone } : null,
     assignedUserId: a.assignedUserId, assignedUser: u ? { id: u.id, name: u.name } : null,
     createdById: a.createdById, googleSynced: !!a.googleEventId, meetLink: a.meetLink ?? null, createdAt: a.createdAt, updatedAt: a.updatedAt,
@@ -163,6 +193,10 @@ export interface AppointmentInput {
   extraContacts?: { name?: string | null; phone: string }[];
   notifyAssignee?: boolean;
   notifyExtras?: boolean;
+  /** Avisar o(s) dono(s) da empresa. Padrão: configuração da empresa (só reuniões). */
+  notifyOwner?: boolean;
+  /** Telefones dos membros da equipe pré-configurada que recebem o aviso deste compromisso. Indefinido = todos os ativos (só reuniões). */
+  teamPhones?: string[];
 }
 
 export const MAX_EXTRA_CONTACTS = 5;
@@ -186,6 +220,39 @@ export function normalizeExtraContacts(list: { name?: string | null; phone: stri
   return out;
 }
 
+/** Membros da equipe escolhidos para o compromisso (precisam estar na equipe pré-configurada). */
+function pickTeam(team: TeamContact[], phones: string[] | undefined): ExtraContact[] {
+  if (phones === undefined) return team.filter((m) => m.active).map((m) => ({ name: m.name, phone: m.phone }));
+  const out: ExtraContact[] = [];
+  for (const raw of phones) {
+    const phone = normalizePhone(String(raw ?? ''));
+    const m = phone ? team.find((t) => t.phone === phone) : undefined;
+    if (!m) throw new HttpError(400, 'Membro da equipe não encontrado nas configurações da Agenda');
+    if (!out.some((o) => o.phone === m.phone)) out.push({ name: m.name, phone: m.phone });
+  }
+  return out;
+}
+
+/** Etapas finais do funil (ganho/perdido): contatos nelas não são movidos automaticamente. */
+export const FINAL_STAGE_RE = /^\s*(ganh|perd|won\b|lost\b|venda (fechada|perdida)|fechad|cancelad)/i;
+export const MEETING_STAGE = 'Reunião agendada';
+
+/** Reunião marcada para um contato: move-o para "Reunião agendada" (criada no fim do funil se faltar), exceto se já estiver em ganho/perdido. */
+export async function moveToMeetingStage(orgId: string, contactId: string) {
+  try {
+    const c = await prisma.contact.findFirst({ where: { id: contactId, orgId }, select: { stageId: true } });
+    if (!c) return;
+    if (c.stageId) {
+      const cur = await prisma.kanbanStage.findFirst({ where: { id: c.stageId, orgId }, select: { name: true } });
+      if (cur && (FINAL_STAGE_RE.test(cur.name) || cur.name === MEETING_STAGE)) return;
+    }
+    const st = await ensureStage(orgId, MEETING_STAGE, '#06b6d4');
+    await prisma.contact.updateMany({ where: { id: contactId, orgId }, data: { stageId: st.id } });
+  } catch (e) {
+    console.error('[agenda] falha ao mover contato para "Reunião agendada"', (e as Error).message);
+  }
+}
+
 interface Ctx { orgId: string; userId?: string | null; req?: Request | null; source?: 'MANUAL' | 'AI' | 'KANBAN'; force?: boolean }
 
 async function checkRefs(orgId: string, input: Partial<AppointmentInput>) {
@@ -206,6 +273,8 @@ export async function createAppointment(input: AppointmentInput, ctx: Ctx): Prom
   const extras = normalizeExtraContacts(input.extraContacts);
   const durationMin = input.durationMin ?? s.defaultDurationMin;
   const kind = input.kind ?? 'MEETING';
+  // Dono e equipe pré-configurada: por padrão só em reuniões (tarefas internas não disparam avisos à equipe).
+  const team = input.teamPhones !== undefined || kind === 'MEETING' ? pickTeam(s.teamContacts, input.teamPhones) : [];
   // Tarefas não bloqueiam a agenda; reuniões checam conflito (a menos que o usuário force).
   if (kind === 'MEETING' && !ctx.force) {
     const conflicts = await findConflicts(ctx.orgId, input.startAt, durationMin, { assignedUserId: input.assignedUserId });
@@ -220,8 +289,10 @@ export async function createAppointment(input: AppointmentInput, ctx: Ctx): Prom
       notifyContact: input.notifyContact ?? s.notifyContact, source: ctx.source ?? 'MANUAL',
       notifyAssignee: input.notifyAssignee ?? s.notifyAssignee, notifyExtras: input.notifyExtras ?? s.notifyExtras,
       extraContacts: JSON.stringify(extras),
+      notifyOwner: input.notifyOwner ?? (kind === 'MEETING' && s.notifyOwner), teamContacts: JSON.stringify(team),
     },
   });
+  if (kind === 'MEETING' && a.contactId) await moveToMeetingStage(ctx.orgId, a.contactId);
   await audit(ctx.req ?? null, ctx.source === 'AI' ? 'agenda.ai_create' : 'agenda.create', { orgId: ctx.orgId, userId: ctx.userId ?? null, entity: 'appointment', entityId: a.id, meta: { kind, startAt: a.startAt, contactId: a.contactId, source: a.source } });
   const wantMeet = input.generateMeet ?? kind === 'MEETING';
   const synced = await syncGoogle(a, { meet: wantMeet });
@@ -235,6 +306,7 @@ export async function updateAppointment(id: string, patch: Partial<AppointmentIn
   if (!cur) throw notFound('Compromisso');
   await checkRefs(ctx.orgId, patch);
   const extras = patch.extraContacts !== undefined ? normalizeExtraContacts(patch.extraContacts) : undefined;
+  const team = patch.teamPhones !== undefined ? pickTeam([...(await getSettings(ctx.orgId)).teamContacts, ...extraContactsOf({ extraContacts: cur.teamContacts }).map((m) => ({ ...m, name: m.name ?? '', active: true }))], patch.teamPhones) : undefined;
   const startAt = patch.startAt ?? cur.startAt;
   const durationMin = patch.durationMin ?? cur.durationMin;
   const moved = startAt.getTime() !== cur.startAt.getTime() || durationMin !== cur.durationMin;
@@ -244,10 +316,11 @@ export async function updateAppointment(id: string, patch: Partial<AppointmentIn
     if (conflicts.length) throw new ConflictError(conflicts);
   }
   const data: any = { sequence: cur.sequence + 1 };
-  for (const k of ['kind', 'title', 'description', 'location', 'startAt', 'durationMin', 'reminderMin', 'contactId', 'assignedUserId', 'notifyContact', 'notifyAssignee', 'notifyExtras', 'status'] as const) {
+  for (const k of ['kind', 'title', 'description', 'location', 'startAt', 'durationMin', 'reminderMin', 'contactId', 'assignedUserId', 'notifyContact', 'notifyAssignee', 'notifyExtras', 'notifyOwner', 'status'] as const) {
     if ((patch as any)[k] !== undefined) data[k] = (patch as any)[k] === '' ? null : (patch as any)[k];
   }
   if (extras) data.extraContacts = JSON.stringify(extras);
+  if (team) data.teamContacts = JSON.stringify(team);
   if (moved) data.reminderSentAt = null;
   const a = await prisma.appointment.update({ where: { id: cur.id }, data });
   const action = status === 'CANCELLED' && cur.status !== 'CANCELLED' ? 'agenda.cancel' : status === 'DONE' && cur.status !== 'DONE' ? 'agenda.done' : 'agenda.update';
@@ -343,16 +416,18 @@ export function contactMessage(a: Appointment, tz: string, kind: 'criado' | 'rem
 }
 
 /** Variante para a equipe (responsável e contatos adicionais): "Reunião com <cliente>". */
-export function teamMessage(a: Appointment, tz: string, kind: 'criado' | 'remarcado' | 'cancelado' | 'lembrete', clientName: string | null, req?: Request) {
+export function teamMessage(a: Appointment, tz: string, kind: 'criado' | 'remarcado' | 'cancelado' | 'lembrete', clientName: string | null, req?: Request, bookedBy?: string | null) {
   const when = humanPt(a.startAt, tz);
   const label = KIND_LABEL[a.kind] ?? 'Compromisso';
   const com = clientName ? ` com ${clientName}` : '';
   if (kind === 'cancelado') return `❌ ${label}${com} cancelada: *${a.title}* (${when}).`;
-  const head = kind === 'lembrete' ? `⏰ Lembrete — ${label}${com}: *${a.title}*` : kind === 'remarcado' ? `🔁 ${label}${com} remarcada: *${a.title}*` : `📅 ${label}${com}: *${a.title}*`;
+  const nova = a.kind === 'TASK' ? `Nova tarefa marcada${com}` : `Nova reunião marcada${com}`;
+  const head = kind === 'lembrete' ? `⏰ Lembrete — ${label}${com}: *${a.title}*` : kind === 'remarcado' ? `🔁 ${label}${com} remarcada: *${a.title}*` : `📅 ${nova}: *${a.title}*`;
   const lines = [head, `🗓 ${when.charAt(0).toUpperCase() + when.slice(1)} (${a.durationMin} min)`];
   if (a.location) lines.push(`📍 ${a.location}`);
   if (a.description) lines.push(`📝 ${a.description}`);
   if (a.meetLink) lines.push(`🎥 Link da reunião (Google Meet): ${a.meetLink}`);
+  if (bookedBy) lines.push(`👤 Agendado por: ${bookedBy}`);
   if (kind !== 'lembrete') lines.push('', `Adicionar à agenda: ${publicEventUrl(a.id, req)}`);
   return lines.join('\n');
 }
@@ -377,7 +452,7 @@ async function notifyContact(a: Appointment, kind: NotifyKind, req?: Request, op
   }
 }
 
-export interface RecipientResult { target: 'cliente' | 'atendente' | 'adicional'; phone?: string; name?: string | null; ok: boolean; error?: string }
+export interface RecipientResult { target: 'cliente' | 'dono' | 'equipe' | 'atendente' | 'adicional'; phone?: string; name?: string | null; ok: boolean; error?: string }
 
 /** Telefone (WhatsApp) do responsável, normalizado; nulo se ele não cadastrou no perfil. */
 async function assigneePhone(a: Appointment) {
@@ -385,6 +460,22 @@ async function assigneePhone(a: Appointment) {
   const u = await prisma.user.findUnique({ where: { id: a.assignedUserId }, select: { name: true, phone: true } });
   const phone = u?.phone ? normalizePhone(u.phone) : null;
   return phone ? { name: u!.name, phone } : null;
+}
+
+/** WhatsApp (perfil) dos donos da empresa; donos sem telefone ficam de fora (o aviso aparece nas Configurações da Agenda). */
+export async function ownerPhones(orgId: string) {
+  const ms = await prisma.membership.findMany({ where: { orgId, role: 'OWNER' }, select: { userId: true } });
+  if (!ms.length) return [];
+  const users = await prisma.user.findMany({ where: { id: { in: ms.map((m) => m.userId) } }, select: { id: true, name: true, phone: true } });
+  return users.map((u) => ({ id: u.id, name: u.name, phone: u.phone ? normalizePhone(u.phone) : null }));
+}
+
+/** Quem marcou o compromisso: "IA" ou o nome do usuário. */
+async function bookedByOf(a: Appointment) {
+  if (a.source === 'AI') return 'IA (WhatsApp)';
+  if (!a.createdById) return null;
+  const u = await prisma.user.findUnique({ where: { id: a.createdById }, select: { name: true } });
+  return u?.name ?? null;
 }
 
 /** Envia texto por WhatsApp a um número da equipe (sem criar contato/conversa no CRM), pelo canal da empresa. */
@@ -420,7 +511,9 @@ export async function notifyRecipients(a: Appointment, kind: NotifyKind, opts: N
     const ok = await notifyContact(a, kind, opts.req, opts);
     results.push({ target: 'cliente', phone: client.phone, name: client.name, ok, ...(ok ? {} : { error: 'Falha no envio ao cliente' }) });
   } else if (client) seen.add(client.phone); // o cliente nunca recebe a variante da equipe
-  const team: { target: 'atendente' | 'adicional'; name: string | null; phone: string }[] = [];
+  const team: { target: 'dono' | 'equipe' | 'atendente' | 'adicional'; name: string | null; phone: string }[] = [];
+  if (a.notifyOwner) for (const o of await ownerPhones(a.orgId)) if (o.phone) team.push({ target: 'dono', name: o.name, phone: o.phone });
+  for (const m of extraContactsOf({ extraContacts: a.teamContacts })) team.push({ target: 'equipe', ...m });
   if (a.notifyAssignee) {
     const ap = await assigneePhone(a);
     if (ap) team.push({ target: 'atendente', ...ap });
@@ -429,7 +522,7 @@ export async function notifyRecipients(a: Appointment, kind: NotifyKind, opts: N
   if (a.notifyExtras) for (const c of extraContactsOf(a)) team.push({ target: 'adicional', ...c });
   if (!team.length) return results;
   const tz = await orgTz(a.orgId);
-  const text = teamMessage(a, tz, kind, client ? client.name ?? client.phone : null, opts.req);
+  const text = teamMessage(a, tz, kind, client ? client.name ?? client.phone : null, opts.req, await bookedByOf(a));
   for (const r of team) {
     if (seen.has(r.phone)) continue;
     seen.add(r.phone);
@@ -448,7 +541,7 @@ export async function notifyRecipients(a: Appointment, kind: NotifyKind, opts: N
 
 /** Há alguém para avisar por WhatsApp neste compromisso? */
 export function hasRecipients(a: Appointment) {
-  return (a.notifyContact && !!a.contactId) || (a.notifyAssignee && !!a.assignedUserId) || (a.notifyExtras && extraContactsOf(a).length > 0);
+  return (a.notifyContact && !!a.contactId) || a.notifyOwner || a.teamContacts !== '[]' || (a.notifyAssignee && !!a.assignedUserId) || (a.notifyExtras && extraContactsOf(a).length > 0);
 }
 
 async function notifyCreated(a: Appointment, req?: Request) {
@@ -484,7 +577,7 @@ export async function tickAgendaReminders(now = new Date()) {
   const soon = await prisma.appointment.findMany({
     where: {
       status: 'SCHEDULED', reminderSentAt: null, reminderMin: { gt: 0 }, startAt: { gt: now, lte: new Date(now.getTime() + 7 * 24 * 3600e3) },
-      OR: [{ notifyContact: true, contactId: { not: null } }, { notifyAssignee: true, assignedUserId: { not: null } }, { notifyExtras: true, extraContacts: { not: '[]' } }],
+      OR: [{ notifyContact: true, contactId: { not: null } }, { notifyAssignee: true, assignedUserId: { not: null } }, { notifyExtras: true, extraContacts: { not: '[]' } }, { notifyOwner: true }, { teamContacts: { not: '[]' } }],
     },
     orderBy: { startAt: 'asc' }, take: 200,
   });

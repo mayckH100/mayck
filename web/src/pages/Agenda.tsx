@@ -32,8 +32,12 @@ export interface ApptDraft {
   /** Destinatários: responsável (atendente) e contatos adicionais. Indefinido = padrão da empresa. */
   notifyAssignee?: boolean;
   notifyExtras?: boolean;
+  /** Dono(s) da empresa e membros da equipe pré-configurada (telefones) que recebem o aviso. Indefinido = padrão da empresa. */
+  notifyOwner?: boolean;
+  teamPhones?: string[];
 }
 const MAX_EXTRAS = 5;
+const MAX_TEAM = 5;
 export const newDraft = (over: Partial<ApptDraft> = {}): ApptDraft => ({
   kind: 'MEETING', title: '', start: localNow(), durationMin: 30, reminderMin: 60, contactId: null, assignedUserId: null,
   location: '', description: '', notifyContact: true, ...over,
@@ -54,6 +58,13 @@ export function AppointmentModal({ draft, onClose, onSaved }: { draft: ApptDraft
   const notifyAssignee = d.notifyAssignee ?? settings.data?.notifyAssignee ?? false;
   const notifyExtras = d.notifyExtras ?? settings.data?.notifyExtras ?? true;
   const extras = d.extraContacts ?? [];
+  const teamList: { name: string; phone: string; active: boolean }[] = settings.data?.teamContacts ?? [];
+  const isMeeting = d.kind === 'MEETING';
+  // Novo compromisso: dono e membros ativos já vêm marcados (só reuniões); dá para desmarcar quem não deve receber.
+  const notifyOwner = d.notifyOwner ?? (d.id ? false : isMeeting && settings.data?.notifyOwner !== false);
+  const teamPhones = d.teamPhones ?? (d.id || !isMeeting ? [] : teamList.filter((m) => m.active).map((m) => m.phone));
+  const teamShown = [...teamList.filter((m) => m.active || teamPhones.includes(m.phone)), ...teamPhones.filter((p) => !teamList.some((m) => m.phone === p)).map((p) => ({ name: p, phone: p, active: true }))];
+  const toggleTeam = (phone: string, on: boolean) => setD({ ...d, teamPhones: on ? [...teamPhones.filter((p) => p !== phone), phone] : teamPhones.filter((p) => p !== phone) });
   const setExtra = (i: number, k: 'name' | 'phone', v: string) => setD({ ...d, extraContacts: extras.map((c, j) => (j === i ? { ...c, [k]: v } : c)) });
   const assignee = (team.data?.members ?? []).find((m: any) => m.user.id === d.assignedUserId);
   const { busy, run } = useAction();
@@ -65,7 +76,7 @@ export function AppointmentModal({ draft, onClose, onSaved }: { draft: ApptDraft
   }, [q]);
   const save = async (force = false) => {
     const body: any = { kind: d.kind, title: d.title, start: d.start, durationMin: d.durationMin, reminderMin: d.reminderMin, contactId: d.contactId, assignedUserId: d.assignedUserId, location: d.location || null, description: d.description || null, notifyContact: d.notifyContact, force,
-      notifyAssignee, notifyExtras, extraContacts: extras.filter((c) => c.phone.trim() || c.name.trim()).map((c) => ({ name: c.name.trim() || null, phone: c.phone.trim() })) };
+      notifyAssignee, notifyExtras, notifyOwner, teamPhones: d.teamPhones ?? (settings.data ? teamPhones : undefined), extraContacts: extras.filter((c) => c.phone.trim() || c.name.trim()).map((c) => ({ name: c.name.trim() || null, phone: c.phone.trim() })) };
     if (!d.id && d.source) body.source = d.source;
     if (!d.id && d.kind === 'MEETING') body.generateMeet = googleOn && wantMeet;
     try {
@@ -136,7 +147,14 @@ export function AppointmentModal({ draft, onClose, onSaved }: { draft: ApptDraft
             <label className="row small" style={{ gap: 4 }}><input type="checkbox" checked={d.notifyContact} disabled={!d.contactId} onChange={(e) => setD({ ...d, notifyContact: e.target.checked })} style={{ width: 'auto' }} /> Cliente</label>
             <label className="row small" style={{ gap: 4 }}><input type="checkbox" checked={notifyAssignee} disabled={!d.assignedUserId} onChange={(e) => setD({ ...d, notifyAssignee: e.target.checked })} style={{ width: 'auto' }} /> Atendente (responsável)</label>
             <label className="row small" style={{ gap: 4 }}><input type="checkbox" checked={notifyExtras} disabled={!extras.length} onChange={(e) => setD({ ...d, notifyExtras: e.target.checked })} style={{ width: 'auto' }} /> Contatos adicionais</label>
+            <label className="row small" style={{ gap: 4 }}><input type="checkbox" checked={notifyOwner} onChange={(e) => setD({ ...d, notifyOwner: e.target.checked })} style={{ width: 'auto' }} /> Dono da empresa</label>
           </div>
+          {teamShown.length > 0 && (
+            <div className="row small" style={{ marginTop: 4 }}>
+              <span className="muted">Equipe:</span>
+              {teamShown.map((m) => <label key={m.phone} className="row small" style={{ gap: 4 }}><input type="checkbox" checked={teamPhones.includes(m.phone)} onChange={(e) => toggleTeam(m.phone, e.target.checked)} style={{ width: 'auto' }} aria-label={`Avisar ${m.name}`} /> {m.name}</label>)}
+            </div>
+          )}
           {notifyAssignee && assignee && assignee.user.hasPhone === false && <div className="small muted">O responsável não tem WhatsApp no perfil — ele não será avisado. Cadastre em Perfil › "WhatsApp para contato".</div>}
         </Field>
         {conflicts && (
@@ -218,7 +236,8 @@ function SettingsModal({ onClose }: { onClose: () => void }) {
       {!s ? <div className="muted">Carregando…</div> : (
         <form className="stack" onSubmit={async (e) => {
           e.preventDefault();
-          const { timezone: _tz, ...body } = s;
+          const { timezone: _tz, owners: _o, ...body } = s;
+          body.teamContacts = (s.teamContacts ?? []).map((m: any) => ({ name: m.name.trim(), phone: m.phone.trim(), active: m.active !== false }));
           if (await run(() => put('/agenda/settings', body), 'Configurações salvas')) onClose();
         }}>
           <label className="row"><input type="checkbox" checked={s.aiBooking} onChange={(e) => setS({ ...s, aiBooking: e.target.checked })} style={{ width: 'auto' }} /> <strong>A IA pode agendar reuniões no WhatsApp</strong></label>
@@ -242,6 +261,24 @@ function SettingsModal({ onClose }: { onClose: () => void }) {
               <label className="row small" style={{ gap: 4 }}><input type="checkbox" checked={s.notifyContact} onChange={(e) => setS({ ...s, notifyContact: e.target.checked })} style={{ width: 'auto' }} /> Cliente</label>
               <label className="row small" style={{ gap: 4 }}><input type="checkbox" checked={!!s.notifyAssignee} onChange={(e) => setS({ ...s, notifyAssignee: e.target.checked })} style={{ width: 'auto' }} /> Atendente (responsável)</label>
               <label className="row small" style={{ gap: 4 }}><input type="checkbox" checked={s.notifyExtras !== false} onChange={(e) => setS({ ...s, notifyExtras: e.target.checked })} style={{ width: 'auto' }} /> Contatos adicionais</label>
+            </div>
+          </Field>
+          <Field label="Avisos de reunião para a equipe (WhatsApp)" hint="A cada nova reunião (inclusive as marcadas pela IA), o dono e os membros ativos recebem pelo WhatsApp da empresa: cliente, data/hora, descrição, link do Meet e quem agendou. Também recebem lembrete, remarcação e cancelamento.">
+            <div className="stack" style={{ gap: 6 }}>
+              <label className="row small"><input type="checkbox" checked={s.notifyOwner !== false} onChange={(e) => setS({ ...s, notifyOwner: e.target.checked })} style={{ width: 'auto' }} /> Me avisar (proprietário)</label>
+              {s.notifyOwner !== false && (s.owners ?? []).filter((o: any) => !o.hasPhone).map((o: any, i: number) => <div key={i} className="small muted">⚠ {o.name} (dono) não tem WhatsApp no perfil — cadastre em Perfil › "WhatsApp para contato" para receber os avisos.</div>)}
+              {(s.teamContacts ?? []).map((m: any, i: number) => {
+                const set = (k: string, v: any) => setS({ ...s, teamContacts: s.teamContacts.map((x: any, j: number) => (j === i ? { ...x, [k]: v } : x)) });
+                return (
+                  <div key={i} className="row" style={{ flexWrap: 'wrap', gap: 6 }}>
+                    <input required placeholder="Nome" maxLength={80} value={m.name} onChange={(e) => set('name', e.target.value)} style={{ flex: '1 1 120px' }} aria-label={`Nome do membro ${i + 1}`} />
+                    <input required type="tel" placeholder="WhatsApp (DDD + número)" maxLength={30} value={m.phone} onChange={(e) => set('phone', e.target.value)} style={{ flex: '1 1 140px' }} aria-label={`Telefone do membro ${i + 1}`} />
+                    <label className="row small" style={{ gap: 4 }}><input type="checkbox" checked={m.active !== false} onChange={(e) => set('active', e.target.checked)} style={{ width: 'auto' }} /> Recebe avisos de reunião</label>
+                    <button type="button" className="btn sm ghost" onClick={() => setS({ ...s, teamContacts: s.teamContacts.filter((_: any, j: number) => j !== i) })} aria-label="Remover membro">✕</button>
+                  </div>
+                );
+              })}
+              {(s.teamContacts ?? []).length < MAX_TEAM && <div><button type="button" className="btn sm" onClick={() => setS({ ...s, teamContacts: [...(s.teamContacts ?? []), { name: '', phone: '', active: true }] })}>+ Adicionar membro</button></div>}
             </div>
           </Field>
           <span className="small muted">Fuso horário da empresa: {s.timezone}</span>
@@ -323,9 +360,9 @@ export default function Agenda() {
                             <a className="btn sm" href={a.links.google} target="_blank" rel="noreferrer" style={{ textDecoration: 'none' }}>Google Agenda</a>
                             <a className="btn sm" href={a.links.ics} style={{ textDecoration: 'none' }}>iPhone (.ics)</a>
                             {a.status === 'SCHEDULED' && <>
-                              <button className="btn sm" onClick={() => setEdit({ id: a.id, kind: a.kind, title: a.title, start: a.localStart, durationMin: a.durationMin, reminderMin: a.reminderMin, contactId: a.contactId, contactLabel: undefined, assignedUserId: a.assignedUserId, location: a.location ?? '', description: a.description ?? '', notifyContact: a.notifyContact, notifyAssignee: a.notifyAssignee, notifyExtras: a.notifyExtras, extraContacts: (a.extraContacts ?? []).map((c: any) => ({ name: c.name ?? '', phone: c.phone })) })}>Editar</button>
+                              <button className="btn sm" onClick={() => setEdit({ id: a.id, kind: a.kind, title: a.title, start: a.localStart, durationMin: a.durationMin, reminderMin: a.reminderMin, contactId: a.contactId, contactLabel: undefined, assignedUserId: a.assignedUserId, location: a.location ?? '', description: a.description ?? '', notifyContact: a.notifyContact, notifyAssignee: a.notifyAssignee, notifyExtras: a.notifyExtras, notifyOwner: a.notifyOwner, teamPhones: (a.teamContacts ?? []).map((c: any) => c.phone), extraContacts: (a.extraContacts ?? []).map((c: any) => ({ name: c.name ?? '', phone: c.phone })) })}>Editar</button>
                               <button className="btn sm" disabled={busy} onClick={() => act(a.id, { status: 'DONE' }, 'Marcado como concluído')}>Concluir</button>
-                              {((a.contact && a.notifyContact) || (a.assignedUserId && a.notifyAssignee) || (a.notifyExtras && a.extraContacts?.length > 0)) && <button className="btn sm" disabled={busy} onClick={() => run(() => post(`/agenda/${a.id}/send`)).then((r) => r && toast(r.ok ? `Aviso reenviado (${r.sent}/${r.total})` : `Enviado ${r.sent}/${r.total}. Falhas: ${r.error ?? r.status}`, r.ok ? undefined : 'err'))}>Reenviar aviso</button>}
+                              {((a.contact && a.notifyContact) || a.notifyOwner || a.teamContacts?.length > 0 || (a.assignedUserId && a.notifyAssignee) || (a.notifyExtras && a.extraContacts?.length > 0)) && <button className="btn sm" disabled={busy} onClick={() => run(() => post(`/agenda/${a.id}/send`)).then((r) => r && toast(r.ok ? `Aviso reenviado (${r.sent}/${r.total})` : `Enviado ${r.sent}/${r.total}. Falhas: ${r.error ?? r.status}`, r.ok ? undefined : 'err'))}>Reenviar aviso</button>}
                               <button className="btn sm danger" disabled={busy} onClick={() => { if (confirm('Cancelar este compromisso? O contato é avisado e ele some das agendas.')) act(a.id, { status: 'CANCELLED' }, 'Compromisso cancelado'); }}>Cancelar</button>
                             </>}
                             {a.status !== 'SCHEDULED' && <button className="btn sm" disabled={busy} onClick={() => act(a.id, { status: 'SCHEDULED' }, 'Compromisso reaberto')}>Reabrir</button>}

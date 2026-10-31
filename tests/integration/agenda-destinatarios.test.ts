@@ -25,6 +25,8 @@ describe('Agenda: contatos adicionais e destinatários dos avisos', () => {
     await sendInbound(ctx, CLIENTE, 'oi'); // janela de 24h aberta
     contactId = (await prisma.contact.findFirst({ where: { orgId: owner.me.org.id, waId: CLIENTE } }))!.id;
     await prisma.contact.update({ where: { id: contactId }, data: { name: 'Maria Cliente' } });
+    // Este arquivo cobre cliente/responsável/adicionais; o aviso ao dono é coberto em agenda-equipe.test.ts.
+    await prisma.agendaSettings.upsert({ where: { orgId: owner.me.org.id }, create: { orgId: owner.me.org.id, notifyOwner: false }, update: { notifyOwner: false } });
   });
   beforeEach(() => { graph.reset(); });
 
@@ -68,7 +70,7 @@ describe('Agenda: contatos adicionais e destinatários dos avisos', () => {
     for (const p of [DONO, EXTRA1, EXTRA2]) {
       const m = sentTo(p);
       expect(m).toHaveLength(1);
-      expect(m[0].text).toContain('Reunião com Maria Cliente');
+      expect(m[0].text).toContain('Nova reunião marcada com Maria Cliente');
       expect(m[0].text).toContain('Kickoff');
       expect(m[0].text).toContain('Pauta: escopo');
     }
