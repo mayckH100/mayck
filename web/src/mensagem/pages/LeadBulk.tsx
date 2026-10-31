@@ -50,12 +50,42 @@ export async function bulk(sel: LeadSelection, filter: LeadFilter, body: Record<
   return post<BulkResult>('/mckmensagem/leads/bulk', { ...alvo, ...body });
 }
 
+/** Limite de ids por requisição de exclusão em massa (igual ao do servidor). */
+export const BULK_DELETE_MAX = 500;
+
+/** Exclui contatos por ids, em lotes de até 500. Retorna quantos foram excluídos. */
+export async function deleteLeads(ids: string[]) {
+  let deleted = 0;
+  for (let i = 0; i < ids.length; i += BULK_DELETE_MAX) {
+    const r = await post<{ requested: number; deleted: number }>('/mckmensagem/leads/bulk-delete', { ids: ids.slice(i, i + BULK_DELETE_MAX) });
+    deleted += r.deleted;
+  }
+  return deleted;
+}
+
+/** Diálogo de confirmação de exclusão, informando quantos contatos serão excluídos. */
+export function ConfirmDeleteLeads({ count, busy, onConfirm, onClose }: { count: number; busy?: boolean; onConfirm: () => void; onClose: () => void }) {
+  return (
+    <Modal title={count === 1 ? 'Excluir contato' : `Excluir ${fmtNum(count)} contatos`} onClose={onClose}>
+      <div className="stack">
+        <p style={{ margin: 0 }}>Tem certeza que deseja excluir definitivamente <strong>{count === 1 ? '1 contato' : `${fmtNum(count)} contatos`}</strong>?</p>
+        <p className="small muted" style={{ margin: 0 }}>O histórico de envios de campanhas também será removido. Esta ação não pode ser desfeita.</p>
+        <div className="row" style={{ justifyContent: 'flex-end' }}>
+          <button type="button" className="btn" onClick={onClose} disabled={busy}>Cancelar</button>
+          <button type="button" className="btn danger" onClick={onConfirm} disabled={busy}>{busy ? 'Excluindo…' : `Excluir ${count === 1 ? '1 contato' : `${fmtNum(count)} contatos`}`}</button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
 const parseTags = (s: string) => [...new Set(s.split(/[,|]/).map((t) => t.trim()).filter(Boolean))].slice(0, 30);
 
 /** Barra de ações em massa da lista de contatos. */
-export function BulkBar({ sel, filter, total, campaigns, onDone }: { sel: LeadSelection; filter: LeadFilter; total: number; campaigns: Campaign[]; onDone: () => void }) {
+export function BulkBar({ sel, filter, total, campaigns, onDone, canDelete = false }: { sel: LeadSelection; filter: LeadFilter; total: number; campaigns: Campaign[]; onDone: () => void; canDelete?: boolean }) {
   const { busy, run } = useAction();
   const [acao, setAcao] = useState('');
+  const [confirmDel, setConfirmDel] = useState(false);
   const [campaignId, setCampaignId] = useState('');
   const [tags, setTags] = useState('');
   const [status, setStatus] = useState<LeadStatus>('CONTATADO');
@@ -67,6 +97,12 @@ export function BulkBar({ sel, filter, total, campaigns, onDone }: { sel: LeadSe
     if (r) { alert(okMsg(r)); sel.clear(); setAcao(''); onDone(); }
   };
   const camp = campaigns.find((c) => c.id === campaignId);
+  const excluir = async () => {
+    // Seleção por ids: rota dedicada (lotes de 500). "Todos que atendem ao filtro": ação em massa por filtro.
+    const r = await run(async () => sel.todos ? (await bulk(sel, filter, { action: 'delete' })).updated : deleteLeads([...sel.ids]), undefined);
+    setConfirmDel(false);
+    if (r !== undefined && r !== null) { alert(`${r} contato(s) excluído(s).`); sel.clear(); setAcao(''); onDone(); }
+  };
   return (
     <div className="card row" style={{ position: 'sticky', top: 64, zIndex: 5, background: 'var(--brand-soft)', padding: 10 }} role="region" aria-label="Ações em massa">
       <strong className="small">{fmtNum(n)} selecionado(s)</strong>
@@ -79,7 +115,7 @@ export function BulkBar({ sel, filter, total, campaigns, onDone }: { sel: LeadSe
         <option value="setStatus">Mudar status</option>
         <option value="optOut">Marcar opt-out (não enviar mais)</option>
         <option value="optIn">Remover opt-out</option>
-        <option value="delete">Excluir contatos</option>
+        {canDelete && <option value="delete">Excluir contatos</option>}
       </select>
       {acao === 'setCampaign' && <>
         <select value={campaignId} onChange={(e) => setCampaignId(e.target.value)} style={{ width: 'auto' }} aria-label="Campanha"><option value="">Campanha…</option>{campaigns.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select>
@@ -98,7 +134,8 @@ export function BulkBar({ sel, filter, total, campaigns, onDone }: { sel: LeadSe
       </>}
       {acao === 'optOut' && <button className="btn sm danger" disabled={busy} onClick={() => exec({ action: 'optOut' }, (r) => `${r.updated} contato(s) marcado(s) como opt-out.`, `Marcar ${n} contato(s) como opt-out? Eles deixam de receber campanhas.`)}>Aplicar</button>}
       {acao === 'optIn' && <button className="btn sm primary" disabled={busy} onClick={() => exec({ action: 'optIn' }, (r) => `${r.updated} contato(s) reativado(s).`, `Remover o opt-out de ${n} contato(s)? Só faça isso se eles pediram para voltar a receber.`)}>Aplicar</button>}
-      {acao === 'delete' && <button className="btn sm danger" disabled={busy} onClick={() => exec({ action: 'delete' }, (r) => `${r.updated} contato(s) excluído(s).`, `Excluir definitivamente ${n} contato(s)? O histórico de envios deles também será removido. Esta ação não pode ser desfeita.`)}>Excluir {fmtNum(n)}</button>}
+      {canDelete && acao === 'delete' && <button className="btn sm danger" disabled={busy} onClick={() => setConfirmDel(true)}>Excluir {fmtNum(n)}</button>}
+      {canDelete && confirmDel && <ConfirmDeleteLeads count={n} busy={busy} onConfirm={excluir} onClose={() => setConfirmDel(false)} />}
       <button className="btn sm ghost" onClick={sel.clear} style={{ marginLeft: 'auto' }}>Limpar seleção</button>
     </div>
   );

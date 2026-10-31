@@ -6,7 +6,8 @@ import {
   CONSENT_LABEL, CONSENT_SOURCES, LEAD_STATUS, LEAD_STATUS_LABEL, LeadBadge, fmtPhone,
   type Campaign, type ConsentSource, type Lead, type LeadPage, type LeadStatus,
 } from '../common';
-import { useLeadSelection, SelectAllBanner, BulkBar, type LeadFilter } from './LeadBulk';
+import { useLeadSelection, SelectAllBanner, BulkBar, ConfirmDeleteLeads, type LeadFilter } from './LeadBulk';
+import { useAuth } from '../../auth';
 
 const parseTags = (s: string) => [...new Set(s.split(/[,|]/).map((t) => t.trim()).filter(Boolean))].slice(0, 30);
 
@@ -118,7 +119,7 @@ function ImportLeads({ campaigns, onClose, onDone }: { campaigns: Campaign[]; on
   );
 }
 
-function EditLead({ lead, campaigns, onClose, onDone }: { lead: Lead; campaigns: Campaign[]; onClose: () => void; onDone: () => void }) {
+function EditLead({ lead, campaigns, onClose, onDone, onDelete }: { lead: Lead; campaigns: Campaign[]; onClose: () => void; onDone: () => void; onDelete?: () => void }) {
   const [f, setF] = useState({ name: lead.name ?? '', tags: lead.tags.join(', '), status: lead.status, campaignId: lead.campaignId ?? '', optOut: !!lead.optOutAt });
   const { busy, run } = useAction();
   const submit = async (e: FormEvent) => {
@@ -126,11 +127,6 @@ function EditLead({ lead, campaigns, onClose, onDone }: { lead: Lead; campaigns:
     const r = await run(() => patch(`/mckmensagem/leads/${lead.id}`, {
       name: f.name || null, tags: parseTags(f.tags), status: f.status, campaignId: f.campaignId || null, optOut: f.optOut,
     }), 'Contato atualizado');
-    if (r) { onDone(); onClose(); }
-  };
-  const remove = async () => {
-    if (!confirm(`Excluir o contato ${lead.name ?? fmtPhone(lead.phone)}? O histórico de envios dele também será removido.`)) return;
-    const r = await run(() => del(`/mckmensagem/leads/${lead.id}`), 'Contato excluído');
     if (r) { onDone(); onClose(); }
   };
   return (
@@ -154,7 +150,7 @@ function EditLead({ lead, campaigns, onClose, onDone }: { lead: Lead; campaigns:
           <span>Opt-out: não enviar mais mensagens para este contato<br /><span className="small muted" style={{ fontWeight: 400 }}>Marcado automaticamente quando o contato responde “SAIR”.</span></span>
         </label>
         <div className="row between">
-          <button type="button" className="btn danger" onClick={remove} disabled={busy}>Excluir</button>
+          {onDelete ? <button type="button" className="btn danger" onClick={onDelete} disabled={busy}>Excluir</button> : <span />}
           <div className="row">
             <button type="button" className="btn" onClick={onClose}>Cancelar</button>
             <button className="btn primary" disabled={busy}>{busy ? 'Salvando…' : 'Salvar'}</button>
@@ -195,7 +191,16 @@ export default function MmLeads() {
   const campaigns = camps.data ?? [];
   const campName = (id: string | null) => campaigns.find((c) => c.id === id)?.name;
   const [modal, setModal] = useState<null | 'new' | 'import' | Lead>(null);
-  const { run } = useAction();
+  const { busy: deleting, run } = useAction();
+  const { can } = useAuth();
+  const canDelete = can('OWNER', 'ADMIN');
+  const [toDelete, setToDelete] = useState<Lead | null>(null);
+  const confirmDelete = async () => {
+    const l = toDelete!;
+    const r = await run(() => del(`/mckmensagem/leads/${l.id}`), 'Contato excluído');
+    setToDelete(null);
+    if (r) { if (sel.ids.has(l.id)) sel.toggle(l.id); setModal(null); leads.reload(); }
+  };
   const toggleOptOut = async (l: Lead) => {
     const r = await run(() => patch(`/mckmensagem/leads/${l.id}`, { optOut: !l.optOutAt }), l.optOutAt ? 'Opt-out removido' : 'Contato marcado como opt-out');
     if (r) leads.reload();
@@ -226,7 +231,7 @@ export default function MmLeads() {
           <input placeholder="Etiqueta" value={tagInput} onChange={(e) => setTagInput(e.target.value)} aria-label="Etiqueta" />
           <CampaignSelect value={campaignId} onChange={(v) => setParam('campaignId', v)} campaigns={campaigns} empty="Todas as campanhas" withNone />
         </div>
-        <BulkBar sel={sel} filter={filter} total={leads.data?.total ?? 0} campaigns={campaigns} onDone={() => { leads.reload(); camps.reload(); }} />
+        <BulkBar sel={sel} filter={filter} total={leads.data?.total ?? 0} campaigns={campaigns} canDelete={canDelete} onDone={() => { leads.reload(); camps.reload(); }} />
         <Async state={leads}>{(d) => d.items.length === 0 ? (
           <Empty title={filtered ? 'Nenhum contato encontrado' : 'Nenhum contato ainda'}>
             {filtered ? 'Ajuste a busca ou os filtros.' : <>Adicione contatos que autorizaram receber mensagens ou <button className="btn sm" onClick={() => setModal('import')}>importe um CSV</button></>}
@@ -253,6 +258,7 @@ export default function MmLeads() {
                       <td style={{ whiteSpace: 'nowrap', textAlign: 'right' }}>
                         <button className="btn sm" onClick={() => setModal(l)}>Editar</button>{' '}
                         <button className={`btn sm ${l.optOutAt ? '' : 'danger'}`} onClick={() => toggleOptOut(l)} title={l.optOutAt ? 'Voltar a enviar' : 'Não enviar mais'}>{l.optOutAt ? 'Reativar' : 'Opt-out'}</button>
+                        {canDelete && <>{' '}<button className="btn sm danger" onClick={() => setToDelete(l)} aria-label={`Excluir ${l.name ?? l.phone}`} title="Excluir contato">Excluir</button></>}
                       </td>
                     </tr>
                   ))}
@@ -271,7 +277,8 @@ export default function MmLeads() {
       </div>
       {modal === 'new' && <NewLead campaigns={campaigns} onClose={() => setModal(null)} onDone={leads.reload} />}
       {modal === 'import' && <ImportLeads campaigns={campaigns} onClose={() => setModal(null)} onDone={leads.reload} />}
-      {modal && typeof modal === 'object' && <EditLead lead={modal} campaigns={campaigns} onClose={() => setModal(null)} onDone={leads.reload} />}
+      {modal && typeof modal === 'object' && <EditLead lead={modal} campaigns={campaigns} onClose={() => setModal(null)} onDone={leads.reload} onDelete={canDelete ? () => setToDelete(modal) : undefined} />}
+      {toDelete && <ConfirmDeleteLeads count={1} busy={deleting} onConfirm={confirmDelete} onClose={() => setToDelete(null)} />}
     </>
   );
 }

@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { prisma } from '../db.js';
 import { ah, notFound, HttpError } from '../lib/http.js';
-import { orgOf } from '../auth/session.js';
+import { orgOf, requireRole } from '../auth/session.js';
 import { audit } from '../lib/audit.js';
 import { parseJson } from '../lib/json.js';
 import { LEAD_STATUS, CONSENT_SOURCES, toE164 } from './constants.js';
@@ -21,6 +21,21 @@ mckmensagemRouter.use(ah(async (req, _res, next) => {
   if (!(await isProductActive(orgOf(req), 'MCKMENSAGEM'))) throw new HttpError(402, 'Assinatura MCK Mensagens inativa');
   next();
 }));
+
+/** Excluir contatos é restrito a OWNER/ADMIN (AGENT recebe 403). */
+const canDeleteLeads = requireRole('OWNER', 'ADMIN');
+const isLeadAdmin = (req: { auth?: { role?: string | null } }) => req.auth?.role === 'OWNER' || req.auth?.role === 'ADMIN';
+
+/** Exclui leads da org e o histórico de envio (CampaignRecipient, sem FK declarada) numa transação. */
+async function deleteLeadsOfOrg(orgId: string, ids: string[]) {
+  return prisma.$transaction(async (tx) => {
+    const found = (await tx.lead.findMany({ where: { orgId, id: { in: ids } }, select: { id: true } })).map((l) => l.id);
+    if (!found.length) return [] as string[];
+    await tx.campaignRecipient.deleteMany({ where: { leadId: { in: found } } });
+    await tx.lead.deleteMany({ where: { orgId, id: { in: found } } });
+    return found;
+  });
+}
 
 const leadView = (l: Lead) => ({ ...l, tags: parseJson<string[]>(l.tags, []) });
 const tagsSchema = z.array(z.string().trim().min(1).max(40)).max(30);
@@ -77,6 +92,7 @@ const bulkSchema = z.object({
  */
 mckmensagemRouter.post('/leads/bulk', ah(async (req, res) => {
   const b = bulkSchema.parse(req.body);
+  if (b.action === 'delete' && !isLeadAdmin(req)) throw new HttpError(403, 'Apenas proprietário ou administrador pode excluir contatos');
   const orgId = orgOf(req);
   const where = b.ids ? { orgId, id: { in: [...new Set(b.ids)] } } : leadWhere(orgId, b.filter!);
   const matched = await prisma.lead.count({ where });
@@ -141,7 +157,23 @@ mckmensagemRouter.post('/leads/bulk', ah(async (req, res) => {
       break;
   }
   await audit(req, 'mckmensagem.lead.bulk', { meta: { action: b.action, por: b.ids ? 'ids' : 'filtro', filtro: b.filter ?? null, matched, updated, queued, campaignId: b.campaignId ?? null, status: b.status ?? null, tags: b.tags ?? null } });
+  if (b.action === 'delete') await audit(req, 'leads.bulk_delete', { entity: 'Lead', meta: { por: b.ids ? 'ids' : 'filtro', requested: b.ids ? new Set(b.ids).size : matched, deleted: updated } });
   res.json({ matched, updated, queued });
+}));
+
+/** Exclusão em massa por ids (até 500 por requisição). Ids de outra organização são ignorados. */
+export const BULK_DELETE_MAX = 500;
+const bulkDeleteSchema = z.object({
+  ids: z.array(z.string().trim().min(1).max(40), { required_error: 'Informe os contatos a excluir' })
+    .min(1, 'Selecione ao menos um contato').max(BULK_DELETE_MAX, `Exclua no máximo ${BULK_DELETE_MAX} contatos por vez`),
+}).strict();
+
+mckmensagemRouter.post('/leads/bulk-delete', canDeleteLeads, ah(async (req, res) => {
+  const { ids } = bulkDeleteSchema.parse(req.body);
+  const unique = [...new Set(ids)];
+  const deleted = await deleteLeadsOfOrg(orgOf(req), unique);
+  await audit(req, 'leads.bulk_delete', { entity: 'Lead', meta: { requested: unique.length, deleted: deleted.length, ids: deleted } });
+  res.json({ requested: unique.length, deleted: deleted.length });
 }));
 
 const leadCreate = z.object({
@@ -219,13 +251,10 @@ mckmensagemRouter.patch('/leads/:id', ah(async (req, res) => {
   res.json(leadView(updated));
 }));
 
-mckmensagemRouter.delete('/leads/:id', ah(async (req, res) => {
-  const orgId = orgOf(req);
-  const lead = await prisma.lead.findFirst({ where: { id: req.params.id, orgId } });
-  if (!lead) throw notFound('Lead');
-  await prisma.campaignRecipient.deleteMany({ where: { leadId: lead.id } });
-  await prisma.lead.delete({ where: { id: lead.id } });
-  await audit(req, 'mckmensagem.lead.delete', { entity: 'Lead', entityId: lead.id });
+mckmensagemRouter.delete('/leads/:id', canDeleteLeads, ah(async (req, res) => {
+  const deleted = await deleteLeadsOfOrg(orgOf(req), [String(req.params.id)]);
+  if (!deleted.length) throw notFound('Lead');
+  await audit(req, 'leads.delete', { entity: 'Lead', entityId: deleted[0], meta: { count: 1 } });
   res.json({ ok: true });
 }));
 
