@@ -4,7 +4,13 @@ import { prisma } from '../db.js';
 import { audit } from '../lib/audit.js';
 import { HttpError, notFound } from '../lib/http.js';
 import { appUrl, sendMail, smtpConfigured } from '../lib/mailer.js';
-import { sendOutbound } from '../whatsapp/messaging.js';
+import { sendOutbound, resolveChannel, isQrChannel } from '../whatsapp/messaging.js';
+import { sendCloudMessage } from '../whatsapp/cloudClient.js';
+import { qrManager } from '../whatsapp/qr/manager.js';
+import { decryptOrNull } from '../lib/crypto.js';
+import { isProductActive } from '../billing/service.js';
+import { normalizePhone } from '../routes/contacts.js';
+import { parseJson } from '../lib/json.js';
 import { buildIcs, googleAddLink, outlookAddLink, publicEventToken } from './ics.js';
 import { googleBusy, upsertGoogleEvent, deleteGoogleEvent, googleConfigured, type GoogleAccountRow } from './google.js';
 import { humanPt, safeTz, zonedParts, zonedToUtc, hhmmToMin, toLocalIso } from './time.js';
@@ -14,6 +20,8 @@ export const KIND_LABEL: Record<string, string> = { MEETING: 'Reunião', TASK: '
 export interface AgendaSettingsView {
   aiBooking: boolean; workStart: string; workEnd: string; workDays: number[];
   defaultDurationMin: number; minNoticeMin: number; notifyContact: boolean; reminderMin: number;
+  /** Padrões dos destinatários: responsável (atendente) e contatos adicionais. */
+  notifyAssignee: boolean; notifyExtras: boolean;
 }
 
 export async function getSettings(orgId: string): Promise<AgendaSettingsView> {
@@ -26,6 +34,8 @@ export async function getSettings(orgId: string): Promise<AgendaSettingsView> {
     defaultDurationMin: s?.defaultDurationMin ?? 30,
     minNoticeMin: s?.minNoticeMin ?? 60,
     notifyContact: s?.notifyContact ?? true,
+    notifyAssignee: s?.notifyAssignee ?? false,
+    notifyExtras: s?.notifyExtras ?? true,
     reminderMin: s?.reminderMin ?? 60,
   };
 }
@@ -115,6 +125,7 @@ export function viewAppointment(a: Appointment, tz: string, maps: { contacts?: M
     id: a.id, kind: a.kind, title: a.title, description: a.description, location: a.location,
     startAt: a.startAt, endAt: endOf(a), localStart: toLocalIso(a.startAt, tz), durationMin: a.durationMin, reminderMin: a.reminderMin,
     status: a.status, source: a.source, notifyContact: a.notifyContact,
+    notifyAssignee: a.notifyAssignee, notifyExtras: a.notifyExtras, extraContacts: extraContactsOf(a),
     contactId: a.contactId, contact: c ? { id: c.id, name: c.name, phone: c.phone } : null,
     assignedUserId: a.assignedUserId, assignedUser: u ? { id: u.id, name: u.name } : null,
     createdById: a.createdById, googleSynced: !!a.googleEventId, meetLink: a.meetLink ?? null, createdAt: a.createdAt, updatedAt: a.updatedAt,
@@ -148,6 +159,31 @@ export interface AppointmentInput {
   notifyContact?: boolean;
   /** "Gerar link do Google Meet": padrão = ligado para reuniões quando há Google conectado. */
   generateMeet?: boolean;
+  /** Contatos adicionais (equipe) que recebem o aviso por WhatsApp — máx. 5, telefone obrigatório. */
+  extraContacts?: { name?: string | null; phone: string }[];
+  notifyAssignee?: boolean;
+  notifyExtras?: boolean;
+}
+
+export const MAX_EXTRA_CONTACTS = 5;
+export interface ExtraContact { name: string | null; phone: string }
+
+export const extraContactsOf = (a: Pick<Appointment, 'extraContacts'>): ExtraContact[] =>
+  parseJson<ExtraContact[]>(a.extraContacts, []).filter((c) => c && typeof c.phone === 'string');
+
+/** Valida e normaliza os contatos adicionais (telefone obrigatório e válido, sem repetidos, máx. 5). */
+export function normalizeExtraContacts(list: { name?: string | null; phone: string }[] | undefined | null): ExtraContact[] {
+  const arr = list ?? [];
+  if (arr.length > MAX_EXTRA_CONTACTS) throw new HttpError(400, `No máximo ${MAX_EXTRA_CONTACTS} contatos adicionais por compromisso`);
+  const out: ExtraContact[] = [];
+  for (const [i, c] of arr.entries()) {
+    const phone = normalizePhone(String(c?.phone ?? ''));
+    if (!phone) throw new HttpError(400, `Contato adicional ${i + 1}: telefone inválido`);
+    if (out.some((o) => o.phone === phone)) throw new HttpError(400, `Contato adicional ${i + 1}: telefone repetido`);
+    const name = String(c?.name ?? '').trim().slice(0, 80);
+    out.push({ name: name || null, phone });
+  }
+  return out;
 }
 
 interface Ctx { orgId: string; userId?: string | null; req?: Request | null; source?: 'MANUAL' | 'AI' | 'KANBAN'; force?: boolean }
@@ -167,6 +203,7 @@ export class ConflictError extends HttpError {
 export async function createAppointment(input: AppointmentInput, ctx: Ctx): Promise<Appointment> {
   const s = await getSettings(ctx.orgId);
   await checkRefs(ctx.orgId, input);
+  const extras = normalizeExtraContacts(input.extraContacts);
   const durationMin = input.durationMin ?? s.defaultDurationMin;
   const kind = input.kind ?? 'MEETING';
   // Tarefas não bloqueiam a agenda; reuniões checam conflito (a menos que o usuário force).
@@ -181,6 +218,8 @@ export async function createAppointment(input: AppointmentInput, ctx: Ctx): Prom
       contactId: input.contactId || null, conversationId: input.conversationId || null,
       assignedUserId: input.assignedUserId || null, createdById: ctx.userId ?? null,
       notifyContact: input.notifyContact ?? s.notifyContact, source: ctx.source ?? 'MANUAL',
+      notifyAssignee: input.notifyAssignee ?? s.notifyAssignee, notifyExtras: input.notifyExtras ?? s.notifyExtras,
+      extraContacts: JSON.stringify(extras),
     },
   });
   await audit(ctx.req ?? null, ctx.source === 'AI' ? 'agenda.ai_create' : 'agenda.create', { orgId: ctx.orgId, userId: ctx.userId ?? null, entity: 'appointment', entityId: a.id, meta: { kind, startAt: a.startAt, contactId: a.contactId, source: a.source } });
@@ -195,6 +234,7 @@ export async function updateAppointment(id: string, patch: Partial<AppointmentIn
   const cur = await prisma.appointment.findFirst({ where: { id, orgId: ctx.orgId } });
   if (!cur) throw notFound('Compromisso');
   await checkRefs(ctx.orgId, patch);
+  const extras = patch.extraContacts !== undefined ? normalizeExtraContacts(patch.extraContacts) : undefined;
   const startAt = patch.startAt ?? cur.startAt;
   const durationMin = patch.durationMin ?? cur.durationMin;
   const moved = startAt.getTime() !== cur.startAt.getTime() || durationMin !== cur.durationMin;
@@ -204,16 +244,17 @@ export async function updateAppointment(id: string, patch: Partial<AppointmentIn
     if (conflicts.length) throw new ConflictError(conflicts);
   }
   const data: any = { sequence: cur.sequence + 1 };
-  for (const k of ['kind', 'title', 'description', 'location', 'startAt', 'durationMin', 'reminderMin', 'contactId', 'assignedUserId', 'notifyContact', 'status'] as const) {
+  for (const k of ['kind', 'title', 'description', 'location', 'startAt', 'durationMin', 'reminderMin', 'contactId', 'assignedUserId', 'notifyContact', 'notifyAssignee', 'notifyExtras', 'status'] as const) {
     if ((patch as any)[k] !== undefined) data[k] = (patch as any)[k] === '' ? null : (patch as any)[k];
   }
+  if (extras) data.extraContacts = JSON.stringify(extras);
   if (moved) data.reminderSentAt = null;
   const a = await prisma.appointment.update({ where: { id: cur.id }, data });
   const action = status === 'CANCELLED' && cur.status !== 'CANCELLED' ? 'agenda.cancel' : status === 'DONE' && cur.status !== 'DONE' ? 'agenda.done' : 'agenda.update';
   await audit(ctx.req ?? null, action, { orgId: ctx.orgId, userId: ctx.userId ?? null, entity: 'appointment', entityId: a.id, meta: { moved, from: moved ? cur.startAt : undefined, to: moved ? a.startAt : undefined } });
   const synced = await syncGoogle(a);
-  if (a.status === 'SCHEDULED' && moved) await notifyContact(synced, 'remarcado', ctx.req ?? undefined);
-  if (action === 'agenda.cancel') await notifyContact(synced, 'cancelado', ctx.req ?? undefined);
+  if (a.status === 'SCHEDULED' && moved) await notifyRecipients(synced, 'remarcado', { req: ctx.req ?? undefined });
+  if (action === 'agenda.cancel') await notifyRecipients(synced, 'cancelado', { req: ctx.req ?? undefined });
   return synced;
 }
 
@@ -295,12 +336,31 @@ export function contactMessage(a: Appointment, tz: string, kind: 'criado' | 'rem
   const head = kind === 'lembrete' ? `⏰ Lembrete: *${a.title}*` : kind === 'remarcado' ? `🔁 ${label} remarcado: *${a.title}*` : `📅 ${label} agendado: *${a.title}*`;
   const lines = [head, `🗓 ${when.charAt(0).toUpperCase() + when.slice(1)} (${a.durationMin} min)`];
   if (a.location) lines.push(`📍 ${a.location}`);
+  if (a.description) lines.push(`📝 ${a.description}`);
   if (a.meetLink) lines.push(`🎥 Link da reunião (Google Meet): ${a.meetLink}`);
   if (kind !== 'lembrete') lines.push('', `Adicione à agenda do seu celular (Google, iPhone ou Outlook): ${publicEventUrl(a.id, req)}`);
   return lines.join('\n');
 }
 
-async function notifyContact(a: Appointment, kind: 'criado' | 'remarcado' | 'cancelado' | 'lembrete', req?: Request) {
+/** Variante para a equipe (responsável e contatos adicionais): "Reunião com <cliente>". */
+export function teamMessage(a: Appointment, tz: string, kind: 'criado' | 'remarcado' | 'cancelado' | 'lembrete', clientName: string | null, req?: Request) {
+  const when = humanPt(a.startAt, tz);
+  const label = KIND_LABEL[a.kind] ?? 'Compromisso';
+  const com = clientName ? ` com ${clientName}` : '';
+  if (kind === 'cancelado') return `❌ ${label}${com} cancelada: *${a.title}* (${when}).`;
+  const head = kind === 'lembrete' ? `⏰ Lembrete — ${label}${com}: *${a.title}*` : kind === 'remarcado' ? `🔁 ${label}${com} remarcada: *${a.title}*` : `📅 ${label}${com}: *${a.title}*`;
+  const lines = [head, `🗓 ${when.charAt(0).toUpperCase() + when.slice(1)} (${a.durationMin} min)`];
+  if (a.location) lines.push(`📍 ${a.location}`);
+  if (a.description) lines.push(`📝 ${a.description}`);
+  if (a.meetLink) lines.push(`🎥 Link da reunião (Google Meet): ${a.meetLink}`);
+  if (kind !== 'lembrete') lines.push('', `Adicionar à agenda: ${publicEventUrl(a.id, req)}`);
+  return lines.join('\n');
+}
+
+type NotifyKind = 'criado' | 'remarcado' | 'cancelado' | 'lembrete';
+interface NotifyOpts { req?: Request; sender?: 'system' | 'agent'; authorUserId?: string }
+
+async function notifyContact(a: Appointment, kind: NotifyKind, req?: Request, opts: NotifyOpts = {}) {
   if (!a.notifyContact || !a.contactId) return false;
   try {
     const contact = await prisma.contact.findFirst({ where: { id: a.contactId, orgId: a.orgId } });
@@ -308,7 +368,8 @@ async function notifyContact(a: Appointment, kind: 'criado' | 'remarcado' | 'can
     const conv = await conversationFor(a);
     if (!conv) return false;
     const tz = await orgTz(a.orgId);
-    const m = await sendOutbound({ conversation: conv, contact, payload: { type: 'text', text: contactMessage(a, tz, kind, req), previewUrl: true }, sender: 'system' });
+    const m = await sendOutbound({ conversation: conv, contact, payload: { type: 'text', text: contactMessage(a, tz, kind, req), previewUrl: true }, sender: opts.sender ?? 'system', authorUserId: opts.authorUserId });
+    if (m.status === 'FAILED') console.warn(`[agenda] aviso ao cliente falhou (${a.id}): ${m.error ?? 'erro'}`);
     return m.status !== 'FAILED';
   } catch (e) {
     console.error('[agenda] aviso ao contato falhou', (e as Error).message);
@@ -316,9 +377,83 @@ async function notifyContact(a: Appointment, kind: 'criado' | 'remarcado' | 'can
   }
 }
 
+export interface RecipientResult { target: 'cliente' | 'atendente' | 'adicional'; phone?: string; name?: string | null; ok: boolean; error?: string }
+
+/** Telefone (WhatsApp) do responsável, normalizado; nulo se ele não cadastrou no perfil. */
+async function assigneePhone(a: Appointment) {
+  if (!a.assignedUserId) return null;
+  const u = await prisma.user.findUnique({ where: { id: a.assignedUserId }, select: { name: true, phone: true } });
+  const phone = u?.phone ? normalizePhone(u.phone) : null;
+  return phone ? { name: u!.name, phone } : null;
+}
+
+/** Envia texto por WhatsApp a um número da equipe (sem criar contato/conversa no CRM), pelo canal da empresa. */
+async function sendToPhone(a: Appointment, to: string, text: string) {
+  if (!(await isProductActive(a.orgId, 'MCKBOT'))) throw new Error('Assinatura inativa');
+  const conv = a.conversationId ? await prisma.conversation.findFirst({ where: { id: a.conversationId, orgId: a.orgId }, select: { channelId: true } }) : null;
+  const channel = await resolveChannel({ orgId: a.orgId, channelId: conv?.channelId ?? null });
+  if (!channel) throw new Error('Nenhum canal WhatsApp na organização');
+  if (isQrChannel(channel)) {
+    if (!qrManager.canSend(channel.id)) throw new Error('WhatsApp (QR) não conectado');
+    await qrManager.send(channel.id, to, { type: 'text', text });
+    return;
+  }
+  const accessToken = decryptOrNull(channel.accessTokenEnc);
+  if (channel.status !== 'CONNECTED' || !channel.phoneNumberId || !accessToken) throw new Error('Canal WhatsApp não conectado');
+  await sendCloudMessage({ phoneNumberId: channel.phoneNumberId, accessToken }, to, { type: 'text', text, previewUrl: true });
+}
+
+/**
+ * Avisa por WhatsApp cada destinatário marcado no compromisso (cliente / responsável / contatos adicionais).
+ * Cada envio é independente: a falha de um é registrada e não impede os demais. Telefones repetidos recebem uma vez só.
+ */
+export async function notifyRecipients(a: Appointment, kind: NotifyKind, opts: NotifyOpts & { skipClient?: boolean } = {}): Promise<RecipientResult[]> {
+  const results: RecipientResult[] = [];
+  const seen = new Set<string>();
+  let client: { name: string | null; phone: string } | null = null;
+  if (a.contactId) {
+    const c = await prisma.contact.findFirst({ where: { id: a.contactId, orgId: a.orgId }, select: { name: true, phone: true } });
+    if (c) client = { name: c.name, phone: normalizePhone(c.phone) ?? c.phone.replace(/\D/g, '') };
+  }
+  if (a.notifyContact && client && !opts.skipClient) {
+    seen.add(client.phone);
+    const ok = await notifyContact(a, kind, opts.req, opts);
+    results.push({ target: 'cliente', phone: client.phone, name: client.name, ok, ...(ok ? {} : { error: 'Falha no envio ao cliente' }) });
+  } else if (client) seen.add(client.phone); // o cliente nunca recebe a variante da equipe
+  const team: { target: 'atendente' | 'adicional'; name: string | null; phone: string }[] = [];
+  if (a.notifyAssignee) {
+    const ap = await assigneePhone(a);
+    if (ap) team.push({ target: 'atendente', ...ap });
+    else if (a.assignedUserId) results.push({ target: 'atendente', ok: false, error: 'Responsável sem WhatsApp cadastrado no perfil' });
+  }
+  if (a.notifyExtras) for (const c of extraContactsOf(a)) team.push({ target: 'adicional', ...c });
+  if (!team.length) return results;
+  const tz = await orgTz(a.orgId);
+  const text = teamMessage(a, tz, kind, client ? client.name ?? client.phone : null, opts.req);
+  for (const r of team) {
+    if (seen.has(r.phone)) continue;
+    seen.add(r.phone);
+    try {
+      await sendToPhone(a, r.phone, text);
+      results.push({ target: r.target, phone: r.phone, name: r.name, ok: true });
+    } catch (e) {
+      const error = (e as Error).message;
+      console.error(`[agenda] aviso por WhatsApp (${r.target}) falhou`, a.id, error);
+      await audit(null, 'agenda.aviso_falha', { orgId: a.orgId, entity: 'appointment', entityId: a.id, meta: { target: r.target, kind, error } }).catch(() => undefined);
+      results.push({ target: r.target, phone: r.phone, name: r.name, ok: false, error });
+    }
+  }
+  return results;
+}
+
+/** Há alguém para avisar por WhatsApp neste compromisso? */
+export function hasRecipients(a: Appointment) {
+  return (a.notifyContact && !!a.contactId) || (a.notifyAssignee && !!a.assignedUserId) || (a.notifyExtras && extraContactsOf(a).length > 0);
+}
+
 async function notifyCreated(a: Appointment, req?: Request) {
-  // A IA já confirma o horário na própria resposta; nos demais casos o contato recebe a mensagem com o link.
-  if (a.source !== 'AI') await notifyContact(a, 'criado', req);
+  // A IA já confirma o horário na própria resposta ao cliente; os demais destinatários (equipe) são avisados mesmo assim.
+  await notifyRecipients(a, 'criado', { req, skipClient: a.source === 'AI' });
   await notifyTeam(a, req);
 }
 
@@ -344,18 +479,24 @@ async function notifyTeam(a: Appointment, req?: Request) {
 
 export const escHtml = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
 
-/** Lembretes por WhatsApp para o contato (o celular também avisa sozinho pelo alarme do .ics/feed). */
+/** Lembretes por WhatsApp para os destinatários marcados (o celular também avisa sozinho pelo alarme do .ics/feed). */
 export async function tickAgendaReminders(now = new Date()) {
   const soon = await prisma.appointment.findMany({
-    where: { status: 'SCHEDULED', reminderSentAt: null, notifyContact: true, contactId: { not: null }, reminderMin: { gt: 0 }, startAt: { gt: now, lte: new Date(now.getTime() + 7 * 24 * 3600e3) } },
+    where: {
+      status: 'SCHEDULED', reminderSentAt: null, reminderMin: { gt: 0 }, startAt: { gt: now, lte: new Date(now.getTime() + 7 * 24 * 3600e3) },
+      OR: [{ notifyContact: true, contactId: { not: null } }, { notifyAssignee: true, assignedUserId: { not: null } }, { notifyExtras: true, extraContacts: { not: '[]' } }],
+    },
     orderBy: { startAt: 'asc' }, take: 200,
   });
   let sent = 0;
   for (const a of soon) {
     if (a.startAt.getTime() - a.reminderMin * 60_000 > now.getTime()) continue;
+    if (!hasRecipients(a)) continue;
+    // Reserva o lembrete (reminderSentAt) antes de enviar: cada destinatário recebe uma vez só, mesmo com ticks simultâneos.
     const claim = await prisma.appointment.updateMany({ where: { id: a.id, reminderSentAt: null }, data: { reminderSentAt: now } });
     if (claim.count !== 1) continue;
-    if (await notifyContact(a, 'lembrete')) sent++;
+    const r = await notifyRecipients(a, 'lembrete');
+    if (r.some((x) => x.ok)) sent++;
   }
   return sent;
 }

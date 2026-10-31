@@ -27,7 +27,13 @@ export interface ApptDraft {
   contactId: string | null; contactLabel?: string; assignedUserId: string | null; location: string; description: string; notifyContact: boolean; source?: 'MANUAL' | 'KANBAN';
   /** "Gerar link do Google Meet" (só na criação; padrão ligado quando o Google está conectado). */
   generateMeet?: boolean;
+  /** Contatos adicionais (equipe) que recebem o link por WhatsApp (máx. 5). */
+  extraContacts?: { name: string; phone: string }[];
+  /** Destinatários: responsável (atendente) e contatos adicionais. Indefinido = padrão da empresa. */
+  notifyAssignee?: boolean;
+  notifyExtras?: boolean;
 }
+const MAX_EXTRAS = 5;
 export const newDraft = (over: Partial<ApptDraft> = {}): ApptDraft => ({
   kind: 'MEETING', title: '', start: localNow(), durationMin: 30, reminderMin: 60, contactId: null, assignedUserId: null,
   location: '', description: '', notifyContact: true, ...over,
@@ -44,6 +50,12 @@ export function AppointmentModal({ draft, onClose, onSaved }: { draft: ApptDraft
   const google = useApi<any>('/agenda/google/status');
   const googleOn = !!google.data?.connected;
   const wantMeet = d.generateMeet ?? true;
+  const settings = useApi<any>('/agenda/settings');
+  const notifyAssignee = d.notifyAssignee ?? settings.data?.notifyAssignee ?? false;
+  const notifyExtras = d.notifyExtras ?? settings.data?.notifyExtras ?? true;
+  const extras = d.extraContacts ?? [];
+  const setExtra = (i: number, k: 'name' | 'phone', v: string) => setD({ ...d, extraContacts: extras.map((c, j) => (j === i ? { ...c, [k]: v } : c)) });
+  const assignee = (team.data?.members ?? []).find((m: any) => m.user.id === d.assignedUserId);
   const { busy, run } = useAction();
   const toast = useToast();
   useEffect(() => {
@@ -52,7 +64,8 @@ export function AppointmentModal({ draft, onClose, onSaved }: { draft: ApptDraft
     return () => clearTimeout(t);
   }, [q]);
   const save = async (force = false) => {
-    const body: any = { kind: d.kind, title: d.title, start: d.start, durationMin: d.durationMin, reminderMin: d.reminderMin, contactId: d.contactId, assignedUserId: d.assignedUserId, location: d.location || null, description: d.description || null, notifyContact: d.notifyContact, force };
+    const body: any = { kind: d.kind, title: d.title, start: d.start, durationMin: d.durationMin, reminderMin: d.reminderMin, contactId: d.contactId, assignedUserId: d.assignedUserId, location: d.location || null, description: d.description || null, notifyContact: d.notifyContact, force,
+      notifyAssignee, notifyExtras, extraContacts: extras.filter((c) => c.phone.trim() || c.name.trim()).map((c) => ({ name: c.name.trim() || null, phone: c.phone.trim() })) };
     if (!d.id && d.source) body.source = d.source;
     if (!d.id && d.kind === 'MEETING') body.generateMeet = googleOn && wantMeet;
     try {
@@ -106,7 +119,26 @@ export function AppointmentModal({ draft, onClose, onSaved }: { draft: ApptDraft
           ? <label className="row small"><input type="checkbox" checked={wantMeet} onChange={(e) => setD({ ...d, generateMeet: e.target.checked })} style={{ width: 'auto' }} /> Gerar link do Google Meet</label>
           : google.data && <div className="small muted">🎥 Conecte o Google em Agenda para gerar o link do Meet.</div>)}
         <Field label="Observações (opcional)"><textarea rows={2} maxLength={2000} value={d.description} onChange={(e) => setD({ ...d, description: e.target.value })} /></Field>
-        {d.contactId && <label className="row small"><input type="checkbox" checked={d.notifyContact} onChange={(e) => setD({ ...d, notifyContact: e.target.checked })} style={{ width: 'auto' }} /> Avisar o contato pelo WhatsApp (link "Adicionar à agenda" + lembrete)</label>}
+        <Field label={`Contatos adicionais (${extras.length}/${MAX_EXTRAS})`} hint="Equipe que recebe pelo WhatsApp a confirmação, o link do Meet e o lembrete.">
+          <div className="stack" style={{ gap: 6 }}>
+            {extras.map((c, i) => (
+              <div key={i} className="row" style={{ flexWrap: 'nowrap' }}>
+                <input placeholder="Nome (opcional)" maxLength={80} value={c.name} onChange={(e) => setExtra(i, 'name', e.target.value)} style={{ flex: 1 }} aria-label={`Nome do contato adicional ${i + 1}`} />
+                <input required type="tel" placeholder="WhatsApp (DDD + número)" maxLength={30} value={c.phone} onChange={(e) => setExtra(i, 'phone', e.target.value)} style={{ flex: 1 }} aria-label={`Telefone do contato adicional ${i + 1}`} />
+                <button type="button" className="btn sm ghost" onClick={() => setD({ ...d, extraContacts: extras.filter((_, j) => j !== i) })} aria-label="Remover contato">✕</button>
+              </div>
+            ))}
+            {extras.length < MAX_EXTRAS && <div><button type="button" className="btn sm" onClick={() => setD({ ...d, extraContacts: [...extras, { name: '', phone: '' }] })}>+ Adicionar contato</button></div>}
+          </div>
+        </Field>
+        <Field label="Notificar pelo WhatsApp (confirmação, remarcação e lembrete)">
+          <div className="row small">
+            <label className="row small" style={{ gap: 4 }}><input type="checkbox" checked={d.notifyContact} disabled={!d.contactId} onChange={(e) => setD({ ...d, notifyContact: e.target.checked })} style={{ width: 'auto' }} /> Cliente</label>
+            <label className="row small" style={{ gap: 4 }}><input type="checkbox" checked={notifyAssignee} disabled={!d.assignedUserId} onChange={(e) => setD({ ...d, notifyAssignee: e.target.checked })} style={{ width: 'auto' }} /> Atendente (responsável)</label>
+            <label className="row small" style={{ gap: 4 }}><input type="checkbox" checked={notifyExtras} disabled={!extras.length} onChange={(e) => setD({ ...d, notifyExtras: e.target.checked })} style={{ width: 'auto' }} /> Contatos adicionais</label>
+          </div>
+          {notifyAssignee && assignee && assignee.user.hasPhone === false && <div className="small muted">O responsável não tem WhatsApp no perfil — ele não será avisado. Cadastre em Perfil › "WhatsApp para contato".</div>}
+        </Field>
         {conflicts && (
           <div className="alert warn">
             <strong>Conflito de horário.</strong> Já existe compromisso nesse período:
@@ -205,7 +237,13 @@ function SettingsModal({ onClose }: { onClose: () => void }) {
           <Field label="Lembrete padrão">
             <select value={s.reminderMin} onChange={(e) => setS({ ...s, reminderMin: Number(e.target.value) })}>{REMINDERS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select>
           </Field>
-          <label className="row small"><input type="checkbox" checked={s.notifyContact} onChange={(e) => setS({ ...s, notifyContact: e.target.checked })} style={{ width: 'auto' }} /> Avisar o contato pelo WhatsApp por padrão</label>
+          <Field label="Notificar por padrão pelo WhatsApp (novos compromissos)">
+            <div className="row small">
+              <label className="row small" style={{ gap: 4 }}><input type="checkbox" checked={s.notifyContact} onChange={(e) => setS({ ...s, notifyContact: e.target.checked })} style={{ width: 'auto' }} /> Cliente</label>
+              <label className="row small" style={{ gap: 4 }}><input type="checkbox" checked={!!s.notifyAssignee} onChange={(e) => setS({ ...s, notifyAssignee: e.target.checked })} style={{ width: 'auto' }} /> Atendente (responsável)</label>
+              <label className="row small" style={{ gap: 4 }}><input type="checkbox" checked={s.notifyExtras !== false} onChange={(e) => setS({ ...s, notifyExtras: e.target.checked })} style={{ width: 'auto' }} /> Contatos adicionais</label>
+            </div>
+          </Field>
           <span className="small muted">Fuso horário da empresa: {s.timezone}</span>
           <button className="btn primary" disabled={busy}>Salvar</button>
         </form>
@@ -273,7 +311,7 @@ export default function Agenda() {
                             <span className={`badge ${STATUS[a.status][1]}`}>{STATUS[a.status][0]}</span>
                           </div>
                           <div className="small muted" style={{ marginTop: 4 }}>
-                            {a.durationMin} min{a.contact ? ` · ${a.contact.name ?? a.contact.phone}` : ''}{a.assignedUser ? ` · Resp.: ${a.assignedUser.name}` : ''}{a.location ? ` · ${a.location}` : ''} · {SOURCE[a.source]}{a.googleSynced ? ' · Google ✓' : ''}
+                            {a.durationMin} min{a.contact ? ` · ${a.contact.name ?? a.contact.phone}` : ''}{a.extraContacts?.length ? ` · +${a.extraContacts.length} contato(s)` : ''}{a.assignedUser ? ` · Resp.: ${a.assignedUser.name}` : ''}{a.location ? ` · ${a.location}` : ''} · {SOURCE[a.source]}{a.googleSynced ? ' · Google ✓' : ''}
                           </div>
                           {a.meetLink && a.status !== 'CANCELLED' && (
                             <div className="row small" style={{ marginTop: 4 }}>
@@ -285,9 +323,9 @@ export default function Agenda() {
                             <a className="btn sm" href={a.links.google} target="_blank" rel="noreferrer" style={{ textDecoration: 'none' }}>Google Agenda</a>
                             <a className="btn sm" href={a.links.ics} style={{ textDecoration: 'none' }}>iPhone (.ics)</a>
                             {a.status === 'SCHEDULED' && <>
-                              <button className="btn sm" onClick={() => setEdit({ id: a.id, kind: a.kind, title: a.title, start: a.localStart, durationMin: a.durationMin, reminderMin: a.reminderMin, contactId: a.contactId, contactLabel: undefined, assignedUserId: a.assignedUserId, location: a.location ?? '', description: a.description ?? '', notifyContact: a.notifyContact })}>Editar</button>
+                              <button className="btn sm" onClick={() => setEdit({ id: a.id, kind: a.kind, title: a.title, start: a.localStart, durationMin: a.durationMin, reminderMin: a.reminderMin, contactId: a.contactId, contactLabel: undefined, assignedUserId: a.assignedUserId, location: a.location ?? '', description: a.description ?? '', notifyContact: a.notifyContact, notifyAssignee: a.notifyAssignee, notifyExtras: a.notifyExtras, extraContacts: (a.extraContacts ?? []).map((c: any) => ({ name: c.name ?? '', phone: c.phone })) })}>Editar</button>
                               <button className="btn sm" disabled={busy} onClick={() => act(a.id, { status: 'DONE' }, 'Marcado como concluído')}>Concluir</button>
-                              {a.contact && <button className="btn sm" disabled={busy} onClick={() => run(() => post(`/agenda/${a.id}/send`)).then((r) => r && toast(r.ok ? 'Link enviado ao contato' : `Não enviado: ${r.error ?? r.status}`, r.ok ? undefined : 'err'))}>Reenviar ao contato</button>}
+                              {((a.contact && a.notifyContact) || (a.assignedUserId && a.notifyAssignee) || (a.notifyExtras && a.extraContacts?.length > 0)) && <button className="btn sm" disabled={busy} onClick={() => run(() => post(`/agenda/${a.id}/send`)).then((r) => r && toast(r.ok ? `Aviso reenviado (${r.sent}/${r.total})` : `Enviado ${r.sent}/${r.total}. Falhas: ${r.error ?? r.status}`, r.ok ? undefined : 'err'))}>Reenviar aviso</button>}
                               <button className="btn sm danger" disabled={busy} onClick={() => { if (confirm('Cancelar este compromisso? O contato é avisado e ele some das agendas.')) act(a.id, { status: 'CANCELLED' }, 'Compromisso cancelado'); }}>Cancelar</button>
                             </>}
                             {a.status !== 'SCHEDULED' && <button className="btn sm" disabled={busy} onClick={() => act(a.id, { status: 'SCHEDULED' }, 'Compromisso reaberto')}>Reabrir</button>}

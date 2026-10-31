@@ -19,9 +19,9 @@ export const teamRouter = Router();
 
 teamRouter.get('/', ah(async (req, res) => {
   const orgId = orgOf(req);
-  const members = await prisma.membership.findMany({ where: { orgId }, include: { user: { select: { id: true, name: true, email: true } } }, orderBy: { createdAt: 'asc' } });
+  const members = await prisma.membership.findMany({ where: { orgId }, include: { user: { select: { id: true, name: true, email: true, phone: true } } }, orderBy: { createdAt: 'asc' } });
   const invites = req.auth!.role === 'AGENT' ? [] : await prisma.invitation.findMany({ where: { orgId, acceptedAt: null, expiresAt: { gt: new Date() } }, orderBy: { createdAt: 'desc' }, select: { id: true, email: true, role: true, expiresAt: true, createdAt: true } });
-  res.json({ members: members.map((m) => ({ id: m.id, role: m.role, createdAt: m.createdAt, user: m.user })), invites });
+  res.json({ members: members.map((m) => ({ id: m.id, role: m.role, createdAt: m.createdAt, user: { id: m.user.id, name: m.user.name, email: m.user.email, hasPhone: !!m.user.phone?.trim() } })), invites });
 }));
 
 teamRouter.post('/invites', requireRole('OWNER', 'ADMIN'), inviteLimiter, ah(async (req, res) => {

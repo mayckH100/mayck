@@ -11,11 +11,10 @@ import { appUrl } from '../lib/mailer.js';
 import { buildIcs, googleAddLink, outlookAddLink, verifyPublicEventToken } from './ics.js';
 import {
   createAppointment, updateAppointment, deleteAppointment, viewMany, getSettings, orgTz, freeSlots, findConflicts,
-  icsOf, publicEventUrl, contactMessage, escHtml, KIND_LABEL,
+  icsOf, publicEventUrl, escHtml, KIND_LABEL, notifyRecipients, hasRecipients, MAX_EXTRA_CONTACTS,
 } from './service.js';
 import { googleConfigured, googleRedirectUri, makeState, readState, authUrl, exchangeCode, revokeGoogle, forgetToken } from './google.js';
 import { parseLocal, humanPt, toLocalIso } from './time.js';
-import { sendOutbound } from '../whatsapp/messaging.js';
 
 export const agendaRouter = Router();
 const admins = requireRole('OWNER', 'ADMIN');
@@ -53,6 +52,10 @@ const baseSchema = z.object({
   notifyContact: z.boolean().optional(),
   /** "Gerar link do Google Meet" (só na criação; padrão ligado para reuniões com Google conectado). */
   generateMeet: z.boolean().optional(),
+  /** Contatos adicionais (equipe) que recebem o link por WhatsApp — validados/normalizados no serviço. */
+  extraContacts: z.array(z.object({ name: z.string().max(80).optional().nullable(), phone: z.string().max(30) })).max(MAX_EXTRA_CONTACTS, `No máximo ${MAX_EXTRA_CONTACTS} contatos adicionais por compromisso`).optional(),
+  notifyAssignee: z.boolean().optional(),
+  notifyExtras: z.boolean().optional(),
   force: z.boolean().optional(),
   source: z.enum(['MANUAL', 'KANBAN']).optional(),
 });
@@ -112,6 +115,7 @@ agendaRouter.put('/settings', admins, ah(async (req, res) => {
     aiBooking: z.boolean(), workStart: hhmm, workEnd: hhmm, workDays: z.array(z.number().int().min(0).max(6)).min(1).max(7),
     defaultDurationMin: z.number().int().min(5).max(480), minNoticeMin: z.number().int().min(0).max(7 * 24 * 60),
     notifyContact: z.boolean(), reminderMin: z.number().int().min(0).max(7 * 24 * 60),
+    notifyAssignee: z.boolean().optional(), notifyExtras: z.boolean().optional(),
   }).parse(req.body);
   if (b.workEnd <= b.workStart) throw new HttpError(400, 'O fim do expediente deve ser depois do início');
   const orgId = orgOf(req);
@@ -211,19 +215,19 @@ agendaRouter.delete('/:id', admins, exclusaoLimiter, ah(async (req, res) => {
   res.json({ ok: true });
 }));
 
-/** Reenvia ao contato, por WhatsApp, a mensagem com o link "Adicionar à agenda". */
+/** Reenvia, por WhatsApp, o aviso com o link "Adicionar à agenda" aos destinatários marcados (cliente / responsável / adicionais). */
 agendaRouter.post('/:id/send', ah(async (req, res) => {
   const a = await findVisible(req, req.params.id);
-  if (!a.contactId) throw new HttpError(400, 'Este compromisso não tem contato');
-  const contact = await prisma.contact.findFirst({ where: { id: a.contactId, orgId: a.orgId } });
-  if (!contact) throw notFound('Contato');
-  if (contact.optOut) throw new HttpError(400, 'O contato pediu para não receber mensagens');
-  const conv = (await prisma.conversation.findFirst({ where: { orgId: a.orgId, contactId: contact.id }, orderBy: { createdAt: 'desc' } }))
-    ?? (await prisma.conversation.create({ data: { orgId: a.orgId, contactId: contact.id, status: 'CLOSED', closedAt: new Date() } }));
-  const tz = await orgTz(a.orgId);
-  const m = await sendOutbound({ conversation: conv, contact, payload: { type: 'text', text: contactMessage(a, tz, a.status === 'CANCELLED' ? 'cancelado' : 'criado', req), previewUrl: true }, sender: 'agent', authorUserId: req.auth!.userId });
-  await audit(req, 'agenda.send', { entity: 'appointment', entityId: a.id, meta: { status: m.status } });
-  res.json({ ok: m.status !== 'FAILED', status: m.status, error: m.error });
+  if (!hasRecipients(a)) throw new HttpError(400, 'Nenhum destinatário marcado para este compromisso');
+  if (a.notifyContact && a.contactId) {
+    const contact = await prisma.contact.findFirst({ where: { id: a.contactId, orgId: a.orgId }, select: { optOut: true } });
+    if (contact?.optOut && !(a.notifyAssignee && a.assignedUserId) && !(a.notifyExtras && a.extraContacts !== '[]')) throw new HttpError(400, 'O contato pediu para não receber mensagens');
+  }
+  const results = await notifyRecipients(a, a.status === 'CANCELLED' ? 'cancelado' : 'criado', { req, sender: 'agent', authorUserId: req.auth!.userId });
+  const ok = results.length > 0 && results.every((r) => r.ok);
+  const failed = results.filter((r) => !r.ok);
+  await audit(req, 'agenda.send', { entity: 'appointment', entityId: a.id, meta: { results: results.map((r) => ({ target: r.target, ok: r.ok })) } });
+  res.json({ ok, sent: results.filter((r) => r.ok).length, total: results.length, results, status: ok ? 'SENT' : 'FAILED', error: failed.map((r) => r.error).filter(Boolean).join('; ') || undefined });
 }));
 
 // ================= Rotas públicas (sem login) =================

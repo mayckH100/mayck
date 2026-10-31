@@ -935,6 +935,11 @@ model Appointment {
   googleAccountId String?
   /// Link do Google Meet gerado pelo Google Agenda (conferenceData) — nulo sem Google conectado.
   meetLink        String?
+  /// Contatos adicionais (equipe) que recebem o aviso/link por WhatsApp: JSON [{ "name": string|null, "phone": "5511…" }] (máx. 5).
+  extraContacts   String    @default("[]")
+  /// Destinatários dos avisos: cliente = notifyContact; responsável (atendente) e contatos adicionais.
+  notifyAssignee  Boolean   @default(false)
+  notifyExtras    Boolean   @default(true)
   reminderSentAt  DateTime?
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
@@ -983,6 +988,9 @@ model AgendaSettings {
   defaultDurationMin Int      @default(30)
   minNoticeMin       Int      @default(60)
   notifyContact      Boolean  @default(true)
+  /// Padrões da empresa para os destinatários dos avisos de novos compromissos.
+  notifyAssignee     Boolean  @default(false)
+  notifyExtras       Boolean  @default(true)
   reminderMin        Int      @default(60)
   updatedAt          DateTime @updatedAt
 }
