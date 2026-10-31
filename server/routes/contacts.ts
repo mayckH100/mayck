@@ -1,10 +1,11 @@
-import { Router } from 'express';
+import express, { Router } from 'express';
 import { z } from 'zod';
 import { prisma } from '../db.js';
 import { ah, notFound, HttpError } from '../lib/http.js';
 import { orgOf, requireRole } from '../auth/session.js';
 import { audit } from '../lib/audit.js';
 import { parseJson } from '../lib/json.js';
+import { IMPORT_MAX_BYTES, templateCsv, decodeCsv, readSheet, checkRows, type CheckedRow } from '../lib/contacts-import.js';
 
 export const contactsRouter = Router();
 
@@ -85,6 +86,104 @@ contactsRouter.post('/import', requireRole('OWNER', 'ADMIN'), ah(async (req, res
   }
   await audit(req, 'contact.import', { meta: { created, updated, errors: errors.length } });
   res.json({ created, updated, errors: errors.slice(0, 50) });
+}));
+
+// ---------- Importação por planilha (CSV) ----------
+
+/** Modelo da planilha: CSV UTF-8 com BOM, separador ';'. Abre direto no Excel/Google Planilhas. */
+contactsRouter.get('/import/template', ah(async (_req, res) => {
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', 'attachment; filename="modelo-contatos.csv"');
+  res.send(templateCsv());
+}));
+
+// Arquivo inteiro no corpo (application/octet-stream ou text/csv), até 2 MB.
+const csvBody = express.raw({ type: (req) => !String(req.headers['content-type'] ?? '').includes('application/json'), limit: IMPORT_MAX_BYTES });
+
+async function analyzeUpload(req: express.Request, orgId: string): Promise<CheckedRow[]> {
+  if (!Buffer.isBuffer(req.body) || req.body.length === 0) throw new HttpError(400, 'Envie o arquivo CSV da planilha.');
+  const sheet = readSheet(decodeCsv(req.body));
+  if (!sheet.ok) throw new HttpError(400, sheet.error);
+  const existingRows = await prisma.contact.findMany({ where: { orgId }, select: { id: true, waId: true, tags: true } });
+  const existing = new Map(existingRows.map((c) => [c.waId, c.id]));
+  // Etiqueta que já existe na organização (ignorando maiúsculas) é reaproveitada com a mesma grafia; senão é criada.
+  const known = new Map<string, string>();
+  for (const c of existingRows) for (const t of parseJson<string[]>(c.tags, [])) if (typeof t === 'string' && !known.has(t.toLowerCase())) known.set(t.toLowerCase(), t);
+  const canonical = (t: string) => {
+    const k = t.toLowerCase();
+    if (!known.has(k)) known.set(k, t);
+    return known.get(k)!;
+  };
+  return checkRows(sheet.rows, normalizePhone, existing, canonical);
+}
+
+const summarize = (rows: CheckedRow[]) => ({
+  total: rows.length,
+  ok: rows.filter((r) => r.status === 'ok').length,
+  errors: rows.filter((r) => r.status === 'error').length,
+  duplicates: rows.filter((r) => r.status === 'duplicate').length,
+});
+
+/** Prévia: valida cada linha (ok / erro / duplicado) sem gravar nada. */
+contactsRouter.post('/import/preview', requireRole('OWNER', 'ADMIN'), csvBody, ah(async (req, res) => {
+  const rows = await analyzeUpload(req, orgOf(req));
+  res.json({
+    ...summarize(rows),
+    rows: rows.map((r) => ({ line: r.line, status: r.status, messages: r.messages, name: r.name, phone: r.phone, email: r.email, empresa: r.empresa, tags: r.tags, notes: r.notes, existing: !!r.existingId })),
+  });
+}));
+
+/**
+ * Confirma a importação: cria as linhas válidas e não duplicadas. Com ?updateExisting=1, também atualiza os
+ * contatos que já existem (campos preenchidos na planilha sobrescrevem; etiquetas são somadas).
+ */
+contactsRouter.post('/import/confirm', requireRole('OWNER', 'ADMIN'), csvBody, ah(async (req, res) => {
+  const updateExisting = ['1', 'true', 'sim'].includes(String(req.query.updateExisting ?? '').toLowerCase());
+  const orgId = orgOf(req);
+  const rows = await analyzeUpload(req, orgId);
+  const toCreate = rows.filter((r) => r.status === 'ok');
+  const toUpdate = updateExisting ? rows.filter((r) => r.status === 'duplicate' && r.existingId) : [];
+  let created = 0, updated = 0;
+  try {
+    await prisma.$transaction(async (tx) => {
+      for (let i = 0; i < toCreate.length; i += 500) {
+        const batch = toCreate.slice(i, i + 500);
+        const r = await tx.contact.createMany({
+          data: batch.map((c) => ({
+            orgId, waId: c.waId!, phone: c.phone, name: c.name, email: c.email || null, notes: c.notes || null,
+            tags: JSON.stringify(c.tags), vars: JSON.stringify(c.empresa ? { empresa: c.empresa } : {}),
+          })),
+        });
+        created += r.count;
+      }
+      if (toUpdate.length) {
+        const current = await tx.contact.findMany({ where: { orgId, id: { in: toUpdate.map((r) => r.existingId!) } } });
+        const byId = new Map(current.map((c) => [c.id, c]));
+        for (const r of toUpdate) {
+          const c = byId.get(r.existingId!);
+          if (!c) continue;
+          const tags = parseJson<string[]>(c.tags, []);
+          const lower = new Set(tags.map((t) => String(t).toLowerCase()));
+          for (const t of r.tags) if (!lower.has(t.toLowerCase())) { tags.push(t); lower.add(t.toLowerCase()); }
+          const vars = parseJson<Record<string, unknown>>(c.vars, {});
+          if (r.empresa) vars.empresa = r.empresa;
+          await tx.contact.update({
+            where: { id: c.id },
+            data: { name: r.name || c.name, email: r.email || c.email, notes: r.notes || c.notes, tags: JSON.stringify(tags.slice(0, 30)), vars: JSON.stringify(vars) },
+          });
+          updated++;
+        }
+      }
+    }, { timeout: 120_000, maxWait: 10_000 });
+  } catch (e: any) {
+    if (e?.code === 'P2002') throw new HttpError(409, 'Alguns contatos foram criados enquanto a importação rodava. Gere a prévia de novo e confirme.');
+    throw e;
+  }
+  const s = summarize(rows);
+  const result = { ...s, created, updated, skipped: s.duplicates - updated };
+  // Auditoria só com contagens (sem nomes, telefones ou e-mails).
+  await audit(req, 'contacts.import', { meta: { ...result, updateExisting } });
+  res.json(result);
 }));
 
 contactsRouter.get('/:id', ah(async (req, res) => {

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { post, patch, del, get } from '../api';
+import { post, patch, del, get, upload } from '../api';
 import { useAuth } from '../auth';
 import { useApi, Async, Empty, useAction, Modal, Field, fmtDate, StatusBadge, Loading } from '../ui';
 
@@ -19,7 +19,7 @@ export default function Contacts() {
         <div><h1>Contatos</h1><p className="muted">CRM com etiquetas, notas, campos coletados pelos fluxos e ferramentas de LGPD.</p></div>
         <div className="row">
           <form onSubmit={(e) => { e.preventDefault(); setPage(1); setQuery(q); }}><input placeholder="Nome, telefone ou e-mail" value={q} onChange={(e) => setQ(e.target.value)} style={{ width: 230 }} aria-label="Pesquisar contatos" /></form>
-          {can('OWNER', 'ADMIN') && <button className="btn" onClick={() => setImporting(true)}>Importar</button>}
+          {can('OWNER', 'ADMIN') && <button className="btn" onClick={() => setImporting(true)}>Importar planilha</button>}
           <button className="btn primary" onClick={() => setCreating(true)}>+ Novo contato</button>
         </div>
       </div>
@@ -79,17 +79,94 @@ function ContactForm({ onClose, onSaved, initial }: { onClose: () => void; onSav
   );
 }
 
+type PreviewRow = { line: number; status: 'ok' | 'error' | 'duplicate'; messages: string[]; name: string; phone: string; email: string; empresa: string; tags: string[]; existing: boolean };
+type Preview = { total: number; ok: number; errors: number; duplicates: number; rows: PreviewRow[] };
+type ImportResult = { total: number; created: number; updated: number; skipped: number; errors: number };
+
+const STATUS_LABEL: Record<PreviewRow['status'], [string, string]> = { ok: ['Pronto', 'green'], error: ['Erro', 'red'], duplicate: ['Duplicado', 'amber'] };
+
 function ImportForm({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
-  const [text, setText] = useState('');
-  const [result, setResult] = useState<any>(null);
+  const [file, setFile] = useState<File | null>(null);
+  const [preview, setPreview] = useState<Preview | null>(null);
+  const [updateExisting, setUpdateExisting] = useState(false);
+  const [filter, setFilter] = useState<'all' | PreviewRow['status']>('all');
+  const [result, setResult] = useState<ImportResult | null>(null);
   const { busy, run } = useAction();
+  const MAX = 2 * 1024 * 1024;
+
+  const pick = async (f: File | null) => {
+    setFile(f); setPreview(null); setResult(null); setFilter('all');
+    if (!f) return;
+    if (f.size > MAX) { setFile(null); alert('O arquivo passa de 2 MB. Divida a planilha em arquivos menores.'); return; }
+    const p = await run(() => upload<Preview>('/contacts/import/preview', f));
+    if (p) setPreview(p);
+  };
+  const confirmImport = async () => {
+    if (!file) return;
+    const r = await run(() => upload<ImportResult>(`/contacts/import/confirm${updateExisting ? '?updateExisting=1' : ''}`, file), 'Importação concluída');
+    if (r) { setResult(r); onDone(); }
+  };
+  const importable = preview ? preview.ok + (updateExisting ? preview.rows.filter((r) => r.status === 'duplicate' && r.existing).length : 0) : 0;
+  const shown = preview ? preview.rows.filter((r) => filter === 'all' || r.status === filter) : [];
+
   return (
-    <Modal title="Importar contatos" onClose={onClose}>
+    <Modal title="Importar planilha de contatos" onClose={onClose}>
       <div className="stack">
-        <p className="small muted">Uma linha por contato: <code>telefone;nome;email</code> (nome e e-mail opcionais). Separador ; , ou tab.</p>
-        <textarea rows={8} value={text} onChange={(e) => setText(e.target.value)} placeholder={'11999998888;Maria;maria@email.com\n5521988887777;João'} />
-        {result && <div className="alert ok">{result.created} criado(s), {result.updated} atualizado(s).{result.errors.length > 0 && <div>{result.errors.join(' · ')}</div>}</div>}
-        <button className="btn primary" disabled={busy || !text.trim()} onClick={async () => { const r = await run(() => post('/contacts/import', { text })); if (r) { setResult(r); onDone(); } }}>{busy ? 'Importando…' : 'Importar'}</button>
+        {result ? (
+          <>
+            <div className="alert ok">
+              <strong>Importação concluída.</strong>
+              <div>{result.created} contato(s) criado(s){result.updated > 0 && `, ${result.updated} atualizado(s)`}.</div>
+              {(result.skipped > 0 || result.errors > 0) && <div className="small">{result.skipped > 0 && `${result.skipped} duplicado(s) ignorado(s). `}{result.errors > 0 && `${result.errors} linha(s) com erro não importada(s).`}</div>}
+            </div>
+            <div className="row"><button className="btn" onClick={() => pick(null)}>Importar outra planilha</button><button className="btn primary" onClick={onClose}>Fechar</button></div>
+          </>
+        ) : (
+          <>
+            <p className="small muted">
+              Use o modelo com as colunas <code>nome;telefone;email;empresa;tags;observacoes</code>. Nome e telefone são obrigatórios;
+              etiquetas separadas por vírgula ou <code>|</code>. Arquivo CSV de até 2 MB e 5.000 linhas (no Excel: <em>Salvar como → CSV</em>).
+            </p>
+            <a className="btn sm" href="/api/contacts/import/template" download="modelo-contatos.csv">⬇ Baixar modelo da planilha</a>
+            <Field label="Arquivo da planilha (.csv)">
+              <input type="file" accept=".csv,text/csv" disabled={busy} onChange={(e) => pick(e.target.files?.[0] ?? null)} />
+            </Field>
+            {busy && !preview && <p className="small muted">Lendo planilha…</p>}
+            {preview && (
+              <>
+                <div className="row">
+                  {([['all', `Todas (${preview.total})`], ['ok', `Prontas (${preview.ok})`], ['error', `Com erro (${preview.errors})`], ['duplicate', `Duplicadas (${preview.duplicates})`]] as const).map(([k, label]) => (
+                    <button key={k} className={'btn sm' + (filter === k ? ' primary' : '')} onClick={() => setFilter(k)}>{label}</button>
+                  ))}
+                </div>
+                <div className="table-wrap" style={{ maxHeight: 320, overflow: 'auto' }}>
+                  <table>
+                    <thead><tr><th>Linha</th><th>Situação</th><th>Nome</th><th>Telefone</th><th>E-mail</th><th>Etiquetas</th></tr></thead>
+                    <tbody>
+                      {shown.slice(0, 300).map((r) => (
+                        <tr key={r.line}>
+                          <td>{r.line}</td>
+                          <td><span className={'badge ' + STATUS_LABEL[r.status][1]}>{STATUS_LABEL[r.status][0]}</span>{r.messages.length > 0 && <div className="small muted">{r.messages.join(' · ')}</div>}</td>
+                          <td>{r.name || '—'}</td>
+                          <td>{r.phone || '—'}</td>
+                          <td>{r.email || '—'}</td>
+                          <td>{r.tags.join(', ')}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  {shown.length > 300 && <p className="small muted">Mostrando as primeiras 300 de {shown.length} linhas.</p>}
+                </div>
+                {preview.duplicates > 0 && (
+                  <label className="row small"><input type="checkbox" checked={updateExisting} onChange={(e) => setUpdateExisting(e.target.checked)} /> Atualizar contatos que já existem (dados preenchidos na planilha substituem os atuais; etiquetas são somadas)</label>
+                )}
+                <button className="btn primary" disabled={busy || importable === 0} onClick={confirmImport}>
+                  {busy ? 'Importando…' : importable === 0 ? 'Nenhum contato para importar' : `Importar ${importable} contato(s)`}
+                </button>
+              </>
+            )}
+          </>
+        )}
       </div>
     </Modal>
   );

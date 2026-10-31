@@ -144,7 +144,8 @@ export async function renew(orgId: string, product: PlanProduct, cycle: Cycle, o
       }
       const newMax = updated.reduce<Date | null>((m, s) => (!m || s.validUntil > m ? s.validUntil : m), null);
       await tx.billingEvent.create({
-        data: { orgId, product, kind: source, cycle, amountCents: opts.amountCents ?? null, mpPaymentId: opts.mpPaymentId ?? null, actorUserId: opts.actorUserId ?? null, prevValidUntil: prevMax, newValidUntil: newMax },
+        // createdAt = o mesmo "agora" usado como base: o estorno reconstrói exatamente quanto este pagamento somou.
+        data: { orgId, product, kind: source, cycle, amountCents: opts.amountCents ?? null, mpPaymentId: opts.mpPaymentId ?? null, actorUserId: opts.actorUserId ?? null, prevValidUntil: prevMax, newValidUntil: newMax, createdAt: now },
       });
       return { duplicated: false as const, subscriptions: updated };
     });
@@ -167,10 +168,19 @@ export async function revokePayment(mpPaymentId: string, reason: string) {
     return await prisma.$transaction(async (tx) => {
       await tx.billingEvent.create({ data: { orgId: ev.orgId, product: ev.product, kind: 'MP_ESTORNO', cycle: ev.cycle, amountCents: ev.amountCents, mpPaymentId: `${mpPaymentId}-estorno`, prevValidUntil: ev.newValidUntil, newValidUntil: null } });
       const subs = await tx.subscription.findMany({ where: { orgId: ev.orgId, product: { in: products } } });
+      // Desfaz exatamente o tempo que ESTE pagamento somou (novo vencimento − base usada na renovação), em vez de
+      // "voltar 1 mês" no calendário: 31/out + 1 mês = 01/dez, e 01/dez − 1 mês = 01/nov ≠ 31/out (o plano
+      // continuaria ativo após o estorno). Base da renovação = max(vencimento anterior, momento da renovação).
+      let paidMs: number | null = null;
+      if (ev.newValidUntil) {
+        const base = ev.prevValidUntil && ev.prevValidUntil > ev.createdAt ? ev.prevValidUntil : ev.createdAt;
+        paidMs = Math.max(0, ev.newValidUntil.getTime() - base.getTime());
+      }
       let newMax: Date | null = null;
       for (const s of subs) {
         const d = new Date(s.validUntil.getTime());
-        if (ev.cycle === 'ANUAL') d.setFullYear(d.getFullYear() - 1); else d.setMonth(d.getMonth() - 1);
+        if (paidMs !== null) d.setTime(d.getTime() - paidMs);
+        else if (ev.cycle === 'ANUAL') d.setFullYear(d.getFullYear() - 1); else d.setMonth(d.getMonth() - 1);
         await tx.subscription.update({ where: { id: s.id }, data: { validUntil: d } });
         if (!newMax || d > newMax) newMax = d;
       }

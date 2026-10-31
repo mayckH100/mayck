@@ -1,8 +1,8 @@
-import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, beforeEach, afterAll, vi } from 'vitest';
 import request from 'supertest';
 import { app, registerClient, Client, createTestChannel, installGraphMock, graph, sendInbound, prisma } from '../helpers.js';
 import { hmacSha256Hex } from '../../server/lib/crypto.js';
-import { block, unblock, isProductActive, renew, updateSettings, effectiveStatus } from '../../server/billing/service.js';
+import { block, unblock, isProductActive, renew, revokePayment, updateSettings, effectiveStatus } from '../../server/billing/service.js';
 import { verifySignature, buildManifest } from '../../server/billing/mercadopago.js';
 import { sendOutbound } from '../../server/whatsapp/messaging.js';
 import { tick, resetDispatcherState, setRandom } from '../../server/mckmensagem/dispatcher.js';
@@ -272,6 +272,33 @@ describe('Vencimento, estorno e bloqueio de escrita do MCKBOT', () => {
     expect(effectiveStatus(await sub())).toBe('VENCIDA');
     expect((await webhook(id)).body.revoked).toBe(false); // idempotente
     expect((await owner.post('/api/contacts', { name: 'Y', phone: '5511999990001' })).status).toBe(402);
+  });
+
+  it('estorno restaura exatamente o vencimento anterior, inclusive em fim de mês (31/out, 31/jan)', async () => {
+    const set = (d: Date) => prisma.subscription.update({ where: { orgId_product: { orgId, product: 'MCKBOT' } }, data: { validUntil: d } });
+    vi.useFakeTimers({ toFake: ['Date'], now: new Date('2026-10-31T15:00:00.000Z') });
+    try {
+      // vencido em 31/out: renova a partir de agora (31/out + 1 mês = 01/dez); estorno volta para "agora" e corta.
+      await set(new Date(Date.now() - DAY));
+      const renewedAt = new Date();
+      const p1 = `fim-mes-${Date.now()}-a`;
+      await renew(orgId, 'MCKBOT', 'MENSAL', { mpPaymentId: p1 });
+      expect(effectiveStatus(await sub())).toBe('ATIVA');
+      expect((await revokePayment(p1, 'refunded')).revoked).toBe(true);
+      expect((await sub()).validUntil.getTime()).toBe(renewedAt.getTime());
+      vi.setSystemTime(new Date('2026-10-31T15:00:01.000Z'));
+      expect(effectiveStatus(await sub())).toBe('VENCIDA');
+
+      // ainda válido até 31/jan: renova para 03/mar (overflow do calendário); estorno devolve 31/jan exato (e não 03/fev).
+      const prev = new Date('2027-01-31T12:00:00.000Z');
+      await set(prev);
+      const p2 = `fim-mes-${Date.now()}-b`;
+      await renew(orgId, 'MCKBOT', 'MENSAL', { mpPaymentId: p2 });
+      await revokePayment(p2, 'charged_back');
+      expect((await sub()).validUntil.toISOString()).toBe(prev.toISOString());
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('Pix pendente não ativa; quando aprova, ativa', async () => {
