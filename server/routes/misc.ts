@@ -9,6 +9,7 @@ import rateLimit from 'express-rate-limit';
 import { config } from '../config.js';
 import { sendResetLink } from '../auth/routes.js';
 import { brandOf } from '../lib/mailer.js';
+import { normalizeBrPhone } from '../lib/waiting.js';
 
 // Por usuário logado: impede que uma sessão roubada teste senhas atuais em série ou dispare e-mails sem parar.
 const passwordLimiter = rateLimit({
@@ -56,7 +57,19 @@ profileRouter.post('/password-reset-link', resetLinkLimiter, ah(async (req, res)
 
 export const orgRouter = Router();
 orgRouter.patch('/', requireRole('OWNER', 'ADMIN'), ah(async (req, res) => {
-  const body = z.object({ name: z.string().trim().min(2).max(100).optional(), timezone: z.string().refine((tz) => { try { new Intl.DateTimeFormat('pt-BR', { timeZone: tz }); return true; } catch { return false; } }, 'Fuso horário inválido').optional() }).parse(req.body);
+  const body = z.object({
+    name: z.string().trim().min(2).max(100).optional(),
+    timezone: z.string().refine((tz) => { try { new Intl.DateTimeFormat('pt-BR', { timeZone: tz }); return true; } catch { return false; } }, 'Fuso horário inválido').optional(),
+    // Número reserva para o aviso "Aguardando atendente" (vazio/null remove).
+    backupPhone: z.union([z.string().max(30), z.null()]).optional().transform((v, ctx) => {
+      if (v === undefined) return undefined;
+      if (v === null || !v.trim()) return null;
+      const n = normalizeBrPhone(v);
+      if (!n) { ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Telefone reserva inválido: use o formato +55 DDD número (ex.: +5511999998888)' }); return z.NEVER; }
+      return n;
+    }),
+    handoffAlertMinutes: z.number({ invalid_type_error: 'Minutos do aviso inválidos' }).int('Minutos do aviso devem ser um número inteiro').min(1, 'Minutos do aviso: mínimo 1').max(120, 'Minutos do aviso: máximo 120').optional(),
+  }).parse(req.body);
   const o = await prisma.organization.update({ where: { id: orgOf(req) }, data: body });
   await audit(req, 'org.update', { meta: body });
   res.json(o);

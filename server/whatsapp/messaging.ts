@@ -6,6 +6,7 @@ import { numberedOptions } from './qr/parse.js';
 import { assertPublicUrl } from '../lib/ssrf.js';
 import { isProductActive, type Product } from '../billing/service.js';
 import type { Channel, Conversation, Contact, Message } from '@prisma/client';
+import { markWaiting } from '../lib/waiting.js';
 
 export const PROVIDER_CLOUD = 'whatsapp_cloud';
 export const PROVIDER_QR = 'whatsapp_qr';
@@ -165,4 +166,10 @@ export async function handoffToHuman(conversation: Conversation, reason: string)
   await prisma.message.create({
     data: { orgId: conversation.orgId, conversationId: conversation.id, direction: 'INTERNAL', sender: 'system', type: 'note', body: `Transferido para atendimento humano: ${reason}`, status: 'NOTE' },
   });
+  // "Aguardando atendente": marca a espera e move o contato para a etapa do Kanban (nunca derruba a transferência).
+  try {
+    await markWaiting(conversation);
+  } catch (e) {
+    console.error('[aguardando] falha ao marcar conversa', (e as Error).message);
+  }
 }

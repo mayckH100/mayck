@@ -8,7 +8,7 @@ export interface Me {
   user: { id: string; email: string; name: string; phone: string | null; isSuperAdmin?: boolean; mfaEnabled?: boolean; mfaRequired?: boolean };
   isSuperAdmin?: boolean;
   subscriptions?: SubscriptionView[];
-  org: { id: string; name: string; plan: string; timezone: string } | null;
+  org: { id: string; name: string; plan: string; timezone: string; backupPhone?: string | null; handoffAlertMinutes?: number } | null;
   role: Role | null;
   orgs: { id: string; name: string; role: Role }[];
   csrfToken: string;

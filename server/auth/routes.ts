@@ -62,7 +62,7 @@ export async function meResponse(userId: string, orgId: string | null, csrfToken
     user: { id: user.id, email: user.email, name: user.name, phone: user.phone, isSuperAdmin: user.isSuperAdmin, emailVerified: !!user.emailVerifiedAt, mfaEnabled: !!user.totpEnabledAt, mfaRequired: user.isSuperAdmin && superAdminMfaRequired() },
     isSuperAdmin: user.isSuperAdmin,
     subscriptions,
-    org: current ? { id: current.org.id, name: current.org.name, plan: current.org.plan, timezone: current.org.timezone } : null,
+    org: current ? { id: current.org.id, name: current.org.name, plan: current.org.plan, timezone: current.org.timezone, backupPhone: current.org.backupPhone, handoffAlertMinutes: current.org.handoffAlertMinutes } : null,
     role: current?.role ?? null,
     orgs: memberships.map((m) => ({ id: m.org.id, name: m.org.name, role: m.role })),
     csrfToken,

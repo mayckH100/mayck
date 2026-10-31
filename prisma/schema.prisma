@@ -88,6 +88,9 @@ model Organization {
   name        String
   timezone    String       @default("America/Sao_Paulo")
   plan        String       @default("gratis")
+  // Aviso "Aguardando atendente": número de WhatsApp reserva (E.164 BR) e minutos de espera até o aviso.
+  backupPhone         String?
+  handoffAlertMinutes Int          @default(5)
   createdAt   DateTime     @default(now())
   memberships Membership[]
 }
@@ -261,10 +264,14 @@ model Conversation {
   lastMessageAt   DateTime?
   firstResponseAt DateTime?
   closedAt        DateTime?
+  // "Aguardando atendente": quando a IA/fluxo transferiu para humano (limpo quando o atendente responde).
+  waitingSince       DateTime?
+  handoffAlertSentAt DateTime?
   createdAt       DateTime  @default(now())
 
   @@index([orgId, status])
   @@index([contactId])
+  @@index([orgId, waitingSince])
 }
 
 model Message {

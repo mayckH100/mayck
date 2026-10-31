@@ -8,7 +8,7 @@ export default function Profile() {
   const { me, refresh, can } = useAuth();
   const [name, setName] = useState(me?.user.name ?? '');
   const [phone, setPhone] = useState(me?.user.phone ?? '');
-  const [org, setOrg] = useState({ name: me?.org?.name ?? '', timezone: me?.org?.timezone ?? 'America/Sao_Paulo' });
+  const [org, setOrg] = useState({ name: me?.org?.name ?? '', timezone: me?.org?.timezone ?? 'America/Sao_Paulo', backupPhone: me?.org?.backupPhone ?? '', handoffAlertMinutes: me?.org?.handoffAlertMinutes ?? 5 });
   const { busy, run } = useAction();
   return (
     <>
@@ -29,6 +29,8 @@ export default function Profile() {
             <Field label="Fuso horário" hint="Usado nos gatilhos de horário e relatórios"><select value={org.timezone} onChange={(e) => setOrg({ ...org, timezone: e.target.value })}>
               {['America/Sao_Paulo', 'America/Manaus', 'America/Belem', 'America/Fortaleza', 'America/Recife', 'America/Cuiaba', 'America/Rio_Branco', 'America/Noronha', 'Europe/Lisbon'].map((t) => <option key={t}>{t}</option>)}
             </select></Field>
+            <Field label="WhatsApp reserva (Aguardando atendente)" hint="Recebe um aviso quando um contato espera um atendente. Formato +55 DDD número; deixe vazio para não avisar"><input type="tel" placeholder="+5511999998888" value={org.backupPhone} onChange={(e) => setOrg({ ...org, backupPhone: e.target.value })} /></Field>
+            <Field label="Avisar após (minutos)" hint="Tempo de espera sem resposta do atendente antes do aviso (1 a 120)"><input type="number" min={1} max={120} required value={org.handoffAlertMinutes} onChange={(e) => setOrg({ ...org, handoffAlertMinutes: Number(e.target.value) })} /></Field>
             <button className="btn primary" disabled={busy}>Salvar organização</button>
           </form>
         )}

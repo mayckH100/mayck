@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { Routes, Route, Navigate, NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth, ROLE_LABEL, type Role } from './auth';
-import { post } from './api';
+import { post, get } from './api';
 import { Loading, useApi, useToast } from './ui';
 import { Login, Register, AcceptInvite, NoOrg, Forgot, Reset, Verify } from './pages/Auth';
 import { InstallButton } from './pwa';
@@ -83,6 +83,48 @@ function BillingReturnRedirect() {
   return null;
 }
 
+/** Pop-up em qualquer página: conversas "Aguardando atendente" (consulta a cada 15 s; cada uma aparece só uma vez). */
+function WaitingAlerts() {
+  const { me } = useAuth();
+  const nav = useNavigate();
+  const [items, setItems] = useState<{ id: string; name: string }[]>([]);
+  useEffect(() => {
+    if (!me?.org?.id) return;
+    const key = `mckbot:aguardando:${me.org.id}`;
+    let stop = false;
+    const seen = (): string[] => { try { return JSON.parse(localStorage.getItem(key) || '[]'); } catch { return []; } };
+    const check = async () => {
+      try {
+        const r = await get<{ items: { id: string; waitingSince: string; contact: { name: string | null; phone: string } | null }[] }>('/conversations/waiting');
+        if (stop) return;
+        const s = seen();
+        const fresh = r.items.filter((i) => !s.includes(`${i.id}:${i.waitingSince}`));
+        if (!fresh.length) return;
+        localStorage.setItem(key, JSON.stringify([...s, ...fresh.map((i) => `${i.id}:${i.waitingSince}`)].slice(-200)));
+        setItems((cur) => [...cur.filter((c) => !fresh.some((f) => f.id === c.id)), ...fresh.map((i) => ({ id: i.id, name: i.contact?.name || i.contact?.phone || 'Contato' }))]);
+      } catch { /* silencioso: tenta de novo no próximo ciclo */ }
+    };
+    check();
+    const t = setInterval(check, 15_000);
+    return () => { stop = true; clearInterval(t); };
+  }, [me?.org?.id]);
+  if (!items.length) return null;
+  const close = (id: string) => setItems((cur) => cur.filter((c) => c.id !== id));
+  return (
+    <div className="toast-wrap" role="alert" style={{ top: 16, bottom: 'auto', zIndex: 110 }}>
+      {items.slice(-3).map((i) => (
+        <div key={i.id} className="toast" style={{ background: '#9a3412', display: 'grid', gap: 8 }}>
+          <div><strong>Aguardando atendente</strong><br />{i.name} está esperando um atendente.</div>
+          <div className="row" style={{ gap: 8 }}>
+            <button className="btn sm primary" onClick={() => { close(i.id); nav(`/inbox/${i.id}`); }}>Abrir conversa</button>
+            <button className="btn sm" onClick={() => close(i.id)}>Fechar</button>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function Shell({ children }: { children: ReactNode }) {
   const { me, setMe, logout, can } = useAuth();
   const [open, setOpen] = useState(false);
@@ -138,6 +180,7 @@ function Shell({ children }: { children: ReactNode }) {
         )}
         <SubscriptionBanner />
         <BillingReturnRedirect />
+        <WaitingAlerts />
         <main className="content">{children}</main>
       </div>
     </div>

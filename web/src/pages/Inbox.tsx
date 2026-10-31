@@ -43,6 +43,7 @@ export default function Inbox() {
                   {c.lastMessageAt ? new Date(c.lastMessageAt).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }) : ''}
                   {c.unreadCount > 0 && <div><span className="badge green">{c.unreadCount}</span></div>}
                   {c.mode === 'HUMAN' && <div><span className="badge blue">humano</span></div>}
+                  {c.waitingSince && <div><span className="badge" style={{ background: '#ffedd5', color: '#9a3412' }}>Aguardando atendente</span></div>}
                 </span>
               </button>
             ))}

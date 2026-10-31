@@ -6,6 +6,7 @@ import { orgOf } from '../auth/session.js';
 import { audit } from '../lib/audit.js';
 import { sendOutbound, isWithinWindow, resolveChannel, windowApplies } from '../whatsapp/messaging.js';
 import { parseJson } from '../lib/json.js';
+import { clearWaiting, WAITING_LABEL } from '../lib/waiting.js';
 
 export const conversationsRouter = Router();
 
@@ -30,7 +31,22 @@ conversationsRouter.get('/', ah(async (req, res) => {
     counts: Object.fromEntries(counts.map((c) => [c.status, c._count._all])),
     items: convs.map((c, i) => {
       const ct = contacts.find((x) => x.id === c.contactId);
-      return { ...c, contact: ct ? { id: ct.id, name: ct.name, phone: ct.phone, stageId: ct.stageId, tags: parseJson<string[]>(ct.tags, []) } : null, lastMessage: lastMsgs[i] ? { body: lastMsgs[i]!.body, direction: lastMsgs[i]!.direction, createdAt: lastMsgs[i]!.createdAt } : null, withinWindow: (c.channelId && qrIds.has(c.channelId)) || isWithinWindow(c) };
+      return { ...c, waitingLabel: c.waitingSince ? WAITING_LABEL : null, contact: ct ? { id: ct.id, name: ct.name, phone: ct.phone, stageId: ct.stageId, tags: parseJson<string[]>(ct.tags, []) } : null, lastMessage: lastMsgs[i] ? { body: lastMsgs[i]!.body, direction: lastMsgs[i]!.direction, createdAt: lastMsgs[i]!.createdAt } : null, withinWindow: (c.channelId && qrIds.has(c.channelId)) || isWithinWindow(c) };
+    }),
+  });
+}));
+
+// Conversas "Aguardando atendente" (transferidas pela IA/fluxo, sem resposta do atendente) — aviso no app web.
+conversationsRouter.get('/waiting', ah(async (req, res) => {
+  const orgId = orgOf(req);
+  const convs = await prisma.conversation.findMany({ where: { orgId, waitingSince: { not: null }, status: { not: 'CLOSED' } }, orderBy: { waitingSince: 'asc' }, take: 50 });
+  const contacts = await prisma.contact.findMany({ where: { orgId, id: { in: convs.map((c) => c.contactId) } }, select: { id: true, name: true, phone: true } });
+  const now = Date.now();
+  res.json({
+    label: WAITING_LABEL,
+    items: convs.map((c) => {
+      const ct = contacts.find((x) => x.id === c.contactId);
+      return { id: c.id, waitingSince: c.waitingSince, waitingMinutes: Math.floor((now - c.waitingSince!.getTime()) / 60_000), label: WAITING_LABEL, contact: ct ? { id: ct.id, name: ct.name, phone: ct.phone } : null };
     }),
   });
 }));
@@ -72,6 +88,8 @@ conversationsRouter.post('/:id/messages', ah(async (req, res) => {
   }
   const payload = body.type === 'text' ? { type: 'text' as const, text: body.text } : body;
   const msg = await sendOutbound({ conversation: conv, contact, payload, sender: 'agent', authorUserId: req.auth!.userId });
+  // Atendente respondeu: sai de "Aguardando atendente".
+  if (msg.status !== 'FAILED') await clearWaiting(conv);
   await audit(req, 'inbox.send', { entity: 'message', entityId: msg.id, meta: { status: msg.status } });
   res.status(msg.status === 'FAILED' ? 502 : 201).json(msg);
 }));
@@ -80,10 +98,10 @@ conversationsRouter.post('/:id/action', ah(async (req, res) => {
   const { action, userId } = z.object({ action: z.enum(['close', 'reopen', 'assign', 'to_bot', 'take']), userId: z.string().optional() }).parse(req.body);
   const conv = await getConv(req);
   let data: any = {};
-  if (action === 'close') data = { status: 'CLOSED', closedAt: new Date() };
+  if (action === 'close') data = { status: 'CLOSED', closedAt: new Date(), waitingSince: null };
   if (action === 'reopen') data = { status: 'OPEN', closedAt: null };
   if (action === 'take') data = { mode: 'HUMAN', status: 'OPEN', assignedUserId: req.auth!.userId };
-  if (action === 'to_bot') data = { mode: 'BOT', status: 'OPEN', assignedUserId: null };
+  if (action === 'to_bot') data = { mode: 'BOT', status: 'OPEN', assignedUserId: null, waitingSince: null };
   if (action === 'assign') {
     if (!userId) throw new HttpError(400, 'Informe o atendente');
     const m = await prisma.membership.findUnique({ where: { userId_orgId: { userId, orgId: conv.orgId } } });

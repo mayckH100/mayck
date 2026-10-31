@@ -10,6 +10,7 @@ import { handleQrMessage, handleQrStatus } from './whatsapp/inbound.js';
 import { syncSuperAdmins } from './auth/superadmin.js';
 import { maybeDailyBackup, backupAutoEnabled } from './lib/backup.js';
 import { tickAgendaReminders } from './agenda/service.js';
+import { tickHandoffAlerts } from './whatsapp/handoffAlerts.js';
 
 const app = createApp();
 const server = app.listen(config.PORT, () => {
@@ -32,6 +33,13 @@ if (config.ENABLE_SCHEDULER === 'true') {
     if (agendaRunning) return;
     agendaRunning = true;
     tickAgendaReminders().catch((e) => console.error('[agenda]', e)).finally(() => { agendaRunning = false; });
+  }, 60_000).unref();
+  // "Aguardando atendente": um aviso por WhatsApp para o número reserva da organização (a cada minuto).
+  let handoffRunning = false;
+  setInterval(() => {
+    if (handoffRunning) return;
+    handoffRunning = true;
+    tickHandoffAlerts().catch((e) => console.error('[aguardando]', e)).finally(() => { handoffRunning = false; });
   }, 60_000).unref();
   setInterval(() => {
     prisma.session.deleteMany({ where: { expiresAt: { lt: new Date() } } }).catch(() => undefined);
