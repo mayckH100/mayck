@@ -5,6 +5,7 @@ import { prisma } from '../db.js';
 import { ah, forbidden, notFound, HttpError } from '../lib/http.js';
 import { orgOf, requireRole } from '../auth/session.js';
 import { audit } from '../lib/audit.js';
+import { exclusaoLimiter, exigirSenhaExclusao } from '../lib/exclusao-senha.js';
 import { encrypt, decrypt, randomToken, sha256 } from '../lib/crypto.js';
 import { appUrl } from '../lib/mailer.js';
 import { buildIcs, googleAddLink, outlookAddLink, verifyPublicEventToken } from './ics.js';
@@ -202,8 +203,9 @@ agendaRouter.patch('/:id', ah(async (req, res) => {
   res.json((await viewMany(u.orgId, [u], req))[0]);
 }));
 
-agendaRouter.delete('/:id', admins, ah(async (req, res) => {
-  await deleteAppointment(req.params.id, { orgId: orgOf(req), userId: req.auth!.userId, req });
+/** Exclusão definitiva: só compromisso CANCELADO, com a senha de login do usuário (limite de tentativas). */
+agendaRouter.delete('/:id', admins, exclusaoLimiter, ah(async (req, res) => {
+  await deleteAppointment(req.params.id, { orgId: orgOf(req), userId: req.auth!.userId, req }, () => exigirSenhaExclusao(req));
   res.json({ ok: true });
 }));
 

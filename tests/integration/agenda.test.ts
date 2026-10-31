@@ -151,7 +151,10 @@ describe('Agenda: isolamento e permissões', () => {
     expect((await agent.post('/api/agenda/feeds', { scope: 'org' })).status).toBe(403);
     expect((await agent.post('/api/agenda/feeds', { scope: 'me' })).status).toBe(201);
     expect((await agent.put('/api/agenda/settings', { aiBooking: true, workStart: '09:00', workEnd: '18:00', workDays: [1], defaultDurationMin: 30, minNoticeMin: 0, notifyContact: true, reminderMin: 60 })).status).toBe(403);
-    expect((await a.del(`/api/agenda/${mine.body.id}`)).status).toBe(200);
+    // Exclusão definitiva: só depois de cancelado e com a senha de login.
+    expect((await a.agent.delete(`/api/agenda/${mine.body.id}`).set(a.h()).send({ senha: 'senhaSegura123' })).status).toBe(409);
+    expect((await a.patch(`/api/agenda/${mine.body.id}`, { status: 'CANCELLED' })).status).toBe(200);
+    expect((await a.agent.delete(`/api/agenda/${mine.body.id}`).set(a.h()).send({ senha: 'senhaSegura123' })).status).toBe(200);
     expect(await prisma.auditLog.count({ where: { orgId: a.me.org.id, action: 'agenda.delete' } })).toBe(1);
   });
 });

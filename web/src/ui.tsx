@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode, type FormEvent } from 'react';
 import { get } from './api';
 
 export function useApi<T>(path: string | null, deps: unknown[] = []) {
@@ -98,6 +98,33 @@ export function Modal({ title, onClose, children }: { title: string; onClose: ()
         {children}
       </div>
     </div>
+  );
+}
+
+/** Confirma uma exclusão definitiva pedindo a senha de login do usuário (conferida no servidor). */
+export function SenhaExclusaoModal({ title, children, onConfirm, onClose }: { title: string; children?: ReactNode; onConfirm: (senha: string) => Promise<unknown>; onClose: () => void }) {
+  const [senha, setSenha] = useState('');
+  const [erro, setErro] = useState('');
+  const [busy, setBusy] = useState(false);
+  const enviar = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!senha || busy) return;
+    setBusy(true); setErro('');
+    try { await onConfirm(senha); } catch (err) { setErro((err as Error).message); setBusy(false); }
+  };
+  return (
+    <Modal title={title} onClose={onClose}>
+      <form className="stack" onSubmit={enviar}>
+        {children}
+        <p className="small muted" style={{ margin: 0 }}>Esta ação não pode ser desfeita. Digite a sua senha de login para confirmar.</p>
+        <Field label="Sua senha"><input type="password" autoComplete="current-password" autoFocus value={senha} onChange={(e) => setSenha(e.target.value)} /></Field>
+        {erro && <div className="small" style={{ color: 'var(--red, #c0392b)' }}>{erro}</div>}
+        <div className="row" style={{ justifyContent: 'flex-end' }}>
+          <button type="button" className="btn" onClick={onClose} disabled={busy}>Voltar</button>
+          <button type="submit" className="btn danger" disabled={busy || !senha}>{busy ? 'Excluindo…' : 'Excluir definitivamente'}</button>
+        </div>
+      </form>
+    </Modal>
   );
 }
 

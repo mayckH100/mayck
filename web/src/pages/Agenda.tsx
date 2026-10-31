@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { get, post, patch, put, del, ApiError } from '../api';
+import { get, post, patch, put, del, api, ApiError } from '../api';
 import { useAuth } from '../auth';
-import { useApi, Async, Empty, useAction, Modal, Field, useToast, copy } from '../ui';
+import { useApi, Async, Empty, useAction, Modal, Field, useToast, copy, SenhaExclusaoModal } from '../ui';
 
 const KIND: Record<string, string> = { MEETING: 'Reunião', TASK: 'Tarefa' };
 const STATUS: Record<string, [string, string]> = { SCHEDULED: ['Agendado', 'blue'], DONE: ['Concluído', 'green'], CANCELLED: ['Cancelado', 'red'] };
@@ -212,6 +212,7 @@ export default function Agenda() {
   const [mine, setMine] = useState(false);
   const [edit, setEdit] = useState<ApptDraft | null>(null);
   const [settings, setSettings] = useState(false);
+  const [excluir, setExcluir] = useState<{ id: string; title: string } | null>(null);
   const { busy, run } = useAction();
   const path = useMemo(() => {
     const day = (n: number) => { const d = new Date(Date.now() + n * 864e5); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; };
@@ -274,7 +275,7 @@ export default function Agenda() {
                               <button className="btn sm danger" disabled={busy} onClick={() => { if (confirm('Cancelar este compromisso? O contato é avisado e ele some das agendas.')) act(a.id, { status: 'CANCELLED' }, 'Compromisso cancelado'); }}>Cancelar</button>
                             </>}
                             {a.status !== 'SCHEDULED' && <button className="btn sm" disabled={busy} onClick={() => act(a.id, { status: 'SCHEDULED' }, 'Compromisso reaberto')}>Reabrir</button>}
-                            {can('OWNER', 'ADMIN') && a.status !== 'SCHEDULED' && <button className="btn sm ghost" disabled={busy} onClick={() => { if (confirm('Excluir de vez?')) run(() => del(`/agenda/${a.id}`), 'Excluído').then(state.reload); }}>Excluir</button>}
+                            {can('OWNER', 'ADMIN') && a.status === 'CANCELLED' && <button className="btn sm ghost" disabled={busy} onClick={() => setExcluir({ id: a.id, title: a.title })}>Excluir</button>}
                           </div>
                         </div>
                       ))}
@@ -289,6 +290,10 @@ export default function Agenda() {
       </div>
       {edit && <AppointmentModal draft={edit} onClose={() => setEdit(null)} onSaved={() => { setEdit(null); state.reload(); }} />}
       {settings && <SettingsModal onClose={() => setSettings(false)} />}
+      {excluir && <SenhaExclusaoModal title="Excluir compromisso cancelado" onClose={() => setExcluir(null)}
+        onConfirm={async (senha) => { await api(`/agenda/${excluir.id}`, { method: 'DELETE', body: { senha } }); setExcluir(null); toast('Compromisso excluído'); state.reload(); }}>
+        <p style={{ margin: 0 }}>Excluir de vez o compromisso <strong>{excluir.title}</strong>?</p>
+      </SenhaExclusaoModal>}
     </>
   );
 }

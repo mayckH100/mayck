@@ -4,6 +4,7 @@ import { prisma } from '../../db.js';
 import { ah, notFound, HttpError, forbidden } from '../../lib/http.js';
 import { orgOf } from '../../auth/session.js';
 import { audit } from '../../lib/audit.js';
+import { exclusaoLimiter, exigirSenhaExclusao } from '../../lib/exclusao-senha.js';
 import { parseJson } from '../../lib/json.js';
 import { isProductActive } from '../../billing/service.js';
 import { smtpConfigured, verifySmtp } from '../../lib/mailer.js';
@@ -609,6 +610,26 @@ automacoesRouter.post('/automacoes/:id/cancelar', ah(async (req, res) => {
   const u = await prisma.automacao.update({ where: { id: a.id }, data: { status: 'CANCELADA' } });
   await audit(req, 'automacoes.automacao.cancelar', { entity: 'Automacao', entityId: a.id, meta: { canceladas: r.count } });
   res.json({ ...(await automacaoView(u)), canceladas: r.count });
+}));
+
+/**
+ * Exclusão definitiva: só agendamento CANCELADO (os demais → 409), com a senha de login do usuário (403 se errada,
+ * 5 tentativas erradas / 15 min). Remove os envios e anexos da automação; o histórico de mensagens é preservado.
+ */
+automacoesRouter.delete('/automacoes/:id', exclusaoLimiter, ah(async (req, res) => {
+  const orgId = orgOf(req);
+  const a = await getAutomacao(orgId, req.params.id);
+  if (a.status !== 'CANCELADA') throw new HttpError(409, 'Só agendamentos cancelados podem ser excluídos. Cancele o agendamento antes de excluir.');
+  if (await prisma.ocorrencia.count({ where: { automacaoId: a.id, status: 'PROCESSANDO' } })) throw new HttpError(409, 'Há um envio em andamento neste agendamento. Aguarde terminar e tente de novo.');
+  await exigirSenhaExclusao(req);
+  await prisma.$transaction(async (tx) => {
+    const r = await tx.automacao.deleteMany({ where: { id: a.id, orgId, status: 'CANCELADA' } });
+    if (!r.count) throw new HttpError(409, 'O agendamento mudou de status e não foi excluído.');
+    await tx.ocorrencia.deleteMany({ where: { orgId, automacaoId: a.id } });
+    await tx.automacaoAnexo.deleteMany({ where: { orgId, automacaoId: a.id } });
+  });
+  await audit(req, 'mckmensagem.automacao.delete', { entity: 'Automacao', entityId: a.id });
+  res.json({ ok: true });
 }));
 
 automacoesRouter.post('/automacoes/:id/duplicar', ah(async (req, res) => {

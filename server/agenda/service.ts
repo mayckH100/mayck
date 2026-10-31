@@ -213,15 +213,22 @@ export async function updateAppointment(id: string, patch: Partial<AppointmentIn
   return synced;
 }
 
-export async function deleteAppointment(id: string, ctx: Ctx) {
+/**
+ * Exclusão definitiva: só de compromissos CANCELADOS (os demais devem ser cancelados antes — 409).
+ * `confirmar` roda depois das checagens e antes de apagar (a rota confere a senha do usuário ali).
+ */
+export async function deleteAppointment(id: string, ctx: Ctx, confirmar?: () => Promise<void>) {
   const cur = await prisma.appointment.findFirst({ where: { id, orgId: ctx.orgId } });
   if (!cur) throw notFound('Compromisso');
+  if (cur.status !== 'CANCELLED') throw new HttpError(409, 'Só compromissos cancelados podem ser excluídos. Cancele o compromisso antes de excluir.');
+  if (confirmar) await confirmar();
   if (cur.googleEventId && cur.googleAccountId) {
     const acc = await prisma.googleCalendarAccount.findFirst({ where: { id: cur.googleAccountId, orgId: ctx.orgId } });
     if (acc) await deleteGoogleEvent(acc, cur.googleEventId).catch(() => undefined);
   }
-  await prisma.appointment.delete({ where: { id: cur.id } });
-  await audit(ctx.req ?? null, 'agenda.delete', { orgId: ctx.orgId, userId: ctx.userId ?? null, entity: 'appointment', entityId: cur.id, meta: { title: cur.title, startAt: cur.startAt } });
+  const r = await prisma.appointment.deleteMany({ where: { id: cur.id, orgId: ctx.orgId, status: 'CANCELLED' } });
+  if (!r.count) throw new HttpError(409, 'O compromisso mudou de status e não foi excluído.');
+  await audit(ctx.req ?? null, 'agenda.delete', { orgId: ctx.orgId, userId: ctx.userId ?? null, entity: 'appointment', entityId: cur.id });
 }
 
 // ---------------- Google Agenda (sincronização, se conectado) ----------------

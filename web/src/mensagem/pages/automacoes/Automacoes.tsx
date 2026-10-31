@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import { useApi, Async, Modal, Field, useAction, Empty } from '../../../ui';
-import { post, patch, get } from '../../../api';
+import { useApi, Async, Modal, Field, useAction, Empty, SenhaExclusaoModal, useToast } from '../../../ui';
+import { post, patch, get, api } from '../../../api';
 import { API, useReadOnly, AutoBadge, OcBadge, BolBadge, fmtDT, fmtYmd, brl, hmLocal, ymdLocal, CAT_LABEL, CANAL_LABEL, type Automacao, type Categoria, type Canal, type Cliente, type Ocorrencia, type AnexoView, type Boleto, type Arquivo } from './shared';
 import { SequenciaForm, UploadButton, ArquivoLink } from './Cobrancas';
 
@@ -17,6 +17,8 @@ export default function Automacoes({ categoria }: { categoria?: Categoria }) {
   const [edit, setEdit] = useState<Automacao | 'nova' | null>(null);
   const [ver, setVer] = useState<string | null>(null);
   const [seq, setSeq] = useState(false);
+  const [excluir, setExcluir] = useState<Automacao | null>(null);
+  const toast = useToast();
   const { busy, run } = useAction();
   const acao = (a: Automacao, op: string, msg: string) => run(async () => { await post(`${API}/automacoes/${a.id}/${op}`); list.reload(); }, msg);
   return (
@@ -53,6 +55,7 @@ export default function Automacoes({ categoria }: { categoria?: Categoria }) {
                     {['RASCUNHO', 'ATIVA', 'PAUSADA'].includes(a.status) && <button className="btn sm" onClick={() => setEdit(a)}>Editar</button>}
                     <button className="btn sm" disabled={busy} onClick={() => acao(a, 'duplicar', 'Cópia criada como rascunho')}>Duplicar</button>
                     {a.status !== 'CANCELADA' && a.status !== 'CONCLUIDA' && <button className="btn sm danger" disabled={busy} onClick={() => confirm('Cancelar a automação e todos os envios pendentes?') && acao(a, 'cancelar', 'Automação cancelada')}>Cancelar</button>}
+                    {a.status === 'CANCELADA' && <button className="btn sm danger" disabled={busy} onClick={() => setExcluir(a)}>Excluir</button>}
                   </div>
                 )}</td>
               </tr>
@@ -62,6 +65,10 @@ export default function Automacoes({ categoria }: { categoria?: Categoria }) {
       </div>
       {edit && <Editor automacao={edit === 'nova' ? null : edit} categoria={categoria} onClose={() => setEdit(null)} onSaved={() => { setEdit(null); list.reload(); }} />}
       {ver && <Detalhe id={ver} onClose={() => { setVer(null); list.reload(); }} />}
+      {excluir && <SenhaExclusaoModal title="Excluir agendamento cancelado" onClose={() => setExcluir(null)}
+        onConfirm={async (senha) => { await api(`${API}/automacoes/${excluir.id}`, { method: 'DELETE', body: { senha } }); setExcluir(null); toast('Agendamento excluído'); list.reload(); }}>
+        <p style={{ margin: 0 }}>Excluir de vez o agendamento <strong>{excluir.nome}</strong>? Os envios programados dele são removidos; o histórico de mensagens é mantido.</p>
+      </SenhaExclusaoModal>}
       {seq && <SequenciaForm onClose={() => setSeq(false)} onSaved={() => { setSeq(false); list.reload(); }} />}
     </div>
   );
