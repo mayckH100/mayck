@@ -117,7 +117,7 @@ export function viewAppointment(a: Appointment, tz: string, maps: { contacts?: M
     status: a.status, source: a.source, notifyContact: a.notifyContact,
     contactId: a.contactId, contact: c ? { id: c.id, name: c.name, phone: c.phone } : null,
     assignedUserId: a.assignedUserId, assignedUser: u ? { id: u.id, name: u.name } : null,
-    createdById: a.createdById, googleSynced: !!a.googleEventId, createdAt: a.createdAt, updatedAt: a.updatedAt,
+    createdById: a.createdById, googleSynced: !!a.googleEventId, meetLink: a.meetLink ?? null, createdAt: a.createdAt, updatedAt: a.updatedAt,
     links: { page: publicEventUrl(a.id, req), ics: publicIcsUrl(a.id, req), google: googleAddLink(a), outlook: outlookAddLink(a) },
   };
 }
@@ -146,6 +146,8 @@ export interface AppointmentInput {
   conversationId?: string | null;
   assignedUserId?: string | null;
   notifyContact?: boolean;
+  /** "Gerar link do Google Meet": padrão = ligado para reuniões quando há Google conectado. */
+  generateMeet?: boolean;
 }
 
 interface Ctx { orgId: string; userId?: string | null; req?: Request | null; source?: 'MANUAL' | 'AI' | 'KANBAN'; force?: boolean }
@@ -182,7 +184,9 @@ export async function createAppointment(input: AppointmentInput, ctx: Ctx): Prom
     },
   });
   await audit(ctx.req ?? null, ctx.source === 'AI' ? 'agenda.ai_create' : 'agenda.create', { orgId: ctx.orgId, userId: ctx.userId ?? null, entity: 'appointment', entityId: a.id, meta: { kind, startAt: a.startAt, contactId: a.contactId, source: a.source } });
-  const synced = await syncGoogle(a);
+  const wantMeet = input.generateMeet ?? kind === 'MEETING';
+  const synced = await syncGoogle(a, { meet: wantMeet });
+  if (wantMeet && !synced.meetLink) console.warn(`[agenda] compromisso ${a.id} criado sem link do Google Meet (${synced.googleEventId ? 'o Google não devolveu o link' : 'Google Agenda não conectado ou falhou'})`);
   await notifyCreated(synced, ctx.req ?? undefined);
   return synced;
 }
@@ -247,7 +251,7 @@ async function accountFor(a: Appointment): Promise<GoogleAccountRow | null> {
   return null;
 }
 
-export async function syncGoogle(a: Appointment): Promise<Appointment> {
+export async function syncGoogle(a: Appointment, opts: { meet?: boolean } = {}): Promise<Appointment> {
   const acc = await accountFor(a);
   if (!acc) return a;
   try {
@@ -257,10 +261,16 @@ export async function syncGoogle(a: Appointment): Promise<Appointment> {
     }
     const tz = await orgTz(a.orgId);
     const title = a.status === 'DONE' ? `✔ ${a.title}` : a.title;
-    const eventId = await upsertGoogleEvent(acc, a.googleEventId, { ...a, title }, tz);
-    if (eventId !== a.googleEventId || a.googleAccountId !== acc.id) return prisma.appointment.update({ where: { id: a.id }, data: { googleEventId: eventId, googleAccountId: acc.id } });
+    // Pede o Meet na criação (opção marcada) ou se o evento tinha Meet e precisou ser recriado no Google.
+    const meet = opts.meet ?? (!!a.meetLink && !a.googleEventId);
+    const ev = await upsertGoogleEvent(acc, a.googleEventId, { ...a, title }, tz, { meet });
+    const meetLink = ev.meetLink ?? a.meetLink ?? null;
+    if (ev.id !== a.googleEventId || a.googleAccountId !== acc.id || meetLink !== (a.meetLink ?? null)) {
+      return prisma.appointment.update({ where: { id: a.id }, data: { googleEventId: ev.id, googleAccountId: acc.id, meetLink } });
+    }
     return a;
   } catch (e) {
+    console.warn(`[agenda] falha ao sincronizar com o Google Agenda (${a.id}): ${(e as Error).message}`);
     await audit(null, 'agenda.google_falha', { orgId: a.orgId, entity: 'appointment', entityId: a.id, meta: { error: (e as Error).message } }).catch(() => undefined);
     return a;
   }
@@ -285,6 +295,7 @@ export function contactMessage(a: Appointment, tz: string, kind: 'criado' | 'rem
   const head = kind === 'lembrete' ? `⏰ Lembrete: *${a.title}*` : kind === 'remarcado' ? `🔁 ${label} remarcado: *${a.title}*` : `📅 ${label} agendado: *${a.title}*`;
   const lines = [head, `🗓 ${when.charAt(0).toUpperCase() + when.slice(1)} (${a.durationMin} min)`];
   if (a.location) lines.push(`📍 ${a.location}`);
+  if (a.meetLink) lines.push(`🎥 Link da reunião (Google Meet): ${a.meetLink}`);
   if (kind !== 'lembrete') lines.push('', `Adicione à agenda do seu celular (Google, iPhone ou Outlook): ${publicEventUrl(a.id, req)}`);
   return lines.join('\n');
 }
@@ -320,10 +331,10 @@ async function notifyTeam(a: Appointment, req?: Request) {
     if (!u) return;
     const tz = await orgTz(a.orgId);
     const when = humanPt(a.startAt, tz);
-    const text = `${KIND_LABEL[a.kind] ?? 'Compromisso'}: ${a.title}\nQuando: ${when} (${a.durationMin} min)\n${a.location ? `Local: ${a.location}\n` : ''}\nAbra o anexo convite.ics para adicionar à agenda do celular, ou use: ${publicEventUrl(a.id, req)}`;
+    const text = `${KIND_LABEL[a.kind] ?? 'Compromisso'}: ${a.title}\nQuando: ${when} (${a.durationMin} min)\n${a.location ? `Local: ${a.location}\n` : ''}${a.meetLink ? `Google Meet: ${a.meetLink}\n` : ''}\nAbra o anexo convite.ics para adicionar à agenda do celular, ou use: ${publicEventUrl(a.id, req)}`;
     await sendMail({
       to: u.email, subject: `📅 ${a.title} — ${when}`, kind: 'agenda', text,
-      html: `<p><strong>${escHtml(a.title)}</strong></p><p>${escHtml(when)} (${a.durationMin} min)</p>${a.location ? `<p>Local: ${escHtml(a.location)}</p>` : ''}<p><a href="${publicEventUrl(a.id, req)}">Adicionar à minha agenda</a></p>`,
+      html: `<p><strong>${escHtml(a.title)}</strong></p><p>${escHtml(when)} (${a.durationMin} min)</p>${a.location ? `<p>Local: ${escHtml(a.location)}</p>` : ''}${a.meetLink ? `<p>Google Meet: <a href="${escHtml(a.meetLink)}">${escHtml(a.meetLink)}</a></p>` : ''}<p><a href="${publicEventUrl(a.id, req)}">Adicionar à minha agenda</a></p>`,
       attachments: [{ filename: 'convite.ics', content: Buffer.from(icsOf(a, req)), contentType: 'text/calendar; charset=utf-8; method=PUBLISH' }],
     });
   } catch (e) {

@@ -1,4 +1,4 @@
-import { createHmac, randomBytes } from 'node:crypto';
+import { createHmac, randomBytes, randomUUID } from 'node:crypto';
 import type { Request } from 'express';
 import { httpFetch } from '../lib/fetcher.js';
 import { decrypt, getMasterKey, safeEqual } from '../lib/crypto.js';
@@ -109,18 +109,30 @@ function toGoogle(e: GEvent, tz: string) {
 
 const cal = (acc: GoogleAccountRow) => encodeURIComponent(acc.calendarId || 'primary');
 
-/** Cria ou atualiza o evento no Google Agenda; devolve o id do evento. */
-export async function upsertGoogleEvent(acc: GoogleAccountRow, eventId: string | null, e: GEvent, tz: string): Promise<string> {
+/** Link do Google Meet do evento (hangoutLink ou o entryPoint de vídeo da conferenceData). */
+export function meetLinkOf(ev: any): string | null {
+  const link = ev?.hangoutLink ?? (ev?.conferenceData?.entryPoints ?? []).find((p: any) => p?.entryPointType === 'video')?.uri;
+  return typeof link === 'string' && /^https:\/\/meet\.google\.com\//.test(link) ? link : null;
+}
+const meetRequest = () => ({ createRequest: { requestId: randomUUID(), conferenceSolutionKey: { type: 'hangoutsMeet' } } });
+
+/**
+ * Cria ou atualiza o evento no Google Agenda; devolve o id e o link do Meet (se houver).
+ * `meet`: pede ao Google uma videochamada do Meet (conferenceData + conferenceDataVersion=1).
+ * Basta o escopo calendar.events. Num PATCH sem `meet`, a conferência já existente é preservada.
+ */
+export async function upsertGoogleEvent(acc: GoogleAccountRow, eventId: string | null, e: GEvent, tz: string, opts: { meet?: boolean } = {}): Promise<{ id: string; meetLink: string | null }> {
+  const body = (withMeet: boolean) => ({ ...toGoogle(e, tz), ...(withMeet ? { conferenceData: meetRequest() } : {}) });
   if (eventId) {
     try {
-      const r = await api(acc, 'PATCH', `/calendars/${cal(acc)}/events/${encodeURIComponent(eventId)}`, toGoogle(e, tz));
-      return r.id ?? eventId;
+      const r = await api(acc, 'PATCH', `/calendars/${cal(acc)}/events/${encodeURIComponent(eventId)}${opts.meet ? '?conferenceDataVersion=1' : ''}`, body(!!opts.meet));
+      return { id: r.id ?? eventId, meetLink: meetLinkOf(r) };
     } catch (err) {
       if ((err as any).status !== 404 && (err as any).status !== 410) throw err;
     }
   }
-  const r = await api(acc, 'POST', `/calendars/${cal(acc)}/events`, toGoogle(e, tz));
-  return r.id;
+  const r = await api(acc, 'POST', `/calendars/${cal(acc)}/events${opts.meet ? '?conferenceDataVersion=1' : ''}`, body(!!opts.meet));
+  return { id: r.id, meetLink: meetLinkOf(r) };
 }
 
 export async function deleteGoogleEvent(acc: GoogleAccountRow, eventId: string) {

@@ -250,7 +250,7 @@ describe('Agenda: Google Agenda (OAuth) — simulado', () => {
     const a = await owner.post('/api/agenda', { title: 'Com Google', start: localAt(2, '10:00') });
     expect(a.status).toBe(201);
     expect(a.body.googleSynced).toBe(true);
-    expect(calls.some((c) => c.method === 'POST' && c.url.endsWith('/calendars/primary/events') && c.body.summary === 'Com Google')).toBe(true);
+    expect(calls.some((c) => c.method === 'POST' && c.url.split('?')[0].endsWith('/calendars/primary/events') && c.body.summary === 'Com Google')).toBe(true);
     await owner.patch(`/api/agenda/${a.body.id}`, { title: 'Com Google 2' });
     expect(calls.some((c) => c.method === 'PATCH' && c.url.endsWith('/events/gev1') && c.body.summary === 'Com Google 2')).toBe(true);
     await owner.patch(`/api/agenda/${a.body.id}`, { status: 'CANCELLED' });

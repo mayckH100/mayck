@@ -53,7 +53,7 @@ export async function applyAgendaTag(args: { orgId: string; conversationId: stri
     }, { orgId: args.orgId, source: 'AI' });
     const link = publicEventUrl(a.id);
     const confirm = clean || `Pronto! Agendado para ${humanPt(startAt, tz)}.`;
-    return { text: `${confirm}\n\n📅 Adicione à agenda do seu celular: ${link}`, appointmentId: a.id };
+    return { text: `${confirm}${a.meetLink ? `\n\n🎥 Link da reunião (Google Meet): ${a.meetLink}` : ''}\n\n📅 Adicione à agenda do seu celular: ${link}`, appointmentId: a.id };
   } catch (e) {
     if (!(e instanceof ConflictError)) throw e;
     const alt = await freeSlots(args.orgId, { days: 10, max: 3, durationMin });

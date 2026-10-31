@@ -933,6 +933,8 @@ model Appointment {
   sequence        Int       @default(0)
   googleEventId   String?
   googleAccountId String?
+  /// Link do Google Meet gerado pelo Google Agenda (conferenceData) — nulo sem Google conectado.
+  meetLink        String?
   reminderSentAt  DateTime?
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt

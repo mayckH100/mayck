@@ -51,6 +51,8 @@ const baseSchema = z.object({
   contactId: z.string().max(40).optional().nullable(),
   assignedUserId: z.string().max(40).optional().nullable(),
   notifyContact: z.boolean().optional(),
+  /** "Gerar link do Google Meet" (só na criação; padrão ligado para reuniões com Google conectado). */
+  generateMeet: z.boolean().optional(),
   force: z.boolean().optional(),
   source: z.enum(['MANUAL', 'KANBAN']).optional(),
 });
@@ -198,7 +200,7 @@ agendaRouter.patch('/:id', ah(async (req, res) => {
   if (!canEdit(req, a)) throw forbidden('Você só pode alterar compromissos seus');
   const b = baseSchema.partial().extend({ status: z.enum(['SCHEDULED', 'DONE', 'CANCELLED']).optional() }).parse(req.body);
   if (!isAdmin(req) && b.assignedUserId && b.assignedUserId !== req.auth!.userId) throw forbidden('Atendentes só podem agendar para si mesmos');
-  const { start, force, source: _s, ...rest } = b;
+  const { start, force, source: _s, generateMeet: _g, ...rest } = b;
   const u = await updateAppointment(a.id, { ...rest, ...(start ? { startAt: await startOf(req, start) } : {}) }, { orgId: a.orgId, userId: req.auth!.userId, req, force });
   res.json((await viewMany(u.orgId, [u], req))[0]);
 }));
@@ -251,7 +253,7 @@ publicAgendaRouter.get('/e/:token', ah(async (req, res) => {
   res.type('html').send(`<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escHtml(a.title)}</title>
 <style>body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:#f4f5f7;margin:0;padding:24px;color:#111}.c{max-width:440px;margin:0 auto;background:#fff;border-radius:16px;padding:24px;box-shadow:0 2px 12px #0001}h1{font-size:20px;margin:4px 0 12px}.m{color:#555;margin:6px 0}.k{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:#e10a2c;font-weight:700}.b{display:block;text-align:center;padding:14px;border-radius:12px;border:1px solid #ddd;margin-top:10px;text-decoration:none;color:#111;font-weight:600}.p{background:#e10a2c;border-color:#e10a2c;color:#fff}.x{background:#fee2e2;color:#991b1b;padding:10px;border-radius:10px;margin:12px 0}.f{font-size:12px;color:#888;margin-top:16px;text-align:center}</style></head>
 <body><div class="c"><div class="k">${escHtml(KIND_LABEL[a.kind] ?? 'Compromisso')}${org ? ' · ' + escHtml(org.name) : ''}</div><h1>${escHtml(a.title)}</h1>
-<div class="m">🗓 ${escHtml(when.charAt(0).toUpperCase() + when.slice(1))} (${a.durationMin} min)</div>${a.location ? `<div class="m">📍 ${escHtml(a.location)}</div>` : ''}
+<div class="m">🗓 ${escHtml(when.charAt(0).toUpperCase() + when.slice(1))} (${a.durationMin} min)</div>${a.location ? `<div class="m">📍 ${escHtml(a.location)}</div>` : ''}${a.meetLink && !cancelled ? `<div class="m">🎥 <a href="${escHtml(a.meetLink)}">Entrar no Google Meet</a></div>` : ''}
 ${cancelled ? '<div class="x">Este compromisso foi cancelado.</div>' : `
 ${btn(googleAddLink(a), 'Adicionar ao Google Agenda (Android)', true)}
 ${btn(`${publicEventUrl(a.id, req)}.ics`, 'Adicionar à agenda do iPhone / Apple')}

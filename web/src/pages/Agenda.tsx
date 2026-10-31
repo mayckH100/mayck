@@ -25,6 +25,8 @@ const dayLabel = (iso: string) => {
 export interface ApptDraft {
   id?: string; kind: 'MEETING' | 'TASK'; title: string; start: string; durationMin: number; reminderMin: number;
   contactId: string | null; contactLabel?: string; assignedUserId: string | null; location: string; description: string; notifyContact: boolean; source?: 'MANUAL' | 'KANBAN';
+  /** "Gerar link do Google Meet" (só na criação; padrão ligado quando o Google está conectado). */
+  generateMeet?: boolean;
 }
 export const newDraft = (over: Partial<ApptDraft> = {}): ApptDraft => ({
   kind: 'MEETING', title: '', start: localNow(), durationMin: 30, reminderMin: 60, contactId: null, assignedUserId: null,
@@ -39,6 +41,9 @@ export function AppointmentModal({ draft, onClose, onSaved }: { draft: ApptDraft
   const [contacts, setContacts] = useState<any[]>([]);
   const [conflicts, setConflicts] = useState<any[] | null>(null);
   const team = useApi<any>('/team');
+  const google = useApi<any>('/agenda/google/status');
+  const googleOn = !!google.data?.connected;
+  const wantMeet = d.generateMeet ?? true;
   const { busy, run } = useAction();
   const toast = useToast();
   useEffect(() => {
@@ -49,9 +54,11 @@ export function AppointmentModal({ draft, onClose, onSaved }: { draft: ApptDraft
   const save = async (force = false) => {
     const body: any = { kind: d.kind, title: d.title, start: d.start, durationMin: d.durationMin, reminderMin: d.reminderMin, contactId: d.contactId, assignedUserId: d.assignedUserId, location: d.location || null, description: d.description || null, notifyContact: d.notifyContact, force };
     if (!d.id && d.source) body.source = d.source;
+    if (!d.id && d.kind === 'MEETING') body.generateMeet = googleOn && wantMeet;
     try {
-      await (d.id ? patch(`/agenda/${d.id}`, body) : post('/agenda', body));
-      toast(d.id ? 'Compromisso atualizado' : d.contactId && d.notifyContact ? 'Agendado! O contato recebeu o link para a agenda do celular.' : 'Agendado!');
+      const r = await (d.id ? patch(`/agenda/${d.id}`, body) : post('/agenda', body));
+      if (!d.id && body.generateMeet && !r?.meetLink) toast('Agendado, mas o Google não gerou o link do Meet. Confira a conexão do Google em Agenda.', 'err');
+      else toast(d.id ? 'Compromisso atualizado' : d.contactId && d.notifyContact ? `Agendado! O contato recebeu ${r?.meetLink ? 'o link do Meet e ' : ''}o link para a agenda do celular.` : 'Agendado!');
       onSaved();
     } catch (e) {
       if (e instanceof ApiError && e.status === 409) setConflicts((e.details as any)?.conflicts ?? []);
@@ -95,6 +102,9 @@ export function AppointmentModal({ draft, onClose, onSaved }: { draft: ApptDraft
           </Field>
         </div>
         <Field label="Local ou link da chamada (opcional)"><input maxLength={300} value={d.location} onChange={(e) => setD({ ...d, location: e.target.value })} placeholder="Endereço, Google Meet, WhatsApp…" /></Field>
+        {!d.id && d.kind === 'MEETING' && (googleOn
+          ? <label className="row small"><input type="checkbox" checked={wantMeet} onChange={(e) => setD({ ...d, generateMeet: e.target.checked })} style={{ width: 'auto' }} /> Gerar link do Google Meet</label>
+          : google.data && <div className="small muted">🎥 Conecte o Google em Agenda para gerar o link do Meet.</div>)}
         <Field label="Observações (opcional)"><textarea rows={2} maxLength={2000} value={d.description} onChange={(e) => setD({ ...d, description: e.target.value })} /></Field>
         {d.contactId && <label className="row small"><input type="checkbox" checked={d.notifyContact} onChange={(e) => setD({ ...d, notifyContact: e.target.checked })} style={{ width: 'auto' }} /> Avisar o contato pelo WhatsApp (link "Adicionar à agenda" + lembrete)</label>}
         {conflicts && (
@@ -265,6 +275,12 @@ export default function Agenda() {
                           <div className="small muted" style={{ marginTop: 4 }}>
                             {a.durationMin} min{a.contact ? ` · ${a.contact.name ?? a.contact.phone}` : ''}{a.assignedUser ? ` · Resp.: ${a.assignedUser.name}` : ''}{a.location ? ` · ${a.location}` : ''} · {SOURCE[a.source]}{a.googleSynced ? ' · Google ✓' : ''}
                           </div>
+                          {a.meetLink && a.status !== 'CANCELLED' && (
+                            <div className="row small" style={{ marginTop: 4 }}>
+                              🎥 <a href={a.meetLink} target="_blank" rel="noreferrer">{a.meetLink.replace(/^https:\/\//, '')}</a>
+                              <button className="btn sm ghost" onClick={() => copy(a.meetLink, toast)}>Copiar link do Meet</button>
+                            </div>
+                          )}
                           <div className="row" style={{ marginTop: 6 }}>
                             <a className="btn sm" href={a.links.google} target="_blank" rel="noreferrer" style={{ textDecoration: 'none' }}>Google Agenda</a>
                             <a className="btn sm" href={a.links.ics} style={{ textDecoration: 'none' }}>iPhone (.ics)</a>
