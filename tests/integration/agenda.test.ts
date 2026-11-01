@@ -174,6 +174,11 @@ describe('Agenda: IA agenda na conversa do WhatsApp', () => {
 
   it('cliente confirma horário → IA cria o compromisso e manda o link da agenda', async () => {
     await sendInbound(ctx, '5511966660001', 'quero agendar uma reunião');
+    // Sem confirmação do horário exato, nada é criado: o sistema pergunta antes.
+    expect(sentTexts().some((t: string) => /Só para confirmar: posso agendar/.test(t))).toBe(true);
+    expect(await prisma.appointment.count({ where: { orgId: owner.me.org.id, source: 'AI' } })).toBe(0);
+    graph.reset();
+    await sendInbound(ctx, '5511966660001', 'sim, pode agendar');
     const reply = sentTexts().find((t: string) => t.includes('/api/public/agenda/e/'));
     expect(reply).toBeTruthy();
     expect(reply).not.toContain('[AGENDAR');

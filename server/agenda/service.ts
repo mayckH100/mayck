@@ -261,6 +261,13 @@ async function checkRefs(orgId: string, input: Partial<AppointmentInput>) {
   if (input.conversationId && !(await prisma.conversation.findFirst({ where: { id: input.conversationId, orgId }, select: { id: true } }))) throw notFound('Conversa');
 }
 
+/** Reuniões agendadas do mesmo cliente que se sobrepõem ao período. */
+async function contactOverlaps(orgId: string, contactId: string, startAt: Date, durationMin: number): Promise<Busy[]> {
+  const end = new Date(startAt.getTime() + durationMin * 60_000);
+  const list = await prisma.appointment.findMany({ where: { orgId, contactId, kind: 'MEETING', status: 'SCHEDULED', startAt: { lt: end, gte: new Date(startAt.getTime() - 24 * 3600e3) } }, take: 100 });
+  return list.filter((a) => overlaps(a.startAt, endOf(a), startAt, end)).map((a) => ({ start: a.startAt, end: endOf(a), title: a.title, source: 'agenda' as const }));
+}
+
 export class ConflictError extends HttpError {
   constructor(public conflicts: Busy[]) {
     super(409, 'Conflito de horário: já existe compromisso nesse período.', { conflicts: conflicts.map((c) => ({ start: c.start, end: c.end, title: c.title ?? 'Ocupado (Google Agenda)', source: c.source })) });
@@ -278,6 +285,8 @@ export async function createAppointment(input: AppointmentInput, ctx: Ctx): Prom
   // Tarefas não bloqueiam a agenda; reuniões checam conflito (a menos que o usuário force).
   if (kind === 'MEETING' && !ctx.force) {
     const conflicts = await findConflicts(ctx.orgId, input.startAt, durationMin, { assignedUserId: input.assignedUserId });
+    // O mesmo cliente nunca fica com duas reuniões sobrepostas (mesmo se estiverem com responsáveis diferentes): evita duplicata.
+    if (!conflicts.length && input.contactId) conflicts.push(...await contactOverlaps(ctx.orgId, input.contactId, input.startAt, durationMin));
     if (conflicts.length) throw new ConflictError(conflicts);
   }
   const a = await prisma.appointment.create({

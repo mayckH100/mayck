@@ -5,7 +5,7 @@ import { createProvider, type ChatMessage } from './providers.js';
 import { rank, chunkText } from './rag.js';
 import { HANDOFF_TOKEN } from './guard.js';
 import { normalize } from '../flows/logic.js';
-import { agendaPromptSection, applyAgendaTag } from '../agenda/ai.js';
+import { agendaPromptSection, applyAgendaTag, cleanAiText, stripSystemLinks } from '../agenda/ai.js';
 
 export interface AiReply {
   text: string | null; // texto a enviar ao contato (null = nada)
@@ -84,7 +84,8 @@ export async function generateAiReply(args: { orgId: string; conversationId: str
   const agenda = await agendaPromptSection(orgId).catch(() => '');
   const messages: ChatMessage[] = [
     { role: 'system', content: buildSystemPrompt({ instructions: [s.instructions, args.extraInstructions, agenda].filter(Boolean).join('\n'), tone: s.tone }, context) },
-    ...history.reverse().slice(0, -1).map((m) => ({ role: (m.direction === 'IN' ? 'user' : 'assistant') as 'user' | 'assistant', content: m.body ?? '' })),
+    // Links da agenda/Meet já enviados saem do histórico: a IA não deve copiá-los numa nova resposta.
+    ...history.reverse().slice(0, -1).map((m) => ({ role: (m.direction === 'IN' ? 'user' : 'assistant') as 'user' | 'assistant', content: m.direction === 'IN' ? m.body ?? '' : stripSystemLinks(m.body ?? '') })),
     { role: 'user', content: text },
   ];
 
@@ -101,11 +102,15 @@ export async function generateAiReply(args: { orgId: string; conversationId: str
       }
       await prisma.aiUsage.create({ data: { ...base, success: true } });
       // Marcador de agendamento: cria o compromisso (com checagem de conflito) e troca pelo link da agenda.
-      const booked = await applyAgendaTag({ orgId, conversationId, text: r.text }).catch((e) => {
+      const booked = await applyAgendaTag({ orgId, conversationId, text: r.text, clientText: text }).catch((e) => {
         console.error('[agenda-ia]', (e as Error).message);
-        return { text: r.text.replace(/\[AGENDAR:[\s\S]*?\]/i, '').trim() };
+        return { text: cleanAiText(r.text) };
       });
-      return { text: booked.text || r.text, handoff: false, usedContext: !!hits.length };
+      const out = booked.text || cleanAiText(r.text);
+      if (!out) {
+        return { text: s.fallbackMessage, handoff: true, reason: 'IA não soube responder', usedContext: !!hits.length };
+      }
+      return { text: out, handoff: false, usedContext: !!hits.length };
     } catch (e) {
       lastError = (e as Error).message;
       if (/não configurada|desconhecido|não pode ser usado/.test(lastError)) break; // erro de configuração: não adianta repetir

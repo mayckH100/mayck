@@ -85,6 +85,7 @@ describe('Agenda: dono e equipe pré-configurada recebem avisos de reunião por 
   it('reunião marcada pela IA avisa o dono e só os membros ativos (sem duplicar), com cliente, Meet/descrição e "IA"; contato vai para "Reunião agendada"', async () => {
     await owner.put('/api/ai/settings', { provider: 'fake', model: 'fake-1', enabled: true, autoReply: true });
     await sendInbound(ctx, CLIENTE_IA, 'quero agendar uma reunião');
+    await sendInbound(ctx, CLIENTE_IA, 'sim, pode agendar'); // confirma o horário que o sistema perguntou
     const appt = await prisma.appointment.findFirst({ where: { orgId: owner.me.org.id, source: 'AI' } });
     expect(appt).toBeTruthy();
     expect(appt!.notifyOwner).toBe(true);

@@ -56,9 +56,15 @@ export class GeminiProvider implements AiProvider {
  * Responde com o trecho de contexto mais relevante; sem contexto, pede transferência.
  * Mensagens contendo "falhar" simulam erro do provedor; "inventar" simula preço inventado.
  */
+/** Só para testes: respostas roteirizadas (consumidas em ordem) e as conversas que a IA recebeu. */
+export const fakeAi: { script: string[]; calls: ChatMessage[][] } = { script: [], calls: [] };
+
 export class FakeProvider implements AiProvider {
   name = 'fake';
   async chat(messages: ChatMessage[]): Promise<ChatResult> {
+    fakeAi.calls.push(messages);
+    const scripted = fakeAi.script.shift();
+    if (scripted !== undefined) return { text: scripted, promptTokens: 10, completionTokens: 10 };
     const user = [...messages].reverse().find((m) => m.role === 'user')?.content ?? '';
     const system = messages.find((m) => m.role === 'system')?.content ?? '';
     if (/falhar/i.test(user)) throw new Error('Falha simulada do provedor');
