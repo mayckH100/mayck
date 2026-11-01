@@ -11,7 +11,7 @@ import { qrManager } from '../whatsapp/qr/manager.js';
 import { normalizePairingPhone, pairingPerHour } from '../whatsapp/qr/pairing.js';
 import { countSavedPhoneContacts } from '../whatsapp/qr/addressBook.js';
 import { PROVIDER_CLOUD, PROVIDER_QR, isQrChannel } from '../whatsapp/messaging.js';
-import { AUTO_REPLY_MODES, autoReplyModeOf } from '../whatsapp/autoReplyMode.js';
+import { AUTO_REPLY_MODES, autoReplyModeOf, defaultAutoReplyMode } from '../whatsapp/autoReplyMode.js';
 import { channelInfo, channelLabels, sanitizeChannelName, customChannelName, CHANNEL_NAME_MAX, type ChannelLabelInfo } from '../whatsapp/channelLabel.js';
 import type { Channel } from '@prisma/client';
 
@@ -69,8 +69,11 @@ channelsRouter.post('/', requireRole('OWNER', 'ADMIN'), ah(async (req, res) => {
   const typed = sanitizeChannelName(body.name);
   if (typed.length > CHANNEL_NAME_MAX) throw badRequest(`Nome do WhatsApp: no máximo ${CHANNEL_NAME_MAX} caracteres`);
   const name = typed || `WhatsApp ${(await prisma.channel.count({ where: { orgId } })) + 1}`;
-  const c = await prisma.channel.create({ data: { orgId, name, provider: body.provider, verifyToken: randomToken(24) } });
-  await audit(req, 'channel.create', { entity: 'channel', entityId: c.id, meta: { name } });
+  // Novo número com a IA automática da organização ligada: começa no modo "Só IA" (todo WhatsApp
+  // conectado responde com a IA). Sem IA ligada, mantém "Fluxos + IA". O dono pode trocar em Canais.
+  const autoReplyMode = await defaultAutoReplyMode(orgId);
+  const c = await prisma.channel.create({ data: { orgId, name, provider: body.provider, verifyToken: randomToken(24), autoReplyMode } });
+  await audit(req, 'channel.create', { entity: 'channel', entityId: c.id, meta: { name, autoReplyMode } });
   res.status(201).json(await view(c, req));
 }));
 

@@ -4,6 +4,7 @@ import { createProvider, type ChatMessage } from '../ai/providers.js';
 import { retrieve } from '../ai/service.js';
 import { aiNotesPromptSection, contactIdOfConversation } from '../ai/contactNotes.js';
 import { sendOutbound, handoffToHuman } from '../whatsapp/messaging.js';
+import { openConversationFor } from '../whatsapp/multiCanal.js';
 import { isProductActive } from '../billing/service.js';
 import { parseJson } from '../lib/json.js';
 import { personalize, inWindow } from './dispatcher.js';
@@ -291,10 +292,11 @@ export async function tickLeadRetries(now = new Date()): Promise<number> {
       await prisma.lead.update({ where: { id: lead.id }, data: { nextAttemptAt: null } });
       continue;
     }
-    let conv = await prisma.conversation.findFirst({ where: { orgId: lead.orgId, contactId: contact.id, status: { not: 'CLOSED' } }, orderBy: { createdAt: 'desc' } });
-    const channelId = camp?.channelId ?? conv?.channelId ?? null;
-    if (!channelId) continue;
-    conv ??= await prisma.conversation.create({ data: { orgId: lead.orgId, contactId: contact.id, channelId } });
+    // Nova tentativa sai pelo WhatsApp da campanha, na conversa do contato naquele número.
+    let conv = camp?.channelId
+      ? await openConversationFor(lead.orgId, contact.id, camp.channelId)
+      : await prisma.conversation.findFirst({ where: { orgId: lead.orgId, contactId: contact.id, status: { not: 'CLOSED' } }, orderBy: { createdAt: 'desc' } });
+    if (!conv?.channelId) continue;
     if (conv.mode === 'HUMAN') { // um atendente está cuidando: não reaborda
       await prisma.lead.update({ where: { id: lead.id }, data: { nextAttemptAt: null } });
       continue;

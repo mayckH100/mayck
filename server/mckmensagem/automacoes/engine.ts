@@ -1,5 +1,6 @@
 import { prisma } from '../../db.js';
 import { sendOutbound } from '../../whatsapp/messaging.js';
+import { openConversationFor } from '../../whatsapp/multiCanal.js';
 import type { OutboundPayload } from '../../whatsapp/cloudClient.js';
 import { sendMailResult } from '../../lib/mailer.js';
 import { isProductActive } from '../../billing/service.js';
@@ -43,9 +44,10 @@ async function whatsappReal(a: SendArgs): Promise<SendResult> {
   contact ??= await prisma.contact.create({ data: { orgId: a.orgId, waId, phone, name: a.cliente.nome, email: a.cliente.email } });
   if (a.cliente.contactId !== contact.id) await prisma.cliente.update({ where: { id: a.cliente.id }, data: { contactId: contact.id } });
   if (contact.optOut) return { ok: false, error: 'Contato pediu para não receber mensagens automáticas (opt-out)' };
-  let conv = await prisma.conversation.findFirst({ where: { orgId: a.orgId, contactId: contact.id, status: { not: 'CLOSED' } }, orderBy: { createdAt: 'desc' } });
-  conv ??= await prisma.conversation.create({ data: { orgId: a.orgId, contactId: contact.id, channelId: a.automacao.channelId } });
-  if (a.automacao.channelId && conv.channelId !== a.automacao.channelId) conv = await prisma.conversation.update({ where: { id: conv.id }, data: { channelId: a.automacao.channelId } });
+  // Com um WhatsApp escolhido na automação, usa a conversa do contato NAQUELE número (cada número tem a sua).
+  let conv = a.automacao.channelId ? await openConversationFor(a.orgId, contact.id, a.automacao.channelId) : null;
+  conv ??= await prisma.conversation.findFirst({ where: { orgId: a.orgId, contactId: contact.id, status: { not: 'CLOSED' } }, orderBy: { createdAt: 'desc' } });
+  conv ??= await prisma.conversation.create({ data: { orgId: a.orgId, contactId: contact.id, channelId: null } });
   // Partes: o texto e depois cada anexo, na ordem definida. Numa nova tentativa, as partes já aceitas não são reenviadas.
   const partes: { payload: OutboundPayload; rotulo: string }[] = [];
   if (a.texto.trim()) partes.push({ payload: { type: 'text', text: a.texto }, rotulo: 'texto' });

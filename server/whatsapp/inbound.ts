@@ -13,6 +13,7 @@ import type { Channel } from '@prisma/client';
 import { onLeadInbound, onLeadOptOut } from '../mckmensagem/hooks.js';
 import { qualifyLeadInbound } from '../mckmensagem/qualificacao.js';
 import { autoReplyModeOf } from './autoReplyMode.js';
+import { openConversationFor, redirectIfActiveElsewhere } from './multiCanal.js';
 
 const OPT_OUT = new Set(['sair', 'parar', 'stop', 'descadastrar']);
 
@@ -98,8 +99,9 @@ export async function handleInboundMessage(channel: Channel, m: InboundMessage, 
   }
 
   return withConversationLock(`contact:${contact.id}`, async () => {
-    let conv = await prisma.conversation.findFirst({ where: { orgId, contactId: contact!.id, status: { not: 'CLOSED' } }, orderBy: { createdAt: 'desc' } });
-    if (!conv) conv = await prisma.conversation.create({ data: { orgId, contactId: contact!.id, channelId: channel.id } });
+    // Cada WhatsApp conectado tem a sua conversa com o cliente: a resposta sai pelo mesmo número
+    // que recebeu (antes a conversa era única por contato e a resposta saía pelo primeiro número).
+    let conv = await openConversationFor(orgId, contact!.id, channel.id);
 
     let message;
     try {
@@ -116,7 +118,7 @@ export async function handleInboundMessage(channel: Channel, m: InboundMessage, 
     const now = new Date();
     conv = await prisma.conversation.update({
       where: { id: conv.id },
-      data: { lastInboundAt: now, lastMessageAt: now, unreadCount: { increment: 1 }, channelId: conv.channelId ?? channel.id },
+      data: { lastInboundAt: now, lastMessageAt: now, unreadCount: { increment: 1 } },
     });
     contact = await prisma.contact.update({ where: { id: contact!.id }, data: { lastMessageAt: now } });
 
@@ -141,6 +143,8 @@ export async function handleInboundMessage(channel: Channel, m: InboundMessage, 
       return 'ok' as const;
     }
     if (conv.mode === 'HUMAN' || contact.optOut || skipAutoReply) return 'ok' as const;
+    // Cliente já em atendimento por outro WhatsApp da organização: não abre atendimento paralelo aqui.
+    if (await redirectIfActiveElsewhere(conv, contact, channel, now)) return 'ok' as const;
     // "Quem responde automaticamente" deste canal: flows | ai | both (padrão, comportamento original).
     const mode = autoReplyModeOf(channel);
     await withConversationLock(conv.id, async () => {

@@ -150,7 +150,8 @@ describe('Canal WhatsApp — "Quem responde automaticamente" (Só fluxos / Só I
   it('canal QR: contato salvo na agenda continua sem resposta automática em qualquer modo (caixa desmarcada)', async () => {
     const qr = await owner.post('/api/channels', { name: 'Celular' });
     const channelId = qr.body.id;
-    expect(qr.body.autoReplyMode).toBe('both');
+    // Organização com a IA automática ligada: canal novo já começa no "Só IA".
+    expect(qr.body.autoReplyMode).toBe('ai');
     await prisma.channel.update({ where: { id: channelId }, data: { status: 'CONNECTED' } });
     const sent: { jid: string; content: AnyMessageContent }[] = [];
     let k = 0;

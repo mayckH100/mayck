@@ -1,5 +1,6 @@
 import { prisma } from '../db.js';
 import { sendOutbound } from '../whatsapp/messaging.js';
+import { openConversationFor } from '../whatsapp/multiCanal.js';
 import { TZ } from './constants.js';
 import { isProductActive } from '../billing/service.js';
 import type { Campaign, Lead } from '@prisma/client';
@@ -109,9 +110,8 @@ async function sendToLead(c: Campaign, lead: Lead, recipientId: string, now: Dat
     await prisma.campaignRecipient.update({ where: { id: recipientId }, data: { status: 'IGNORADA', error: 'Contato com opt-out no MCKBOT' } });
     return false;
   }
-  let conv = await prisma.conversation.findFirst({ where: { orgId: c.orgId, contactId: contact.id, status: { not: 'CLOSED' } }, orderBy: { createdAt: 'desc' } });
-  conv ??= await prisma.conversation.create({ data: { orgId: c.orgId, contactId: contact.id, channelId: c.channelId } });
-  if (conv.channelId !== c.channelId) conv = await prisma.conversation.update({ where: { id: conv.id }, data: { channelId: c.channelId } });
+  // Conversa do contato no WhatsApp da campanha (não "puxa" a conversa de outro número da organização).
+  const conv = await openConversationFor(c.orgId, contact.id, c.channelId);
 
   let msg;
   try {

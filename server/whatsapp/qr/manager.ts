@@ -619,16 +619,32 @@ class QrSessionManager {
 
   /** Ao iniciar o servidor: reconecta todos os canais QR que têm sessão salva. */
   async restoreAll() {
-    const channels = await prisma.channel.findMany({ where: { provider: 'whatsapp_qr' }, select: { id: true } });
+    const channels = await prisma.channel.findMany({ where: { provider: 'whatsapp_qr' }, select: { id: true }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] });
     let i = 0;
+    const semSessao: string[] = [];
+    // Cada canal é independente: erro ao ler/iniciar um não impede os outros de reconectar.
     for (const c of channels) {
-      if (!(await hasSavedSession(c.id))) {
+      let saved = false;
+      try {
+        saved = await hasSavedSession(c.id);
+      } catch (e) {
+        console.error(`[whatsapp-qr] canal ${c.id}: falha ao ler a sessão salva (${(e as Error).message}); tentando reconectar mesmo assim`);
+        saved = true;
+      }
+      if (!saved) {
+        semSessao.push(c.id);
         await this.persist(c.id, { status: 'NOT_CONNECTED' });
         continue;
       }
       const delay = 1500 * i++;
-      setTimeout(() => { this.start(c.id).catch((e) => silentLogger.error(e, 'falha ao restaurar sessão')); }, delay).unref?.();
+      setTimeout(() => {
+        this.start(c.id).catch((e) => {
+          console.error(`[whatsapp-qr] canal ${c.id}: falha ao restaurar a sessão (${(e as Error).message})`);
+          this.scheduleRetry(this.session(c.id), `Falha ao restaurar a sessão: ${(e as Error).message}`);
+        });
+      }, delay).unref?.();
     }
+    if (semSessao.length) console.log(`[whatsapp-qr] ${semSessao.length} canal(is) QR sem sessão salva (precisam do QR code): ${semSessao.join(', ')}`);
     return i;
   }
 
