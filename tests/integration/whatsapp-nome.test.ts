@@ -12,7 +12,7 @@ const CLIENTE_HUMANO = '5511955550003';
 const DONO = '5511955550010';
 const MEMBRO = '5511955550011';
 const RESERVA = '5511955550099';
-const VIA = '📲 Via: WhatsApp 1 · Mayck (11 98765-4321)';
+const VIA = '📲 Via: WhatsApp 1 · Carla (11 98765-4321)';
 
 const sent = () => graph.calls.filter((c) => c.body?.to).map((c) => ({ to: String(c.body.to), text: String(c.body.text?.body ?? '') }));
 const sentTo = (phone: string) => sent().filter((m) => m.to === phone);
@@ -29,7 +29,7 @@ async function invite(owner: Client, role: 'AGENT' | 'ADMIN') {
 
 const BASE = { aiBooking: true, workStart: '00:00', workEnd: '23:30', workDays: [0, 1, 2, 3, 4, 5, 6], defaultDurationMin: 30, minNoticeMin: 0, notifyContact: true, reminderMin: 60 };
 
-describe('Nome do WhatsApp: "WhatsApp 1 · Mayck" nos canais e nos avisos internos', () => {
+describe('Nome do WhatsApp: "WhatsApp 1 · Carla" nos canais e nos avisos internos', () => {
   let owner: Client;
   let admin: Client;
   let agent: Client;
@@ -68,18 +68,18 @@ describe('Nome do WhatsApp: "WhatsApp 1 · Mayck" nos canais e nos avisos intern
   });
 
   it('renomear: só Proprietário/Administrador, 1–40 caracteres, auditado; outra organização não altera', async () => {
-    expect((await agent.patch(`/api/channels/${ctx.ch.id}`, { name: 'Mayck' })).status).toBe(403);
+    expect((await agent.patch(`/api/channels/${ctx.ch.id}`, { name: 'Carla' })).status).toBe(403);
     expect((await owner.patch(`/api/channels/${ctx.ch.id}`, { name: '   ' })).status).toBe(400);
     expect((await owner.patch(`/api/channels/${ctx.ch.id}`, { name: 'y'.repeat(41) })).status).toBe(400);
     const other = await registerClient();
     expect((await other.patch(`/api/channels/${ctx.ch.id}`, { name: 'Invasor' })).status).toBe(404);
 
-    const r = await admin.patch(`/api/channels/${ctx.ch.id}`, { name: ' Mayck ' });
+    const r = await admin.patch(`/api/channels/${ctx.ch.id}`, { name: ' Carla ' });
     expect(r.status).toBe(200);
-    expect(r.body).toMatchObject({ name: 'Mayck', displayName: 'Mayck', label: 'WhatsApp 1 · Mayck' });
+    expect(r.body).toMatchObject({ name: 'Carla', displayName: 'Carla', label: 'WhatsApp 1 · Carla' });
     const log = await prisma.auditLog.findFirst({ where: { orgId: owner.me.org.id, action: 'channel.rename', entityId: ctx.ch.id } });
-    expect(JSON.parse(log!.meta)).toMatchObject({ antes: 'WhatsApp principal', depois: 'Mayck' });
-    expect((await prisma.channel.findUniqueOrThrow({ where: { id: ctx.ch.id } })).name).toBe('Mayck');
+    expect(JSON.parse(log!.meta)).toMatchObject({ antes: 'WhatsApp principal', depois: 'Carla' });
+    expect((await prisma.channel.findUniqueOrThrow({ where: { id: ctx.ch.id } })).name).toBe('Carla');
     expect((await other.get('/api/channels')).body).toHaveLength(0);
   });
 
@@ -103,7 +103,7 @@ describe('Nome do WhatsApp: "WhatsApp 1 · Mayck" nos canais e nos avisos intern
 
     const list = await owner.get('/api/agenda?status=all');
     const item = list.body.items?.find?.((a: any) => a.id === appt!.id) ?? list.body.find?.((a: any) => a.id === appt!.id);
-    expect(item.channel).toMatchObject({ label: 'WhatsApp 1 · Mayck', via: 'WhatsApp 1 · Mayck (11 98765-4321)' });
+    expect(item.channel).toMatchObject({ label: 'WhatsApp 1 · Carla', via: 'WhatsApp 1 · Carla (11 98765-4321)' });
 
     graph.reset();
     await prisma.appointment.update({ where: { id: appt!.id }, data: { startAt: new Date(Date.now() + 30 * 60_000), reminderMin: 60, reminderSentAt: null } });
@@ -119,7 +119,7 @@ describe('Nome do WhatsApp: "WhatsApp 1 · Mayck" nos canais e nos avisos intern
     const r = await owner.post('/api/agenda', { kind: 'TASK', title: 'Retornar cliente', start: localIn(600), contactId: contact.id, notifyContact: false, teamPhones: [MEMBRO], source: 'KANBAN' });
     expect(r.status).toBe(201);
     expect(r.body.channelId).toBe(ctx.ch.id);
-    expect(r.body.channel.label).toBe('WhatsApp 1 · Mayck');
+    expect(r.body.channel.label).toBe('WhatsApp 1 · Carla');
     const m = sentTo(MEMBRO);
     expect(m).toHaveLength(1);
     expect(m[0].text).toContain('Nova tarefa marcada');
@@ -141,9 +141,9 @@ describe('Nome do WhatsApp: "WhatsApp 1 · Mayck" nos canais e nos avisos intern
     expect(note!.body).toContain(VIA);
 
     const w = await owner.get('/api/conversations/waiting');
-    expect(w.body.items.find((i: any) => i.id === conv.id).channel).toMatchObject({ label: 'WhatsApp 1 · Mayck', via: 'WhatsApp 1 · Mayck (11 98765-4321)' });
+    expect(w.body.items.find((i: any) => i.id === conv.id).channel).toMatchObject({ label: 'WhatsApp 1 · Carla', via: 'WhatsApp 1 · Carla (11 98765-4321)' });
     const inbox = await owner.get('/api/conversations?status=pending');
-    expect(inbox.body.items.find((i: any) => i.id === conv.id).channel.label).toBe('WhatsApp 1 · Mayck');
+    expect(inbox.body.items.find((i: any) => i.id === conv.id).channel.label).toBe('WhatsApp 1 · Carla');
     // Filtro por WhatsApp.
     expect((await owner.get(`/api/conversations?status=all&channelId=${ctx.ch.id}`)).body.items.some((i: any) => i.id === conv.id)).toBe(true);
     expect((await owner.get('/api/conversations?status=all&channelId=outro')).body.items).toHaveLength(0);

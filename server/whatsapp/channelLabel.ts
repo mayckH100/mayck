@@ -2,7 +2,7 @@ import { prisma } from '../db.js';
 import type { Channel } from '@prisma/client';
 
 /**
- * "Nome do WhatsApp" de cada número conectado (ex.: WhatsApp 1 · Mayck, WhatsApp 2 · Amanda).
+ * "Nome do WhatsApp" de cada número conectado (ex.: WhatsApp 1 · Carla, WhatsApp 2 · Vendas).
  * O nome fica no campo Channel.name; o número "WhatsApp N" vem da ordem de criação na organização.
  * Canais sem nome próprio (nomes padrão antigos como "WhatsApp principal") aparecem só como "WhatsApp N".
  */

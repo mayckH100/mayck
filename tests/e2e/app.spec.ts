@@ -6,7 +6,7 @@ const errors: string[] = [];
 
 async function register(page: Page) {
   await page.goto('/cadastro');
-  await page.getByLabel('Seu nome').fill('Mayck Teste');
+  await page.getByLabel('Seu nome').fill('Carlos Teste');
   await page.getByLabel('E-mail').fill(email);
   await page.getByLabel('Senha').fill(password);
   await page.getByLabel('Nome da empresa').fill('Loja E2E');

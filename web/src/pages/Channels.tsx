@@ -36,7 +36,7 @@ function AutoReplyModeSelector({ c, admin, busy, onPick }: { c: any; admin: bool
 }
 
 const NAME_MAX = 40;
-const NAME_HINT = 'Ex.: Mayck, Amanda, Vendas. Aparece como "WhatsApp 1 · Mayck" no Inbox e nos avisos de reunião, tarefa e atendimento humano (até 40 caracteres).';
+const NAME_HINT = 'Ex.: Carla, Vendas, Suporte. Aparece como "WhatsApp 1 · Carla" no Inbox e nos avisos de reunião, tarefa e atendimento humano (até 40 caracteres).';
 
 /** "Nome do WhatsApp": editável no card de cada número (só Proprietário/Administrador). */
 function ChannelNameEditor({ c, admin, busy, onSave }: { c: any; admin: boolean; busy: boolean; onSave: (name: string) => void }) {
@@ -48,7 +48,7 @@ function ChannelNameEditor({ c, admin, busy, onSave }: { c: any; admin: boolean;
     <form className="row small" style={{ gap: 6, alignItems: 'flex-end' }} onSubmit={(e) => { e.preventDefault(); if (trimmed && changed) onSave(trimmed); }} title={admin ? undefined : 'Só Proprietário ou Administrador pode alterar'}>
       <div style={{ flex: 1 }}>
         <Field label={`Nome do WhatsApp ${c.ordinal ?? ''}`.trim()} hint={NAME_HINT}>
-          <input aria-label="Nome do WhatsApp" maxLength={NAME_MAX} placeholder="Ex.: Mayck" value={v} disabled={!admin || busy} onChange={(e) => setV(e.target.value)} />
+          <input aria-label="Nome do WhatsApp" maxLength={NAME_MAX} placeholder="Ex.: Carla" value={v} disabled={!admin || busy} onChange={(e) => setV(e.target.value)} />
         </Field>
       </div>
       {admin && <button className="btn sm" disabled={busy || !trimmed || !changed}>Salvar nome</button>}
@@ -68,7 +68,7 @@ function AddChannel({ count, onClose, onCreated }: { count: number; onClose: () 
         if (r) onCreated(r);
       }}>
         <Field label="Nome do WhatsApp" hint={`${NAME_HINT} Deixe vazio para usar só "WhatsApp ${count + 1}".`}>
-          <input autoFocus aria-label="Nome do WhatsApp" maxLength={NAME_MAX} placeholder="Ex.: Mayck" value={name} onChange={(e) => setName(e.target.value)} />
+          <input autoFocus aria-label="Nome do WhatsApp" maxLength={NAME_MAX} placeholder="Ex.: Carla" value={name} onChange={(e) => setName(e.target.value)} />
         </Field>
         {name.trim() && <div className="small muted">Vai aparecer como: <strong>WhatsApp {count + 1} · {name.trim()}</strong></div>}
         <button className="btn primary" disabled={busy}>{busy ? 'Adicionando…' : 'Adicionar e conectar'}</button>
@@ -204,7 +204,7 @@ function ChannelConfig({ channel, onClose, onSaved }: { channel: any; onClose: (
         if (r) onSaved();
       }}>
         <div className="alert info small">Passo a passo completo no guia <strong>docs/DEPLOY.md</strong>. Você precisa de um app na Meta (developers.facebook.com) com o produto WhatsApp.</div>
-        <Field label="Nome do WhatsApp" hint={NAME_HINT}><input required maxLength={NAME_MAX} placeholder="Ex.: Mayck" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} /></Field>
+        <Field label="Nome do WhatsApp" hint={NAME_HINT}><input required maxLength={NAME_MAX} placeholder="Ex.: Carla" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} /></Field>
         <Field label="Phone Number ID" hint="WhatsApp › Configuração da API › ID do número de telefone"><input inputMode="numeric" value={f.phoneNumberId} onChange={(e) => setF({ ...f, phoneNumberId: e.target.value.trim() })} /></Field>
         <Field label="WhatsApp Business Account ID (opcional)"><input inputMode="numeric" value={f.wabaId} onChange={(e) => setF({ ...f, wabaId: e.target.value.trim() })} /></Field>
         <Field label="Token de acesso permanente" hint={channel.hasAccessToken ? `Salvo: ${channel.accessTokenPreview}. Preencha só para trocar.` : 'Token de usuário do sistema com permissão whatsapp_business_messaging'}><input type="password" autoComplete="off" value={f.accessToken} onChange={(e) => setF({ ...f, accessToken: e.target.value })} /></Field>
