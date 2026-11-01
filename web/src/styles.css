@@ -113,6 +113,10 @@ tr:hover td { background: #fafcfb; }
 .bubble { max-width: 72%; padding: 8px 10px; border-radius: 10px; background: #fff; box-shadow: 0 1px 1px rgba(0,0,0,.05); white-space: pre-wrap; word-break: break-word; }
 .bubble.out { align-self: flex-end; background: #fde3e7; }
 .bubble.note { align-self: center; background: #fff6e0; font-size: 12px; max-width: 90%; }
+.bubble.ai-note { background: #ede7fe; border: 1px dashed #a78bfa; }
+.ai-notes-panel { margin: 8px; padding: 10px 12px; border-radius: 10px; background: #f5f3ff; border: 1px solid #ddd6fe; max-height: 320px; overflow: auto; }
+.ai-note-item { background: #fff; border-radius: 8px; padding: 8px 10px; border: 1px solid #ede9fe; }
+.ai-note-item textarea { width: 100%; min-height: 60px; }
 .bubble .meta { font-size: 10.5px; color: var(--muted); margin-top: 3px; display: flex; gap: 6px; justify-content: flex-end; }
 .bubble.failed { border: 1px solid #f1c4c4; }
 .composer { border-top: 1px solid var(--line); padding: 10px; display: grid; gap: 8px; }

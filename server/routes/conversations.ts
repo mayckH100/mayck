@@ -7,6 +7,9 @@ import { audit } from '../lib/audit.js';
 import { sendOutbound, isWithinWindow, resolveChannel, windowApplies } from '../whatsapp/messaging.js';
 import { parseJson } from '../lib/json.js';
 import { clearWaiting, WAITING_LABEL } from '../lib/waiting.js';
+import { listContactAiNotes, AI_NOTE_MAX_LEN } from '../ai/contactNotes.js';
+import { createContactAiNote } from './contacts.js';
+import { isProductActive } from '../billing/service.js';
 import { channelLabels, type ChannelLabelInfo } from '../whatsapp/channelLabel.js';
 
 /** Rótulo do WhatsApp da conversa para a tela ("WhatsApp 2 · Amanda" + número). */
@@ -79,6 +82,8 @@ conversationsRouter.get('/:id', ah(async (req, res) => {
     conversation: { ...conv, unreadCount: 0, channel: channelOf(await channelLabels(conv.orgId), conv.channelId), withinWindow: !windowApplies(await resolveChannel(conv)) || isWithinWindow(conv) },
     contact: contact ? { ...contact, tags: parseJson<string[]>(contact.tags, []), vars: parseJson(contact.vars, {}) } : null,
     messages: messages.map((m) => ({ ...m, authorName: authors.find((a) => a.id === m.authorUserId)?.name })),
+    // Notas para a IA do CONTATO (valem em todas as conversas dele); a tela as intercala na linha do tempo.
+    aiNotes: contact ? await listContactAiNotes(conv.orgId, contact.id) : [],
     activeRun,
   });
 }));
@@ -128,8 +133,15 @@ conversationsRouter.post('/:id/action', ah(async (req, res) => {
 }));
 
 conversationsRouter.post('/:id/notes', ah(async (req, res) => {
-  const { text } = z.object({ text: z.string().trim().min(1).max(2000) }).parse(req.body);
+  const { text, ai } = z.object({ text: z.string().trim().min(1).max(2000), ai: z.boolean().optional() }).parse(req.body);
   const conv = await getConv(req);
+  if (ai) {
+    // "Nota para a IA": fica no contato (não na conversa), nunca é enviada ao cliente e entra no prompt da IA.
+    if (text.length > AI_NOTE_MAX_LEN) throw new HttpError(400, `A nota para a IA pode ter no máximo ${AI_NOTE_MAX_LEN} caracteres`);
+    if (!(await isProductActive(conv.orgId, 'MCKBOT'))) throw new HttpError(402, 'Assinatura MCKBOT inativa. Renove o plano para continuar.');
+    const n = await createContactAiNote(req, conv.contactId, text);
+    return void res.status(201).json({ ...n, kind: 'ai_note' });
+  }
   const m = await prisma.message.create({ data: { orgId: conv.orgId, conversationId: conv.id, direction: 'INTERNAL', sender: 'agent', type: 'note', body: text, status: 'NOTE', authorUserId: req.auth!.userId } });
   res.status(201).json(m);
 }));

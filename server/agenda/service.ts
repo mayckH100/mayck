@@ -18,6 +18,10 @@ import { humanPt, safeTz, zonedParts, zonedToUtc, hhmmToMin, toLocalIso } from '
 import { channelLabels, type ChannelLabelInfo } from '../whatsapp/channelLabel.js';
 
 export const KIND_LABEL: Record<string, string> = { MEETING: 'Reunião', TASK: 'Tarefa' };
+/** Gênero gramatical do rótulo (concordância: "Reunião cancelada", "Compromisso cancelado"). */
+const KIND_FEMININE: Record<string, boolean> = { MEETING: true, TASK: true };
+/** Particípio concordando com o tipo: agree('MEETING', 'cancelad') → "cancelada". */
+export const agreeKind = (kind: string, stem: string) => stem + (KIND_FEMININE[kind] ? 'a' : 'o');
 
 export interface AgendaSettingsView {
   aiBooking: boolean; workStart: string; workEnd: string; workDays: number[];
@@ -461,8 +465,8 @@ async function conversationFor(a: Appointment) {
 export function contactMessage(a: Appointment, tz: string, kind: 'criado' | 'remarcado' | 'cancelado' | 'lembrete', req?: Request) {
   const when = humanPt(a.startAt, tz);
   const label = KIND_LABEL[a.kind] ?? 'Compromisso';
-  if (kind === 'cancelado') return `❌ ${label} cancelado: *${a.title}* (${when}).`;
-  const head = kind === 'lembrete' ? `⏰ Lembrete: *${a.title}*` : kind === 'remarcado' ? `🔁 ${label} remarcado: *${a.title}*` : `📅 ${label} agendado: *${a.title}*`;
+  if (kind === 'cancelado') return `❌ ${label} ${agreeKind(a.kind, 'cancelad')}: *${a.title}* (${when}).`;
+  const head = kind === 'lembrete' ? `⏰ Lembrete: *${a.title}*` : kind === 'remarcado' ? `🔁 ${label} ${agreeKind(a.kind, 'remarcad')}: *${a.title}*` : `📅 ${label} ${agreeKind(a.kind, 'agendad')}: *${a.title}*`;
   const lines = [head, `🗓 ${when.charAt(0).toUpperCase() + when.slice(1)} (${a.durationMin} min)`];
   if (a.location) lines.push(`📍 ${a.location}`);
   if (a.description) lines.push(`📝 ${a.description}`);
@@ -476,9 +480,9 @@ export function teamMessage(a: Appointment, tz: string, kind: 'criado' | 'remarc
   const when = humanPt(a.startAt, tz);
   const label = KIND_LABEL[a.kind] ?? 'Compromisso';
   const com = clientName ? ` com ${clientName}` : '';
-  if (kind === 'cancelado') return `❌ ${label}${com} cancelada: *${a.title}* (${when}).${via ? `\n${via}` : ''}`;
+  if (kind === 'cancelado') return `❌ ${label}${com} ${agreeKind(a.kind, 'cancelad')}: *${a.title}* (${when}).${via ? `\n${via}` : ''}`;
   const nova = a.kind === 'TASK' ? `Nova tarefa marcada${com}` : `Nova reunião marcada${com}`;
-  const head = kind === 'lembrete' ? `⏰ Lembrete — ${label}${com}: *${a.title}*` : kind === 'remarcado' ? `🔁 ${label}${com} remarcada: *${a.title}*` : `📅 ${nova}: *${a.title}*`;
+  const head = kind === 'lembrete' ? `⏰ Lembrete — ${label}${com}: *${a.title}*` : kind === 'remarcado' ? `🔁 ${label}${com} ${agreeKind(a.kind, 'remarcad')}: *${a.title}*` : `📅 ${nova}: *${a.title}*`;
   const lines = [head, `🗓 ${when.charAt(0).toUpperCase() + when.slice(1)} (${a.durationMin} min)`];
   if (a.location) lines.push(`📍 ${a.location}`);
   if (a.description) lines.push(`📝 ${a.description}`);

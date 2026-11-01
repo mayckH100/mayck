@@ -5,6 +5,7 @@ import { createProvider, type ChatMessage } from './providers.js';
 import { rank, chunkText } from './rag.js';
 import { HANDOFF_TOKEN } from './guard.js';
 import { normalize } from '../flows/logic.js';
+import { aiNotesPromptSection, contactIdOfConversation } from './contactNotes.js';
 import { agendaPromptSection, applyAgendaTag, cleanAiText, stripSystemLinks } from '../agenda/ai.js';
 
 export interface AiReply {
@@ -29,7 +30,7 @@ export async function retrieve(orgId: string, query: string, k = 3) {
   return rank(query, chunks.map((c) => ({ ...c, text: c.text, title: titles.get(c.docId) ?? '' })), k);
 }
 
-export function buildSystemPrompt(s: { instructions: string; tone: string }, context: string): string {
+export function buildSystemPrompt(s: { instructions: string; tone: string }, context: string, contactNotes = ''): string {
   return [
     'Você é o assistente virtual de atendimento no WhatsApp desta empresa. Responda em português do Brasil, em mensagens curtas e claras.',
     `Tom de voz: ${s.tone || 'cordial e objetivo'}.`,
@@ -41,6 +42,8 @@ export function buildSystemPrompt(s: { instructions: string; tone: string }, con
     '### CONTEXTO',
     context || '(nenhuma informação relevante encontrada na base de conhecimento)',
     '### FIM',
+    // Notas para a IA do contato: por último e delimitadas — são dados, não instruções.
+    contactNotes,
   ].filter(Boolean).join('\n');
 }
 
@@ -82,8 +85,10 @@ export async function generateAiReply(args: { orgId: string; conversationId: str
   });
   // Agenda: horários livres + regra do marcador [AGENDAR:{...}] (só se a empresa ligou o agendamento pela IA).
   const agenda = await agendaPromptSection(orgId).catch(() => '');
+  // Notas para a IA deixadas pelos vendedores neste contato (escopo da organização).
+  const contactNotes = await contactIdOfConversation(orgId, conversationId).then((cid) => aiNotesPromptSection(orgId, cid)).catch(() => '');
   const messages: ChatMessage[] = [
-    { role: 'system', content: buildSystemPrompt({ instructions: [s.instructions, args.extraInstructions, agenda].filter(Boolean).join('\n'), tone: s.tone }, context) },
+    { role: 'system', content: buildSystemPrompt({ instructions: [s.instructions, args.extraInstructions, agenda].filter(Boolean).join('\n'), tone: s.tone }, context, contactNotes) },
     // Links da agenda/Meet já enviados saem do histórico: a IA não deve copiá-los numa nova resposta.
     ...history.reverse().slice(0, -1).map((m) => ({ role: (m.direction === 'IN' ? 'user' : 'assistant') as 'user' | 'assistant', content: m.direction === 'IN' ? m.body ?? '' : stripSystemLinks(m.body ?? '') })),
     { role: 'user', content: text },

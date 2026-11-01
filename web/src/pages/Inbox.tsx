@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { post, patch } from '../api';
+import { AiNotesPanel } from '../AiNotes';
 import { useApi, Async, Empty, Loading, ErrorBox, fmtDate, initials, StatusBadge, useAction, Modal, Field } from '../ui';
 
 const TABS = [['open', 'Abertas'], ['pending', 'Aguardando humano'], ['closed', 'Encerradas']] as const;
@@ -73,6 +74,8 @@ function Chat({ id, onChange }: { id: string; onChange: () => void }) {
   const flows = useApi<any[]>('/flows');
   const [text, setText] = useState('');
   const [note, setNote] = useState(false);
+  const [aiNote, setAiNote] = useState(false);
+  const [showAiNotes, setShowAiNotes] = useState(false);
   const [showFlow, setShowFlow] = useState(false);
   const [showTpl, setShowTpl] = useState(false);
   const [tpl, setTpl] = useState({ name: '', language: 'pt_BR' });
@@ -87,7 +90,7 @@ function Chat({ id, onChange }: { id: string; onChange: () => void }) {
   const send = async () => {
     if (!text.trim()) return;
     if (note) {
-      const r = await run(() => post(`/conversations/${id}/notes`, { text }), 'Nota interna adicionada');
+      const r = await run(() => post(`/conversations/${id}/notes`, { text, ai: aiNote }), aiNote ? 'Nota para a IA salva no contato' : 'Nota interna adicionada');
       if (r) setText('');
     } else {
       try {
@@ -116,14 +119,22 @@ function Chat({ id, onChange }: { id: string; onChange: () => void }) {
             </select>
             {d.conversation.mode === 'BOT' && d.conversation.status !== 'CLOSED' && <button className="btn sm" disabled={busy} onClick={() => action('take', 'Você assumiu a conversa')}>Assumir</button>}
             {d.conversation.mode === 'HUMAN' && d.conversation.status !== 'CLOSED' && <button className="btn sm" disabled={busy} onClick={() => action('to_bot', 'Conversa devolvida ao robô')}>Devolver ao robô</button>}
+            {d.contact && <button className="btn sm" onClick={() => setShowAiNotes((v) => !v)} title="Observações sobre este contato que a IA considera ao responder (o cliente não vê)">🧠 Notas para a IA ({(d.aiNotes ?? []).length})</button>}
             {d.conversation.status !== 'CLOSED'
               ? <button className="btn sm" disabled={busy} onClick={() => action('close', 'Conversa encerrada')}>Encerrar</button>
               : <button className="btn sm" disabled={busy} onClick={() => action('reopen', 'Conversa reaberta')}>Reabrir</button>}
           </div>
+          {showAiNotes && d.contact && <AiNotesPanel contactId={d.contact.id} notes={d.aiNotes ?? []} onChange={refresh} onClose={() => setShowAiNotes(false)} />}
           {d.activeRun && <div className="alert info" style={{ margin: 8 }}>Fluxo em execução ({d.activeRun.status === 'WAITING' ? 'aguardando resposta do contato' : 'executando'}).</div>}
           <div className="msgs">
-            {d.messages.length === 0 && <Empty title="Sem mensagens ainda" />}
-            {d.messages.map((m: any) => (
+            {d.messages.length === 0 && !(d.aiNotes ?? []).length && <Empty title="Sem mensagens ainda" />}
+            {timeline(d).map((m: any) => m.kind === 'ai_note' ? (
+              <div key={'ai-' + m.id} className="bubble note ai-note" title="Nota para a IA: vale para todas as conversas deste contato e nunca é enviada ao cliente">
+                <div className="small" style={{ fontWeight: 700 }}>🧠 Nota para a IA · {m.authorName ?? ''}</div>
+                {m.body}
+                <div className="meta"><span>{fmtDate(m.createdAt)}</span>{m.updatedAt && new Date(m.updatedAt).getTime() - new Date(m.createdAt).getTime() > 1000 && <span>editada</span>}</div>
+              </div>
+            ) : (
               <div key={m.id} className={`bubble ${m.direction === 'INTERNAL' ? 'note' : m.direction === 'OUT' ? 'out' : ''} ${m.status === 'FAILED' ? 'failed' : ''}`}>
                 {m.direction !== 'IN' && <div className="small" style={{ fontWeight: 700 }}>{m.direction === 'INTERNAL' ? (m.sender === 'agent' ? `Nota interna · ${m.authorName ?? ''}` : 'Sistema') : m.sender === 'agent' ? m.authorName ?? 'Atendente' : SENDER[m.sender]}</div>}
                 {m.mediaUrl && <div><a href={m.mediaUrl} target="_blank" rel="noreferrer">[{m.type}] abrir mídia</a></div>}
@@ -139,13 +150,14 @@ function Chat({ id, onChange }: { id: string; onChange: () => void }) {
               {!d.conversation.withinWindow && !note && (
                 <div className="alert warn small">Fora da janela de 24 horas: o WhatsApp só permite enviar um <strong>modelo aprovado</strong>. <button className="btn sm" onClick={() => setShowTpl(true)}>Enviar modelo</button></div>
               )}
-              <textarea placeholder={note ? 'Nota interna (o contato não vê)' : 'Mensagem…'} value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }} aria-label="Mensagem" />
+              <textarea placeholder={aiNote ? 'Nota para a IA sobre este contato (o cliente não vê; a IA considera ao responder)' : note ? 'Nota interna (o contato não vê)' : 'Mensagem…'} value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }} aria-label="Mensagem" />
               <div className="row between">
                 <div className="row">
-                  <label className="row small"><input type="checkbox" checked={note} onChange={(e) => setNote(e.target.checked)} /> Nota interna</label>
+                  <label className="row small"><input type="checkbox" checked={note} onChange={(e) => { setNote(e.target.checked); if (!e.target.checked) setAiNote(false); }} /> Nota interna</label>
+                  <label className="row small" title="A nota fica salva no contato (vale em todas as conversas dele) e a IA passa a considerá-la. Nunca é enviada ao cliente."><input type="checkbox" checked={aiNote} onChange={(e) => { setAiNote(e.target.checked); if (e.target.checked) setNote(true); }} /> 🧠 Nota para a IA</label>
                   <button className="btn sm" onClick={() => setShowFlow(true)}>Enviar fluxo</button>
                 </div>
-                <button className="btn primary" disabled={!text.trim() || busy} onClick={send}>{note ? 'Salvar nota' : 'Enviar'}</button>
+                <button className="btn primary" disabled={!text.trim() || busy} onClick={send}>{aiNote ? 'Salvar nota para a IA' : note ? 'Salvar nota' : 'Enviar'}</button>
               </div>
             </div>
           )}
@@ -177,3 +189,10 @@ function Chat({ id, onChange }: { id: string; onChange: () => void }) {
     </div>
   );
 }
+
+/** Mensagens da conversa + notas para a IA do contato, em ordem cronológica. */
+function timeline(d: any): any[] {
+  const notes = (d.aiNotes ?? []).map((n: any) => ({ ...n, kind: 'ai_note' }));
+  return [...d.messages, ...notes].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+}
+

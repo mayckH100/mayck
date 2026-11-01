@@ -2,6 +2,7 @@ import { prisma } from '../db.js';
 import { decryptOrNull } from '../lib/crypto.js';
 import { createProvider, type ChatMessage } from '../ai/providers.js';
 import { retrieve } from '../ai/service.js';
+import { aiNotesPromptSection, contactIdOfConversation } from '../ai/contactNotes.js';
 import { sendOutbound, handoffToHuman } from '../whatsapp/messaging.js';
 import { isProductActive } from '../billing/service.js';
 import { parseJson } from '../lib/json.js';
@@ -146,8 +147,10 @@ export async function classifyLeadMessage(orgId: string, lead: Pick<Lead, 'name'
     tone: ai.tone, companyInstructions: ai.instructions, knowledge,
     leadName: (lead.name ?? '').split(/\s+/)[0] ?? '', attempts: lead.qualifyAttempts ?? 0, maxAttempts: s.maxAttempts,
   });
+  // Notas para a IA do contato (quando há conversa vinculada): dados internos, nunca revelados ao cliente.
+  const notes = await contactIdOfConversation(orgId, conversationId).then((cid) => aiNotesPromptSection(orgId, cid)).catch(() => '');
   // Histórico precisa terminar com o usuário (Gemini recusa conversa terminando em "model").
-  const msgs: ChatMessage[] = [{ role: 'system', content: system }, ...history.filter((m) => m.content), { role: 'user', content: text }];
+  const msgs: ChatMessage[] = [{ role: 'system', content: notes ? `${system}\n${notes}` : system }, ...history.filter((m) => m.content), { role: 'user', content: text }];
   const started = Date.now();
   let lastError = '';
   for (let attempt = 1; attempt <= 2; attempt++) {

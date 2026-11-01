@@ -251,6 +251,20 @@ model Contact {
   @@index([orgId, stageId])
 }
 
+// Nota para a IA: observação interna do vendedor sobre o CONTATO (vale em todas as conversas/canais dele na organização).
+// Nunca é enviada ao cliente; entra no prompt da IA como dado (não como instrução).
+model ContactAiNote {
+  id           String   @id @default(cuid())
+  orgId        String
+  contactId    String
+  authorUserId String?
+  body         String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([orgId, contactId, createdAt])
+}
+
 model Conversation {
   id              String    @id @default(cuid())
   orgId           String

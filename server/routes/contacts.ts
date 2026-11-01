@@ -5,6 +5,7 @@ import { ah, notFound, HttpError } from '../lib/http.js';
 import { orgOf, requireRole } from '../auth/session.js';
 import { audit } from '../lib/audit.js';
 import { parseJson } from '../lib/json.js';
+import { listContactAiNotes, AI_NOTE_MAX_LEN } from '../ai/contactNotes.js';
 import { IMPORT_MAX_BYTES, templateCsv, decodeCsv, readSheet, checkRows, type CheckedRow } from '../lib/contacts-import.js';
 
 export const contactsRouter = Router();
@@ -230,9 +231,10 @@ contactsRouter.get('/:id/export', requireRole('OWNER', 'ADMIN'), ah(async (req, 
   const conversations = await prisma.conversation.findMany({ where: { orgId, contactId: c.id } });
   const messages = await prisma.message.findMany({ where: { orgId, conversationId: { in: conversations.map((x) => x.id) } }, orderBy: { createdAt: 'asc' } });
   const runs = await prisma.flowRun.findMany({ where: { orgId, contactId: c.id } });
+  const aiNotes = await prisma.contactAiNote.findMany({ where: { orgId, contactId: c.id }, orderBy: { createdAt: 'asc' } });
   await audit(req, 'lgpd.export', { entity: 'contact', entityId: c.id });
   res.setHeader('Content-Disposition', `attachment; filename="contato-${c.id}.json"`);
-  res.json({ exportedAt: new Date().toISOString(), contact: view(c), conversations, messages, flowRuns: runs });
+  res.json({ exportedAt: new Date().toISOString(), contact: view(c), conversations, messages, flowRuns: runs, aiNotes });
 }));
 
 /** LGPD — apaga definitivamente o contato e tudo que se refere a ele. */
@@ -248,8 +250,61 @@ contactsRouter.delete('/:id', requireRole('OWNER', 'ADMIN'), ah(async (req, res)
     prisma.aiUsage.updateMany({ where: { orgId, conversationId: { in: convIds } }, data: { conversationId: null } }),
     prisma.message.deleteMany({ where: { orgId, conversationId: { in: convIds } } }),
     prisma.conversation.deleteMany({ where: { orgId, contactId: c.id } }),
+    prisma.contactAiNote.deleteMany({ where: { orgId, contactId: c.id } }),
     prisma.contact.delete({ where: { id: c.id } }),
   ]);
   await audit(req, 'lgpd.delete', { entity: 'contact', entityId: c.id, meta: { conversations: convIds.length } });
   res.json({ ok: true, deletedConversations: convIds.length });
+}));
+
+// ---------------- Notas para a IA (observações internas do vendedor sobre o contato) ----------------
+// Escopo: organização (orgId da sessão). Criar: qualquer membro. Editar/remover: o autor, Proprietário ou Administrador.
+
+const aiNoteSchema = z.object({ text: z.string().trim().min(1, 'Escreva a nota').max(AI_NOTE_MAX_LEN, `A nota pode ter no máximo ${AI_NOTE_MAX_LEN} caracteres`) });
+
+async function contactOf(req: import('express').Request, id: string) {
+  const c = await prisma.contact.findFirst({ where: { id, orgId: orgOf(req) }, select: { id: true, orgId: true } });
+  if (!c) throw notFound('Contato');
+  return c;
+}
+
+export async function createContactAiNote(req: import('express').Request, contactId: string, text: string) {
+  const c = await contactOf(req, contactId);
+  const n = await prisma.contactAiNote.create({ data: { orgId: c.orgId, contactId: c.id, authorUserId: req.auth!.userId, body: text } });
+  await audit(req, 'contact.ai_note.create', { entity: 'contact', entityId: c.id, meta: { noteId: n.id } });
+  return (await listContactAiNotes(c.orgId, c.id)).find((x) => x.id === n.id)!;
+}
+
+async function editableNote(req: import('express').Request) {
+  const c = await contactOf(req, req.params.id);
+  const n = await prisma.contactAiNote.findFirst({ where: { id: req.params.noteId, orgId: c.orgId, contactId: c.id } });
+  if (!n) throw notFound('Nota');
+  const role = req.auth!.role;
+  if (n.authorUserId !== req.auth!.userId && role !== 'OWNER' && role !== 'ADMIN') throw new HttpError(403, 'Só o autor da nota, o Proprietário ou um Administrador podem alterá-la');
+  return { c, n };
+}
+
+contactsRouter.get('/:id/ai-notes', ah(async (req, res) => {
+  const c = await contactOf(req, req.params.id);
+  res.json({ items: await listContactAiNotes(c.orgId, c.id) });
+}));
+
+contactsRouter.post('/:id/ai-notes', ah(async (req, res) => {
+  const { text } = aiNoteSchema.parse(req.body);
+  res.status(201).json(await createContactAiNote(req, req.params.id, text));
+}));
+
+contactsRouter.patch('/:id/ai-notes/:noteId', ah(async (req, res) => {
+  const { text } = aiNoteSchema.parse(req.body);
+  const { c, n } = await editableNote(req);
+  await prisma.contactAiNote.update({ where: { id: n.id }, data: { body: text } });
+  await audit(req, 'contact.ai_note.update', { entity: 'contact', entityId: c.id, meta: { noteId: n.id } });
+  res.json((await listContactAiNotes(c.orgId, c.id)).find((x) => x.id === n.id));
+}));
+
+contactsRouter.delete('/:id/ai-notes/:noteId', ah(async (req, res) => {
+  const { c, n } = await editableNote(req);
+  await prisma.contactAiNote.delete({ where: { id: n.id } });
+  await audit(req, 'contact.ai_note.delete', { entity: 'contact', entityId: c.id, meta: { noteId: n.id } });
+  res.json({ ok: true });
 }));

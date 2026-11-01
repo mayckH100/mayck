@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { post, patch, del, get, upload } from '../api';
 import { useAuth } from '../auth';
+import { ContactAiNotes } from '../AiNotes';
 import { useApi, Async, Empty, useAction, Modal, Field, fmtDate, StatusBadge, Loading } from '../ui';
 
 export default function Contacts() {
@@ -193,6 +194,7 @@ function ContactDetail({ id, onClose, onChanged }: { id: string; onClose: () => 
           <div className="row">{state.data.tags.map((t: string) => <span key={t} className="badge">{t}</span>)}</div>
           {state.data.notes && <div className="alert info">{state.data.notes}</div>}
           <label className="row small"><input type="checkbox" checked={state.data.optOut} onChange={(e) => run(() => patch(`/contacts/${id}`, { optOut: e.target.checked }), 'Preferência salva').then(() => { state.reload(); onChanged(); })} /> Não enviar mensagens automáticas (opt-out)</label>
+          <ContactAiNotes contactId={id} />
           <div>
             <h3>Dados coletados pelos fluxos</h3>
             {Object.keys(state.data.vars).length === 0 ? <p className="small muted">Nenhum.</p> : (

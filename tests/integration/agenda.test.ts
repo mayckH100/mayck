@@ -63,7 +63,7 @@ describe('Agenda: compromissos, conflitos e avisos', () => {
     graph.reset();
     const moved = await owner.patch(`/api/agenda/${a.id}`, { start: localAt(4, '11:00') });
     expect(moved.status).toBe(200);
-    expect(sentTexts().some((t: string) => t.includes('remarcado'))).toBe(true);
+    expect(sentTexts().some((t: string) => t.includes('Reunião remarcada'))).toBe(true);
     const c = await owner.patch(`/api/agenda/${a.id}`, { status: 'CANCELLED' });
     expect(c.body.status).toBe('CANCELLED');
     const ics = await request(app).get(new URL(c.body.links.ics).pathname);
