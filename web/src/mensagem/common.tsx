@@ -5,12 +5,18 @@ export const MM_BASE = '/mensagem';
 export const MCKBOT_URL = '/';
 
 export type LeadStatus = 'NOVO' | 'CONTATADO' | 'RESPONDEU' | 'QUALIFICADO' | 'AGUARDANDO' | 'CONVERTIDO' | 'DESCARTADO';
-export type ConsentSource = 'FORMULARIO' | 'IMPORTACAO' | 'ANUNCIO_CTWA' | 'MANUAL';
+export type ConsentSource = 'FORMULARIO' | 'IMPORTACAO' | 'ANUNCIO_CTWA' | 'MANUAL' | 'MCKBOT';
 export type CampaignStatus = 'RASCUNHO' | 'AGENDADA' | 'EM_ANDAMENTO' | 'PAUSADA' | 'CONCLUIDA';
 
 export interface Lead {
   id: string; phone: string; name: string | null; tags: string[]; status: LeadStatus;
   consentSource: ConsentSource; consentAt: string | null; optOutAt: string | null; campaignId: string | null; createdAt: string;
+  /** Mesmo contato do MCKBOT (vinculado pelo telefone). */
+  fromMckbot?: boolean;
+  /** Consentimento ainda não registrado: não recebe campanhas. */
+  consentPending?: boolean;
+  /** Outros números do mesmo cliente (mesmo nome normalizado). */
+  otherNumbers?: number;
 }
 export interface LeadPage { items: Lead[]; total: number; page: number; pageSize: number }
 export interface Campaign {
@@ -30,10 +36,12 @@ export const LEAD_STATUS_LABEL: Record<LeadStatus, string> = { NOVO: 'Novo', CON
 export const LEAD_STATUS_CLS: Record<LeadStatus, string> = { NOVO: 'blue', CONTATADO: '', RESPONDEU: 'amber', QUALIFICADO: 'green', AGUARDANDO: '', CONVERTIDO: 'green', DESCARTADO: 'red' };
 export const LEAD_STATUS_COLOR: Record<LeadStatus, string> = { NOVO: '#2f6fde', CONTATADO: '#8b6cff', RESPONDEU: '#b7791f', QUALIFICADO: '#14a37f', AGUARDANDO: '#8a94a6', CONVERTIDO: '#0b7a5a', DESCARTADO: '#d64545' };
 
+/** Origens selecionáveis (MCKBOT é só a marca de quem veio do MCKBOT com consentimento pendente). */
 export const CONSENT_SOURCES: ConsentSource[] = ['FORMULARIO', 'IMPORTACAO', 'ANUNCIO_CTWA', 'MANUAL'];
 export const CONSENT_LABEL: Record<ConsentSource, string> = {
   FORMULARIO: 'Formulário (site/landing page)', IMPORTACAO: 'Importação de lista autorizada',
   ANUNCIO_CTWA: 'Anúncio Clique para WhatsApp', MANUAL: 'Cadastro manual (autorização direta)',
+  MCKBOT: 'Contato do MCKBOT (consentimento pendente)',
 };
 
 export const CAMPAIGN_STATUS_LABEL: Record<CampaignStatus, string> = { RASCUNHO: 'Rascunho', AGENDADA: 'Agendada', EM_ANDAMENTO: 'Em andamento', PAUSADA: 'Pausada', CONCLUIDA: 'Concluída' };

@@ -30,11 +30,12 @@ describe('Importação de contatos por planilha (CSV)', () => {
     const buf = r.body as Buffer;
     expect([...buf.subarray(0, 3)]).toEqual([0xef, 0xbb, 0xbf]);
     const lines = buf.toString('utf8').replace(/^\uFEFF/, '').trim().split('\r\n');
-    expect(lines[0]).toBe('nome;telefone;email;empresa;tags;observacoes');
-    expect(lines).toHaveLength(2);
-    // o próprio modelo é aceito pela prévia
+    expect(lines[0]).toBe('Nome;Contato 1;Contato 2;Contato 3;Contato 4;E-mail;Empresa;Etiquetas;Observações');
+    expect(lines).toHaveLength(4);
+    expect(buf.toString('utf8')).not.toMatch(/mayck/i);
+    // o próprio modelo é aceito pela prévia: 3 clientes, 6 números (cada um vira um contato)
     const p = await sendCsv(owner, '/api/contacts/import/preview', buf);
-    expect(p.body).toMatchObject({ total: 1, ok: 1 });
+    expect(p.body).toMatchObject({ clients: 3, total: 6, ok: 6 });
   });
 
   it('leitor CSV: aspas, aspas escapadas, quebra de linha, detecção de separador, anti-fórmula, Windows-1252', () => {

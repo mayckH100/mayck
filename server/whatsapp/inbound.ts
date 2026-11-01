@@ -14,6 +14,7 @@ import { onLeadInbound, onLeadOptOut } from '../mckmensagem/hooks.js';
 import { qualifyLeadInbound } from '../mckmensagem/qualificacao.js';
 import { autoReplyModeOf } from './autoReplyMode.js';
 import { openConversationFor, redirectIfActiveElsewhere } from './multiCanal.js';
+import { safeSyncContactsToLeads, safeOnContactUpdated } from '../mckmensagem/contactSync.js';
 
 const OPT_OUT = new Set(['sair', 'parar', 'stop', 'descadastrar']);
 
@@ -63,7 +64,9 @@ async function findOrCreateContact(orgId: string, m: InboundMessage) {
     const byLid = await prisma.contact.findUnique({ where: { orgId_waId: { orgId, waId: m.lid } } });
     if (byLid) {
       try {
-        return await prisma.contact.update({ where: { id: byLid.id }, data: { waId: m.from, phone: '+' + m.from } });
+        const upd = await prisma.contact.update({ where: { id: byLid.id }, data: { waId: m.from, phone: '+' + m.from } });
+        await safeOnContactUpdated(byLid, upd); // MCK Mensagens: agora que o número é conhecido, o contato aparece lá
+        return upd;
       } catch {
         contact = await prisma.contact.findUnique({ where: { orgId_waId: { orgId, waId: m.from } } });
         return contact ?? byLid;
@@ -71,7 +74,9 @@ async function findOrCreateContact(orgId: string, m: InboundMessage) {
     }
   }
   try {
-    return await prisma.contact.create({ data: { orgId, waId: m.from, phone: m.from.includes('@') ? m.from : '+' + m.from, name: m.profileName ?? null } });
+    const created = await prisma.contact.create({ data: { orgId, waId: m.from, phone: m.from.includes('@') ? m.from : '+' + m.from, name: m.profileName ?? null } });
+    await safeSyncContactsToLeads(orgId, [created]); // MCK Mensagens: novo contato aparece lá (consentimento pendente)
+    return created;
   } catch {
     return prisma.contact.findUniqueOrThrow({ where: { orgId_waId: { orgId, waId: m.from } } });
   }

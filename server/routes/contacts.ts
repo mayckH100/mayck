@@ -6,7 +6,9 @@ import { orgOf, requireRole } from '../auth/session.js';
 import { audit } from '../lib/audit.js';
 import { parseJson } from '../lib/json.js';
 import { listContactAiNotes, AI_NOTE_MAX_LEN } from '../ai/contactNotes.js';
-import { IMPORT_MAX_BYTES, templateCsv, decodeCsv, readSheet, checkRows, type CheckedRow } from '../lib/contacts-import.js';
+import { IMPORT_MAX_BYTES, templateCsv, decodeCsv, readSheet, checkRows, annotateSameClient, type CheckedRow } from '../lib/contacts-import.js';
+import { nameKey, siblingsOf, otherNumbersCount } from '../lib/same-client.js';
+import { safeSyncContactsToLeads, safeOnContactUpdated, leadIdsOfContact, contactDeletionOps } from '../mckmensagem/contactSync.js';
 
 export const contactsRouter = Router();
 
@@ -31,7 +33,10 @@ contactsRouter.get('/', ah(async (req, res) => {
     prisma.contact.findMany({ where, orderBy: [{ lastMessageAt: 'desc' }, { createdAt: 'desc' }], take: 50, skip: (q.page - 1) * 50 }),
     prisma.contact.count({ where }),
   ]);
-  res.json({ items: items.map(view), total, page: q.page, pageSize: 50 });
+  // "Mesmo cliente / outros números": quantos outros telefones têm o mesmo nome (normalizado) na organização.
+  const names = items.some((c) => nameKey(c.name)) ? await prisma.contact.findMany({ where: { orgId, name: { not: null } }, select: { id: true, name: true, phone: true } }) : [];
+  const counts = otherNumbersCount(items, names);
+  res.json({ items: items.map((c) => ({ ...view(c), otherNumbers: counts.get(c.id) ?? 0 })), total, page: q.page, pageSize: 50 });
 }));
 
 const contactSchema = z.object({
@@ -61,6 +66,8 @@ contactsRouter.post('/', ah(async (req, res) => {
   const c = await prisma.contact.create({
     data: { orgId, waId, phone: '+' + waId, name: body.name || null, email: body.email || null, tags: JSON.stringify(body.tags ?? []), notes: body.notes ?? null, stageId: body.stageId ?? null, optOut: body.optOut ?? false },
   });
+  // MCK Mensagens: o mesmo contato aparece na lista de contatos (consentimento pendente).
+  await safeSyncContactsToLeads(orgId, [c]);
   await audit(req, 'contact.create', { entity: 'contact', entityId: c.id });
   res.status(201).json(view(c));
 }));
@@ -70,6 +77,7 @@ contactsRouter.post('/import', requireRole('OWNER', 'ADMIN'), ah(async (req, res
   const orgId = orgOf(req);
   let created = 0, updated = 0;
   const errors: string[] = [];
+  const touched: string[] = [];
   const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
   for (const [i, line] of lines.entries()) {
     if (i === 0 && /telefone|phone/i.test(line)) continue; // cabeçalho
@@ -79,12 +87,14 @@ contactsRouter.post('/import', requireRole('OWNER', 'ADMIN'), ah(async (req, res
     const ex = await prisma.contact.findUnique({ where: { orgId_waId: { orgId, waId } } });
     if (ex) {
       await prisma.contact.update({ where: { id: ex.id }, data: { name: ex.name ?? (name || null), email: ex.email ?? (email || null) } });
+      touched.push(ex.id);
       updated++;
     } else {
-      await prisma.contact.create({ data: { orgId, waId, phone: '+' + waId, name: name || null, email: email || null } });
+      touched.push((await prisma.contact.create({ data: { orgId, waId, phone: '+' + waId, name: name || null, email: email || null } })).id);
       created++;
     }
   }
+  if (touched.length) await safeSyncContactsToLeads(orgId, await prisma.contact.findMany({ where: { orgId, id: { in: touched } } }));
   await audit(req, 'contact.import', { meta: { created, updated, errors: errors.length } });
   res.json({ created, updated, errors: errors.slice(0, 50) });
 }));
@@ -105,7 +115,7 @@ async function analyzeUpload(req: express.Request, orgId: string): Promise<Check
   if (!Buffer.isBuffer(req.body) || req.body.length === 0) throw new HttpError(400, 'Envie o arquivo CSV da planilha.');
   const sheet = readSheet(decodeCsv(req.body));
   if (!sheet.ok) throw new HttpError(400, sheet.error);
-  const existingRows = await prisma.contact.findMany({ where: { orgId }, select: { id: true, waId: true, tags: true } });
+  const existingRows = await prisma.contact.findMany({ where: { orgId }, select: { id: true, waId: true, phone: true, name: true, tags: true } });
   const existing = new Map(existingRows.map((c) => [c.waId, c.id]));
   // Etiqueta que já existe na organização (ignorando maiúsculas) é reaproveitada com a mesma grafia; senão é criada.
   const known = new Map<string, string>();
@@ -115,11 +125,16 @@ async function analyzeUpload(req: express.Request, orgId: string): Promise<Check
     if (!known.has(k)) known.set(k, t);
     return known.get(k)!;
   };
-  return checkRows(sheet.rows, normalizePhone, existing, canonical);
+  const rows = checkRows(sheet.rows, normalizePhone, existing, canonical);
+  // Mesmo cliente com outros números (mesmo nome, telefone diferente): só sinaliza, nunca mescla nem rejeita.
+  annotateSameClient(rows, existingRows, nameKey);
+  return rows;
 }
 
 const summarize = (rows: CheckedRow[]) => ({
   total: rows.length,
+  /** Linhas da planilha (clientes); total = números de telefone (cada um vira um contato). */
+  clients: new Set(rows.map((r) => r.line)).size,
   ok: rows.filter((r) => r.status === 'ok').length,
   errors: rows.filter((r) => r.status === 'error').length,
   duplicates: rows.filter((r) => r.status === 'duplicate').length,
@@ -130,7 +145,7 @@ contactsRouter.post('/import/preview', requireRole('OWNER', 'ADMIN'), csvBody, a
   const rows = await analyzeUpload(req, orgOf(req));
   res.json({
     ...summarize(rows),
-    rows: rows.map((r) => ({ line: r.line, status: r.status, messages: r.messages, name: r.name, phone: r.phone, email: r.email, empresa: r.empresa, tags: r.tags, notes: r.notes, existing: !!r.existingId })),
+    rows: rows.map((r) => ({ line: r.line, contato: r.contato, status: r.status, messages: r.messages, name: r.name, phone: r.phone, email: r.email, empresa: r.empresa, tags: r.tags, notes: r.notes, existing: !!r.existingId, sameClient: r.sameClient ?? [] })),
   });
 }));
 
@@ -139,7 +154,10 @@ contactsRouter.post('/import/preview', requireRole('OWNER', 'ADMIN'), csvBody, a
  * contatos que já existem (campos preenchidos na planilha sobrescrevem; etiquetas são somadas).
  */
 contactsRouter.post('/import/confirm', requireRole('OWNER', 'ADMIN'), csvBody, ah(async (req, res) => {
-  const updateExisting = ['1', 'true', 'sim'].includes(String(req.query.updateExisting ?? '').toLowerCase());
+  const yes = (v: unknown) => ['1', 'true', 'sim'].includes(String(v ?? '').toLowerCase());
+  const updateExisting = yes(req.query.updateExisting);
+  // ?consent=1: quem importa declara que os contatos autorizaram receber mensagens (vale para o MCK Mensagens).
+  const consentDeclared = yes(req.query.consent);
   const orgId = orgOf(req);
   const rows = await analyzeUpload(req, orgId);
   const toCreate = rows.filter((r) => r.status === 'ok');
@@ -180,10 +198,19 @@ contactsRouter.post('/import/confirm', requireRole('OWNER', 'ADMIN'), csvBody, a
     if (e?.code === 'P2002') throw new HttpError(409, 'Alguns contatos foram criados enquanto a importação rodava. Gere a prévia de novo e confirme.');
     throw e;
   }
+  // MCK Mensagens: os contatos importados (novos e atualizados) aparecem também na lista de contatos de lá,
+  // mesclados pelo telefone (sem duplicar). Sem a declaração de consentimento, entram com consentimento pendente.
+  const waIds = [...toCreate, ...toUpdate].map((r) => r.waId).filter((w): w is string => !!w);
+  let mckMensagens = { created: 0, linked: 0 };
+  for (let i = 0; i < waIds.length; i += 500) {
+    const part = await prisma.contact.findMany({ where: { orgId, waId: { in: waIds.slice(i, i + 500) } } });
+    const r = await safeSyncContactsToLeads(orgId, part, consentDeclared ? { consent: { source: 'IMPORTACAO', at: new Date() } } : {});
+    mckMensagens = { created: mckMensagens.created + r.created, linked: mckMensagens.linked + r.linked };
+  }
   const s = summarize(rows);
-  const result = { ...s, created, updated, skipped: s.duplicates - updated };
+  const result = { ...s, created, updated, skipped: s.duplicates - updated, mckMensagens };
   // Auditoria só com contagens (sem nomes, telefones ou e-mails).
-  await audit(req, 'contacts.import', { meta: { ...result, updateExisting } });
+  await audit(req, 'contacts.import', { meta: { ...result, updateExisting, consentDeclared } });
   res.json(result);
 }));
 
@@ -192,7 +219,8 @@ contactsRouter.get('/:id', ah(async (req, res) => {
   const c = await prisma.contact.findFirst({ where: { id: req.params.id, orgId } });
   if (!c) throw notFound('Contato');
   const conversations = await prisma.conversation.findMany({ where: { orgId, contactId: c.id }, orderBy: { createdAt: 'desc' }, take: 20 });
-  res.json({ ...view(c), conversations });
+  const sameName = nameKey(c.name) ? await prisma.contact.findMany({ where: { orgId, name: { not: null } }, select: { id: true, name: true, phone: true } }) : [];
+  res.json({ ...view(c), conversations, sameClient: siblingsOf(c, sameName) });
 }));
 
 contactsRouter.patch('/:id', ah(async (req, res) => {
@@ -219,6 +247,7 @@ contactsRouter.patch('/:id', ah(async (req, res) => {
       ...(waId ? { waId, phone: '+' + waId } : {}),
     },
   });
+  await safeOnContactUpdated(c, u);
   await audit(req, 'contact.update', { entity: 'contact', entityId: c.id, meta: { fields: Object.keys(body) } });
   res.json(view(u));
 }));
@@ -244,7 +273,9 @@ contactsRouter.delete('/:id', requireRole('OWNER', 'ADMIN'), ah(async (req, res)
   if (!c) throw notFound('Contato');
   const convIds = (await prisma.conversation.findMany({ where: { orgId, contactId: c.id }, select: { id: true } })).map((x) => x.id);
   const runIds = (await prisma.flowRun.findMany({ where: { orgId, contactId: c.id }, select: { id: true } })).map((x) => x.id);
+  const leadIds = await leadIdsOfContact(c); // o mesmo contato no MCK Mensagens
   await prisma.$transaction([
+    ...contactDeletionOps(c, leadIds),
     prisma.flowRunStep.deleteMany({ where: { orgId, runId: { in: runIds } } }),
     prisma.flowRun.deleteMany({ where: { orgId, contactId: c.id } }),
     prisma.aiUsage.updateMany({ where: { orgId, conversationId: { in: convIds } }, data: { conversationId: null } }),
@@ -253,7 +284,7 @@ contactsRouter.delete('/:id', requireRole('OWNER', 'ADMIN'), ah(async (req, res)
     prisma.contactAiNote.deleteMany({ where: { orgId, contactId: c.id } }),
     prisma.contact.delete({ where: { id: c.id } }),
   ]);
-  await audit(req, 'lgpd.delete', { entity: 'contact', entityId: c.id, meta: { conversations: convIds.length } });
+  await audit(req, 'lgpd.delete', { entity: 'contact', entityId: c.id, meta: { conversations: convIds.length, leads: leadIds.length } });
   res.json({ ok: true, deletedConversations: convIds.length });
 }));
 

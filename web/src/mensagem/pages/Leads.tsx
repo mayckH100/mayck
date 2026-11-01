@@ -65,13 +65,13 @@ function ImportLeads({ campaigns, onClose, onDone }: { campaigns: Campaign[]; on
   const [consentSource, setConsentSource] = useState<ConsentSource>('IMPORTACAO');
   const [campaignId, setCampaignId] = useState('');
   const [tags, setTags] = useState('');
-  const [result, setResult] = useState<{ created: number; updated: number; errors: string[] } | null>(null);
+  const [result, setResult] = useState<{ created: number; updated: number; sameClient?: number; errors: string[] } | null>(null);
   const { busy, run } = useAction();
   const onFile = async (file?: File) => { if (file) setText(await file.text()); };
   const lines = text.split(/\r?\n/).filter((l) => l.trim()).length;
   const submit = async (e: FormEvent) => {
     e.preventDefault();
-    const r = await run(() => post<{ created: number; updated: number; errors: string[] }>('/mckmensagem/leads/import', {
+    const r = await run(() => post<{ created: number; updated: number; sameClient?: number; errors: string[] }>('/mckmensagem/leads/import', {
       text, consentDeclared: declared, consentSource, campaignId: campaignId || null, tags: parseTags(tags),
     }));
     if (r) { setResult(r); onDone(); }
@@ -80,7 +80,7 @@ function ImportLeads({ campaigns, onClose, onDone }: { campaigns: Campaign[]; on
     <Modal title="Importar contatos (CSV)" onClose={onClose}>
       {result ? (
         <div className="stack">
-          <div className="alert ok">Importação concluída: <strong>{fmtNum(result.created)}</strong> novo(s) e <strong>{fmtNum(result.updated)}</strong> atualizado(s).</div>
+          <div className="alert ok">Importação concluída: <strong>{fmtNum(result.created)}</strong> novo(s) e <strong>{fmtNum(result.updated)}</strong> atualizado(s).{result.sameClient ? <> {fmtNum(result.sameClient)} cliente(s) com mais de um número (cada número virou um contato).</> : null}</div>
           {result.errors.length > 0 && (
             <div className="alert warn">
               <strong>{result.errors.length} linha(s) ignorada(s):</strong>
@@ -91,10 +91,11 @@ function ImportLeads({ campaigns, onClose, onDone }: { campaigns: Campaign[]; on
         </div>
       ) : (
         <form className="stack" onSubmit={submit}>
-          <p className="small muted" style={{ margin: 0 }}>Colunas: <span className="mono">telefone,nome,etiquetas</span> (etiquetas separadas por <span className="mono">|</span>). Aceita vírgula ou ponto e vírgula. Até 10.000 linhas.</p>
+          <p className="small muted" style={{ margin: 0 }}>Uma linha = um cliente, com até 4 números: <span className="mono">Nome;Contato 1;Contato 2;Contato 3;Contato 4;Etiquetas</span> (etiquetas separadas por <span className="mono">|</span>). Cada número vira um contato, agrupado como o mesmo cliente. O formato antigo <span className="mono">telefone,nome,etiquetas</span> continua aceito. Até 10.000 linhas.</p>
+          <a className="btn sm" href="/api/mckmensagem/leads/import/template" download="modelo-contatos-mck-mensagens.csv">⬇ Baixar modelo da planilha</a>
           <Field label="Arquivo CSV"><input type="file" accept=".csv,text/csv,text/plain" onChange={(e) => onFile(e.target.files?.[0])} /></Field>
           <Field label="…ou cole o conteúdo" hint={lines ? `${fmtNum(lines)} linha(s)` : undefined}>
-            <textarea rows={6} className="mono" placeholder={'phone,name,tags\n11999998888,Ana Souza,vip|sp'} value={text} onChange={(e) => setText(e.target.value)} />
+            <textarea rows={6} className="mono" placeholder={'Nome;Contato 1;Contato 2;Contato 3;Contato 4;Etiquetas\nAna Souza;11999998888;11988887777;;;vip|sp'} value={text} onChange={(e) => setText(e.target.value)} />
           </Field>
           <div className="grid g2" style={{ gap: 10 }}>
             <Field label="Origem do consentimento">
@@ -120,6 +121,7 @@ function ImportLeads({ campaigns, onClose, onDone }: { campaigns: Campaign[]; on
 }
 
 function EditLead({ lead, campaigns, onClose, onDone, onDelete }: { lead: Lead; campaigns: Campaign[]; onClose: () => void; onDone: () => void; onDelete?: () => void }) {
+  const full = useApi<Lead & { sameClient: { id: string; phone: string }[] }>(`/mckmensagem/leads/${lead.id}`);
   const [f, setF] = useState({ name: lead.name ?? '', tags: lead.tags.join(', '), status: lead.status, campaignId: lead.campaignId ?? '', optOut: !!lead.optOutAt });
   const { busy, run } = useAction();
   const submit = async (e: FormEvent) => {
@@ -133,8 +135,15 @@ function EditLead({ lead, campaigns, onClose, onDone, onDelete }: { lead: Lead; 
     <Modal title="Editar contato" onClose={onClose}>
       <form className="stack" onSubmit={submit}>
         <div className="small muted">
-          <strong className="mono" style={{ fontSize: 13 }}>{lead.phone}</strong> · consentimento: {CONSENT_LABEL[lead.consentSource] ?? lead.consentSource} em {fmtDate(lead.consentAt)}
+          <strong className="mono" style={{ fontSize: 13 }}>{lead.phone}</strong> · {lead.consentAt
+            ? <>consentimento: {CONSENT_LABEL[lead.consentSource] ?? lead.consentSource} em {fmtDate(lead.consentAt)}</>
+            : <span className="badge amber">consentimento pendente</span>}
+          {lead.fromMckbot && <> · <span className="badge blue" title="Mesmo contato do MCKBOT: nome e opt-out ficam sincronizados">MCKBOT</span></>}
         </div>
+        {(full.data?.sameClient?.length ?? 0) > 0 && (
+          <div className="alert info small"><strong>Mesmo cliente · outros números:</strong> {full.data!.sameClient.map((x) => fmtPhone(x.phone)).join(', ')}<div className="muted">Cada número é um contato próprio.</div></div>
+        )}
+        {!lead.consentAt && <div className="alert info small">Este contato veio do MCKBOT e ainda não tem consentimento registrado, por isso não recebe campanhas. Para registrar, selecione-o na lista e use “Registrar consentimento”.</div>}
         <Field label="Nome"><input value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} /></Field>
         <div className="grid g2" style={{ gap: 10 }}>
           <Field label="Status">
@@ -168,6 +177,7 @@ export default function MmLeads() {
   const status = sp.get('status') ?? '';
   const tag = sp.get('tag') ?? '';
   const campaignId = sp.get('campaignId') ?? '';
+  const consent = sp.get('consent') ?? '';
   const page = Math.max(1, Number(sp.get('page') ?? 1) || 1);
   const [tagInput, setTagInput] = useState(tag);
   const dTag = useDebounced(tagInput);
@@ -185,6 +195,7 @@ export default function MmLeads() {
   if (status) params.set('status', status);
   if (tag) params.set('tag', tag);
   if (campaignId) params.set('campaignId', campaignId);
+  if (consent) params.set('consent', consent);
   params.set('page', String(page));
   const leads = useApi<LeadPage>(`/mckmensagem/leads?${params}`);
   const camps = useApi<Campaign[]>('/mckmensagem/campaigns');
@@ -205,8 +216,8 @@ export default function MmLeads() {
     const r = await run(() => patch(`/mckmensagem/leads/${l.id}`, { optOut: !l.optOutAt }), l.optOutAt ? 'Opt-out removido' : 'Contato marcado como opt-out');
     if (r) leads.reload();
   };
-  const filtered = !!(sp.get('q') || status || tag || campaignId);
-  const filter: LeadFilter = { q: sp.get('q') ?? '', status, tag, campaignId };
+  const filtered = !!(sp.get('q') || status || tag || campaignId || consent);
+  const filter: LeadFilter = { q: sp.get('q') ?? '', status, tag, campaignId, consent };
   const sel = useLeadSelection(JSON.stringify(filter));
   const pageIds = leads.data?.items.map((l) => l.id) ?? [];
   const paginaToda = pageIds.length > 0 && pageIds.every((id) => sel.ids.has(id));
@@ -214,7 +225,7 @@ export default function MmLeads() {
   return (
     <>
       <div className="page-head">
-        <div><h1>Contatos</h1><p className="muted">Sua base de leads com consentimento. Só recebe campanhas quem autorizou e não pediu para sair.</p></div>
+        <div><h1>Contatos</h1><p className="muted">Seus contatos, incluindo os cadastrados e importados no MCKBOT. Só recebe campanhas quem autorizou e não pediu para sair.</p></div>
         <div className="row">
           <a className="btn" href="/api/mckmensagem/leads/export" download>Exportar CSV</a>
           <button className="btn" onClick={() => setModal('import')}>Importar CSV</button>
@@ -230,6 +241,11 @@ export default function MmLeads() {
           </select>
           <input placeholder="Etiqueta" value={tagInput} onChange={(e) => setTagInput(e.target.value)} aria-label="Etiqueta" />
           <CampaignSelect value={campaignId} onChange={(v) => setParam('campaignId', v)} campaigns={campaigns} empty="Todas as campanhas" withNone />
+          <select value={consent} onChange={(e) => setParam('consent', e.target.value)} aria-label="Consentimento">
+            <option value="">Todo consentimento</option>
+            <option value="sim">Com consentimento</option>
+            <option value="nao">Consentimento pendente</option>
+          </select>
         </div>
         <BulkBar sel={sel} filter={filter} total={leads.data?.total ?? 0} campaigns={campaigns} canDelete={canDelete} onDone={() => { leads.reload(); camps.reload(); }} />
         <Async state={leads}>{(d) => d.items.length === 0 ? (
@@ -250,11 +266,15 @@ export default function MmLeads() {
                         <strong>{l.name || '—'}</strong>
                         <div className="small muted">{fmtPhone(l.phone)}</div>
                         {l.optOutAt && <span className="badge red" title={`Desde ${fmtDate(l.optOutAt)}`}>Opt-out</span>}
+                        {l.fromMckbot && <span className="badge blue" title="Mesmo contato do MCKBOT: nome e opt-out ficam sincronizados">MCKBOT</span>}
+                        {(l.otherNumbers ?? 0) > 0 && <span className="badge" title="Mesmo cliente (mesmo nome) com outros números">+{l.otherNumbers} número(s)</span>}
                       </td>
                       <td><LeadBadge status={l.status} /></td>
                       <td className="hide-xs"><div className="mm-chips">{l.tags.map((t) => <button key={t} className="badge" style={{ border: 0, cursor: 'pointer' }} onClick={() => setTagInput(t)}>{t}</button>)}</div></td>
                       <td className="hide-xs small">{campName(l.campaignId) ?? '—'}</td>
-                      <td className="hide-xs small">{CONSENT_LABEL[l.consentSource]?.split(' (')[0] ?? l.consentSource}<div className="muted">{fmtDate(l.consentAt)}</div></td>
+                      <td className="hide-xs small">{l.consentAt
+                        ? <>{CONSENT_LABEL[l.consentSource]?.split(' (')[0] ?? l.consentSource}<div className="muted">{fmtDate(l.consentAt)}</div></>
+                        : <span className="badge amber" title="Não recebe campanhas até o consentimento ser registrado">Pendente</span>}</td>
                       <td style={{ whiteSpace: 'nowrap', textAlign: 'right' }}>
                         <button className="btn sm" onClick={() => setModal(l)}>Editar</button>{' '}
                         <button className={`btn sm ${l.optOutAt ? '' : 'danger'}`} onClick={() => toggleOptOut(l)} title={l.optOutAt ? 'Voltar a enviar' : 'Não enviar mais'}>{l.optOutAt ? 'Reativar' : 'Opt-out'}</button>

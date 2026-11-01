@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react';
 import { post } from '../../api';
 import { useApi, Async, Empty, Modal, useAction, fmtNum } from '../../ui';
-import { LEAD_STATUS, LEAD_STATUS_LABEL, LeadBadge, fmtPhone, type Campaign, type LeadPage, type LeadStatus } from '../common';
+import { LEAD_STATUS, LEAD_STATUS_LABEL, CONSENT_SOURCES, CONSENT_LABEL, LeadBadge, fmtPhone, type Campaign, type ConsentSource, type LeadPage, type LeadStatus } from '../common';
 
 /** Limite por operação em massa (igual ao do servidor). */
 export const BULK_MAX = 10_000;
 
-export type LeadFilter = { q?: string; status?: string; tag?: string; campaignId?: string; notCampaignId?: string; optOut?: string };
+export type LeadFilter = { q?: string; status?: string; tag?: string; campaignId?: string; notCampaignId?: string; optOut?: string; consent?: string };
 export interface BulkResult { matched: number; updated: number; queued: number }
 
 const limpa = (f: LeadFilter) => Object.fromEntries(Object.entries(f).filter(([, v]) => v)) as LeadFilter;
@@ -89,6 +89,8 @@ export function BulkBar({ sel, filter, total, campaigns, onDone, canDelete = fal
   const [campaignId, setCampaignId] = useState('');
   const [tags, setTags] = useState('');
   const [status, setStatus] = useState<LeadStatus>('CONTATADO');
+  const [consentSource, setConsentSource] = useState<ConsentSource>('MANUAL');
+  const [declared, setDeclared] = useState(false);
   const n = sel.todos ? total : sel.ids.size;
   if (!n) return null;
   const exec = async (body: Record<string, unknown>, okMsg: (r: BulkResult) => string, confirmMsg?: string) => {
@@ -115,6 +117,8 @@ export function BulkBar({ sel, filter, total, campaigns, onDone, canDelete = fal
         <option value="setStatus">Mudar status</option>
         <option value="optOut">Marcar opt-out (não enviar mais)</option>
         <option value="optIn">Remover opt-out</option>
+        <option value="registerConsent">Registrar consentimento</option>
+        {canDelete && <option value="addToClientes">Cadastrar como clientes (Automações/Cobranças)</option>}
         {canDelete && <option value="delete">Excluir contatos</option>}
       </select>
       {acao === 'setCampaign' && <>
@@ -134,6 +138,15 @@ export function BulkBar({ sel, filter, total, campaigns, onDone, canDelete = fal
       </>}
       {acao === 'optOut' && <button className="btn sm danger" disabled={busy} onClick={() => exec({ action: 'optOut' }, (r) => `${r.updated} contato(s) marcado(s) como opt-out.`, `Marcar ${n} contato(s) como opt-out? Eles deixam de receber campanhas.`)}>Aplicar</button>}
       {acao === 'optIn' && <button className="btn sm primary" disabled={busy} onClick={() => exec({ action: 'optIn' }, (r) => `${r.updated} contato(s) reativado(s).`, `Remover o opt-out de ${n} contato(s)? Só faça isso se eles pediram para voltar a receber.`)}>Aplicar</button>}
+      {acao === 'registerConsent' && <>
+        <select value={consentSource} onChange={(e) => setConsentSource(e.target.value as ConsentSource)} style={{ width: 'auto' }} aria-label="Origem do consentimento">{CONSENT_SOURCES.map((s) => <option key={s} value={s}>{CONSENT_LABEL[s]}</option>)}</select>
+        <label className="row small"><input type="checkbox" checked={declared} onChange={(e) => setDeclared(e.target.checked)} style={{ width: 'auto' }} /> Declaro que estes contatos autorizaram receber mensagens</label>
+        <button className="btn sm primary" disabled={busy || !declared} onClick={() => exec({ action: 'registerConsent', consentSource, consentDeclared: true }, (r) => `${r.updated} contato(s) com consentimento registrado. Quem já tinha consentimento não mudou.`)}>Aplicar</button>
+      </>}
+      {canDelete && acao === 'addToClientes' && <>
+        <button className="btn sm primary" disabled={busy} onClick={() => exec({ action: 'addToClientes' }, (r) => `${r.updated} cliente(s) criado(s) ou atualizado(s) em Automações/Cobranças. Quem já era cliente (mesmo telefone) não foi duplicado.`)}>Aplicar</button>
+        <span className="small muted">Para usar em lembretes, marketing e cobranças.</span>
+      </>}
       {canDelete && acao === 'delete' && <button className="btn sm danger" disabled={busy} onClick={() => setConfirmDel(true)}>Excluir {fmtNum(n)}</button>}
       {canDelete && confirmDel && <ConfirmDeleteLeads count={n} busy={busy} onConfirm={excluir} onClose={() => setConfirmDel(false)} />}
       <button className="btn sm ghost" onClick={sel.clear} style={{ marginLeft: 'auto' }}>Limpar seleção</button>

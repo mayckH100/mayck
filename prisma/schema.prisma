@@ -458,11 +458,11 @@ model Lead {
   name            String?
   tags            String    @default("[]")
   status          String    @default("NOVO") // NOVO | CONTATADO | RESPONDEU | CONVERTIDO | DESCARTADO
-  consentSource   String // FORMULARIO | IMPORTACAO | ANUNCIO_CTWA | MANUAL
-  consentAt       DateTime
+  consentSource   String // FORMULARIO | IMPORTACAO | ANUNCIO_CTWA | MANUAL | MCKBOT (veio do MCKBOT, consentimento pendente)
+  consentAt       DateTime? // null = consentimento ainda não registrado (contato vindo do MCKBOT): não recebe campanhas
   optOutAt        DateTime?
   campaignId      String?
-  contactId       String?
+  contactId       String? // contato do MCKBOT (mesma pessoa): nome, telefone e opt-out ficam sincronizados
   // IA de qualificação (MCK Mensagens)
   qualifyAttempts Int       @default(0) // respostas negativas recebidas (cada uma gera uma nova tentativa)
   nextAttemptAt   DateTime? // quando AGUARDANDO: próxima tentativa automática

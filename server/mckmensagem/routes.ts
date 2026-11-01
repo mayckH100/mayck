@@ -8,6 +8,9 @@ import { parseJson } from '../lib/json.js';
 import { LEAD_STATUS, CONSENT_SOURCES, toE164 } from './constants.js';
 import type { Lead, Campaign } from '@prisma/client';
 import { isProductActive } from '../billing/service.js';
+import { contactIdForPhone, mirrorLeadsToContacts } from './contactSync.js';
+import { parseCsv, detectDelimiter, mapHeaderCell, rowFromCells, MAX_PHONES_PER_ROW, type HeaderCol } from '../lib/contacts-import.js';
+import { nameKey, siblingsOf, otherNumbersCount } from '../lib/same-client.js';
 import { getLeadAiSettings, classifyLeadMessage, buildQualifyPrompt, DEFAULT_PROMPT_TEMPLATE, PROMPT_VARIABLES, lockedPromptTail } from './qualificacao.js';
 
 export const mckmensagemRouter = Router();
@@ -37,7 +40,8 @@ async function deleteLeadsOfOrg(orgId: string, ids: string[]) {
   });
 }
 
-const leadView = (l: Lead) => ({ ...l, tags: parseJson<string[]>(l.tags, []) });
+/** fromMckbot: é o mesmo contato do MCKBOT (vinculado); consentPending: ainda não pode receber campanhas. */
+const leadView = (l: Lead) => ({ ...l, tags: parseJson<string[]>(l.tags, []), fromMckbot: !!l.contactId, consentPending: !l.consentAt });
 const tagsSchema = z.array(z.string().trim().min(1).max(40)).max(30);
 const hhmm = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'Use o formato HH:MM');
 
@@ -47,6 +51,8 @@ const hhmm = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'Use o formato HH:MM'
 const leadFilterSchema = z.object({
   q: z.string().max(100).optional(), status: z.enum(LEAD_STATUS).optional(), tag: z.string().max(40).optional(),
   campaignId: z.string().max(40).optional(), notCampaignId: z.string().max(40).optional(), optOut: z.enum(['sim', 'nao']).optional(),
+  /** sim = com consentimento registrado; nao = consentimento pendente (ex.: contatos vindos do MCKBOT). */
+  consent: z.enum(['sim', 'nao']).optional(),
 });
 type LeadFilter = z.infer<typeof leadFilterSchema>;
 
@@ -56,6 +62,7 @@ function leadWhere(orgId: string, q: LeadFilter) {
   if (q.campaignId) where.campaignId = q.campaignId === 'none' ? null : q.campaignId;
   if (q.notCampaignId) where.AND = [{ OR: [{ campaignId: null }, { campaignId: { not: q.notCampaignId } }] }];
   if (q.optOut) where.optOutAt = q.optOut === 'sim' ? { not: null } : null;
+  if (q.consent) where.consentAt = q.consent === 'sim' ? { not: null } : null;
   if (q.tag) where.tags = { contains: JSON.stringify(q.tag) };
   if (q.q) where.OR = [{ name: { contains: q.q } }, { phone: { contains: q.q.replace(/[^\d+]/g, '') || q.q } }];
   return where;
@@ -68,23 +75,73 @@ mckmensagemRouter.get('/leads', ah(async (req, res) => {
     prisma.lead.findMany({ where, orderBy: { createdAt: 'desc' }, take: q.pageSize, skip: (q.page - 1) * q.pageSize }),
     prisma.lead.count({ where }),
   ]);
-  res.json({ items: items.map(leadView), total, page: q.page, pageSize: q.pageSize });
+  // "Mesmo cliente / outros números": outros telefones com o mesmo nome (normalizado) na organização.
+  const orgId = orgOf(req);
+  const names = items.some((l) => nameKey(l.name)) ? await prisma.lead.findMany({ where: { orgId, name: { not: null } }, select: { id: true, name: true, phone: true } }) : [];
+  const counts = otherNumbersCount(items, names);
+  res.json({ items: items.map((l) => ({ ...leadView(l), otherNumbers: counts.get(l.id) ?? 0 })), total, page: q.page, pageSize: q.pageSize });
 }));
 
 export const BULK_MAX = 10_000;
 const bulkSchema = z.object({
   ids: z.array(z.string().min(1).max(40)).min(1).max(BULK_MAX).optional(),
   filter: leadFilterSchema.optional(),
-  action: z.enum(['setCampaign', 'removeCampaign', 'addTags', 'removeTags', 'setStatus', 'optOut', 'optIn', 'delete']),
+  action: z.enum(['setCampaign', 'removeCampaign', 'addTags', 'removeTags', 'setStatus', 'optOut', 'optIn', 'delete', 'registerConsent', 'addToClientes']),
   campaignId: z.string().min(1).optional(),
   tags: tagsSchema.optional(),
   status: z.enum(LEAD_STATUS).optional(),
   /** Campanha em andamento/pausada: também coloca os elegíveis na fila de envio (padrão: sim). */
   addToQueue: z.boolean().default(true),
+  /** registerConsent: origem do consentimento e a declaração de quem registra (obrigatória). */
+  consentSource: z.enum(CONSENT_SOURCES).optional(),
+  consentDeclared: z.boolean().optional(),
 }).refine((b) => !!b.ids !== !!b.filter, 'Informe "ids" ou "filter" (um dos dois)')
   .refine((b) => b.action !== 'setCampaign' || !!b.campaignId, 'Escolha a campanha')
   .refine((b) => !['addTags', 'removeTags'].includes(b.action) || !!b.tags?.length, 'Informe ao menos uma etiqueta')
-  .refine((b) => b.action !== 'setStatus' || !!b.status, 'Escolha o status');
+  .refine((b) => b.action !== 'setStatus' || !!b.status, 'Escolha o status')
+  .refine((b) => b.action !== 'registerConsent' || b.consentDeclared === true, 'Confirme que estes contatos autorizaram receber mensagens');
+
+/**
+ * Contatos → clientes de Automações/Cobranças (para lembretes, marketing e cobranças). Mescla pelo telefone/WhatsApp
+ * (ou pelo vínculo com o contato do MCKBOT): cliente existente só ganha os campos vazios. Consentimento e opt-out do
+ * lead passam para o cliente. Retorna quantos clientes foram criados ou atualizados.
+ */
+async function leadsToClientes(orgId: string, ids: string[]): Promise<number> {
+  let n = 0;
+  for (let i = 0; i < ids.length; i += 500) {
+    const leads = await prisma.lead.findMany({ where: { orgId, id: { in: ids.slice(i, i + 500) } } });
+    const cIds = leads.map((l) => l.contactId).filter((x): x is string => !!x);
+    const contacts = new Map((cIds.length ? await prisma.contact.findMany({ where: { orgId, id: { in: cIds } }, select: { id: true, name: true, email: true, vars: true } }) : []).map((c) => [c.id, c]));
+    for (const l of leads) {
+      const ct = l.contactId ? contacts.get(l.contactId) : undefined;
+      const email = ct?.email ? ct.email.trim().toLowerCase().slice(0, 160) : null;
+      const empresaRaw = parseJson<Record<string, unknown>>(ct?.vars, {}).empresa;
+      const empresa = typeof empresaRaw === 'string' && empresaRaw.trim() ? empresaRaw.trim().slice(0, 160) : null;
+      const or: any[] = [{ telefone: l.phone }, { whatsapp: l.phone }];
+      if (l.contactId) or.push({ contactId: l.contactId });
+      const dup = await prisma.cliente.findFirst({ where: { orgId, OR: or } });
+      if (dup) {
+        const data: any = {};
+        if (!dup.whatsapp) data.whatsapp = l.phone;
+        if (!dup.email && email) data.email = email;
+        if (!dup.empresa && empresa) data.empresa = empresa;
+        if (!dup.contactId && l.contactId) data.contactId = l.contactId;
+        if (!dup.consentimentoAt && l.consentAt) { data.consentimentoAt = l.consentAt; data.consentimentoOrigem = l.consentSource; }
+        if (!dup.marketingOptOutAt && l.optOutAt) data.marketingOptOutAt = l.optOutAt;
+        if (Object.keys(data).length) { await prisma.cliente.update({ where: { id: dup.id }, data }); n++; }
+        continue;
+      }
+      await prisma.cliente.create({
+        data: {
+          orgId, nome: (l.name || ct?.name || l.phone).slice(0, 160), whatsapp: l.phone, email, empresa, contactId: l.contactId,
+          consentimentoAt: l.consentAt, consentimentoOrigem: l.consentAt ? l.consentSource : null, marketingOptOutAt: l.optOutAt,
+        },
+      });
+      n++;
+    }
+  }
+  return n;
+}
 
 /**
  * Ações em massa nos contatos: por lista de ids ou por "todos que atendem ao filtro" (limite de 10.000 por vez).
@@ -93,11 +150,12 @@ const bulkSchema = z.object({
 mckmensagemRouter.post('/leads/bulk', ah(async (req, res) => {
   const b = bulkSchema.parse(req.body);
   if (b.action === 'delete' && !isLeadAdmin(req)) throw new HttpError(403, 'Apenas proprietário ou administrador pode excluir contatos');
+  if (b.action === 'addToClientes' && !isLeadAdmin(req)) throw new HttpError(403, 'Apenas proprietário ou administrador pode cadastrar clientes');
   const orgId = orgOf(req);
   const where = b.ids ? { orgId, id: { in: [...new Set(b.ids)] } } : leadWhere(orgId, b.filter!);
   const matched = await prisma.lead.count({ where });
   if (matched > BULK_MAX) throw new HttpError(400, `A seleção tem ${matched} contatos; o limite por operação é ${BULK_MAX}. Refine os filtros.`);
-  const leads = matched ? await prisma.lead.findMany({ where, select: { id: true, tags: true, optOutAt: true, consentAt: true, status: true, campaignId: true } }) : [];
+  const leads = matched ? await prisma.lead.findMany({ where, select: { id: true, tags: true, optOutAt: true, consentAt: true, status: true, campaignId: true, contactId: true } }) : [];
   const ids = leads.map((l) => l.id);
   let updated = 0, queued = 0;
   const chunks = <T,>(arr: T[], n = 500) => Array.from({ length: Math.ceil(arr.length / n) }, (_, i) => arr.slice(i * n, i * n + n));
@@ -144,10 +202,21 @@ mckmensagemRouter.post('/leads/bulk', ah(async (req, res) => {
     case 'optOut': {
       const now = new Date();
       for (const part of chunks(ids)) updated += (await prisma.lead.updateMany({ where: { orgId, id: { in: part }, optOutAt: null }, data: { optOutAt: now } })).count;
+      await mirrorLeadsToContacts(orgId, leads.map((l) => l.contactId), { optOut: true }); // vale também no MCKBOT
       break;
     }
     case 'optIn':
       for (const part of chunks(ids)) updated += (await prisma.lead.updateMany({ where: { orgId, id: { in: part }, optOutAt: { not: null } }, data: { optOutAt: null } })).count;
+      await mirrorLeadsToContacts(orgId, leads.filter((l) => l.optOutAt).map((l) => l.contactId), { optOut: false });
+      break;
+    case 'registerConsent': {
+      // Só quem ainda está com consentimento pendente (ex.: veio do MCKBOT). Quem já tinha mantém a origem/data.
+      const now = new Date();
+      for (const part of chunks(ids)) updated += (await prisma.lead.updateMany({ where: { orgId, id: { in: part }, consentAt: null }, data: { consentAt: now, consentSource: b.consentSource ?? 'MANUAL' } })).count;
+      break;
+    }
+    case 'addToClientes':
+      updated = await leadsToClientes(orgId, ids);
       break;
     case 'delete':
       for (const part of chunks(ids)) {
@@ -156,7 +225,7 @@ mckmensagemRouter.post('/leads/bulk', ah(async (req, res) => {
       }
       break;
   }
-  await audit(req, 'mckmensagem.lead.bulk', { meta: { action: b.action, por: b.ids ? 'ids' : 'filtro', filtro: b.filter ?? null, matched, updated, queued, campaignId: b.campaignId ?? null, status: b.status ?? null, tags: b.tags ?? null } });
+  await audit(req, 'mckmensagem.lead.bulk', { meta: { action: b.action, por: b.ids ? 'ids' : 'filtro', filtro: b.filter ?? null, matched, updated, queued, campaignId: b.campaignId ?? null, status: b.status ?? null, tags: b.tags ?? null, consentSource: b.action === 'registerConsent' ? (b.consentSource ?? 'MANUAL') : null } });
   if (b.action === 'delete') await audit(req, 'leads.bulk_delete', { entity: 'Lead', meta: { por: b.ids ? 'ids' : 'filtro', requested: b.ids ? new Set(b.ids).size : matched, deleted: updated } });
   res.json({ matched, updated, queued });
 }));
@@ -198,7 +267,7 @@ mckmensagemRouter.post('/leads', ah(async (req, res) => {
   await checkCampaign(orgId, body.campaignId);
   if (await prisma.lead.findUnique({ where: { orgId_phone: { orgId, phone } } })) throw new HttpError(409, 'Já existe um lead com este telefone');
   const lead = await prisma.lead.create({
-    data: { orgId, phone, name: body.name || null, tags: JSON.stringify(body.tags ?? []), consentSource: body.consentSource, consentAt: body.consentAt ?? new Date(), campaignId: body.campaignId ?? null },
+    data: { orgId, phone, name: body.name || null, tags: JSON.stringify(body.tags ?? []), consentSource: body.consentSource, consentAt: body.consentAt ?? new Date(), campaignId: body.campaignId ?? null, contactId: await contactIdForPhone(orgId, phone) },
   });
   await audit(req, 'mckmensagem.lead.create', { entity: 'Lead', entityId: lead.id, meta: { consentSource: body.consentSource } });
   res.status(201).json(leadView(lead));
@@ -221,9 +290,11 @@ mckmensagemRouter.get('/leads/export', ah(async (req, res) => {
 }));
 
 mckmensagemRouter.get('/leads/:id', ah(async (req, res) => {
-  const lead = await prisma.lead.findFirst({ where: { id: req.params.id, orgId: orgOf(req) } });
+  const orgId = orgOf(req);
+  const lead = await prisma.lead.findFirst({ where: { id: req.params.id, orgId } });
   if (!lead) throw notFound('Lead');
-  res.json(leadView(lead));
+  const sameName = nameKey(lead.name) ? await prisma.lead.findMany({ where: { orgId, name: { not: null } }, select: { id: true, name: true, phone: true } }) : [];
+  res.json({ ...leadView(lead), sameClient: siblingsOf(lead, sameName) });
 }));
 
 const leadUpdate = z.object({
@@ -247,6 +318,13 @@ mckmensagemRouter.patch('/leads/:id', ah(async (req, res) => {
   if (body.campaignId !== undefined) data.campaignId = body.campaignId;
   if (body.optOut !== undefined) data.optOutAt = body.optOut ? (lead.optOutAt ?? new Date()) : null;
   const updated = await prisma.lead.update({ where: { id: lead.id }, data });
+  // Mesma pessoa no MCKBOT: nome e opt-out valem lá também.
+  if (lead.contactId) {
+    const mirror: { name?: string | null; optOut?: boolean } = {};
+    if (body.name !== undefined && (body.name || null) !== lead.name && body.name) mirror.name = body.name;
+    if (body.optOut !== undefined && body.optOut !== !!lead.optOutAt) mirror.optOut = body.optOut;
+    await mirrorLeadsToContacts(orgId, [lead.contactId], mirror);
+  }
   await audit(req, 'mckmensagem.lead.update', { entity: 'Lead', entityId: lead.id, meta: Object.keys(data) });
   res.json(leadView(updated));
 }));
@@ -258,7 +336,26 @@ mckmensagemRouter.delete('/leads/:id', canDeleteLeads, ah(async (req, res) => {
   res.json({ ok: true });
 }));
 
-/** Importação CSV: colunas phone,name,tags (tags separadas por "|"). Exige consentimento declarado. */
+/** Modelo da importação: uma linha = um cliente, com até 4 telefones (cada um vira um contato). */
+export const LEADS_TEMPLATE_CSV = '\uFEFF' + [
+  'Nome;Contato 1;Contato 2;Contato 3;Contato 4;Etiquetas',
+  'Maria Silva;(11) 99999-0001;(11) 98888-0002;;;cliente|vip',
+  'João Souza;(21) 97777-0003;;;;cliente',
+  'Comercial Exemplo Ltda;(31) 96666-0004;(31) 95555-0005;(31) 3444-0006;;empresa',
+].join('\r\n') + '\r\n';
+
+mckmensagemRouter.get('/leads/import/template', ah(async (_req, res) => {
+  res.setHeader('content-type', 'text/csv; charset=utf-8');
+  res.setHeader('content-disposition', 'attachment; filename="modelo-contatos-mck-mensagens.csv"');
+  res.send(LEADS_TEMPLATE_CSV);
+}));
+
+/**
+ * Importação CSV. Com cabeçalho: Nome; Contato 1..4 (ou Telefone/WhatsApp/phone do modelo antigo); Etiquetas.
+ * Sem cabeçalho (formato antigo): telefone,nome,etiquetas (etiquetas separadas por "|").
+ * Cada telefone preenchido vira um contato (duplicidade só pelo telefone); números da mesma linha ou com o mesmo nome
+ * são o mesmo cliente (só sinalizado). Exige consentimento declarado.
+ */
 mckmensagemRouter.post('/leads/import', ah(async (req, res) => {
   const body = z.object({
     text: z.string().min(1).max(2_000_000),
@@ -269,33 +366,56 @@ mckmensagemRouter.post('/leads/import', ah(async (req, res) => {
   }).parse(req.body);
   const orgId = orgOf(req);
   await checkCampaign(orgId, body.campaignId);
-  const lines = body.text.split(/\r?\n/);
-  const sep = (lines[0] ?? '').includes(';') ? ';' : ',';
-  let start = 0;
-  if (/phone|telefone|celular|whats/i.test(lines[0] ?? '')) start = 1;
-  if (lines.length - start > 10000) throw new HttpError(400, 'Máximo de 10.000 linhas por importação');
-  let created = 0, updated = 0;
+  const text = body.text.replace(/^\uFEFF/, '');
+  const sep = detectDelimiter(text);
+  const table = parseCsv(text, sep).map((r) => r.map((c) => c.trim()));
+  while (table.length && table[0].every((c) => !c)) table.shift();
+  let header: HeaderCol[] | null = (table[0] ?? []).map(mapHeaderCell);
+  if (!header.some((h) => typeof h === 'object' && h)) header = null; // sem cabeçalho reconhecido: formato antigo
+  const dataRows = table.slice(header ? 1 : 0).map((cells, i) => ({ cells, line: i + (header ? 2 : 1) })).filter((r) => r.cells.some(Boolean));
+  if (dataRows.length > 10000) throw new HttpError(400, 'Máximo de 10.000 linhas por importação');
+  let created = 0, updated = 0, sameClient = 0;
   const errors: string[] = [];
   const now = new Date();
-  for (let i = start; i < lines.length; i++) {
-    const line = lines[i].trim();
-    if (!line) continue;
-    const [rawPhone, rawName, rawTags] = line.split(sep).map((s) => s.trim().replace(/^"|"$/g, ''));
-    const phone = toE164(rawPhone ?? '');
-    if (!phone) { errors.push(`Linha ${i + 1}: telefone inválido`); continue; }
-    const tags = [...new Set([...(rawTags ? rawTags.split('|').map((t) => t.trim()).filter(Boolean) : []), ...(body.tags ?? [])])].slice(0, 30);
-    const existing = await prisma.lead.findUnique({ where: { orgId_phone: { orgId, phone } } });
-    if (existing) {
-      const merged = [...new Set([...parseJson<string[]>(existing.tags, []), ...tags])].slice(0, 30);
-      await prisma.lead.update({ where: { id: existing.id }, data: { name: existing.name ?? (rawName || null), tags: JSON.stringify(merged), ...(body.campaignId ? { campaignId: body.campaignId } : {}) } });
-      updated++;
+  const seen = new Set<string>();
+  const strip = (v: string) => v.replace(/^"|"$/g, '').trim();
+  for (const { cells, line } of dataRows) {
+    let rawName = '', rawTags = '', phonesRaw: string[] = [];
+    if (header) {
+      const raw = rowFromCells(header, cells);
+      rawName = strip(raw.nome); rawTags = raw.tags; phonesRaw = raw.telefones.slice(0, MAX_PHONES_PER_ROW).map((p) => strip(p ?? ''));
     } else {
-      await prisma.lead.create({ data: { orgId, phone, name: rawName || null, tags: JSON.stringify(tags), consentSource: body.consentSource, consentAt: now, campaignId: body.campaignId ?? null } });
-      created++;
+      phonesRaw = [strip(cells[0] ?? '')]; rawName = strip(cells[1] ?? ''); rawTags = strip(cells[2] ?? '');
     }
+    rawName = rawName.replace(/^[=+\-@\t\r]+/, '').slice(0, 100);
+    const filled = phonesRaw.map((p, i) => ({ p, n: i + 1 })).filter((x) => x.p);
+    if (!filled.length) { errors.push(`Linha ${line}: telefone inválido`); continue; }
+    const tags = [...new Set([...(rawTags ? rawTags.split(/[|,]/).map((t) => t.trim().replace(/^[=+\-@]+/, '').slice(0, 40)).filter(Boolean) : []), ...(body.tags ?? [])])].slice(0, 30);
+    let okPhones = 0;
+    for (const { p, n } of filled) {
+      const phone = toE164(p);
+      const where = filled.length > 1 ? ` (Contato ${n})` : '';
+      if (!phone) { errors.push(`Linha ${line}${where}: telefone inválido`); continue; }
+      if (seen.has(phone)) continue; // mesmo número repetido no arquivo: conta uma vez
+      seen.add(phone);
+      okPhones++;
+      const existing = await prisma.lead.findUnique({ where: { orgId_phone: { orgId, phone } } });
+      if (existing) {
+        const merged = [...new Set([...parseJson<string[]>(existing.tags, []), ...tags])].slice(0, 30);
+        // Contato vindo do MCKBOT com consentimento pendente: a declaração desta importação registra o consentimento.
+        const consent = !existing.consentAt ? { consentAt: now, consentSource: body.consentSource } : {};
+        const link = !existing.contactId ? { contactId: await contactIdForPhone(orgId, phone) } : {};
+        await prisma.lead.update({ where: { id: existing.id }, data: { name: existing.name ?? (rawName || null), tags: JSON.stringify(merged), ...consent, ...link, ...(body.campaignId ? { campaignId: body.campaignId } : {}) } });
+        updated++;
+      } else {
+        await prisma.lead.create({ data: { orgId, phone, name: rawName || null, tags: JSON.stringify(tags), consentSource: body.consentSource, consentAt: now, campaignId: body.campaignId ?? null, contactId: await contactIdForPhone(orgId, phone) } });
+        created++;
+      }
+    }
+    if (okPhones > 1) sameClient++;
   }
-  await audit(req, 'mckmensagem.lead.import', { meta: { created, updated, errors: errors.length, consentSource: body.consentSource } });
-  res.json({ created, updated, errors: errors.slice(0, 100) });
+  await audit(req, 'mckmensagem.lead.import', { meta: { created, updated, errors: errors.length, sameClient, consentSource: body.consentSource } });
+  res.json({ created, updated, sameClient, errors: errors.slice(0, 100) });
 }));
 
 // ---------------- Campanhas ----------------
@@ -385,6 +505,7 @@ mckmensagemRouter.post('/campaigns/:id/start', ah(async (req, res) => {
   else where.campaignId = c.id;
   const leads = await prisma.lead.findMany({ where, select: { id: true, consentAt: true } });
   let added = 0;
+  const semConsentimento = leads.filter((l) => !l.consentAt).length;
   for (const l of leads) {
     if (!l.consentAt) continue;
     const exists = await prisma.campaignRecipient.findUnique({ where: { campaignId_leadId: { campaignId: c.id, leadId: l.id } } });
@@ -393,10 +514,12 @@ mckmensagemRouter.post('/campaigns/:id/start', ah(async (req, res) => {
     added++;
   }
   const pending = await prisma.campaignRecipient.count({ where: { campaignId: c.id, status: 'PENDENTE' } });
-  if (!pending) throw new HttpError(400, 'Nenhum lead elegível (com consentimento e sem opt-out) para esta campanha');
+  if (!pending) throw new HttpError(400, semConsentimento
+    ? `Nenhum lead elegível: ${semConsentimento} contato(s) ainda estão com consentimento pendente. Registre o consentimento em Contatos para enviar.`
+    : 'Nenhum lead elegível (com consentimento e sem opt-out) para esta campanha');
   const updated = await prisma.campaign.update({ where: { id: c.id }, data: { status: 'EM_ANDAMENTO' } });
   await audit(req, 'mckmensagem.campaign.start', { entity: 'Campaign', entityId: c.id, meta: { added, pending } });
-  res.json({ ...(await campaignView(updated)), added, pending });
+  res.json({ ...(await campaignView(updated)), added, pending, semConsentimento });
 }));
 
 mckmensagemRouter.post('/campaigns/:id/pause', ah(async (req, res) => {

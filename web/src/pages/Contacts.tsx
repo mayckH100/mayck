@@ -33,7 +33,7 @@ export default function Contacts() {
             <tbody>
               {d.items.map((c: any) => (
                 <tr key={c.id}>
-                  <td><strong>{c.name ?? '—'}</strong>{c.optOut && <span className="badge red" style={{ marginLeft: 6 }}>opt-out</span>}<div className="small muted">{c.email}</div></td>
+                  <td><strong>{c.name ?? '—'}</strong>{c.optOut && <span className="badge red" style={{ marginLeft: 6 }}>opt-out</span>}{c.otherNumbers > 0 && <span className="badge blue" style={{ marginLeft: 6 }} title="Mesmo cliente (mesmo nome) com outros números">+{c.otherNumbers} número(s)</span>}<div className="small muted">{c.email}</div></td>
                   <td>{c.phone}</td>
                   <td><div className="row">{c.tags.map((t: string) => <span key={t} className="badge">{t}</span>)}</div></td>
                   <td>{fmtDate(c.lastMessageAt)}</td>
@@ -80,9 +80,9 @@ function ContactForm({ onClose, onSaved, initial }: { onClose: () => void; onSav
   );
 }
 
-type PreviewRow = { line: number; status: 'ok' | 'error' | 'duplicate'; messages: string[]; name: string; phone: string; email: string; empresa: string; tags: string[]; existing: boolean };
-type Preview = { total: number; ok: number; errors: number; duplicates: number; rows: PreviewRow[] };
-type ImportResult = { total: number; created: number; updated: number; skipped: number; errors: number };
+type PreviewRow = { line: number; contato: number; status: 'ok' | 'error' | 'duplicate'; messages: string[]; name: string; phone: string; email: string; empresa: string; tags: string[]; existing: boolean; sameClient: { phone: string; line?: number; existing?: boolean }[] };
+type Preview = { total: number; clients: number; ok: number; errors: number; duplicates: number; rows: PreviewRow[] };
+type ImportResult = { total: number; created: number; updated: number; skipped: number; errors: number; mckMensagens?: { created: number; linked: number } };
 
 const STATUS_LABEL: Record<PreviewRow['status'], [string, string]> = { ok: ['Pronto', 'green'], error: ['Erro', 'red'], duplicate: ['Duplicado', 'amber'] };
 
@@ -90,6 +90,7 @@ function ImportForm({ onClose, onDone }: { onClose: () => void; onDone: () => vo
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<Preview | null>(null);
   const [updateExisting, setUpdateExisting] = useState(false);
+  const [consent, setConsent] = useState(false);
   const [filter, setFilter] = useState<'all' | PreviewRow['status']>('all');
   const [result, setResult] = useState<ImportResult | null>(null);
   const { busy, run } = useAction();
@@ -104,7 +105,10 @@ function ImportForm({ onClose, onDone }: { onClose: () => void; onDone: () => vo
   };
   const confirmImport = async () => {
     if (!file) return;
-    const r = await run(() => upload<ImportResult>(`/contacts/import/confirm${updateExisting ? '?updateExisting=1' : ''}`, file), 'Importação concluída');
+    const qs = new URLSearchParams();
+    if (updateExisting) qs.set('updateExisting', '1');
+    if (consent) qs.set('consent', '1');
+    const r = await run(() => upload<ImportResult>(`/contacts/import/confirm${qs.toString() ? `?${qs}` : ''}`, file), 'Importação concluída');
     if (r) { setResult(r); onDone(); }
   };
   const importable = preview ? preview.ok + (updateExisting ? preview.rows.filter((r) => r.status === 'duplicate' && r.existing).length : 0) : 0;
@@ -118,6 +122,7 @@ function ImportForm({ onClose, onDone }: { onClose: () => void; onDone: () => vo
             <div className="alert ok">
               <strong>Importação concluída.</strong>
               <div>{result.created} contato(s) criado(s){result.updated > 0 && `, ${result.updated} atualizado(s)`}.</div>
+              <div className="small">Os contatos também aparecem em Contatos do MCK Mensagens{consent ? ', já com consentimento registrado' : ' (com consentimento pendente até você registrar)'}.</div>
               {(result.skipped > 0 || result.errors > 0) && <div className="small">{result.skipped > 0 && `${result.skipped} duplicado(s) ignorado(s). `}{result.errors > 0 && `${result.errors} linha(s) com erro não importada(s).`}</div>}
             </div>
             <div className="row"><button className="btn" onClick={() => pick(null)}>Importar outra planilha</button><button className="btn primary" onClick={onClose}>Fechar</button></div>
@@ -125,8 +130,9 @@ function ImportForm({ onClose, onDone }: { onClose: () => void; onDone: () => vo
         ) : (
           <>
             <p className="small muted">
-              Use o modelo com as colunas <code>nome;telefone;email;empresa;tags;observacoes</code>. Nome e telefone são obrigatórios;
-              etiquetas separadas por vírgula ou <code>|</code>. Arquivo CSV de até 2 MB e 5.000 linhas (no Excel: <em>Salvar como → CSV</em>).
+              Uma linha = um cliente, com até 4 números: <code>Nome;Contato 1;Contato 2;Contato 3;Contato 4;E-mail;Empresa;Etiquetas;Observações</code>.
+              Cada número preenchido vira um contato (agrupados como o mesmo cliente). Nome e ao menos um contato são obrigatórios;
+              etiquetas separadas por vírgula ou <code>|</code>. O modelo antigo (coluna <code>telefone</code>) continua aceito. Arquivo CSV de até 2 MB e 5.000 linhas (no Excel: <em>Salvar como → CSV</em>).
             </p>
             <a className="btn sm" href="/api/contacts/import/template" download="modelo-contatos.csv">⬇ Baixar modelo da planilha</a>
             <Field label="Arquivo da planilha (.csv)">
@@ -135,6 +141,7 @@ function ImportForm({ onClose, onDone }: { onClose: () => void; onDone: () => vo
             {busy && !preview && <p className="small muted">Lendo planilha…</p>}
             {preview && (
               <>
+                <p className="small muted" style={{ margin: 0 }}>{preview.clients} cliente(s) na planilha · {preview.total} número(s) de telefone (cada número vira um contato).</p>
                 <div className="row">
                   {([['all', `Todas (${preview.total})`], ['ok', `Prontas (${preview.ok})`], ['error', `Com erro (${preview.errors})`], ['duplicate', `Duplicadas (${preview.duplicates})`]] as const).map(([k, label]) => (
                     <button key={k} className={'btn sm' + (filter === k ? ' primary' : '')} onClick={() => setFilter(k)}>{label}</button>
@@ -145,10 +152,10 @@ function ImportForm({ onClose, onDone }: { onClose: () => void; onDone: () => vo
                     <thead><tr><th>Linha</th><th>Situação</th><th>Nome</th><th>Telefone</th><th>E-mail</th><th>Etiquetas</th></tr></thead>
                     <tbody>
                       {shown.slice(0, 300).map((r) => (
-                        <tr key={r.line}>
-                          <td>{r.line}</td>
+                        <tr key={`${r.line}-${r.contato}`}>
+                          <td>{r.line}{r.contato > 1 && <div className="small muted">Contato {r.contato}</div>}</td>
                           <td><span className={'badge ' + STATUS_LABEL[r.status][1]}>{STATUS_LABEL[r.status][0]}</span>{r.messages.length > 0 && <div className="small muted">{r.messages.join(' · ')}</div>}</td>
-                          <td>{r.name || '—'}</td>
+                          <td>{r.name || '—'}{r.sameClient?.length > 0 && <div><span className="badge blue" title={r.sameClient.map((x) => `${x.phone}${x.existing ? ' (já cadastrado)' : ` (linha ${x.line})`}`).join('\n')}>Mesmo cliente · outros números</span><div className="small muted">{r.sameClient.map((x) => `${x.phone}${x.existing ? ' (já cadastrado)' : ''}`).join(', ')}</div></div>}</td>
                           <td>{r.phone || '—'}</td>
                           <td>{r.email || '—'}</td>
                           <td>{r.tags.join(', ')}</td>
@@ -161,6 +168,7 @@ function ImportForm({ onClose, onDone }: { onClose: () => void; onDone: () => vo
                 {preview.duplicates > 0 && (
                   <label className="row small"><input type="checkbox" checked={updateExisting} onChange={(e) => setUpdateExisting(e.target.checked)} /> Atualizar contatos que já existem (dados preenchidos na planilha substituem os atuais; etiquetas são somadas)</label>
                 )}
+                <label className="row small"><input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} /> Estes contatos autorizaram receber mensagens (campanhas do MCK Mensagens). Sem marcar, eles aparecem lá com consentimento pendente e não recebem campanhas.</label>
                 <button className="btn primary" disabled={busy || importable === 0} onClick={confirmImport}>
                   {busy ? 'Importando…' : importable === 0 ? 'Nenhum contato para importar' : `Importar ${importable} contato(s)`}
                 </button>
@@ -192,6 +200,13 @@ function ContactDetail({ id, onClose, onChanged }: { id: string; onClose: () => 
         <div className="stack">
           <div><strong style={{ fontSize: 16 }}>{state.data.name ?? state.data.phone}</strong><div className="muted">{state.data.phone} {state.data.email && `· ${state.data.email}`}</div></div>
           <div className="row">{state.data.tags.map((t: string) => <span key={t} className="badge">{t}</span>)}</div>
+          {state.data.sameClient?.length > 0 && (
+            <div className="alert info small">
+              <strong>Mesmo cliente · outros números</strong>
+              <div className="row" style={{ marginTop: 4 }}>{state.data.sameClient.map((x: any) => <span key={x.id} className="badge">{x.phone}</span>)}</div>
+              <div className="muted">Contatos com o mesmo nome. Cada número é um contato próprio (conversas e cobranças continuam separadas por número).</div>
+            </div>
+          )}
           {state.data.notes && <div className="alert info">{state.data.notes}</div>}
           <label className="row small"><input type="checkbox" checked={state.data.optOut} onChange={(e) => run(() => patch(`/contacts/${id}`, { optOut: e.target.checked }), 'Preferência salva').then(() => { state.reload(); onChanged(); })} /> Não enviar mensagens automáticas (opt-out)</label>
           <ContactAiNotes contactId={id} />
