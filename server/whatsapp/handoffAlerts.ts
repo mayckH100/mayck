@@ -3,6 +3,7 @@ import { decryptOrNull } from '../lib/crypto.js';
 import { sendCloudMessage } from './cloudClient.js';
 import { qrManager } from './qr/manager.js';
 import { resolveChannel, isQrChannel } from './messaging.js';
+import { viaLine } from './channelLabel.js';
 
 /**
  * Aviso por WhatsApp para o número reserva da organização quando uma conversa fica
@@ -29,7 +30,8 @@ export async function tickHandoffAlerts(now = new Date()) {
     try {
       const contact = await prisma.contact.findFirst({ where: { id: conv.contactId, orgId: conv.orgId } });
       const who = contact ? (contact.name ? `${contact.name} (${contact.phone})` : contact.phone) : 'Um contato';
-      const text = `⚠️ Atendimento aguardando: ${who} espera um atendente há ${Math.floor(waitedMs / 60_000)} min.`;
+      const via = await viaLine(conv.orgId, conv.channelId);
+      const text = `⚠️ Atendimento aguardando: ${who} espera um atendente há ${Math.floor(waitedMs / 60_000)} min.${via ? `\n${via}` : ''}`;
       const to = org.backupPhone.replace(/\D/g, '');
       const channel = await resolveChannel(conv);
       if (!channel) throw new Error('Nenhum canal WhatsApp na organização');

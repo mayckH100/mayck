@@ -87,7 +87,7 @@ function BillingReturnRedirect() {
 function WaitingAlerts() {
   const { me } = useAuth();
   const nav = useNavigate();
-  const [items, setItems] = useState<{ id: string; name: string }[]>([]);
+  const [items, setItems] = useState<{ id: string; name: string; via: string | null }[]>([]);
   useEffect(() => {
     if (!me?.org?.id) return;
     const key = `mckbot:aguardando:${me.org.id}`;
@@ -95,13 +95,13 @@ function WaitingAlerts() {
     const seen = (): string[] => { try { return JSON.parse(localStorage.getItem(key) || '[]'); } catch { return []; } };
     const check = async () => {
       try {
-        const r = await get<{ items: { id: string; waitingSince: string; contact: { name: string | null; phone: string } | null }[] }>('/conversations/waiting');
+        const r = await get<{ items: { id: string; waitingSince: string; contact: { name: string | null; phone: string } | null; channel: { via: string } | null }[] }>('/conversations/waiting');
         if (stop) return;
         const s = seen();
         const fresh = r.items.filter((i) => !s.includes(`${i.id}:${i.waitingSince}`));
         if (!fresh.length) return;
         localStorage.setItem(key, JSON.stringify([...s, ...fresh.map((i) => `${i.id}:${i.waitingSince}`)].slice(-200)));
-        setItems((cur) => [...cur.filter((c) => !fresh.some((f) => f.id === c.id)), ...fresh.map((i) => ({ id: i.id, name: i.contact?.name || i.contact?.phone || 'Contato' }))]);
+        setItems((cur) => [...cur.filter((c) => !fresh.some((f) => f.id === c.id)), ...fresh.map((i) => ({ id: i.id, name: i.contact?.name || i.contact?.phone || 'Contato', via: i.channel?.via ?? null }))]);
       } catch { /* silencioso: tenta de novo no próximo ciclo */ }
     };
     check();
@@ -114,7 +114,7 @@ function WaitingAlerts() {
     <div className="toast-wrap" role="alert" style={{ top: 16, bottom: 'auto', zIndex: 110 }}>
       {items.slice(-3).map((i) => (
         <div key={i.id} className="toast" style={{ background: '#9a3412', display: 'grid', gap: 8 }}>
-          <div><strong>Aguardando atendente</strong><br />{i.name} está esperando um atendente.</div>
+          <div><strong>Aguardando atendente</strong><br />{i.name} está esperando um atendente.{i.via && <><br /><span className="small">📲 Via: {i.via}</span></>}</div>
           <div className="row" style={{ gap: 8 }}>
             <button className="btn sm primary" onClick={() => { close(i.id); nav(`/inbox/${i.id}`); }}>Abrir conversa</button>
             <button className="btn sm" onClick={() => close(i.id)}>Fechar</button>

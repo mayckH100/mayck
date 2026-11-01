@@ -12,7 +12,11 @@ import { normalizePairingPhone, pairingPerHour } from '../whatsapp/qr/pairing.js
 import { countSavedPhoneContacts } from '../whatsapp/qr/addressBook.js';
 import { PROVIDER_CLOUD, PROVIDER_QR, isQrChannel } from '../whatsapp/messaging.js';
 import { AUTO_REPLY_MODES, autoReplyModeOf } from '../whatsapp/autoReplyMode.js';
+import { channelInfo, channelLabels, sanitizeChannelName, customChannelName, CHANNEL_NAME_MAX, type ChannelLabelInfo } from '../whatsapp/channelLabel.js';
 import type { Channel } from '@prisma/client';
+
+/** "Nome do WhatsApp": limpo (sem caracteres invisíveis/HTML), 1 a 40 caracteres. */
+const channelNameSchema = z.string().max(200).transform(sanitizeChannelName).pipe(z.string().min(1, 'Informe o nome do WhatsApp').max(CHANNEL_NAME_MAX, `Nome do WhatsApp: no máximo ${CHANNEL_NAME_MAX} caracteres`));
 
 export const channelsRouter = Router();
 
@@ -20,7 +24,8 @@ function publicUrl(req: import('express').Request) {
   return (process.env.PUBLIC_URL || process.env.RENDER_EXTERNAL_URL || `${req.protocol}://${req.get('host')}`).replace(/\/$/, '');
 }
 
-async function view(c: Channel, req: import('express').Request) {
+async function view(c: Channel, req: import('express').Request, info?: ChannelLabelInfo | null) {
+  const lbl = info ?? await channelInfo(c.orgId, c.id);
   const day = new Date(Date.now() - 24 * 3600e3), week = new Date(Date.now() - 7 * 24 * 3600e3), month = new Date(Date.now() - 30 * 24 * 3600e3);
   const base = { orgId: c.orgId, channelId: c.id, direction: { in: ['IN', 'OUT'] } };
   const [today, d7, d30, total] = await Promise.all([
@@ -31,7 +36,9 @@ async function view(c: Channel, req: import('express').Request) {
   ]);
   const qr = isQrChannel(c) ? qrManager.info(c.id) : null;
   return {
-    id: c.id, name: c.name, provider: c.provider, status: qr?.live && qr.status ? qr.status : c.status,
+    id: c.id, name: c.name, provider: c.provider,
+    // Nome do WhatsApp: "WhatsApp 2 · Amanda" (ordinal pela ordem de criação; displayName vazio = sem nome próprio).
+    ordinal: lbl?.ordinal ?? null, displayName: customChannelName(c.name), label: lbl?.label ?? c.name, status: qr?.live && qr.status ? qr.status : c.status,
     connectedAt: c.connectedAt, phoneNumberId: c.phoneNumberId, wabaId: c.wabaId, displayPhone: c.displayPhone,
     hasAccessToken: !!c.accessTokenEnc, accessTokenPreview: maskSecret(decryptOrNull(c.accessTokenEnc)), hasAppSecret: !!c.appSecretEnc,
     verifyToken: req.auth?.role === 'AGENT' ? null : c.verifyToken,
@@ -47,22 +54,28 @@ async function view(c: Channel, req: import('express').Request) {
 }
 
 channelsRouter.get('/', ah(async (req, res) => {
-  const list = await prisma.channel.findMany({ where: { orgId: orgOf(req) }, orderBy: { createdAt: 'asc' } });
-  res.json(await Promise.all(list.map((c) => view(c, req))));
+  const list = await prisma.channel.findMany({ where: { orgId: orgOf(req) }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] });
+  const labels = await channelLabels(orgOf(req));
+  res.json(await Promise.all(list.map((c) => view(c, req, labels.get(c.id)))));
 }));
 
 channelsRouter.post('/', requireRole('OWNER', 'ADMIN'), ah(async (req, res) => {
-  const { name, provider } = z.object({
-    name: z.string().trim().min(1).max(60),
+  const body = z.object({
+    name: z.string().max(200).optional(),
     provider: z.enum([PROVIDER_QR, PROVIDER_CLOUD]).default(PROVIDER_QR),
-  }).parse(req.body);
-  const c = await prisma.channel.create({ data: { orgId: orgOf(req), name, provider, verifyToken: randomToken(24) } });
-  await audit(req, 'channel.create', { entity: 'channel', entityId: c.id });
+  }).parse(req.body ?? {});
+  const orgId = orgOf(req);
+  // Sem nome informado: "WhatsApp N" (próximo número da organização).
+  const typed = sanitizeChannelName(body.name);
+  if (typed.length > CHANNEL_NAME_MAX) throw badRequest(`Nome do WhatsApp: no máximo ${CHANNEL_NAME_MAX} caracteres`);
+  const name = typed || `WhatsApp ${(await prisma.channel.count({ where: { orgId } })) + 1}`;
+  const c = await prisma.channel.create({ data: { orgId, name, provider: body.provider, verifyToken: randomToken(24) } });
+  await audit(req, 'channel.create', { entity: 'channel', entityId: c.id, meta: { name } });
   res.status(201).json(await view(c, req));
 }));
 
 const credsSchema = z.object({
-  name: z.string().trim().min(1).max(60).optional(),
+  name: channelNameSchema.optional(),
   phoneNumberId: z.string().trim().regex(/^\d{5,30}$/, 'Phone Number ID deve conter apenas dígitos').optional(),
   wabaId: z.string().trim().regex(/^\d{5,30}$/, 'WABA ID deve conter apenas dígitos').optional().or(z.literal('')),
   accessToken: z.string().trim().min(20).max(1000).optional(),
@@ -101,7 +114,10 @@ channelsRouter.patch('/:id', requireRole('OWNER', 'ADMIN'), ah(async (req, res) 
   if (body.autoReplyMode !== undefined && body.autoReplyMode !== modeAntes) {
     await audit(req, 'channel.auto_reply_mode', { entity: 'channel', entityId: c.id, meta: { antes: modeAntes, depois: body.autoReplyMode } });
   }
-  const otherFields = Object.keys(body).filter((k) => k !== 'replySavedContacts' && k !== 'autoReplyMode');
+  if (body.name !== undefined && body.name !== c.name) {
+    await audit(req, 'channel.rename', { entity: 'channel', entityId: c.id, meta: { antes: c.name, depois: body.name } });
+  }
+  const otherFields = Object.keys(body).filter((k) => k !== 'replySavedContacts' && k !== 'autoReplyMode' && k !== 'name');
   if (otherFields.length) await audit(req, 'channel.update', { entity: 'channel', entityId: c.id, meta: { fields: otherFields } });
   res.json(await view(updated, req));
 }));

@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { channelLabels } from '../whatsapp/channelLabel.js';
 import { z } from 'zod';
 import { prisma } from '../db.js';
 import { ah } from '../lib/http.js';
@@ -51,7 +52,7 @@ dashboardRouter.get('/dashboard', ah(async (req, res) => {
       messages: failedMsgs,
     },
     integrations: {
-      whatsapp: channels,
+      whatsapp: await (async () => { const labels = await channelLabels(orgId); return channels.map((c) => ({ ...c, label: labels.get(c.id)?.label ?? c.name })); })(),
       ai: { enabled: !!ai?.enabled, autoReply: !!ai?.autoReply, provider: ai?.provider, model: ai?.model, configured: !!ai?.apiKeyEnc },
       partners: integrations,
     },

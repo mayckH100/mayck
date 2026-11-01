@@ -23,7 +23,7 @@ export interface Metrics {
   totalLeads: number; byStatus: Record<LeadStatus, number>; sent: number; failed: number; optOuts: number;
   replies: number; responseRate: number; conversionRate: number;
 }
-export interface ChannelLite { id: string; name: string; status: string; provider?: string; displayPhone?: string | null }
+export interface ChannelLite { id: string; name: string; label?: string; status: string; provider?: string; displayPhone?: string | null }
 
 export const LEAD_STATUS: LeadStatus[] = ['NOVO', 'CONTATADO', 'RESPONDEU', 'QUALIFICADO', 'AGUARDANDO', 'CONVERTIDO', 'DESCARTADO'];
 export const LEAD_STATUS_LABEL: Record<LeadStatus, string> = { NOVO: 'Novo', CONTATADO: 'Contatado', RESPONDEU: 'Respondeu', QUALIFICADO: 'Qualificado', AGUARDANDO: 'Aguardando', CONVERTIDO: 'Convertido', DESCARTADO: 'Descartado' };

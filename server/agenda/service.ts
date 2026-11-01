@@ -15,6 +15,7 @@ import { ensureStage } from '../lib/waiting.js';
 import { buildIcs, googleAddLink, outlookAddLink, publicEventToken } from './ics.js';
 import { googleBusy, upsertGoogleEvent, deleteGoogleEvent, googleConfigured, type GoogleAccountRow } from './google.js';
 import { humanPt, safeTz, zonedParts, zonedToUtc, hhmmToMin, toLocalIso } from './time.js';
+import { channelLabels, type ChannelLabelInfo } from '../whatsapp/channelLabel.js';
 
 export const KIND_LABEL: Record<string, string> = { MEETING: 'Reunião', TASK: 'Tarefa' };
 
@@ -147,9 +148,10 @@ export function icsOf(a: Appointment, req?: Request) {
   return buildIcs([{ ...a, url: publicEventUrl(a.id, req) }]);
 }
 
-export function viewAppointment(a: Appointment, tz: string, maps: { contacts?: Map<string, { id: string; name: string | null; phone: string }>; users?: Map<string, { id: string; name: string }> } = {}, req?: Request) {
+export function viewAppointment(a: Appointment, tz: string, maps: { contacts?: Map<string, { id: string; name: string | null; phone: string }>; users?: Map<string, { id: string; name: string }>; channels?: Map<string, ChannelLabelInfo> } = {}, req?: Request) {
   const c = a.contactId ? maps.contacts?.get(a.contactId) : undefined;
   const u = a.assignedUserId ? maps.users?.get(a.assignedUserId) : undefined;
+  const ch = a.channelId ? maps.channels?.get(a.channelId) : undefined;
   return {
     id: a.id, kind: a.kind, title: a.title, description: a.description, location: a.location,
     startAt: a.startAt, endAt: endOf(a), localStart: toLocalIso(a.startAt, tz), durationMin: a.durationMin, reminderMin: a.reminderMin,
@@ -157,6 +159,8 @@ export function viewAppointment(a: Appointment, tz: string, maps: { contacts?: M
     notifyAssignee: a.notifyAssignee, notifyExtras: a.notifyExtras, extraContacts: extraContactsOf(a),
     notifyOwner: a.notifyOwner, teamContacts: extraContactsOf({ extraContacts: a.teamContacts }),
     contactId: a.contactId, contact: c ? { id: c.id, name: c.name, phone: c.phone } : null,
+    /** WhatsApp pelo qual foi marcado: "WhatsApp 2 · Amanda" (+ número). */
+    channelId: a.channelId ?? null, channel: ch ? { id: ch.id, label: ch.label, phone: ch.phone, via: ch.via } : null,
     assignedUserId: a.assignedUserId, assignedUser: u ? { id: u.id, name: u.name } : null,
     createdById: a.createdById, googleSynced: !!a.googleEventId, meetLink: a.meetLink ?? null, createdAt: a.createdAt, updatedAt: a.updatedAt,
     links: { page: publicEventUrl(a.id, req), ics: publicIcsUrl(a.id, req), google: googleAddLink(a), outlook: outlookAddLink(a) },
@@ -169,7 +173,8 @@ export async function viewMany(orgId: string, list: Appointment[], req?: Request
   const uIds = [...new Set(list.map((a) => a.assignedUserId).filter(Boolean))] as string[];
   const contacts: { id: string; name: string | null; phone: string }[] = cIds.length ? await prisma.contact.findMany({ where: { orgId, id: { in: cIds } }, select: { id: true, name: true, phone: true } }) : [];
   const users: { id: string; name: string }[] = uIds.length ? await prisma.user.findMany({ where: { id: { in: uIds } }, select: { id: true, name: true } }) : [];
-  const maps = { contacts: new Map(contacts.map((c) => [c.id, c] as const)), users: new Map(users.map((u) => [u.id, u] as const)) };
+  const channels = list.some((a) => a.channelId) ? await channelLabels(orgId) : new Map<string, ChannelLabelInfo>();
+  const maps = { contacts: new Map(contacts.map((c) => [c.id, c] as const)), users: new Map(users.map((u) => [u.id, u] as const)), channels };
   return list.map((a) => viewAppointment(a, tz, maps, req));
 }
 
@@ -185,6 +190,8 @@ export interface AppointmentInput {
   reminderMin?: number;
   contactId?: string | null;
   conversationId?: string | null;
+  /** WhatsApp (canal) do compromisso. Padrão: o da conversa (ou da última conversa do contato). */
+  channelId?: string | null;
   assignedUserId?: string | null;
   notifyContact?: boolean;
   /** "Gerar link do Google Meet": padrão = ligado para reuniões quando há Google conectado. */
@@ -259,6 +266,29 @@ async function checkRefs(orgId: string, input: Partial<AppointmentInput>) {
   if (input.contactId && !(await prisma.contact.findFirst({ where: { id: input.contactId, orgId }, select: { id: true } }))) throw notFound('Contato');
   if (input.assignedUserId && !(await prisma.membership.findUnique({ where: { userId_orgId: { userId: input.assignedUserId, orgId } } }))) throw new HttpError(400, 'Responsável não faz parte da equipe');
   if (input.conversationId && !(await prisma.conversation.findFirst({ where: { id: input.conversationId, orgId }, select: { id: true } }))) throw notFound('Conversa');
+  if (input.channelId && !(await prisma.channel.findFirst({ where: { id: input.channelId, orgId }, select: { id: true } }))) throw notFound('Canal WhatsApp');
+}
+
+/** Em qual WhatsApp o compromisso foi marcado: o informado, o da conversa ou o da última conversa do contato (sempre da mesma organização). */
+async function channelIdFor(orgId: string, input: Pick<AppointmentInput, 'channelId' | 'conversationId' | 'contactId'>): Promise<string | null> {
+  if (input.channelId) return input.channelId;
+  if (input.conversationId) {
+    const c = await prisma.conversation.findFirst({ where: { id: input.conversationId, orgId }, select: { channelId: true } });
+    if (c?.channelId) return c.channelId;
+  }
+  if (input.contactId) {
+    const c = await prisma.conversation.findFirst({ where: { orgId, contactId: input.contactId, channelId: { not: null } }, orderBy: { createdAt: 'desc' }, select: { channelId: true } });
+    if (c?.channelId) return c.channelId;
+  }
+  return null;
+}
+
+/** "📲 Via: WhatsApp 2 · Amanda (11 99999-0000)" para avisos internos (vazio se não souber o WhatsApp). */
+export async function viaOf(a: Pick<Appointment, 'orgId' | 'channelId' | 'conversationId' | 'contactId'>): Promise<string> {
+  const channelId = a.channelId ?? await channelIdFor(a.orgId, { conversationId: a.conversationId, contactId: a.contactId });
+  if (!channelId) return '';
+  const info = (await channelLabels(a.orgId)).get(channelId);
+  return info ? `📲 Via: ${info.via}` : '';
 }
 
 /** Reuniões agendadas do mesmo cliente que se sobrepõem ao período. */
@@ -289,9 +319,10 @@ export async function createAppointment(input: AppointmentInput, ctx: Ctx): Prom
     if (!conflicts.length && input.contactId) conflicts.push(...await contactOverlaps(ctx.orgId, input.contactId, input.startAt, durationMin));
     if (conflicts.length) throw new ConflictError(conflicts);
   }
+  const channelId = await channelIdFor(ctx.orgId, input);
   const a = await prisma.appointment.create({
     data: {
-      orgId: ctx.orgId, kind, title: input.title, description: input.description || null, location: input.location || null,
+      orgId: ctx.orgId, kind, title: input.title, channelId, description: input.description || null, location: input.location || null,
       startAt: input.startAt, durationMin, reminderMin: input.reminderMin ?? s.reminderMin,
       contactId: input.contactId || null, conversationId: input.conversationId || null,
       assignedUserId: input.assignedUserId || null, createdById: ctx.userId ?? null,
@@ -306,8 +337,24 @@ export async function createAppointment(input: AppointmentInput, ctx: Ctx): Prom
   const wantMeet = input.generateMeet ?? kind === 'MEETING';
   const synced = await syncGoogle(a, { meet: wantMeet });
   if (wantMeet && !synced.meetLink) console.warn(`[agenda] compromisso ${a.id} criado sem link do Google Meet (${synced.googleEventId ? 'o Google não devolveu o link' : 'Google Agenda não conectado ou falhou'})`);
+  await noteInConversation(synced);
   await notifyCreated(synced, ctx.req ?? undefined);
   return synced;
+}
+
+/** Aviso no app (nota interna na conversa do Inbox): o que foi marcado e por qual WhatsApp. */
+async function noteInConversation(a: Appointment) {
+  if (!a.conversationId) return;
+  try {
+    const tz = await orgTz(a.orgId);
+    const label = KIND_LABEL[a.kind] ?? 'Compromisso';
+    const quem = a.source === 'AI' ? ' pela IA' : '';
+    const via = await viaOf(a);
+    const body = `📅 ${label} agendada${quem}: ${a.title} — ${humanPt(a.startAt, tz)}${via ? `\n${via}` : ''}`;
+    await prisma.message.create({ data: { orgId: a.orgId, conversationId: a.conversationId, direction: 'INTERNAL', sender: 'system', type: 'note', body, status: 'NOTE' } });
+  } catch (e) {
+    console.error('[agenda] falha ao registrar nota na conversa', (e as Error).message);
+  }
 }
 
 export async function updateAppointment(id: string, patch: Partial<AppointmentInput> & { status?: 'SCHEDULED' | 'DONE' | 'CANCELLED' }, ctx: Ctx): Promise<Appointment> {
@@ -325,7 +372,7 @@ export async function updateAppointment(id: string, patch: Partial<AppointmentIn
     if (conflicts.length) throw new ConflictError(conflicts);
   }
   const data: any = { sequence: cur.sequence + 1 };
-  for (const k of ['kind', 'title', 'description', 'location', 'startAt', 'durationMin', 'reminderMin', 'contactId', 'assignedUserId', 'notifyContact', 'notifyAssignee', 'notifyExtras', 'notifyOwner', 'status'] as const) {
+  for (const k of ['kind', 'title', 'description', 'location', 'startAt', 'durationMin', 'reminderMin', 'contactId', 'channelId', 'assignedUserId', 'notifyContact', 'notifyAssignee', 'notifyExtras', 'notifyOwner', 'status'] as const) {
     if ((patch as any)[k] !== undefined) data[k] = (patch as any)[k] === '' ? null : (patch as any)[k];
   }
   if (extras) data.extraContacts = JSON.stringify(extras);
@@ -425,11 +472,11 @@ export function contactMessage(a: Appointment, tz: string, kind: 'criado' | 'rem
 }
 
 /** Variante para a equipe (responsável e contatos adicionais): "Reunião com <cliente>". */
-export function teamMessage(a: Appointment, tz: string, kind: 'criado' | 'remarcado' | 'cancelado' | 'lembrete', clientName: string | null, req?: Request, bookedBy?: string | null) {
+export function teamMessage(a: Appointment, tz: string, kind: 'criado' | 'remarcado' | 'cancelado' | 'lembrete', clientName: string | null, req?: Request, bookedBy?: string | null, via?: string | null) {
   const when = humanPt(a.startAt, tz);
   const label = KIND_LABEL[a.kind] ?? 'Compromisso';
   const com = clientName ? ` com ${clientName}` : '';
-  if (kind === 'cancelado') return `❌ ${label}${com} cancelada: *${a.title}* (${when}).`;
+  if (kind === 'cancelado') return `❌ ${label}${com} cancelada: *${a.title}* (${when}).${via ? `\n${via}` : ''}`;
   const nova = a.kind === 'TASK' ? `Nova tarefa marcada${com}` : `Nova reunião marcada${com}`;
   const head = kind === 'lembrete' ? `⏰ Lembrete — ${label}${com}: *${a.title}*` : kind === 'remarcado' ? `🔁 ${label}${com} remarcada: *${a.title}*` : `📅 ${nova}: *${a.title}*`;
   const lines = [head, `🗓 ${when.charAt(0).toUpperCase() + when.slice(1)} (${a.durationMin} min)`];
@@ -437,6 +484,7 @@ export function teamMessage(a: Appointment, tz: string, kind: 'criado' | 'remarc
   if (a.description) lines.push(`📝 ${a.description}`);
   if (a.meetLink) lines.push(`🎥 Link da reunião (Google Meet): ${a.meetLink}`);
   if (bookedBy) lines.push(`👤 Agendado por: ${bookedBy}`);
+  if (via) lines.push(via);
   if (kind !== 'lembrete') lines.push('', `Adicionar à agenda: ${publicEventUrl(a.id, req)}`);
   return lines.join('\n');
 }
@@ -491,7 +539,7 @@ async function bookedByOf(a: Appointment) {
 async function sendToPhone(a: Appointment, to: string, text: string) {
   if (!(await isProductActive(a.orgId, 'MCKBOT'))) throw new Error('Assinatura inativa');
   const conv = a.conversationId ? await prisma.conversation.findFirst({ where: { id: a.conversationId, orgId: a.orgId }, select: { channelId: true } }) : null;
-  const channel = await resolveChannel({ orgId: a.orgId, channelId: conv?.channelId ?? null });
+  const channel = await resolveChannel({ orgId: a.orgId, channelId: conv?.channelId ?? a.channelId ?? null });
   if (!channel) throw new Error('Nenhum canal WhatsApp na organização');
   if (isQrChannel(channel)) {
     if (!qrManager.canSend(channel.id)) throw new Error('WhatsApp (QR) não conectado');
@@ -531,7 +579,7 @@ export async function notifyRecipients(a: Appointment, kind: NotifyKind, opts: N
   if (a.notifyExtras) for (const c of extraContactsOf(a)) team.push({ target: 'adicional', ...c });
   if (!team.length) return results;
   const tz = await orgTz(a.orgId);
-  const text = teamMessage(a, tz, kind, client ? client.name ?? client.phone : null, opts.req, await bookedByOf(a));
+  const text = teamMessage(a, tz, kind, client ? client.name ?? client.phone : null, opts.req, await bookedByOf(a), await viaOf(a));
   for (const r of team) {
     if (seen.has(r.phone)) continue;
     seen.add(r.phone);
@@ -568,10 +616,11 @@ async function notifyTeam(a: Appointment, req?: Request) {
     if (!u) return;
     const tz = await orgTz(a.orgId);
     const when = humanPt(a.startAt, tz);
-    const text = `${KIND_LABEL[a.kind] ?? 'Compromisso'}: ${a.title}\nQuando: ${when} (${a.durationMin} min)\n${a.location ? `Local: ${a.location}\n` : ''}${a.meetLink ? `Google Meet: ${a.meetLink}\n` : ''}\nAbra o anexo convite.ics para adicionar à agenda do celular, ou use: ${publicEventUrl(a.id, req)}`;
+    const via = await viaOf(a);
+    const text = `${KIND_LABEL[a.kind] ?? 'Compromisso'}: ${a.title}\nQuando: ${when} (${a.durationMin} min)\n${a.location ? `Local: ${a.location}\n` : ''}${a.meetLink ? `Google Meet: ${a.meetLink}\n` : ''}${via ? `${via}\n` : ''}\nAbra o anexo convite.ics para adicionar à agenda do celular, ou use: ${publicEventUrl(a.id, req)}`;
     await sendMail({
       to: u.email, subject: `📅 ${a.title} — ${when}`, kind: 'agenda', text,
-      html: `<p><strong>${escHtml(a.title)}</strong></p><p>${escHtml(when)} (${a.durationMin} min)</p>${a.location ? `<p>Local: ${escHtml(a.location)}</p>` : ''}${a.meetLink ? `<p>Google Meet: <a href="${escHtml(a.meetLink)}">${escHtml(a.meetLink)}</a></p>` : ''}<p><a href="${publicEventUrl(a.id, req)}">Adicionar à minha agenda</a></p>`,
+      html: `<p><strong>${escHtml(a.title)}</strong></p><p>${escHtml(when)} (${a.durationMin} min)</p>${a.location ? `<p>Local: ${escHtml(a.location)}</p>` : ''}${a.meetLink ? `<p>Google Meet: <a href="${escHtml(a.meetLink)}">${escHtml(a.meetLink)}</a></p>` : ''}${via ? `<p>${escHtml(via)}</p>` : ''}<p><a href="${publicEventUrl(a.id, req)}">Adicionar à minha agenda</a></p>`,
       attachments: [{ filename: 'convite.ics', content: Buffer.from(icsOf(a, req)), contentType: 'text/calendar; charset=utf-8; method=PUBLISH' }],
     });
   } catch (e) {

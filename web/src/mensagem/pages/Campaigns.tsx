@@ -16,7 +16,7 @@ function ChannelSelect({ value, onChange, channels }: { value: string; onChange:
     <select required value={value} onChange={(e) => onChange(e.target.value)}>
       <option value="" disabled>Selecione o número…</option>
       {channels.map((c) => (
-        <option key={c.id} value={c.id}>{c.name}{c.displayPhone ? ` (${c.displayPhone})` : ''}{c.status === 'CONNECTED' ? ' — conectado' : ' — desconectado'}</option>
+        <option key={c.id} value={c.id}>{c.label ?? c.name}{c.displayPhone ? ` (${c.displayPhone})` : ''}{c.status === 'CONNECTED' ? ' — conectado' : ' — desconectado'}</option>
       ))}
     </select>
   );
@@ -185,7 +185,7 @@ function CampaignDetail({ id, list, reload }: { id: string; list: Campaign[]; re
         <div>
           <NavLink to="/campanhas" className="small">← Campanhas</NavLink>
           <h1 className="row">{c.name} <CampaignBadge status={c.status} /></h1>
-          <p className="muted small">Criada em {fmtDate(c.createdAt)} · {ch ? <>{ch.name}{ch.status !== 'CONNECTED' && <span className="badge red" style={{ marginLeft: 6 }}>desconectado</span>}</> : 'canal —'}</p>
+          <p className="muted small">Criada em {fmtDate(c.createdAt)} · {ch ? <>{ch.label ?? ch.name}{ch.status !== 'CONNECTED' && <span className="badge red" style={{ marginLeft: 6 }}>desconectado</span>}</> : 'canal —'}</p>
         </div>
         <div className="row">
           <Actions c={c} a={a} onEdit={() => setEditing(true)} />

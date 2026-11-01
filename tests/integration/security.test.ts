@@ -201,8 +201,9 @@ describe('Escudo de segurança', () => {
       expect(ok.run.status).toBe('OK');
       expect(puts[0]).toMatch(/contents\/backups\/mck-\d{4}-\d{2}-\d{2}\.bkp$/);
       // o diário automático roda uma vez por dia
-      const auto = new Date();
-      auto.setUTCHours(15); // 12h em Brasília
+      // 12h em Brasília no dia de HOJE em Brasília (setUTCHours no dia UTC quebrava entre 21h e 0h BRT, quando a data UTC já virou).
+      const hojeBrt = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' });
+      const auto = new Date(`${hojeBrt}T12:00:00-03:00`);
       expect(await maybeDailyBackup(auto)).toBe(true);
       expect(await maybeDailyBackup(auto)).toBe(false);
     } finally {

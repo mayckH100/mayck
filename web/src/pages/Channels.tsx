@@ -35,6 +35,48 @@ function AutoReplyModeSelector({ c, admin, busy, onPick }: { c: any; admin: bool
   );
 }
 
+const NAME_MAX = 40;
+const NAME_HINT = 'Ex.: Mayck, Amanda, Vendas. Aparece como "WhatsApp 1 · Mayck" no Inbox e nos avisos de reunião, tarefa e atendimento humano (até 40 caracteres).';
+
+/** "Nome do WhatsApp": editável no card de cada número (só Proprietário/Administrador). */
+function ChannelNameEditor({ c, admin, busy, onSave }: { c: any; admin: boolean; busy: boolean; onSave: (name: string) => void }) {
+  const [v, setV] = useState<string>(c.displayName ?? '');
+  useEffect(() => setV(c.displayName ?? ''), [c.displayName]);
+  const trimmed = v.trim();
+  const changed = trimmed !== (c.displayName ?? '');
+  return (
+    <form className="row small" style={{ gap: 6, alignItems: 'flex-end' }} onSubmit={(e) => { e.preventDefault(); if (trimmed && changed) onSave(trimmed); }} title={admin ? undefined : 'Só Proprietário ou Administrador pode alterar'}>
+      <div style={{ flex: 1 }}>
+        <Field label={`Nome do WhatsApp ${c.ordinal ?? ''}`.trim()} hint={NAME_HINT}>
+          <input aria-label="Nome do WhatsApp" maxLength={NAME_MAX} placeholder="Ex.: Mayck" value={v} disabled={!admin || busy} onChange={(e) => setV(e.target.value)} />
+        </Field>
+      </div>
+      {admin && <button className="btn sm" disabled={busy || !trimmed || !changed}>Salvar nome</button>}
+    </form>
+  );
+}
+
+/** Adicionar número: pergunta o "Nome do WhatsApp" e já abre a conexão por QR code. */
+function AddChannel({ count, onClose, onCreated }: { count: number; onClose: () => void; onCreated: (c: any) => void }) {
+  const [name, setName] = useState('');
+  const { busy, run } = useAction();
+  return (
+    <Modal title={`Adicionar WhatsApp ${count + 1}`} onClose={onClose}>
+      <form className="stack" onSubmit={async (e) => {
+        e.preventDefault();
+        const r = await run(() => post('/channels', { name: name.trim() || undefined, provider: 'whatsapp_qr' }), 'Número adicionado — agora conecte o WhatsApp');
+        if (r) onCreated(r);
+      }}>
+        <Field label="Nome do WhatsApp" hint={`${NAME_HINT} Deixe vazio para usar só "WhatsApp ${count + 1}".`}>
+          <input autoFocus aria-label="Nome do WhatsApp" maxLength={NAME_MAX} placeholder="Ex.: Mayck" value={name} onChange={(e) => setName(e.target.value)} />
+        </Field>
+        {name.trim() && <div className="small muted">Vai aparecer como: <strong>WhatsApp {count + 1} · {name.trim()}</strong></div>}
+        <button className="btn primary" disabled={busy}>{busy ? 'Adicionando…' : 'Adicionar e conectar'}</button>
+      </form>
+    </Modal>
+  );
+}
+
 export default function Channels() {
   const state = useApi<any[]>('/channels');
   const { can } = useAuth();
@@ -42,13 +84,14 @@ export default function Channels() {
   const [cfg, setCfg] = useState<any>(null);
   const [diag, setDiag] = useState<any>(null);
   const [qrFor, setQrFor] = useState<any>(null);
+  const [adding, setAdding] = useState(false);
   const { busy, run } = useAction();
   const toast = useToast();
   return (
     <>
       <div className="page-head">
         <div><h1>Canais WhatsApp</h1><p className="muted">Conecte seu número pelo <strong>QR code</strong> ou pelo <strong>código de 8 caracteres</strong> (Conectar com número de telefone), do mesmo jeito que o WhatsApp Web. A API oficial da Meta continua disponível como opção avançada.</p></div>
-        {admin && <button className="btn primary" disabled={busy} onClick={() => run(() => post('/channels', { name: 'WhatsApp principal', provider: 'whatsapp_qr' }), 'Canal criado — agora clique em "Conectar WhatsApp"').then(state.reload)}>+ Adicionar número</button>}
+        {admin && <button className="btn primary" disabled={busy} onClick={() => setAdding(true)}>+ Adicionar número</button>}
       </div>
       <Async state={state}>{(list) => list.length === 0 ? (
         <div className="card"><Empty title="Nenhum número configurado">Adicione um número e conecte pelo QR code usando o WhatsApp do seu celular. Enquanto isso, o status fica "não conectado" e nada é enviado.</Empty></div>
@@ -56,7 +99,8 @@ export default function Channels() {
         <div className="grid g2">
           {list.map((c) => (
             <div key={c.id} className="card stack">
-              <div className="row between"><strong>{c.name}</strong><StatusBadge status={c.status} /></div>
+              <div className="row between"><strong>{c.label ?? c.name}</strong><StatusBadge status={c.status} /></div>
+              <ChannelNameEditor c={c} admin={admin} busy={busy} onSave={(name) => run(() => patch(`/channels/${c.id}`, { name }), `Nome salvo: WhatsApp ${c.ordinal ?? ''} · ${name}`).then(state.reload)} />
               {c.provider === 'whatsapp_qr' ? (
                 <>
                   <div className="small">{c.status === 'CONNECTED' ? <>Número conectado: <strong>{c.displayPhone ?? '—'}</strong></> : (c.displayPhone ? <span className="muted">Último número: {c.displayPhone}</span> : 'Conexão por QR code (WhatsApp Web)')}</div>
@@ -116,6 +160,9 @@ export default function Channels() {
           ))}
         </div>
       )}</Async>
+      {adding && (
+        <AddChannel count={state.data?.length ?? 0} onClose={() => setAdding(false)} onCreated={(c) => { setAdding(false); state.reload(); setQrFor(c); }} />
+      )}
       {qrFor && (
         <QrConnect channel={qrFor} onClose={() => { setQrFor(null); state.reload(); }} />
       )}
@@ -123,7 +170,7 @@ export default function Channels() {
         <ChannelConfig channel={cfg} onClose={() => setCfg(null)} onSaved={() => { setCfg(null); state.reload(); }} />
       )}
       {diag && (
-        <Modal title={`Diagnóstico — ${diag.name}`} onClose={() => setDiag(null)}>
+        <Modal title={`Diagnóstico — ${diag.label ?? diag.name}`} onClose={() => setDiag(null)}>
           <table className="small"><tbody>
             <tr><td>Tipo de conexão</td><td>{diag.provider === 'whatsapp_qr' ? 'QR code (WhatsApp Web)' : 'API oficial (Cloud API)'}</td></tr>
             <tr><td>Status</td><td><StatusBadge status={diag.status} /></td></tr>
@@ -143,7 +190,7 @@ export default function Channels() {
 }
 
 function ChannelConfig({ channel, onClose, onSaved }: { channel: any; onClose: () => void; onSaved: () => void }) {
-  const [f, setF] = useState({ name: channel.name, phoneNumberId: channel.phoneNumberId ?? '', wabaId: channel.wabaId ?? '', accessToken: '', appSecret: '' });
+  const [f, setF] = useState({ name: channel.displayName || channel.name, phoneNumberId: channel.phoneNumberId ?? '', wabaId: channel.wabaId ?? '', accessToken: '', appSecret: '' });
   const { busy, run } = useAction();
   const toast = useToast();
   return (
@@ -157,7 +204,7 @@ function ChannelConfig({ channel, onClose, onSaved }: { channel: any; onClose: (
         if (r) onSaved();
       }}>
         <div className="alert info small">Passo a passo completo no guia <strong>docs/DEPLOY.md</strong>. Você precisa de um app na Meta (developers.facebook.com) com o produto WhatsApp.</div>
-        <Field label="Nome do canal"><input required value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} /></Field>
+        <Field label="Nome do WhatsApp" hint={NAME_HINT}><input required maxLength={NAME_MAX} placeholder="Ex.: Mayck" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} /></Field>
         <Field label="Phone Number ID" hint="WhatsApp › Configuração da API › ID do número de telefone"><input inputMode="numeric" value={f.phoneNumberId} onChange={(e) => setF({ ...f, phoneNumberId: e.target.value.trim() })} /></Field>
         <Field label="WhatsApp Business Account ID (opcional)"><input inputMode="numeric" value={f.wabaId} onChange={(e) => setF({ ...f, wabaId: e.target.value.trim() })} /></Field>
         <Field label="Token de acesso permanente" hint={channel.hasAccessToken ? `Salvo: ${channel.accessTokenPreview}. Preencha só para trocar.` : 'Token de usuário do sistema com permissão whatsapp_business_messaging'}><input type="password" autoComplete="off" value={f.accessToken} onChange={(e) => setF({ ...f, accessToken: e.target.value })} /></Field>
@@ -180,7 +227,7 @@ function QrConnect({ channel, onClose }: { channel: any; onClose: () => void }) 
   const [tab, setTab] = useState<'qr' | 'code'>('qr');
   const [connected, setConnected] = useState<any>(null);
   return (
-    <Modal title={`Conectar WhatsApp — ${channel.name}`} onClose={onClose}>
+    <Modal title={`Conectar ${channel.label ?? channel.name}`} onClose={onClose}>
       <div className="stack">
         {connected ? (
           <>

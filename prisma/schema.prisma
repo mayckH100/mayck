@@ -926,6 +926,8 @@ model Appointment {
   source          String    @default("MANUAL") // MANUAL | AI | KANBAN
   contactId       String?
   conversationId  String?
+  /// WhatsApp (canal) pelo qual o compromisso foi marcado/conversado — aparece nos avisos internos ("📲 Via: WhatsApp 2 · Amanda").
+  channelId       String?
   assignedUserId  String?
   createdById     String?
   notifyContact   Boolean   @default(true)

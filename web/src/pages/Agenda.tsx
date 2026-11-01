@@ -348,7 +348,7 @@ export default function Agenda() {
                             <span className={`badge ${STATUS[a.status][1]}`}>{STATUS[a.status][0]}</span>
                           </div>
                           <div className="small muted" style={{ marginTop: 4 }}>
-                            {a.durationMin} min{a.contact ? ` · ${a.contact.name ?? a.contact.phone}` : ''}{a.extraContacts?.length ? ` · +${a.extraContacts.length} contato(s)` : ''}{a.assignedUser ? ` · Resp.: ${a.assignedUser.name}` : ''}{a.location ? ` · ${a.location}` : ''} · {SOURCE[a.source]}{a.googleSynced ? ' · Google ✓' : ''}
+                            {a.durationMin} min{a.contact ? ` · ${a.contact.name ?? a.contact.phone}` : ''}{a.extraContacts?.length ? ` · +${a.extraContacts.length} contato(s)` : ''}{a.assignedUser ? ` · Resp.: ${a.assignedUser.name}` : ''}{a.location ? ` · ${a.location}` : ''} · {SOURCE[a.source]}{a.googleSynced ? ' · Google ✓' : ''}{a.channel ? <> · <span title="WhatsApp pelo qual foi marcado">📲 Via: {a.channel.via}</span></> : null}
                           </div>
                           {a.meetLink && a.status !== 'CANCELLED' && (
                             <div className="row small" style={{ marginTop: 4 }}>

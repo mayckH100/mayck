@@ -157,7 +157,7 @@ function Editor({ automacao, categoria, onClose, onSaved }: { automacao: Automac
           {(['WHATSAPP', 'EMAIL'] as Canal[]).map((c) => <label key={c} className="row small"><input type="checkbox" style={{ width: 'auto' }} checked={f.canais.includes(c)} onChange={() => setF({ ...f, canais: toggle(f.canais, c) })} /> {CANAL_LABEL[c]}</label>)}
           {f.canais.includes('WHATSAPP') && (channels.data?.length ?? 0) > 1 && (
             <select value={f.channelId} onChange={(e) => setF({ ...f, channelId: e.target.value })} style={{ width: 'auto' }}>
-              <option value="">Canal WhatsApp conectado (automático)</option>{channels.data!.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              <option value="">Canal WhatsApp conectado (automático)</option>{channels.data!.map((c) => <option key={c.id} value={c.id}>{c.label ?? c.name}{c.displayPhone ? ` (${c.displayPhone})` : ''}</option>)}
             </select>
           )}
         </div>

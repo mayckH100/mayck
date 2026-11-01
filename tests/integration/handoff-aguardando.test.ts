@@ -122,7 +122,7 @@ describe('"Aguardando atendente": transferência para humano, Kanban, aviso e co
     const sent = graph.calls.filter((c) => c.body);
     expect(sent).toHaveLength(1);
     expect(sent[0].body.to).toBe('5511988887777');
-    expect(sent[0].body.text.body).toMatch(/^⚠️ Atendimento aguardando: Maria Teste \(.+\) espera um atendente há 10 min\.$/);
+    expect(sent[0].body.text.body).toMatch(/^⚠️ Atendimento aguardando: Maria Teste \(.+\) espera um atendente há 10 min\.\n📲 Via: WhatsApp 1 · Teste$/);
     expect((await prisma.conversation.findUniqueOrThrow({ where: { id: conv.id } })).handoffAlertSentAt).toBeInstanceOf(Date);
 
     // Ciclos seguintes não repetem.

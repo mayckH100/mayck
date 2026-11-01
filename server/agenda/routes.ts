@@ -48,6 +48,8 @@ const baseSchema = z.object({
   durationMin: z.number().int().min(5).max(24 * 60).optional(),
   reminderMin: z.number().int().min(0).max(7 * 24 * 60).optional(),
   contactId: z.string().max(40).optional().nullable(),
+  /** WhatsApp do compromisso (opcional; padrão: o da última conversa do contato). Validado na organização. */
+  channelId: z.string().max(40).optional().nullable(),
   assignedUserId: z.string().max(40).optional().nullable(),
   notifyContact: z.boolean().optional(),
   /** "Gerar link do Google Meet" (só na criação; padrão ligado para reuniões com Google conectado). */

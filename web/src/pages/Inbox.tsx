@@ -12,7 +12,10 @@ export default function Inbox() {
   const [tab, setTab] = useState<string>('open');
   const [q, setQ] = useState('');
   const [query, setQuery] = useState('');
-  const list = useApi<any>(`/conversations?status=${tab}&q=${encodeURIComponent(query)}`, [tab, query]);
+  const [channelId, setChannelId] = useState('');
+  const channels = useApi<any[]>('/channels');
+  const multi = (channels.data?.length ?? 0) > 1;
+  const list = useApi<any>(`/conversations?status=${tab}&q=${encodeURIComponent(query)}${channelId ? `&channelId=${encodeURIComponent(channelId)}` : ''}`, [tab, query, channelId]);
   useEffect(() => {
     const t = setInterval(() => list.reload(), 8000);
     return () => clearInterval(t);
@@ -25,6 +28,14 @@ export default function Inbox() {
           <form className="row" style={{ padding: 10 }} onSubmit={(e) => { e.preventDefault(); setQuery(q); }}>
             <input placeholder="Pesquisar por nome ou telefone" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Pesquisar conversas" />
           </form>
+          {multi && (
+            <div style={{ padding: '0 10px 8px' }}>
+              <select aria-label="Filtrar por WhatsApp" value={channelId} onChange={(e) => setChannelId(e.target.value)}>
+                <option value="">Todos os WhatsApps</option>
+                {channels.data!.map((c) => <option key={c.id} value={c.id}>{c.label ?? c.name}{c.displayPhone ? ` (${c.displayPhone})` : ''}</option>)}
+              </select>
+            </div>
+          )}
           <div className="tabs" style={{ padding: '0 8px', marginBottom: 0 }}>
             {TABS.map(([k, l]) => <button key={k} className={tab === k ? 'on' : ''} onClick={() => setTab(k)}>{l}{list.data?.counts && ` (${list.data.counts[k.toUpperCase()] ?? 0})`}</button>)}
           </div>
@@ -38,6 +49,7 @@ export default function Inbox() {
                 <span style={{ minWidth: 0 }}>
                   <strong>{c.contact?.name ?? c.contact?.phone}</strong>
                   <div className="small muted" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.lastMessage?.direction === 'OUT' ? 'Você: ' : ''}{c.lastMessage?.body ?? '—'}</div>
+                  {multi && c.channel && <div><span className="badge" title={c.channel.via}>📲 {c.channel.label}</span></div>}
                 </span>
                 <span className="small muted" style={{ textAlign: 'right' }}>
                   {c.lastMessageAt ? new Date(c.lastMessageAt).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }) : ''}
@@ -96,7 +108,7 @@ function Chat({ id, onChange }: { id: string; onChange: () => void }) {
             <span className="avatar">{initials(d.contact?.name ?? d.contact?.phone)}</span>
             <div style={{ flex: 1, minWidth: 140 }}>
               <strong>{d.contact?.name ?? d.contact?.phone}</strong>
-              <div className="small muted">{d.contact?.phone} · <StatusBadge status={d.conversation.status} /> · {d.conversation.mode === 'HUMAN' ? 'Atendimento humano' : 'Robô'}</div>
+              <div className="small muted">{d.contact?.phone} · <StatusBadge status={d.conversation.status} /> · {d.conversation.mode === 'HUMAN' ? 'Atendimento humano' : 'Robô'}{d.conversation.channel && <> · <span title="WhatsApp desta conversa">📲 {d.conversation.channel.via}</span></>}</div>
             </div>
             <select aria-label="Etapa do Kanban" style={{ width: 170 }} value={d.contact?.stageId ?? ''} onChange={(e) => run(() => patch(`/contacts/${d.contact.id}`, { stageId: e.target.value || null }), 'Etapa atualizada').then(refresh)}>
               <option value="">Sem etapa</option>

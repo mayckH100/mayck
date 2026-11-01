@@ -32,7 +32,7 @@ export default function Dashboard() {
               <div className="stack">
                 {d.integrations.whatsapp.length === 0 && <div className="row between"><span>WhatsApp Cloud API</span><span className="badge">Não conectado</span></div>}
                 {d.integrations.whatsapp.map((c: any) => (
-                  <div key={c.id} className="row between"><span>WhatsApp · {c.name}{c.displayPhone ? ` (${c.displayPhone})` : ''}</span><StatusBadge status={c.status} /></div>
+                  <div key={c.id} className="row between"><span>{c.label ?? `WhatsApp · ${c.name}`}{c.displayPhone ? ` (${c.displayPhone})` : ''}</span><StatusBadge status={c.status} /></div>
                 ))}
                 <div className="row between"><span>IA ({d.integrations.ai.provider ?? '—'})</span>
                   <span className={`badge ${d.integrations.ai.enabled && d.integrations.ai.configured ? 'green' : ''}`}>{!d.integrations.ai.configured ? 'Sem chave' : d.integrations.ai.enabled ? 'Ativa' : 'Desativada'}</span></div>
