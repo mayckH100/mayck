@@ -32,7 +32,23 @@ export interface AgendaSettingsView {
   notifyOwner: boolean;
   /** Equipe pré-configurada (máx. 5) — "active" = recebe avisos de reunião. */
   teamContacts: TeamContact[];
+  /** O que a IA atende: REUNIAO | PEDIDO | AMBOS. */
+  aiHandles: AiHandles;
+  /** Tipo de pedido: FISICO | ONLINE | AMBOS. */
+  orderType: OrderTypeSetting;
+  /** "Solicitar dados de entrega" mesmo em pedidos online. */
+  orderAskDelivery: boolean;
 }
+
+export type AiHandles = 'REUNIAO' | 'PEDIDO' | 'AMBOS';
+export type OrderTypeSetting = 'FISICO' | 'ONLINE' | 'AMBOS';
+export const AI_HANDLES: AiHandles[] = ['REUNIAO', 'PEDIDO', 'AMBOS'];
+export const ORDER_TYPES: OrderTypeSetting[] = ['FISICO', 'ONLINE', 'AMBOS'];
+const oneOf = <T extends string>(list: readonly T[], v: unknown, d: T): T => (list.includes(v as T) ? (v as T) : d);
+/** A IA agenda reuniões (modo Reunião ou Os dois)? */
+export const handlesMeetings = (s: Pick<AgendaSettingsView, 'aiHandles'>) => s.aiHandles !== 'PEDIDO';
+/** A IA registra pedidos (modo Pedido ou Os dois)? */
+export const handlesOrders = (s: Pick<AgendaSettingsView, 'aiHandles'>) => s.aiHandles !== 'REUNIAO';
 
 export interface TeamContact { name: string; phone: string; active: boolean }
 export const MAX_TEAM_CONTACTS = 5;
@@ -71,6 +87,9 @@ export async function getSettings(orgId: string): Promise<AgendaSettingsView> {
     reminderMin: s?.reminderMin ?? 60,
     notifyOwner: s?.notifyOwner ?? true,
     teamContacts: teamContactsOf(s?.teamContacts),
+    aiHandles: oneOf(AI_HANDLES, s?.aiHandles, 'REUNIAO'),
+    orderType: oneOf(ORDER_TYPES, s?.orderType, 'FISICO'),
+    orderAskDelivery: s?.orderAskDelivery ?? false,
   };
 }
 
@@ -152,7 +171,7 @@ export function icsOf(a: Appointment, req?: Request) {
   return buildIcs([{ ...a, url: publicEventUrl(a.id, req) }]);
 }
 
-export function viewAppointment(a: Appointment, tz: string, maps: { contacts?: Map<string, { id: string; name: string | null; phone: string }>; users?: Map<string, { id: string; name: string }>; channels?: Map<string, ChannelLabelInfo> } = {}, req?: Request) {
+export function viewAppointment(a: Appointment, tz: string, maps: { contacts?: Map<string, { id: string; name: string | null; phone: string }>; users?: Map<string, { id: string; name: string }>; channels?: Map<string, ChannelLabelInfo>; intents?: Map<string, string | null> } = {}, req?: Request) {
   const c = a.contactId ? maps.contacts?.get(a.contactId) : undefined;
   const u = a.assignedUserId ? maps.users?.get(a.assignedUserId) : undefined;
   const ch = a.channelId ? maps.channels?.get(a.channelId) : undefined;
@@ -166,6 +185,8 @@ export function viewAppointment(a: Appointment, tz: string, maps: { contacts?: M
     /** WhatsApp pelo qual foi marcado: "WhatsApp 2 · Amanda" (+ número). */
     channelId: a.channelId ?? null, channel: ch ? { id: ch.id, label: ch.label, phone: ch.phone, via: ch.via } : null,
     assignedUserId: a.assignedUserId, assignedUser: u ? { id: u.id, name: u.name } : null,
+    /** Classificação da conversa pela IA (Reunião / Pedido / Os dois); reuniões sem conversa contam como Reunião. */
+    intent: (a.conversationId ? maps.intents?.get(a.conversationId) : null) ?? 'REUNIAO',
     createdById: a.createdById, googleSynced: !!a.googleEventId, meetLink: a.meetLink ?? null, createdAt: a.createdAt, updatedAt: a.updatedAt,
     links: { page: publicEventUrl(a.id, req), ics: publicIcsUrl(a.id, req), google: googleAddLink(a), outlook: outlookAddLink(a) },
   };
@@ -178,7 +199,9 @@ export async function viewMany(orgId: string, list: Appointment[], req?: Request
   const contacts: { id: string; name: string | null; phone: string }[] = cIds.length ? await prisma.contact.findMany({ where: { orgId, id: { in: cIds } }, select: { id: true, name: true, phone: true } }) : [];
   const users: { id: string; name: string }[] = uIds.length ? await prisma.user.findMany({ where: { id: { in: uIds } }, select: { id: true, name: true } }) : [];
   const channels = list.some((a) => a.channelId) ? await channelLabels(orgId) : new Map<string, ChannelLabelInfo>();
-  const maps = { contacts: new Map(contacts.map((c) => [c.id, c] as const)), users: new Map(users.map((u) => [u.id, u] as const)), channels };
+  const vIds = [...new Set(list.map((a) => a.conversationId).filter(Boolean))] as string[];
+  const convs = vIds.length ? await prisma.conversation.findMany({ where: { orgId, id: { in: vIds } }, select: { id: true, aiIntent: true } }) : [];
+  const maps = { contacts: new Map(contacts.map((c) => [c.id, c] as const)), users: new Map(users.map((u) => [u.id, u] as const)), channels, intents: new Map(convs.map((c) => [c.id, c.aiIntent] as const)) };
   return list.map((a) => viewAppointment(a, tz, maps, req));
 }
 
@@ -540,7 +563,7 @@ async function bookedByOf(a: Appointment) {
 }
 
 /** Envia texto por WhatsApp a um número da equipe (sem criar contato/conversa no CRM), pelo canal da empresa. */
-async function sendToPhone(a: Appointment, to: string, text: string) {
+export async function sendToPhone(a: Pick<Appointment, 'orgId' | 'conversationId' | 'channelId'>, to: string, text: string) {
   if (!(await isProductActive(a.orgId, 'MCKBOT'))) throw new Error('Assinatura inativa');
   const conv = a.conversationId ? await prisma.conversation.findFirst({ where: { id: a.conversationId, orgId: a.orgId }, select: { channelId: true } }) : null;
   const channel = await resolveChannel({ orgId: a.orgId, channelId: conv?.channelId ?? a.channelId ?? null });

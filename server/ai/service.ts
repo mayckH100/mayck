@@ -6,7 +6,8 @@ import { rank, chunkText } from './rag.js';
 import { HANDOFF_TOKEN } from './guard.js';
 import { normalize } from '../flows/logic.js';
 import { aiNotesPromptSection, contactIdOfConversation } from './contactNotes.js';
-import { agendaPromptSection, applyAgendaTag, cleanAiText, stripSystemLinks } from '../agenda/ai.js';
+import { agendaPromptSection, applyAgendaTag, cleanAiText, stripJsonMarkers, stripSystemLinks } from '../agenda/ai.js';
+import { applyOrderTag, intentFromText, ordersPromptSection, tagConversation } from '../agenda/orders.js';
 
 export interface AiReply {
   text: string | null; // texto a enviar ao contato (null = nada)
@@ -85,10 +86,12 @@ export async function generateAiReply(args: { orgId: string; conversationId: str
   });
   // Agenda: horários livres + regra do marcador [AGENDAR:{...}] (só se a empresa ligou o agendamento pela IA).
   const agenda = await agendaPromptSection(orgId).catch(() => '');
+  // Pedidos e classificação (Agenda › Configurações › "O que a IA atende": Reunião / Pedido / Os dois).
+  const pedidos = await ordersPromptSection(orgId).catch(() => '');
   // Notas para a IA deixadas pelos vendedores neste contato (escopo da organização).
   const contactNotes = await contactIdOfConversation(orgId, conversationId).then((cid) => aiNotesPromptSection(orgId, cid)).catch(() => '');
   const messages: ChatMessage[] = [
-    { role: 'system', content: buildSystemPrompt({ instructions: [s.instructions, args.extraInstructions, agenda].filter(Boolean).join('\n'), tone: s.tone }, context, contactNotes) },
+    { role: 'system', content: buildSystemPrompt({ instructions: [s.instructions, args.extraInstructions, agenda, pedidos].filter(Boolean).join('\n'), tone: s.tone }, context, contactNotes) },
     // Links da agenda/Meet já enviados saem do histórico: a IA não deve copiá-los numa nova resposta.
     ...history.reverse().slice(0, -1).map((m) => ({ role: (m.direction === 'IN' ? 'user' : 'assistant') as 'user' | 'assistant', content: m.direction === 'IN' ? m.body ?? '' : stripSystemLinks(m.body ?? '') })),
     { role: 'user', content: text },
@@ -106,11 +109,24 @@ export async function generateAiReply(args: { orgId: string; conversationId: str
         return { text: s.fallbackMessage, handoff: true, reason: 'IA não soube responder', usedContext: !!hits.length };
       }
       await prisma.aiUsage.create({ data: { ...base, success: true } });
+      // Classificação da conversa (reunião / pedido / os dois) pelo marcador [TIPO:...].
+      const intent = intentFromText(r.text);
+      if (intent) await tagConversation(orgId, conversationId, intent).catch(() => undefined);
       // Marcador de agendamento: cria o compromisso (com checagem de conflito) e troca pelo link da agenda.
-      const booked = await applyAgendaTag({ orgId, conversationId, text: r.text, clientText: text }).catch((e) => {
+      // O marcador de pedido sai antes (o JSON dele tem colchetes) e é processado depois.
+      const noOrder = stripJsonMarkers(r.text, 'PEDIDO');
+      let booked: { text: string; appointmentId?: string } = await applyAgendaTag({ orgId, conversationId, text: noOrder, clientText: text }).catch((e) => {
         console.error('[agenda-ia]', (e as Error).message);
         return { text: cleanAiText(r.text) };
       });
+      if (booked.appointmentId) await tagConversation(orgId, conversationId, 'REUNIAO').catch(() => undefined);
+      // Marcador de pedido: confirma com o cliente, exige dados de entrega conforme a configuração e registra.
+      if (r.text !== noOrder) {
+        booked = await applyOrderTag({ orgId, conversationId, text: r.text, cleanText: booked.text, clientText: text }).catch((e) => {
+          console.error('[pedido-ia]', (e as Error).message);
+          return { text: booked.text };
+        });
+      }
       const out = booked.text || cleanAiText(r.text);
       if (!out) {
         return { text: s.fallbackMessage, handoff: true, reason: 'IA não soube responder', usedContext: !!hits.length };

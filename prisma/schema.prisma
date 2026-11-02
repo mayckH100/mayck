@@ -281,6 +281,8 @@ model Conversation {
   // "Aguardando atendente": quando a IA/fluxo transferiu para humano (limpo quando o atendente responde).
   waitingSince       DateTime?
   handoffAlertSentAt DateTime?
+  /// Classificação da IA: do que trata a conversa — REUNIAO | PEDIDO | AMBOS (nulo = ainda não classificada).
+  aiIntent        String?
   createdAt       DateTime  @default(now())
 
   @@index([orgId, status])
@@ -1015,5 +1017,42 @@ model AgendaSettings {
   /// Equipe pré-configurada (JSON, máx. 5): [{ name, phone, active }] — "active" = recebe avisos de reunião.
   teamContacts       String   @default("[]")
   reminderMin        Int      @default(60)
+  /// O que a IA atende no WhatsApp: REUNIAO (padrão, igual a antes) | PEDIDO | AMBOS.
+  aiHandles          String   @default("REUNIAO")
+  /// Tipo de pedido: FISICO (pede dados de entrega) | ONLINE (sem entrega) | AMBOS (entrega só para item físico).
+  orderType          String   @default("FISICO")
+  /// "Solicitar dados de entrega" mesmo em pedidos online (opção do dono).
+  orderAskDelivery   Boolean  @default(false)
   updatedAt          DateTime @updatedAt
+}
+
+/// Pedido registrado pela IA no WhatsApp (ou alterado pela equipe no painel da Agenda).
+model Order {
+  id             String   @id @default(cuid())
+  orgId          String
+  /// Código curto exibido ao cliente e no painel (ex.: P-7K2Q9X).
+  code           String
+  /// FISICO | ONLINE
+  type           String   @default("FISICO")
+  /// Itens: JSON [{ "nome": string, "quantidade": number, "obs": string|null }]. Sem preços (a IA não inventa valores).
+  items          String   @default("[]")
+  description    String?
+  /// Dados de entrega (JSON { nome, endereco, cep, numero, complemento, telefone }) — nulo quando não coletados.
+  delivery       String?
+  /// NOVO | EM_ANDAMENTO | CONCLUIDO | CANCELADO
+  status         String   @default("NOVO")
+  source         String   @default("AI") // AI | MANUAL
+  notes          String?
+  /// Assinatura dos itens/tipo — evita registrar o mesmo pedido duas vezes.
+  fingerprint    String?
+  contactId      String?
+  conversationId String?
+  /// WhatsApp (canal) pelo qual o pedido foi feito ("📲 Via: WhatsApp 2 · Amanda").
+  channelId      String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([orgId, createdAt])
+  @@index([orgId, status])
+  @@index([orgId, contactId])
 }

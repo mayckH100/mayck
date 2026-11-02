@@ -12,7 +12,9 @@ import { buildIcs, googleAddLink, outlookAddLink, verifyPublicEventToken } from 
 import {
   createAppointment, updateAppointment, deleteAppointment, viewMany, getSettings, orgTz, freeSlots, findConflicts,
   icsOf, publicEventUrl, escHtml, KIND_LABEL, notifyRecipients, hasRecipients, MAX_EXTRA_CONTACTS, MAX_TEAM_CONTACTS, normalizeTeamContacts, ownerPhones,
+  AI_HANDLES, ORDER_TYPES,
 } from './service.js';
+import { ORDER_STATUSES, updateOrderStatus, viewOrders } from './orders.js';
 import { googleConfigured, googleRedirectUri, makeState, readState, authUrl, exchangeCode, revokeGoogle, forgetToken } from './google.js';
 import { parseLocal, humanPt, toLocalIso } from './time.js';
 
@@ -124,6 +126,10 @@ agendaRouter.put('/settings', admins, ah(async (req, res) => {
     notifyContact: z.boolean(), reminderMin: z.number().int().min(0).max(7 * 24 * 60),
     notifyAssignee: z.boolean().optional(), notifyExtras: z.boolean().optional(), notifyOwner: z.boolean().optional(),
     teamContacts: z.array(z.object({ name: z.string().max(80).optional().nullable(), phone: z.string().max(30), active: z.boolean().optional() })).max(MAX_TEAM_CONTACTS, `No máximo ${MAX_TEAM_CONTACTS} membros da equipe`).optional(),
+    /** O que a IA atende (Reunião / Pedido / Os dois), tipo de pedido e "Solicitar dados de entrega" (online). */
+    aiHandles: z.enum(AI_HANDLES as [string, ...string[]]).optional(),
+    orderType: z.enum(ORDER_TYPES as [string, ...string[]]).optional(),
+    orderAskDelivery: z.boolean().optional(),
   }).parse(req.body);
   if (b.workEnd <= b.workStart) throw new HttpError(400, 'O fim do expediente deve ser depois do início');
   const orgId = orgOf(req);
@@ -133,6 +139,26 @@ agendaRouter.put('/settings', admins, ah(async (req, res) => {
   await prisma.agendaSettings.upsert({ where: { orgId }, create: { orgId, ...data }, update: data });
   await audit(req, 'agenda.settings', { entity: 'agenda', meta: { ...data, teamContacts: teamContacts !== undefined ? teamContacts.length : undefined } });
   res.json(await getSettings(orgId));
+}));
+
+// ---------- Pedidos registrados pela IA (mesmo painel das reuniões) ----------
+
+agendaRouter.get('/orders', ah(async (req, res) => {
+  const q = z.object({ status: z.enum(['all', ...ORDER_STATUSES] as [string, ...string[]]).default('all'), contactId: z.string().max(40).optional() }).parse(req.query);
+  const orgId = orgOf(req);
+  const where: any = { orgId };
+  if (q.status !== 'all') where.status = q.status;
+  if (q.contactId) where.contactId = q.contactId;
+  const list = await prisma.order.findMany({ where, orderBy: { createdAt: 'desc' }, take: 300 });
+  res.json({ items: await viewOrders(orgId, list) });
+}));
+
+/** Equipe muda o andamento do pedido: Novo → Em andamento → Concluído (ou Cancelado). */
+agendaRouter.patch('/orders/:id', ah(async (req, res) => {
+  const b = z.object({ status: z.enum(ORDER_STATUSES as [string, ...string[]]), notes: z.string().max(1000).optional().nullable() }).parse(req.body);
+  const orgId = orgOf(req);
+  const o = await updateOrderStatus(req.params.id, b.status as any, { orgId, userId: req.auth!.userId, req }, b.notes);
+  res.json((await viewOrders(orgId, [o]))[0]);
 }));
 
 // ---------- Feed assinável (URL secreta webcal/ICS que atualiza sozinho no celular) ----------

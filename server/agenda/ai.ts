@@ -1,6 +1,6 @@
 import { prisma } from '../db.js';
 import type { Appointment } from '@prisma/client';
-import { createAppointment, findConflicts, freeSlots, getSettings, orgTz, ConflictError, publicEventUrl } from './service.js';
+import { createAppointment, findConflicts, freeSlots, getSettings, orgTz, ConflictError, publicEventUrl, handlesMeetings } from './service.js';
 import { humanPt, parseLocal, toLocalIso, zonedParts } from './time.js';
 
 /** Marcador que a IA usa para pedir o agendamento ao combinar um horário com o cliente. */
@@ -13,7 +13,8 @@ const DIAS = ['domingo', 'segunda', 'terça', 'quarta', 'quinta', 'sexta', 'sáb
 /** Trecho do prompt com os horários livres e a regra de agendamento (só quando a empresa liga a opção). */
 export async function agendaPromptSection(orgId: string, now = new Date()): Promise<string> {
   const s = await getSettings(orgId);
-  if (!s.aiBooking) return '';
+  // Modo "Pedido" (só pedidos): a IA não agenda reuniões.
+  if (!s.aiBooking || !handlesMeetings(s)) return '';
   const tz = await orgTz(orgId);
   const slots = await freeSlots(orgId, { days: 10, max: 16, now });
   const p = zonedParts(now, tz);
@@ -39,8 +40,51 @@ export function stripSystemLinks(text: string): string {
   return String(text ?? '').replace(SYSTEM_LINK_LINE_RE, '').replace(/\n{3,}/g, '\n\n').trim();
 }
 
-/** Tira da resposta da IA os marcadores e os links copiados (usado também quando o agendamento falha). */
-export const cleanAiText = (text: string) => stripSystemLinks(String(text ?? '').replace(AGENDAR_ALL_RE, ''));
+/** Marcador de classificação da conversa: [TIPO:reuniao|pedido|ambos] (processado em agenda/orders.ts). */
+export const TIPO_ALL_RE = /\[TIPO:\s*[^\]\n]{0,30}\]/gi;
+
+/**
+ * Encontra marcadores [NOME:{json}] com o JSON balanceado (o JSON do pedido tem listas e objetos
+ * aninhados, então uma regex simples cortaria no primeiro "}]"). Devolve o JSON bruto e a posição.
+ */
+export function findJsonMarkers(text: string, name: string): { json: string; start: number; end: number }[] {
+  const out: { json: string; start: number; end: number }[] = [];
+  const src = String(text ?? '');
+  const re = new RegExp(`\\[${name}:\\s*`, 'gi');
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(src))) {
+    let i = m.index + m[0].length;
+    if (src[i] !== '{') continue;
+    let depth = 0; let inStr = false; let esc = false; let j = i;
+    for (; j < src.length; j++) {
+      const c = src[j];
+      if (inStr) { if (esc) esc = false; else if (c === '\\') esc = true; else if (c === '"') inStr = false; continue; }
+      if (c === '"') inStr = true;
+      else if (c === '{') depth++;
+      else if (c === '}') { depth--; if (depth === 0) break; }
+    }
+    if (depth !== 0) { out.push({ json: '', start: m.index, end: src.length }); break; } // marcador quebrado: descarta até o fim
+    let k = j + 1;
+    while (k < src.length && /\s/.test(src[k])) k++;
+    const end = src[k] === ']' ? k + 1 : j + 1;
+    out.push({ json: src.slice(i, j + 1), start: m.index, end });
+    re.lastIndex = end;
+  }
+  return out;
+}
+
+/** Remove os marcadores [NOME:{...}] do texto. */
+export function stripJsonMarkers(text: string, name: string): string {
+  const src = String(text ?? '');
+  const ms = findJsonMarkers(src, name);
+  if (!ms.length) return src;
+  let out = ''; let last = 0;
+  for (const mk of ms) { out += src.slice(last, mk.start); last = mk.end; }
+  return out + src.slice(last);
+}
+
+/** Tira da resposta da IA os marcadores (agendar, pedido, tipo) e os links copiados (usado também quando o agendamento falha). */
+export const cleanAiText = (text: string) => stripSystemLinks(stripJsonMarkers(String(text ?? '').replace(AGENDAR_ALL_RE, ''), 'PEDIDO').replace(TIPO_ALL_RE, ''));
 
 const norm = (s: string) => (s ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
 
@@ -98,7 +142,7 @@ export async function applyAgendaTag(args: { orgId: string; conversationId: stri
   const clean = cleanAiText(args.text);
   if (!m) return { text: clean };
   const s = await getSettings(args.orgId);
-  if (!s.aiBooking || !args.conversationId) return { text: clean };
+  if (!s.aiBooking || !handlesMeetings(s) || !args.conversationId) return { text: clean };
   const conv = await prisma.conversation.findFirst({ where: { id: args.conversationId, orgId: args.orgId } });
   if (!conv) return { text: clean };
   let data: any;

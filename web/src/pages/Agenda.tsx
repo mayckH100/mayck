@@ -7,6 +7,11 @@ import { useApi, Async, Empty, useAction, Modal, Field, useToast, copy, SenhaExc
 const KIND: Record<string, string> = { MEETING: 'Reunião', TASK: 'Tarefa' };
 const STATUS: Record<string, [string, string]> = { SCHEDULED: ['Agendado', 'blue'], DONE: ['Concluído', 'green'], CANCELLED: ['Cancelado', 'red'] };
 const SOURCE: Record<string, string> = { MANUAL: 'Manual', AI: 'IA no WhatsApp', KANBAN: 'Kanban' };
+/** Classificação da conversa pela IA (tag no card). */
+const INTENT: Record<string, [string, string]> = { REUNIAO: ['Reunião', 'blue'], PEDIDO: ['Pedido', 'amber'], AMBOS: ['Reunião + Pedido', 'green'] };
+const HANDLES: [string, string, string][] = [['REUNIAO', 'Reunião', 'A IA agenda reuniões (como hoje).'], ['PEDIDO', 'Pedido', 'A IA registra pedidos e não agenda reuniões.'], ['AMBOS', 'Os dois', 'A IA agenda reuniões e registra pedidos.']];
+const ORDER_TYPES: [string, string, string][] = [['FISICO', 'Físico', 'Ex.: pet shop, loja. A IA pede os dados de entrega.'], ['ONLINE', 'Online', 'Ex.: e-book, curso. Sem dados de entrega.'], ['AMBOS', 'Os dois', 'A IA pede entrega só quando o item for físico.']];
+const ORDER_STATUS: Record<string, [string, string]> = { NOVO: ['Novo', 'blue'], EM_ANDAMENTO: ['Em andamento', 'amber'], CONCLUIDO: ['Concluído', 'green'], CANCELADO: ['Cancelado', 'red'] };
 const DIAS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
 const REMINDERS = [[0, 'Sem lembrete'], [10, '10 min antes'], [30, '30 min antes'], [60, '1 hora antes'], [120, '2 horas antes'], [1440, '1 dia antes']] as const;
 
@@ -226,6 +231,52 @@ function SyncCard() {
   );
 }
 
+/** Pedidos registrados pela IA (aparecem no mesmo painel das reuniões). */
+function OrdersCard({ handles }: { handles: string }) {
+  const [tab, setTab] = useState<'open' | 'CONCLUIDO' | 'CANCELADO' | 'all'>('open');
+  const state = useApi<any>('/agenda/orders');
+  const { busy, run } = useAction();
+  const setStatus = (id: string, status: string, msg: string) => run(() => patch(`/agenda/orders/${id}`, { status }), msg).then(state.reload);
+  const items = ((state.data?.items ?? []) as any[]).filter((o) => tab === 'all' ? true : tab === 'open' ? o.status === 'NOVO' || o.status === 'EM_ANDAMENTO' : o.status === tab);
+  if (handles === 'REUNIAO' && state.data && !state.data.items.length) return null;
+  return (
+    <div className="card">
+      <div className="row between" style={{ marginBottom: 8 }}>
+        <h2 style={{ margin: 0 }}>Pedidos</h2>
+        <div className="tabs" style={{ marginBottom: 0, borderBottom: 0 }}>
+          {([['open', 'Abertos'], ['CONCLUIDO', 'Concluídos'], ['CANCELADO', 'Cancelados'], ['all', 'Todos']] as const).map(([k, l]) => <button key={k} className={tab === k ? 'on' : ''} onClick={() => setTab(k)}>{l}</button>)}
+        </div>
+      </div>
+      <Async state={state}>{() => !items.length ? <Empty title="Nenhum pedido">{handles === 'REUNIAO' ? 'Escolha "Pedido" ou "Os dois" em Configurações para a IA registrar pedidos no WhatsApp.' : 'Quando o cliente confirmar um pedido no WhatsApp, a IA registra e ele aparece aqui.'}</Empty> : (
+        <div className="stack" style={{ gap: 8 }}>
+          {items.map((o) => (
+            <div key={o.id} className="kcard" style={{ opacity: o.status === 'CANCELADO' ? 0.6 : 1 }}>
+              <div className="row between">
+                <span className="row"><strong>🛒 {o.code}</strong><span className="badge">{o.type === 'ONLINE' ? 'Online' : 'Físico'}</span><span className={`badge ${INTENT[o.intent]?.[1] ?? 'amber'}`} title="Classificação da conversa pela IA">{INTENT[o.intent]?.[0] ?? 'Pedido'}</span></span>
+                <span className={`badge ${ORDER_STATUS[o.status]?.[1] ?? ''}`}>{ORDER_STATUS[o.status]?.[0] ?? o.status}</span>
+              </div>
+              <div style={{ marginTop: 4 }}>📦 {o.items.map((i: any) => `${i.quantidade}x ${i.nome}${i.obs ? ` (${i.obs})` : ''}`).join(', ')}</div>
+              {o.description && <div className="small muted">📝 {o.description}</div>}
+              {o.delivery && <div className="small" style={{ marginTop: 2 }}>🚚 {o.delivery.nome} — {o.delivery.endereco}, nº {o.delivery.numero}{o.delivery.complemento ? `, ${o.delivery.complemento}` : ''} — CEP {o.delivery.cep} — Tel. {o.delivery.telefone}</div>}
+              <div className="small muted" style={{ marginTop: 4 }}>
+                {new Date(o.createdAt).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}{o.contact ? ` · ${o.contact.name ?? o.contact.phone}` : ''} · {o.source === 'AI' ? 'IA no WhatsApp' : 'Manual'}{o.channel ? <> · <span title="WhatsApp pelo qual foi feito">📲 Via: {o.channel.via}</span></> : null}
+              </div>
+              <div className="row" style={{ marginTop: 6 }}>
+                {o.status === 'NOVO' && <button className="btn sm" disabled={busy} onClick={() => setStatus(o.id, 'EM_ANDAMENTO', 'Pedido em andamento')}>Em andamento</button>}
+                {(o.status === 'NOVO' || o.status === 'EM_ANDAMENTO') && <>
+                  <button className="btn sm" disabled={busy} onClick={() => setStatus(o.id, 'CONCLUIDO', 'Pedido concluído')}>Concluir</button>
+                  <button className="btn sm danger" disabled={busy} onClick={() => { if (confirm('Cancelar este pedido?')) setStatus(o.id, 'CANCELADO', 'Pedido cancelado'); }}>Cancelar</button>
+                </>}
+                {(o.status === 'CONCLUIDO' || o.status === 'CANCELADO') && <button className="btn sm" disabled={busy} onClick={() => setStatus(o.id, 'NOVO', 'Pedido reaberto')}>Reabrir</button>}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}</Async>
+    </div>
+  );
+}
+
 function SettingsModal({ onClose }: { onClose: () => void }) {
   const st = useApi<any>('/agenda/settings');
   const [s, setS] = useState<any>(null);
@@ -240,7 +291,25 @@ function SettingsModal({ onClose }: { onClose: () => void }) {
           body.teamContacts = (s.teamContacts ?? []).map((m: any) => ({ name: m.name.trim(), phone: m.phone.trim(), active: m.active !== false }));
           if (await run(() => put('/agenda/settings', body), 'Configurações salvas')) onClose();
         }}>
-          <label className="row"><input type="checkbox" checked={s.aiBooking} onChange={(e) => setS({ ...s, aiBooking: e.target.checked })} style={{ width: 'auto' }} /> <strong>A IA pode agendar reuniões no WhatsApp</strong></label>
+          <Field label="O que a IA atende no WhatsApp" hint={HANDLES.find(([k]) => k === (s.aiHandles ?? 'REUNIAO'))?.[2]}>
+            <div className="row" role="group" aria-label="O que a IA atende">
+              {HANDLES.map(([k, l]) => <button type="button" key={k} className={`btn sm ${(s.aiHandles ?? 'REUNIAO') === k ? 'primary' : ''}`} aria-pressed={(s.aiHandles ?? 'REUNIAO') === k} onClick={() => setS({ ...s, aiHandles: k })}>{l}</button>)}
+            </div>
+          </Field>
+          {(s.aiHandles === 'PEDIDO' || s.aiHandles === 'AMBOS') && (
+            <Field label="Tipo de pedido" hint={ORDER_TYPES.find(([k]) => k === (s.orderType ?? 'FISICO'))?.[2]}>
+              <div className="stack" style={{ gap: 6 }}>
+                <div className="row" role="group" aria-label="Tipo de pedido">
+                  {ORDER_TYPES.map(([k, l]) => <button type="button" key={k} className={`btn sm ${(s.orderType ?? 'FISICO') === k ? 'primary' : ''}`} aria-pressed={(s.orderType ?? 'FISICO') === k} onClick={() => setS({ ...s, orderType: k })}>{l}</button>)}
+                </div>
+                {(s.orderType === 'ONLINE' || s.orderType === 'AMBOS') && (
+                  <label className="row small"><input type="checkbox" checked={!!s.orderAskDelivery} onChange={(e) => setS({ ...s, orderAskDelivery: e.target.checked })} style={{ width: 'auto' }} /> Solicitar dados de entrega {s.orderType === 'AMBOS' ? '(também nos pedidos online)' : '(mesmo sendo online)'}</label>
+                )}
+                <span className="small muted">Dados de entrega: nome, endereço com CEP, número, complemento e telefone. A IA resume o pedido e só registra depois que o cliente confirma; os preços vêm das Instruções e da base de conhecimento da IA.</span>
+              </div>
+            </Field>
+          )}
+          {s.aiHandles !== 'PEDIDO' && <label className="row"><input type="checkbox" checked={s.aiBooking} onChange={(e) => setS({ ...s, aiBooking: e.target.checked })} style={{ width: 'auto' }} /> <strong>A IA pode agendar reuniões no WhatsApp</strong></label>}
           <span className="small muted">A IA oferece só horários livres (sem conflito com a agenda e com o Google Agenda conectado) e, quando o cliente confirma, cria a reunião e envia o link para a agenda do celular. Requer a IA automática ligada.</span>
           <div className="grid" style={{ gridTemplateColumns: '1fr 1fr', gap: 8 }}>
             <Field label="Início do atendimento"><input type="time" value={s.workStart} onChange={(e) => setS({ ...s, workStart: e.target.value })} /></Field>
@@ -305,6 +374,8 @@ export default function Agenda() {
     return `/agenda?from=${r[0]}&to=${r[1]}${mine ? '&mine=1' : ''}`;
   }, [range, mine]);
   const state = useApi<any>(path, [path]);
+  const agendaSettings = useApi<any>('/agenda/settings', [settings]);
+  const handles: string = agendaSettings.data?.aiHandles ?? 'REUNIAO';
   useEffect(() => {
     const g = params.get('google');
     if (!g) return;
@@ -315,7 +386,8 @@ export default function Agenda() {
   return (
     <>
       <div className="page-head">
-        <div><h1>Agenda</h1><p className="muted">Reuniões e tarefas que vão direto para a agenda do celular — sua, da equipe e do cliente.</p></div>
+        <div><h1>Agenda</h1><p className="muted">Reuniões e tarefas que vão direto para a agenda do celular — sua, da equipe e do cliente{handles !== 'REUNIAO' ? ' — e os pedidos que a IA registra no WhatsApp' : ''}.</p>
+          {agendaSettings.data && <span className="small muted">IA atende: <strong>{HANDLES.find(([k]) => k === handles)?.[1]}</strong></span>}</div>
         <div className="row">
           {can('OWNER', 'ADMIN') && <button className="btn" onClick={() => setSettings(true)}>Configurações</button>}
           <button className="btn" onClick={() => setEdit(newDraft({ kind: 'TASK', assignedUserId: me?.user.id ?? null }))}>+ Tarefa</button>
@@ -344,7 +416,7 @@ export default function Agenda() {
                       {list.map((a) => (
                         <div key={a.id} className="kcard" style={{ opacity: a.status === 'CANCELLED' ? 0.6 : 1 }}>
                           <div className="row between">
-                            <span className="row"><strong style={{ fontSize: 15 }}>{a.localStart.slice(11)}</strong><span className="badge">{KIND[a.kind]}</span><strong style={{ textDecoration: a.status === 'CANCELLED' ? 'line-through' : undefined }}>{a.title}</strong></span>
+                            <span className="row"><strong style={{ fontSize: 15 }}>{a.localStart.slice(11)}</strong><span className="badge">{KIND[a.kind]}</span>{a.intent && a.intent !== 'REUNIAO' && <span className={`badge ${INTENT[a.intent]?.[1] ?? ''}`} title="Classificação da conversa pela IA">{INTENT[a.intent]?.[0]}</span>}<strong style={{ textDecoration: a.status === 'CANCELLED' ? 'line-through' : undefined }}>{a.title}</strong></span>
                             <span className={`badge ${STATUS[a.status][1]}`}>{STATUS[a.status][0]}</span>
                           </div>
                           <div className="small muted" style={{ marginTop: 4 }}>
@@ -377,7 +449,10 @@ export default function Agenda() {
             );
           }}</Async>
         </div>
-        <SyncCard />
+        <div className="stack" style={{ alignItems: 'stretch' }}>
+          <OrdersCard handles={handles} />
+          <SyncCard />
+        </div>
       </div>
       {edit && <AppointmentModal draft={edit} onClose={() => setEdit(null)} onSaved={() => { setEdit(null); state.reload(); }} />}
       {settings && <SettingsModal onClose={() => setSettings(false)} />}
