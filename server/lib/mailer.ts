@@ -1,10 +1,12 @@
 import nodemailer, { type Transporter } from 'nodemailer';
 import type { Request } from 'express';
 import { isTest } from '../config.js';
+import { httpFetch } from './fetcher.js';
 
 /**
- * E-mails transacionais via SMTP genérico (qualquer provedor: Brevo, Gmail com senha de app, Zoho, Resend SMTP…).
- * Variáveis: SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, MAIL_FROM, APP_URL.
+ * E-mails transacionais: API HTTP do Brevo (BREVO_API_KEY, recomendada no Render Free, que bloqueia SMTP)
+ * ou SMTP genérico (qualquer provedor: Brevo, Gmail com senha de app, Zoho, Resend SMTP…).
+ * Variáveis: BREVO_API_KEY ou SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS; sempre MAIL_FROM e APP_URL.
  * Sem SMTP configurado, nada quebra: o envio é apenas registrado no log.
  */
 
@@ -17,8 +19,41 @@ export const outbox: MailMessage[] = [];
 let transporter: Transporter | null = null;
 let transporterKey = '';
 
+/** API HTTP do Brevo (porta 443): funciona no Render Free, que bloqueia a saída SMTP. Tem prioridade sobre o SMTP. */
+export function brevoConfigured() {
+  return !!(process.env.BREVO_API_KEY && process.env.MAIL_FROM);
+}
+
+/** Há algum meio de envio de e-mail configurado (API HTTP do Brevo ou SMTP). */
 export function smtpConfigured() {
-  return !!(process.env.SMTP_HOST && process.env.MAIL_FROM);
+  return brevoConfigured() || !!(process.env.SMTP_HOST && process.env.MAIL_FROM);
+}
+
+/** MAIL_FROM aceita "Nome <email@dominio>" ou só "email@dominio". */
+export function parseFrom(from: string): { name?: string; email: string } {
+  const m = /^\s*"?([^"<]*?)"?\s*<([^>]+)>\s*$/.exec(from);
+  if (m) return m[1].trim() ? { name: m[1].trim(), email: m[2].trim() } : { email: m[2].trim() };
+  return { email: from.trim() };
+}
+
+/** Envia pela API transacional do Brevo. Devolve o messageId ou lança erro com o motivo real. */
+async function sendViaBrevo(msg: { to: string; subject: string; text: string; html?: string; attachments?: MailAttachment[] }): Promise<string> {
+  const body: Record<string, unknown> = {
+    sender: parseFrom(process.env.MAIL_FROM!),
+    to: [{ email: msg.to }],
+    subject: msg.subject,
+    textContent: msg.text,
+    ...(msg.html ? { htmlContent: msg.html } : {}),
+    ...(msg.attachments?.length ? { attachment: msg.attachments.map((a) => ({ name: a.filename, content: a.content.toString('base64') })) } : {}),
+  };
+  const res = await httpFetch('https://api.brevo.com/v3/smtp/email', {
+    method: 'POST',
+    headers: { 'api-key': process.env.BREVO_API_KEY!, accept: 'application/json', 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const data = (await res.json().catch(() => ({}))) as { messageId?: string; message?: string; code?: string };
+  if (res.status < 200 || res.status >= 300) throw new Error(`Brevo API ${res.status}: ${String(data.message ?? data.code ?? '').slice(0, 300)}`);
+  return data.messageId ?? 'brevo';
 }
 
 function getTransporter(): Transporter | null {
@@ -43,6 +78,16 @@ function getTransporter(): Transporter | null {
 /** Envia sem lançar erro: falha de SMTP nunca derruba cadastro, recuperação ou troca de senha. */
 export async function sendMail(msg: MailMessage): Promise<boolean> {
   if (isTest) { outbox.push(msg); return true; }
+  if (brevoConfigured()) {
+    try {
+      await sendViaBrevo(msg);
+      console.info(`[mail] "${msg.kind}" enviado para ${maskEmail(msg.to)} (Brevo API)`);
+      return true;
+    } catch (e) {
+      console.error(`[mail] falha ao enviar "${msg.kind}" para ${maskEmail(msg.to)} (Brevo API):`, (e as Error).message);
+      return false;
+    }
+  }
   const t = getTransporter();
   if (!t) {
     console.warn(`[mail] SMTP não configurado — e-mail "${msg.kind}" para ${maskEmail(msg.to)} não enviado.`);
@@ -64,6 +109,9 @@ export async function sendMail(msg: MailMessage): Promise<boolean> {
  */
 export async function sendMailResult(msg: { to: string; subject: string; text: string; html?: string; attachments?: MailAttachment[] }): Promise<{ ok: boolean; messageId?: string; error?: string }> {
   if (isTest) { outbox.push({ ...msg, html: msg.html ?? msg.text, kind: 'automacao' }); return { ok: true, messageId: `test-${outbox.length}` }; }
+  if (brevoConfigured()) {
+    try { return { ok: true, messageId: await sendViaBrevo(msg) }; } catch (e) { return { ok: false, error: ((e as Error).message || 'Falha na API do Brevo').slice(0, 500) }; }
+  }
   const t = getTransporter();
   if (!t) return { ok: false, error: 'SMTP não configurado (defina SMTP_HOST e MAIL_FROM)' };
   try {
@@ -76,6 +124,12 @@ export async function sendMailResult(msg: { to: string; subject: string; text: s
 
 /** Verifica a conexão/autenticação SMTP sem enviar e-mail. */
 export async function verifySmtp(): Promise<{ ok: boolean; error?: string }> {
+  if (brevoConfigured()) {
+    try {
+      const res = await httpFetch('https://api.brevo.com/v3/account', { headers: { 'api-key': process.env.BREVO_API_KEY!, accept: 'application/json' } });
+      return res.status === 200 ? { ok: true } : { ok: false, error: `Brevo API ${res.status}` };
+    } catch (e) { return { ok: false, error: (e as Error).message }; }
+  }
   const t = getTransporter();
   if (!t) return { ok: false, error: 'SMTP não configurado' };
   try { await t.verify(); return { ok: true }; } catch (e) { return { ok: false, error: (e as Error).message }; }

@@ -11,7 +11,7 @@ import { audit } from './audit.js';
  * Backup diário do banco, 100% gratuito:
  *  - exporta todas as tabelas (via Prisma, sem pg_dump) em NDJSON, compacta (gzip) e CIFRA (AES-256-GCM);
  *  - envia para um repositório PRIVADO do GitHub (BACKUP_GITHUB_TOKEN + BACKUP_GITHUB_REPO) — recusa repositório público;
- *  - e/ou por e-mail (BACKUP_EMAIL, se o SMTP estiver configurado e o arquivo for pequeno);
+ *  - e/ou por e-mail (BACKUP_EMAIL, se o e-mail estiver configurado — API do Brevo ou SMTP — e o arquivo for pequeno);
  *  - o superadmin também pode baixar o arquivo cifrado pelo Painel Master.
  * Chave: BACKUP_KEY (32 bytes base64) se definida; senão derivada da MASTER_KEY. Restaurar: scripts/backup-restore.mjs.
  */
@@ -154,6 +154,8 @@ export function backupEmailTo(): string | null {
   const explicit = (process.env.BACKUP_EMAIL || '').trim();
   if (explicit) return EMAIL_RE.test(explicit) ? explicit : null;
   const smtpUser = (process.env.SMTP_USER || '').trim();
+  // O login SMTP do Brevo (xxx@smtp-brevo.com) não é uma caixa de entrada: nunca mandar backup para ele.
+  if (/@smtp-brevo\.com$/i.test(smtpUser)) return null;
   return EMAIL_RE.test(smtpUser) ? smtpUser : null;
 }
 
