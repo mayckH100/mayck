@@ -217,6 +217,8 @@ Cadastro (boas-vindas + confirmação de e-mail), "Esqueci minha senha" e aviso 
 | `MAIL_FROM` | `MCKBOT <no-reply@seudominio.com>` (remetente verificado no provedor) |
 | `APP_URL` | `https://mckbot.onrender.com` (opcional; sem ela usa `RENDER_EXTERNAL_URL`) |
 
+**Recomendado no Render Free — API HTTP do Brevo:** defina `BREVO_API_KEY` (Brevo → SMTP & API → API Keys) e `MAIL_FROM` com um remetente verificado no Brevo. Com a chave definida, todos os e-mails (inclusive o backup diário) saem pela API HTTPS do Brevo e o SMTP é ignorado. Para receber o backup por e-mail, defina também `BACKUP_EMAIL` (o login SMTP `...@smtp-brevo.com` não é caixa de entrada e nunca recebe backup).
+
 Opcional: `FORGOT_RATE_LIMIT` (padrão 5 pedidos de redefinição por e-mail/IP a cada 15 min).
 
 ## PWA e futuro app na Play Store (TWA)
