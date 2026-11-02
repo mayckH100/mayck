@@ -156,8 +156,10 @@ contactsRouter.post('/import/preview', requireRole('OWNER', 'ADMIN'), csvBody, a
 contactsRouter.post('/import/confirm', requireRole('OWNER', 'ADMIN'), csvBody, ah(async (req, res) => {
   const yes = (v: unknown) => ['1', 'true', 'sim'].includes(String(v ?? '').toLowerCase());
   const updateExisting = yes(req.query.updateExisting);
-  // ?consent=1: quem importa declara que os contatos autorizaram receber mensagens (vale para o MCK Mensagens).
-  const consentDeclared = yes(req.query.consent);
+  // Ao importar, quem importa declara que os contatos autorizaram receber mensagens (LGPD): o consentimento
+  // fica registrado automaticamente (origem IMPORTACAO). Opt-out nunca é sobrescrito.
+  const consentDeclared = true;
+  const importTime = new Date();
   const orgId = orgOf(req);
   const rows = await analyzeUpload(req, orgId);
   const toCreate = rows.filter((r) => r.status === 'ok');
@@ -199,18 +201,18 @@ contactsRouter.post('/import/confirm', requireRole('OWNER', 'ADMIN'), csvBody, a
     throw e;
   }
   // MCK Mensagens: os contatos importados (novos e atualizados) aparecem também na lista de contatos de lá,
-  // mesclados pelo telefone (sem duplicar). Sem a declaração de consentimento, entram com consentimento pendente.
+  // mesclados pelo telefone (sem duplicar), já com consentimento registrado.
   const waIds = [...toCreate, ...toUpdate].map((r) => r.waId).filter((w): w is string => !!w);
   let mckMensagens = { created: 0, linked: 0 };
   for (let i = 0; i < waIds.length; i += 500) {
     const part = await prisma.contact.findMany({ where: { orgId, waId: { in: waIds.slice(i, i + 500) } } });
-    const r = await safeSyncContactsToLeads(orgId, part, consentDeclared ? { consent: { source: 'IMPORTACAO', at: new Date() } } : {});
+    const r = await safeSyncContactsToLeads(orgId, part, { consent: { source: 'IMPORTACAO', at: importTime } });
     mckMensagens = { created: mckMensagens.created + r.created, linked: mckMensagens.linked + r.linked };
   }
   const s = summarize(rows);
   const result = { ...s, created, updated, skipped: s.duplicates - updated, mckMensagens };
   // Auditoria só com contagens (sem nomes, telefones ou e-mails).
-  await audit(req, 'contacts.import', { meta: { ...result, updateExisting, consentDeclared } });
+  await audit(req, 'contacts.import', { meta: { ...result, updateExisting, consentDeclared, consentRegistered: true, consentSource: 'IMPORTACAO', consentAt: importTime.toISOString(), consentBy: (req as any).auth?.userId ?? null } });
   res.json(result);
 }));
 

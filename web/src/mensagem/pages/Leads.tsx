@@ -61,7 +61,6 @@ function NewLead({ campaigns, onClose, onDone }: { campaigns: Campaign[]; onClos
 
 function ImportLeads({ campaigns, onClose, onDone }: { campaigns: Campaign[]; onClose: () => void; onDone: () => void }) {
   const [text, setText] = useState('');
-  const [declared, setDeclared] = useState(false);
   const [consentSource, setConsentSource] = useState<ConsentSource>('IMPORTACAO');
   const [campaignId, setCampaignId] = useState('');
   const [tags, setTags] = useState('');
@@ -72,7 +71,7 @@ function ImportLeads({ campaigns, onClose, onDone }: { campaigns: Campaign[]; on
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     const r = await run(() => post<{ created: number; updated: number; sameClient?: number; errors: string[] }>('/mckmensagem/leads/import', {
-      text, consentDeclared: declared, consentSource, campaignId: campaignId || null, tags: parseTags(tags),
+      text, consentDeclared: true, consentSource, campaignId: campaignId || null, tags: parseTags(tags),
     }));
     if (r) { setResult(r); onDone(); }
   };
@@ -106,13 +105,10 @@ function ImportLeads({ campaigns, onClose, onDone }: { campaigns: Campaign[]; on
             <Field label="Vincular à campanha"><CampaignSelect value={campaignId} onChange={setCampaignId} campaigns={campaigns} /></Field>
           </div>
           <Field label="Etiquetas extras para todos" hint="Opcional, separadas por vírgula"><input value={tags} onChange={(e) => setTags(e.target.value)} /></Field>
-          <label className="mm-check">
-            <input type="checkbox" checked={declared} onChange={(e) => setDeclared(e.target.checked)} required />
-            <span>Declaro que todos os contatos autorizaram receber mensagens.<br /><span className="small muted" style={{ fontWeight: 400 }}>Enviar para quem não autorizou viola as regras do WhatsApp e a LGPD e pode bloquear o seu número.</span></span>
-          </label>
+          <div className="alert info small">Ao importar, você declara que esses contatos autorizaram receber mensagens (LGPD).<br /><span className="muted">Enviar para quem não autorizou viola as regras do WhatsApp e a LGPD e pode bloquear o seu número.</span></div>
           <div className="row" style={{ justifyContent: 'flex-end' }}>
             <button type="button" className="btn" onClick={onClose}>Cancelar</button>
-            <button className="btn primary" disabled={busy || !declared || !text.trim()}>{busy ? 'Importando…' : 'Importar'}</button>
+            <button className="btn primary" disabled={busy || !text.trim()}>{busy ? 'Importando…' : 'Importar'}</button>
           </div>
         </form>
       )}

@@ -9,7 +9,7 @@ const STATUS: Record<string, [string, string]> = { SCHEDULED: ['Agendado', 'blue
 const SOURCE: Record<string, string> = { MANUAL: 'Manual', AI: 'IA no WhatsApp', KANBAN: 'Kanban' };
 /** Classificação da conversa pela IA (tag no card). */
 const INTENT: Record<string, [string, string]> = { REUNIAO: ['Reunião', 'blue'], PEDIDO: ['Pedido', 'amber'], AMBOS: ['Reunião + Pedido', 'green'] };
-const HANDLES: [string, string, string][] = [['REUNIAO', 'Reunião', 'A IA agenda reuniões (como hoje).'], ['PEDIDO', 'Pedido', 'A IA registra pedidos e não agenda reuniões.'], ['AMBOS', 'Os dois', 'A IA agenda reuniões e registra pedidos.']];
+const HANDLES: [string, string, string][] = [['REUNIAO', 'Agendar reunião', 'A IA só agenda reuniões.'], ['PEDIDO', 'Anotar pedido', 'A IA só anota pedidos.'], ['AMBOS', 'Ambos', 'A IA anota pedidos e agenda reuniões.']];
 const ORDER_TYPES: [string, string, string][] = [['FISICO', 'Físico', 'Ex.: pet shop, loja. A IA pede os dados de entrega.'], ['ONLINE', 'Online', 'Ex.: e-book, curso. Sem dados de entrega.'], ['AMBOS', 'Os dois', 'A IA pede entrega só quando o item for físico.']];
 const ORDER_STATUS: Record<string, [string, string]> = { NOVO: ['Novo', 'blue'], EM_ANDAMENTO: ['Em andamento', 'amber'], CONCLUIDO: ['Concluído', 'green'], CANCELADO: ['Cancelado', 'red'] };
 const DIAS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
@@ -247,7 +247,7 @@ function OrdersCard({ handles }: { handles: string }) {
           {([['open', 'Abertos'], ['CONCLUIDO', 'Concluídos'], ['CANCELADO', 'Cancelados'], ['all', 'Todos']] as const).map(([k, l]) => <button key={k} className={tab === k ? 'on' : ''} onClick={() => setTab(k)}>{l}</button>)}
         </div>
       </div>
-      <Async state={state}>{() => !items.length ? <Empty title="Nenhum pedido">{handles === 'REUNIAO' ? 'Escolha "Pedido" ou "Os dois" em Configurações para a IA registrar pedidos no WhatsApp.' : 'Quando o cliente confirmar um pedido no WhatsApp, a IA registra e ele aparece aqui.'}</Empty> : (
+      <Async state={state}>{() => !items.length ? <Empty title="Nenhum pedido">{handles === 'REUNIAO' ? 'Escolha "Anotar pedido" ou "Ambos" em Configurações para a IA registrar pedidos no WhatsApp.' : 'Quando o cliente confirmar um pedido no WhatsApp, a IA registra e ele aparece aqui.'}</Empty> : (
         <div className="stack" style={{ gap: 8 }}>
           {items.map((o) => (
             <div key={o.id} className="kcard" style={{ opacity: o.status === 'CANCELADO' ? 0.6 : 1 }}>
@@ -288,12 +288,14 @@ function SettingsModal({ onClose }: { onClose: () => void }) {
         <form className="stack" onSubmit={async (e) => {
           e.preventDefault();
           const { timezone: _tz, owners: _o, ...body } = s;
+          // O botão escolhido manda: Agendar reunião ou Ambos = IA agenda; Anotar pedido = não agenda.
+          body.aiBooking = (s.aiHandles ?? 'REUNIAO') !== 'PEDIDO';
           body.teamContacts = (s.teamContacts ?? []).map((m: any) => ({ name: m.name.trim(), phone: m.phone.trim(), active: m.active !== false }));
           if (await run(() => put('/agenda/settings', body), 'Configurações salvas')) onClose();
         }}>
           <Field label="O que a IA atende no WhatsApp" hint={HANDLES.find(([k]) => k === (s.aiHandles ?? 'REUNIAO'))?.[2]}>
             <div className="row" role="group" aria-label="O que a IA atende">
-              {HANDLES.map(([k, l]) => <button type="button" key={k} className={`btn sm ${(s.aiHandles ?? 'REUNIAO') === k ? 'primary' : ''}`} aria-pressed={(s.aiHandles ?? 'REUNIAO') === k} onClick={() => setS({ ...s, aiHandles: k })}>{l}</button>)}
+              {HANDLES.map(([k, l]) => <button type="button" key={k} className={`btn sm ${(s.aiHandles ?? 'REUNIAO') === k ? 'primary' : ''}`} aria-pressed={(s.aiHandles ?? 'REUNIAO') === k} onClick={() => setS({ ...s, aiHandles: k, aiBooking: k !== 'PEDIDO' })}>{l}</button>)}
             </div>
           </Field>
           {(s.aiHandles === 'PEDIDO' || s.aiHandles === 'AMBOS') && (
@@ -309,8 +311,8 @@ function SettingsModal({ onClose }: { onClose: () => void }) {
               </div>
             </Field>
           )}
-          {s.aiHandles !== 'PEDIDO' && <label className="row"><input type="checkbox" checked={s.aiBooking} onChange={(e) => setS({ ...s, aiBooking: e.target.checked })} style={{ width: 'auto' }} /> <strong>A IA pode agendar reuniões no WhatsApp</strong></label>}
-          <span className="small muted">A IA oferece só horários livres (sem conflito com a agenda e com o Google Agenda conectado) e, quando o cliente confirma, cria a reunião e envia o link para a agenda do celular. Requer a IA automática ligada.</span>
+          
+          {s.aiHandles !== 'PEDIDO' && <span className="small muted">A IA oferece só horários livres (sem conflito com a agenda e com o Google Agenda conectado) e, quando o cliente confirma, cria a reunião e envia o link para a agenda do celular. Requer a IA automática ligada.</span>}
           <div className="grid" style={{ gridTemplateColumns: '1fr 1fr', gap: 8 }}>
             <Field label="Início do atendimento"><input type="time" value={s.workStart} onChange={(e) => setS({ ...s, workStart: e.target.value })} /></Field>
             <Field label="Fim do atendimento"><input type="time" value={s.workEnd} onChange={(e) => setS({ ...s, workEnd: e.target.value })} /></Field>

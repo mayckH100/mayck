@@ -30,7 +30,7 @@ describe('Contatos do MCKBOT aparecem no MCK Mensagens (mesma pessoa, sem duplic
     org = owner.me.org.id;
   });
 
-  it('importação CSV no MCKBOT → contatos visíveis no MCK Mensagens com consentimento pendente; com a declaração, já liberados', async () => {
+  it('importação CSV no MCKBOT → contatos visíveis no MCK Mensagens já com consentimento registrado (IMPORTACAO); opt-out nunca é sobrescrito', async () => {
     const csv = 'nome;telefone;email;empresa;tags\nCarla Importada;11970000001;carla@x.com;Acme;vip\nDiego Importado;11970000002;;;';
     const r = await sendCsv(owner, '/api/contacts/import/confirm', csv);
     expect(r.status).toBe(200);
@@ -38,18 +38,21 @@ describe('Contatos do MCKBOT aparecem no MCK Mensagens (mesma pessoa, sem duplic
     const items = await mmList(owner, '&q=Importad');
     expect(items).toHaveLength(2);
     const carla = items.find((l) => l.phone === '+5511970000001');
-    expect(carla).toMatchObject({ name: 'Carla Importada', tags: ['vip'], fromMckbot: true, consentPending: true, consentSource: 'MCKBOT', consentAt: null });
+    expect(carla).toMatchObject({ name: 'Carla Importada', tags: ['vip'], fromMckbot: true, consentPending: false, consentSource: 'IMPORTACAO' });
+    expect(carla.consentAt).toBeTruthy();
     const contact = await prisma.contact.findUniqueOrThrow({ where: { orgId_waId: { orgId: org, waId: '5511970000001' } } });
     expect(carla.contactId).toBe(contact.id);
-    // Filtro "consentimento pendente"
-    expect((await mmList(owner, '&consent=nao&q=Importad')).length).toBe(2);
+    expect((await mmList(owner, '&consent=sim&q=Importad')).length).toBe(2);
+    const audit = await prisma.auditLog.findFirst({ where: { orgId: org, action: 'contacts.import' }, orderBy: { createdAt: 'desc' } });
+    expect(JSON.parse(String(audit?.meta ?? '{}'))).toMatchObject({ consentRegistered: true, consentSource: 'IMPORTACAO' });
 
-    // Com ?consent=1 os importados já entram com consentimento (IMPORTACAO)
-    const r2 = await sendCsv(owner, '/api/contacts/import/confirm?consent=1', 'nome;telefone\nElza Autorizou;11970000003');
-    expect(r2.status).toBe(200);
-    const [elza] = await leadsOf(org, '+5511970000003');
-    expect(elza.consentAt).toBeTruthy();
-    expect(elza.consentSource).toBe('IMPORTACAO');
+    // Contato que pediu para sair (opt-out) continua fora mesmo reimportado
+    await prisma.contact.update({ where: { id: contact.id }, data: { optOut: true } });
+    await prisma.lead.updateMany({ where: { orgId: org, phone: '+5511970000001' }, data: { optOutAt: new Date(), consentAt: null } });
+    await sendCsv(owner, '/api/contacts/import/confirm?updateExisting=1', 'nome;telefone\nCarla Importada;11970000001');
+    const [carla2] = await leadsOf(org, '+5511970000001');
+    expect(carla2.optOutAt).toBeTruthy();
+    expect(carla2.consentAt).toBeNull();
   });
 
   it('sem duplicar: telefone que já era lead do MCK Mensagens é vinculado e mesclado; reimportar não cria outro', async () => {

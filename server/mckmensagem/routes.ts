@@ -359,7 +359,7 @@ mckmensagemRouter.get('/leads/import/template', ah(async (_req, res) => {
 mckmensagemRouter.post('/leads/import', ah(async (req, res) => {
   const body = z.object({
     text: z.string().min(1).max(2_000_000),
-    consentDeclared: z.literal(true, { errorMap: () => ({ message: 'Confirme que todos os leads deram consentimento para receber mensagens' }) }),
+    consentDeclared: z.boolean().optional(), // ignorado: importar já registra o consentimento (LGPD)
     consentSource: z.enum(CONSENT_SOURCES).default('IMPORTACAO'),
     campaignId: z.string().optional().nullable(),
     tags: tagsSchema.optional(),
@@ -403,18 +403,21 @@ mckmensagemRouter.post('/leads/import', ah(async (req, res) => {
       if (existing) {
         const merged = [...new Set([...parseJson<string[]>(existing.tags, []), ...tags])].slice(0, 30);
         // Contato vindo do MCKBOT com consentimento pendente: a declaração desta importação registra o consentimento.
-        const consent = !existing.consentAt ? { consentAt: now, consentSource: body.consentSource } : {};
+        const consent = (!existing.consentAt && !existing.optOutAt) ? { consentAt: now, consentSource: body.consentSource } : {};
         const link = !existing.contactId ? { contactId: await contactIdForPhone(orgId, phone) } : {};
         await prisma.lead.update({ where: { id: existing.id }, data: { name: existing.name ?? (rawName || null), tags: JSON.stringify(merged), ...consent, ...link, ...(body.campaignId ? { campaignId: body.campaignId } : {}) } });
         updated++;
       } else {
-        await prisma.lead.create({ data: { orgId, phone, name: rawName || null, tags: JSON.stringify(tags), consentSource: body.consentSource, consentAt: now, campaignId: body.campaignId ?? null, contactId: await contactIdForPhone(orgId, phone) } });
+        const contactId = await contactIdForPhone(orgId, phone);
+        // Contato do MCKBOT que pediu para sair (opt-out): continua fora, sem consentimento.
+        const optedOut = contactId ? !!(await prisma.contact.findFirst({ where: { id: contactId, orgId }, select: { optOut: true } }))?.optOut : false;
+        await prisma.lead.create({ data: { orgId, phone, name: rawName || null, tags: JSON.stringify(tags), consentSource: body.consentSource, consentAt: optedOut ? null : now, optOutAt: optedOut ? now : null, campaignId: body.campaignId ?? null, contactId } });
         created++;
       }
     }
     if (okPhones > 1) sameClient++;
   }
-  await audit(req, 'mckmensagem.lead.import', { meta: { created, updated, errors: errors.length, sameClient, consentSource: body.consentSource } });
+  await audit(req, 'mckmensagem.lead.import', { meta: { created, updated, errors: errors.length, sameClient, consentRegistered: true, consentSource: body.consentSource, consentAt: now.toISOString(), consentBy: (req as any).auth?.userId ?? null } });
   res.json({ created, updated, sameClient, errors: errors.slice(0, 100) });
 }));
 

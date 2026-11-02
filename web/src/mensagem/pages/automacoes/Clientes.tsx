@@ -173,7 +173,6 @@ function ClienteDetalhe({ id, onClose }: { id: string; onClose: () => void }) {
 function ImportModal({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
   const { busy, run } = useAction();
   const [text, setText] = useState('');
-  const [consent, setConsent] = useState(false);
   const [res, setRes] = useState<any>(null);
   return (
     <Modal title="Importar clientes (CSV)" onClose={onClose}>
@@ -181,11 +180,11 @@ function ImportModal({ onClose, onDone }: { onClose: () => void; onDone: () => v
         <p className="small muted" style={{ margin: 0 }}>Primeira linha com os nomes das colunas: <code>nome,whatsapp,telefone,email,documento,empresa,plano,dataVencimento,valor,parcelas,consentimento</code>. Clientes já cadastrados (mesmo telefone, e-mail ou CPF/CNPJ) não são duplicados: só os campos vazios são completados.</p>
         <input type="file" accept=".csv,text/csv" onChange={async (e) => { const f = e.target.files?.[0]; if (f) setText(await f.text()); }} />
         <textarea rows={6} value={text} onChange={(e) => setText(e.target.value)} placeholder="nome,whatsapp,email&#10;João da Silva,11999998888,joao@email.com" />
-        <label className="mm-check"><input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} /> Todos os clientes da lista autorizaram receber mensagens</label>
+        <div className="alert info small">Ao importar, você declara que esses contatos autorizaram receber mensagens (LGPD).</div>
         {res && <div className="alert ok">{res.criados} criado(s), {res.atualizados} atualizado(s).{res.erros.length > 0 && <div className="small">{res.erros.slice(0, 5).join(' · ')}</div>}</div>}
         <div className="row" style={{ justifyContent: 'flex-end' }}>
           <button className="btn" onClick={onClose}>Fechar</button>
-          <button className="btn primary" disabled={busy || !text.trim()} onClick={() => run(async () => { setRes(await post(`${API}/clientes/import`, { text, consentimentoDeclarado: consent })); onDone(); })}>Importar</button>
+          <button className="btn primary" disabled={busy || !text.trim()} onClick={() => run(async () => { setRes(await post(`${API}/clientes/import`, { text, consentimentoDeclarado: true })); onDone(); })}>Importar</button>
         </div>
       </div>
     </Modal>

@@ -187,7 +187,7 @@ function splitCsv(line: string, sep: string): string[] {
 
 /** Importação CSV com cabeçalho (colunas de clientes.csv). Duplicados são mesclados (só preenche campos vazios). */
 automacoesRouter.post('/clientes/import', ah(async (req, res) => {
-  const body = z.object({ text: z.string().min(1).max(2_000_000), consentimentoDeclarado: z.boolean().default(false) }).parse(req.body);
+  const body = z.object({ text: z.string().min(1).max(2_000_000), consentimentoDeclarado: z.boolean().default(true) }).parse(req.body);
   const orgId = orgOf(req);
   const lines = body.text.split(/\r?\n/).filter((l) => l.trim());
   if (lines.length < 2) throw new HttpError(400, 'Envie o cabeçalho e ao menos uma linha');

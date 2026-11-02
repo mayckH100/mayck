@@ -70,7 +70,7 @@ export async function syncContactsToLeads(orgId: string, contacts: ContactLite[]
       }
       toCreate.push({
         orgId, phone, name: c.name || null, tags: JSON.stringify(unionTags([], tagsOf(c.tags))), status: 'NOVO',
-        consentSource: opts.consent?.source ?? MCKBOT_CONSENT_SOURCE, consentAt: opts.consent?.at ?? null,
+        consentSource: (opts.consent && !c.optOut) ? opts.consent.source : MCKBOT_CONSENT_SOURCE, consentAt: (opts.consent && !c.optOut) ? opts.consent.at : null,
         optOutAt: c.optOut ? now : null, contactId: c.id,
       });
     }
@@ -101,7 +101,7 @@ async function mergeIntoLead(db: Db, lead: Lead, c: ContactLite, opts: SyncOptio
   const merged = unionTags(cur, tagsOf(c.tags));
   if (!sameList(cur, merged)) data.tags = JSON.stringify(merged);
   if (c.optOut && !lead.optOutAt) data.optOutAt = now;
-  if (opts.consent && !lead.consentAt) { data.consentAt = opts.consent.at; data.consentSource = opts.consent.source; }
+  if (opts.consent && !lead.consentAt && !c.optOut && !lead.optOutAt) { data.consentAt = opts.consent.at; data.consentSource = opts.consent.source; }
   if (!Object.keys(data).length) return false;
   await db.lead.update({ where: { id: lead.id }, data });
   return true;

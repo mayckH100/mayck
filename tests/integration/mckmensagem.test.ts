@@ -49,7 +49,7 @@ describe('MCKMENSAGEM', () => {
     expect(inWindow(c, at('20:00'))).toBe(false);
   });
 
-  it('exige consentimento ao criar lead e na importação CSV', async () => {
+  it('exige consentimento ao criar lead; importação CSV já registra o consentimento', async () => {
     expect((await owner.post('/api/mckmensagem/leads', { phone: '11911110000', name: 'Sem consentimento' })).status).toBe(400);
     const ok = await owner.post('/api/mckmensagem/leads', { phone: '(11) 91111-0001', name: 'Ana', consentSource: 'FORMULARIO' });
     expect(ok.status).toBe(201);
@@ -58,9 +58,7 @@ describe('MCKMENSAGEM', () => {
     expect((await owner.post('/api/mckmensagem/leads', { phone: '5511911110001', consentSource: 'MANUAL' })).status).toBe(409);
 
     const csv = 'phone,name,tags\n11911110002,Bia,vip|sp\ninvalido,X,\n5511911110001,Ana,novo';
-    expect((await owner.post('/api/mckmensagem/leads/import', { text: csv })).status).toBe(400);
-    expect((await owner.post('/api/mckmensagem/leads/import', { text: csv, consentDeclared: false })).status).toBe(400);
-    const imp = await owner.post('/api/mckmensagem/leads/import', { text: csv, consentDeclared: true });
+    const imp = await owner.post('/api/mckmensagem/leads/import', { text: csv });
     expect(imp.status).toBe(200);
     expect(imp.body).toMatchObject({ created: 1, updated: 1 });
     expect(imp.body.errors[0]).toMatch(/Linha 3/);

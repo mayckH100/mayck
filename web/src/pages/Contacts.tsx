@@ -90,7 +90,6 @@ function ImportForm({ onClose, onDone }: { onClose: () => void; onDone: () => vo
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<Preview | null>(null);
   const [updateExisting, setUpdateExisting] = useState(false);
-  const [consent, setConsent] = useState(false);
   const [filter, setFilter] = useState<'all' | PreviewRow['status']>('all');
   const [result, setResult] = useState<ImportResult | null>(null);
   const { busy, run } = useAction();
@@ -107,7 +106,6 @@ function ImportForm({ onClose, onDone }: { onClose: () => void; onDone: () => vo
     if (!file) return;
     const qs = new URLSearchParams();
     if (updateExisting) qs.set('updateExisting', '1');
-    if (consent) qs.set('consent', '1');
     const r = await run(() => upload<ImportResult>(`/contacts/import/confirm${qs.toString() ? `?${qs}` : ''}`, file), 'Importação concluída');
     if (r) { setResult(r); onDone(); }
   };
@@ -122,7 +120,7 @@ function ImportForm({ onClose, onDone }: { onClose: () => void; onDone: () => vo
             <div className="alert ok">
               <strong>Importação concluída.</strong>
               <div>{result.created} contato(s) criado(s){result.updated > 0 && `, ${result.updated} atualizado(s)`}.</div>
-              <div className="small">Os contatos também aparecem em Contatos do MCK Mensagens{consent ? ', já com consentimento registrado' : ' (com consentimento pendente até você registrar)'}.</div>
+              <div className="small">Os contatos também aparecem em Contatos do MCK Mensagens, já com consentimento registrado.</div>
               {(result.skipped > 0 || result.errors > 0) && <div className="small">{result.skipped > 0 && `${result.skipped} duplicado(s) ignorado(s). `}{result.errors > 0 && `${result.errors} linha(s) com erro não importada(s).`}</div>}
             </div>
             <div className="row"><button className="btn" onClick={() => pick(null)}>Importar outra planilha</button><button className="btn primary" onClick={onClose}>Fechar</button></div>
@@ -168,7 +166,7 @@ function ImportForm({ onClose, onDone }: { onClose: () => void; onDone: () => vo
                 {preview.duplicates > 0 && (
                   <label className="row small"><input type="checkbox" checked={updateExisting} onChange={(e) => setUpdateExisting(e.target.checked)} /> Atualizar contatos que já existem (dados preenchidos na planilha substituem os atuais; etiquetas são somadas)</label>
                 )}
-                <label className="row small"><input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} /> Estes contatos autorizaram receber mensagens (campanhas do MCK Mensagens). Sem marcar, eles aparecem lá com consentimento pendente e não recebem campanhas.</label>
+                <div className="alert info small">Ao importar, você declara que esses contatos autorizaram receber mensagens (LGPD).</div>
                 <button className="btn primary" disabled={busy || importable === 0} onClick={confirmImport}>
                   {busy ? 'Importando…' : importable === 0 ? 'Nenhum contato para importar' : `Importar ${importable} contato(s)`}
                 </button>
