@@ -4,6 +4,7 @@ WORKDIR /app
 # git: a dependência libsignal do Baileys é instalada direto do GitHub
 RUN apt-get update -y && apt-get install -y --no-install-recommends openssl ca-certificates git && rm -rf /var/lib/apt/lists/*
 COPY package.json package-lock.json ./
+COPY patches ./patches
 RUN npm ci --include=dev
 COPY . .
 RUN npm run build && npm prune --omit=dev

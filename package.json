@@ -8,6 +8,7 @@
     "node": ">=20"
   },
   "scripts": {
+    "postinstall": "patch-package --error-on-fail",
     "dev": "concurrently -n api,web \"npm:dev:api\" \"npm:dev:web\"",
     "dev:api": "SQLITE_URL=file:./dev.db tsx watch server/index.ts",
     "dev:web": "vite --config web/vite.config.ts",
@@ -54,6 +55,7 @@
     "@types/supertest": "^7.2.1",
     "@vitejs/plugin-react": "^4.7.0",
     "concurrently": "^10.0.6",
+    "patch-package": "8.0.1",
     "supertest": "^7.3.1",
     "tsx": "^4.23.15",
     "typescript": "^5.9.3",
