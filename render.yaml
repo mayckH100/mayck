@@ -22,7 +22,9 @@ services:
         value: v26.0
       - key: FLOW_MAX_STEPS
         value: "50"
-      # E-mails transacionais (opcional; sem SMTP o app funciona e só registra no log)
+      # E-mails transacionais (opcional; sem e-mail configurado o app funciona e só registra no log)
+      - key: BREVO_API_KEY
+        sync: false # recomendado no Render Free: envia pela API HTTP do Brevo (porta 443), sem depender de SMTP
       - key: SMTP_HOST
         sync: false
       - key: SMTP_PORT
@@ -40,7 +42,7 @@ services:
       - key: BACKUP_GITHUB_TOKEN
         sync: false
       - key: BACKUP_EMAIL
-        sync: false # opcional: também envia o arquivo cifrado por e-mail (exige SMTP)
+        sync: false # opcional: também envia o arquivo cifrado por e-mail (exige BREVO_API_KEY ou SMTP + MAIL_FROM)
       - key: ACCOUNT_LOCK_THRESHOLD
         value: "5" # senhas/códigos errados seguidos até bloquear a conta
       - key: ACCOUNT_LOCK_MINUTES
