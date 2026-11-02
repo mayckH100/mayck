@@ -11,7 +11,21 @@ const SOURCE: Record<string, string> = { MANUAL: 'Manual', AI: 'IA no WhatsApp',
 const INTENT: Record<string, [string, string]> = { REUNIAO: ['Reunião', 'blue'], PEDIDO: ['Pedido', 'amber'], AMBOS: ['Reunião + Pedido', 'green'] };
 const HANDLES: [string, string, string][] = [['REUNIAO', 'Agendar reunião', 'A IA só agenda reuniões.'], ['PEDIDO', 'Anotar pedido', 'A IA só anota pedidos.'], ['AMBOS', 'Ambos', 'A IA anota pedidos e agenda reuniões.']];
 const ORDER_TYPES: [string, string, string][] = [['FISICO', 'Físico', 'Ex.: pet shop, loja. A IA pede os dados de entrega.'], ['ONLINE', 'Online', 'Ex.: e-book, curso. Sem dados de entrega.'], ['AMBOS', 'Os dois', 'A IA pede entrega só quando o item for físico.']];
-const ORDER_STATUS: Record<string, [string, string]> = { NOVO: ['Novo', 'blue'], EM_ANDAMENTO: ['Em andamento', 'amber'], CONCLUIDO: ['Concluído', 'green'], CANCELADO: ['Cancelado', 'red'] };
+const ORDER_STATUS: Record<string, [string, string]> = {
+  NOVO: ['Novo', 'blue'], CONFIRMADO: ['Confirmado', 'blue'], EM_SEPARACAO: ['Em separação (preparando)', 'amber'], PRONTO_RETIRADA: ['Pronto para retirada', 'amber'],
+  EM_TRANSPORTE: ['Em transporte', 'amber'], SAIU_ENTREGA: ['Saiu para entrega', 'amber'], ENTREGUE: ['Entregue', 'green'], FINALIZADO: ['Finalizado', 'green'],
+  CANCELADO: ['Cancelado', 'red'], SUSPENSO: ['Suspenso', 'red'], ATRASADO: ['Atrasado', 'red'], DEVOLVIDO: ['Devolvido', 'red'],
+};
+/** Seletor de status agrupado: fluxo normal (online pode pular as etapas de envio) e exceções. */
+const STATUS_GROUPS: [string, string[]][] = [
+  ['Fluxo do pedido', ['NOVO', 'CONFIRMADO', 'EM_SEPARACAO', 'PRONTO_RETIRADA', 'EM_TRANSPORTE', 'SAIU_ENTREGA', 'ENTREGUE', 'FINALIZADO']],
+  ['Exceções', ['SUSPENSO', 'ATRASADO', 'DEVOLVIDO']],
+];
+/** Filtros por grupo de status (o servidor tem os mesmos grupos em ORDER_GROUPS). */
+const ORDER_TABS: [string, string][] = [['ativos', 'Ativos'], ['abertos', 'Novos/Confirmados'], ['preparo', 'Em preparo'], ['entrega', 'Em entrega'], ['concluidos', 'Concluídos'], ['excecoes', 'Exceções'], ['cancelados', 'Cancelados'], ['all', 'Todos']];
+/** Pagamento: independente do status do pedido. */
+const PAYMENT: Record<string, [string, string]> = { AGUARDANDO: ['Aguardando pagamento', 'amber'], PAGO: ['Pago', 'green'], PARCIAL: ['Parcial', 'blue'], ESTORNADO: ['Estornado/Reembolsado', 'red'], NAO_SE_APLICA: ['Não se aplica', ''] };
+const MAX_ORDER_EXTRAS = 5;
 const DIAS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
 const REMINDERS = [[0, 'Sem lembrete'], [10, '10 min antes'], [30, '30 min antes'], [60, '1 hora antes'], [120, '2 horas antes'], [1440, '1 dia antes']] as const;
 
@@ -233,47 +247,244 @@ function SyncCard() {
 
 /** Pedidos registrados pela IA (aparecem no mesmo painel das reuniões). */
 function OrdersCard({ handles }: { handles: string }) {
-  const [tab, setTab] = useState<'open' | 'CONCLUIDO' | 'CANCELADO' | 'all'>('open');
-  const state = useApi<any>('/agenda/orders');
+  const { can } = useAuth();
+  const isAdmin = can('OWNER', 'ADMIN');
+  const [group, setGroup] = useState<string>('ativos');
+  const [payment, setPayment] = useState<string>('all');
+  const qs = `group=${group === 'ativos' ? 'all' : group}&payment=${payment}`;
+  const state = useApi<any>(`/agenda/orders?${qs}`);
   const { busy, run } = useAction();
-  const setStatus = (id: string, status: string, msg: string) => run(() => patch(`/agenda/orders/${id}`, { status }), msg).then(state.reload);
-  const items = ((state.data?.items ?? []) as any[]).filter((o) => tab === 'all' ? true : tab === 'open' ? o.status === 'NOVO' || o.status === 'EM_ANDAMENTO' : o.status === tab);
-  if (handles === 'REUNIAO' && state.data && !state.data.items.length) return null;
+  const [statusFor, setStatusFor] = useState<{ order: any; status: string } | null>(null);
+  const [editFor, setEditFor] = useState<any>(null);
+  const [cancelFor, setCancelFor] = useState<any>(null);
+  const [historyFor, setHistoryFor] = useState<any>(null);
+  const setPay = (o: any, paymentStatus: string) => run(() => patch(`/agenda/orders/${o.id}`, { paymentStatus, notify: false }), `Pagamento: ${PAYMENT[paymentStatus]?.[0] ?? paymentStatus}`).then(state.reload);
+  // "Ativos" = tudo que não está concluído nem cancelado.
+  const items = ((state.data?.items ?? []) as any[]).filter((o) => group !== 'ativos' || !['ENTREGUE', 'FINALIZADO', 'CANCELADO'].includes(o.status));
+  if (handles === 'REUNIAO' && state.data && !state.data.items.length && group === 'ativos' && payment === 'all') return null;
   return (
     <div className="card">
-      <div className="row between" style={{ marginBottom: 8 }}>
+      <div className="row between" style={{ marginBottom: 8, flexWrap: 'wrap', gap: 8 }}>
         <h2 style={{ margin: 0 }}>Pedidos</h2>
-        <div className="tabs" style={{ marginBottom: 0, borderBottom: 0 }}>
-          {([['open', 'Abertos'], ['CONCLUIDO', 'Concluídos'], ['CANCELADO', 'Cancelados'], ['all', 'Todos']] as const).map(([k, l]) => <button key={k} className={tab === k ? 'on' : ''} onClick={() => setTab(k)}>{l}</button>)}
-        </div>
+        <select value={payment} onChange={(e) => setPayment(e.target.value)} aria-label="Filtrar por pagamento" style={{ width: 'auto' }}>
+          <option value="all">Pagamento: todos</option>
+          {Object.entries(PAYMENT).map(([k, [l]]) => <option key={k} value={k}>{l}</option>)}
+        </select>
+      </div>
+      <div className="tabs" style={{ marginBottom: 8, borderBottom: 0, flexWrap: 'wrap' }} role="group" aria-label="Filtrar por status">
+        {ORDER_TABS.map(([k, l]) => <button key={k} className={group === k ? 'on' : ''} onClick={() => setGroup(k)}>{l}</button>)}
       </div>
       <Async state={state}>{() => !items.length ? <Empty title="Nenhum pedido">{handles === 'REUNIAO' ? 'Escolha "Anotar pedido" ou "Ambos" em Configurações para a IA registrar pedidos no WhatsApp.' : 'Quando o cliente confirmar um pedido no WhatsApp, a IA registra e ele aparece aqui.'}</Empty> : (
         <div className="stack" style={{ gap: 8 }}>
-          {items.map((o) => (
-            <div key={o.id} className="kcard" style={{ opacity: o.status === 'CANCELADO' ? 0.6 : 1 }}>
-              <div className="row between">
-                <span className="row"><strong>🛒 {o.code}</strong><span className="badge">{o.type === 'ONLINE' ? 'Online' : 'Físico'}</span><span className={`badge ${INTENT[o.intent]?.[1] ?? 'amber'}`} title="Classificação da conversa pela IA">{INTENT[o.intent]?.[0] ?? 'Pedido'}</span></span>
-                <span className={`badge ${ORDER_STATUS[o.status]?.[1] ?? ''}`}>{ORDER_STATUS[o.status]?.[0] ?? o.status}</span>
+          {items.map((o) => {
+            const closed = o.status === 'CANCELADO' || o.status === 'FINALIZADO';
+            return (
+              <div key={o.id} className="kcard" style={{ opacity: o.status === 'CANCELADO' ? 0.6 : 1 }}>
+                <div className="row between">
+                  <span className="row"><strong>🛒 {o.code}</strong><span className="badge">{o.type === 'ONLINE' ? 'Online' : 'Físico'}</span><span className={`badge ${INTENT[o.intent]?.[1] ?? 'amber'}`} title="Classificação da conversa pela IA">{INTENT[o.intent]?.[0] ?? 'Pedido'}</span></span>
+                  <span className="row" style={{ gap: 4 }}>
+                    <span className={`badge ${PAYMENT[o.paymentStatus]?.[1] ?? ''}`} title="Pagamento">💳 {PAYMENT[o.paymentStatus]?.[0] ?? o.paymentStatus}</span>
+                    <span className={`badge ${ORDER_STATUS[o.status]?.[1] ?? ''}`}>{ORDER_STATUS[o.status]?.[0] ?? o.status}</span>
+                  </span>
+                </div>
+                <div style={{ marginTop: 4 }}>📦 {o.items.map((i: any) => `${i.quantidade}x ${i.nome}${i.obs ? ` (${i.obs})` : ''}`).join(', ')}</div>
+                {o.description && <div className="small muted">📝 {o.description}</div>}
+                {o.delivery && <div className="small" style={{ marginTop: 2 }}>🚚 {o.delivery.nome} — {o.delivery.endereco}, nº {o.delivery.numero}{o.delivery.complemento ? `, ${o.delivery.complemento}` : ''} — CEP {o.delivery.cep} — Tel. {o.delivery.telefone}</div>}
+                {o.extraContacts?.length > 0 && <div className="small muted">👥 Contatos adicionais: {o.extraContacts.map((c: any) => c.name ?? c.phone).join(', ')}</div>}
+                {o.status === 'CANCELADO' && o.cancelReason && <div className="small" style={{ color: '#991b1b' }}>❌ Motivo: {o.cancelReason}</div>}
+                <div className="small muted" style={{ marginTop: 4 }}>
+                  {new Date(o.createdAt).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}{o.contact ? ` · ${o.contact.name ?? o.contact.phone}` : ''} · {o.source === 'AI' ? 'IA no WhatsApp' : 'Manual'}{o.channel ? <> · <span title="WhatsApp pelo qual foi feito">📲 Via: {o.channel.via}</span></> : null}
+                </div>
+                <div className="row" style={{ marginTop: 6, gap: 6, flexWrap: 'wrap' }}>
+                  {o.status === 'CANCELADO'
+                    ? isAdmin && <button className="btn sm" disabled={busy} onClick={() => setStatusFor({ order: o, status: 'NOVO' })}>Reabrir</button>
+                    : <select value="" disabled={busy} onChange={(e) => e.target.value && setStatusFor({ order: o, status: e.target.value })} aria-label={`Mudar status do pedido ${o.code}`} style={{ width: 'auto' }}>
+                        <option value="">Mudar status…</option>
+                        {STATUS_GROUPS.map(([label, list]) => (
+                          <optgroup key={label} label={label}>
+                            {list.filter((s) => s !== o.status && s !== 'CANCELADO' && (o.status !== 'FINALIZADO' || s === 'DEVOLVIDO')).map((s) => <option key={s} value={s}>{ORDER_STATUS[s][0]}</option>)}
+                          </optgroup>
+                        ))}
+                      </select>}
+                  <select value={o.paymentStatus} disabled={busy} onChange={(e) => setPay(o, e.target.value)} aria-label={`Pagamento do pedido ${o.code}`} style={{ width: 'auto' }}>
+                    {Object.entries(PAYMENT).map(([k, [l]]) => <option key={k} value={k}>💳 {l}</option>)}
+                  </select>
+                  {!closed && <button className="btn sm" disabled={busy} onClick={() => setEditFor(o)}>Editar</button>}
+                  <button className="btn sm ghost" onClick={() => setHistoryFor(o)}>Histórico</button>
+                  {isAdmin && !closed && <button className="btn sm danger" disabled={busy} onClick={() => setCancelFor(o)}>Cancelar pedido</button>}
+                </div>
               </div>
-              <div style={{ marginTop: 4 }}>📦 {o.items.map((i: any) => `${i.quantidade}x ${i.nome}${i.obs ? ` (${i.obs})` : ''}`).join(', ')}</div>
-              {o.description && <div className="small muted">📝 {o.description}</div>}
-              {o.delivery && <div className="small" style={{ marginTop: 2 }}>🚚 {o.delivery.nome} — {o.delivery.endereco}, nº {o.delivery.numero}{o.delivery.complemento ? `, ${o.delivery.complemento}` : ''} — CEP {o.delivery.cep} — Tel. {o.delivery.telefone}</div>}
-              <div className="small muted" style={{ marginTop: 4 }}>
-                {new Date(o.createdAt).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}{o.contact ? ` · ${o.contact.name ?? o.contact.phone}` : ''} · {o.source === 'AI' ? 'IA no WhatsApp' : 'Manual'}{o.channel ? <> · <span title="WhatsApp pelo qual foi feito">📲 Via: {o.channel.via}</span></> : null}
-              </div>
-              <div className="row" style={{ marginTop: 6 }}>
-                {o.status === 'NOVO' && <button className="btn sm" disabled={busy} onClick={() => setStatus(o.id, 'EM_ANDAMENTO', 'Pedido em andamento')}>Em andamento</button>}
-                {(o.status === 'NOVO' || o.status === 'EM_ANDAMENTO') && <>
-                  <button className="btn sm" disabled={busy} onClick={() => setStatus(o.id, 'CONCLUIDO', 'Pedido concluído')}>Concluir</button>
-                  <button className="btn sm danger" disabled={busy} onClick={() => { if (confirm('Cancelar este pedido?')) setStatus(o.id, 'CANCELADO', 'Pedido cancelado'); }}>Cancelar</button>
-                </>}
-                {(o.status === 'CONCLUIDO' || o.status === 'CANCELADO') && <button className="btn sm" disabled={busy} onClick={() => setStatus(o.id, 'NOVO', 'Pedido reaberto')}>Reabrir</button>}
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}</Async>
+      {statusFor && <OrderStatusModal order={statusFor.order} status={statusFor.status} onClose={() => setStatusFor(null)} onDone={() => { setStatusFor(null); state.reload(); }} />}
+      {editFor && <OrderEditModal order={editFor} onClose={() => setEditFor(null)} onDone={() => { setEditFor(null); state.reload(); }} />}
+      {cancelFor && <OrderCancelModal order={cancelFor} onClose={() => setCancelFor(null)} onDone={() => { setCancelFor(null); state.reload(); }} />}
+      {historyFor && <OrderHistoryModal order={historyFor} onClose={() => setHistoryFor(null)} />}
     </div>
+  );
+}
+
+const notifySummary = (r: any) => {
+  const n: any[] = r?.notifications ?? [];
+  if (!n.length) return '';
+  const ok = n.filter((x) => x.ok).length;
+  const skip = n.filter((x) => x.skipped).length;
+  const fail = n.length - ok - skip;
+  return ` · Avisos: ${ok} enviado(s)${skip ? `, ${skip} sem permissão (opt-out)` : ''}${fail ? `, ${fail} com falha` : ''}`;
+};
+
+function OrderStatusModal({ order, status, onClose, onDone }: { order: any; status: string; onClose: () => void; onDone: () => void }) {
+  const [st, setSt] = useState(status);
+  const [note, setNote] = useState('');
+  const [notify, setNotify] = useState(true);
+  const { busy, run } = useAction();
+  const toast = useToast();
+  return (
+    <Modal title={`Status do pedido ${order.code}`} onClose={onClose}>
+      <form className="stack" onSubmit={async (e) => {
+        e.preventDefault();
+        const r = await run(() => patch(`/agenda/orders/${order.id}`, { status: st, note: note.trim() || null, notify }));
+        if (r) { toast(`Status: ${ORDER_STATUS[st]?.[0] ?? st}${notifySummary(r)}`); onDone(); }
+      }}>
+        <div className="small muted">Atual: {ORDER_STATUS[order.status]?.[0] ?? order.status}</div>
+        <Field label="Novo status">
+          <select value={st} onChange={(e) => setSt(e.target.value)}>
+            {order.status === 'CANCELADO' ? <option value="NOVO">Novo (reabrir)</option> : STATUS_GROUPS.map(([label, list]) => (
+              <optgroup key={label} label={label}>
+                {list.filter((s) => s !== order.status && s !== 'CANCELADO' && (order.status !== 'FINALIZADO' || s === 'DEVOLVIDO')).map((s) => <option key={s} value={s}>{ORDER_STATUS[s][0]}</option>)}
+              </optgroup>
+            ))}
+          </select>
+        </Field>
+        <Field label="Observação para o cliente (opcional)"><textarea rows={2} maxLength={500} value={note} onChange={(e) => setNote(e.target.value)} placeholder="Ex.: chega até as 18h" /></Field>
+        <label className="row small"><input type="checkbox" checked={notify} onChange={(e) => setNotify(e.target.checked)} style={{ width: 'auto' }} /> Notificar cliente e contatos (WhatsApp{order.channel ? ` · ${order.channel.via}` : ''})</label>
+        <div className="row" style={{ justifyContent: 'flex-end' }}>
+          <button type="button" className="btn" onClick={onClose}>Voltar</button>
+          <button className="btn primary" disabled={busy}>Salvar status</button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+function OrderEditModal({ order, onClose, onDone }: { order: any; onClose: () => void; onDone: () => void }) {
+  const [type, setType] = useState<string>(order.type);
+  const [items, setItems] = useState<{ nome: string; quantidade: number; obs: string }[]>(order.items.map((i: any) => ({ nome: i.nome, quantidade: i.quantidade, obs: i.obs ?? '' })));
+  const [description, setDescription] = useState<string>(order.description ?? '');
+  const [hasDelivery, setHasDelivery] = useState<boolean>(!!order.delivery);
+  const [dl, setDl] = useState<any>(order.delivery ?? { nome: '', endereco: '', cep: '', numero: '', complemento: '', telefone: '' });
+  const [extras, setExtras] = useState<{ name: string; phone: string }[]>((order.extraContacts ?? []).map((c: any) => ({ name: c.name ?? '', phone: c.phone })));
+  const [notify, setNotify] = useState(false);
+  const { busy, run } = useAction();
+  const toast = useToast();
+  const setItem = (i: number, k: string, v: any) => setItems(items.map((it, j) => (j === i ? { ...it, [k]: v } : it)));
+  const setExtra = (i: number, k: 'name' | 'phone', v: string) => setExtras(extras.map((c, j) => (j === i ? { ...c, [k]: v } : c)));
+  return (
+    <Modal title={`Editar pedido ${order.code}`} onClose={onClose}>
+      <form className="stack" onSubmit={async (e) => {
+        e.preventDefault();
+        const body: any = {
+          type, description: description.trim() || null,
+          items: items.filter((i) => i.nome.trim()).map((i) => ({ nome: i.nome.trim(), quantidade: Math.max(1, Math.floor(Number(i.quantidade) || 1)), obs: i.obs.trim() || null })),
+          delivery: hasDelivery ? { ...dl, complemento: (dl.complemento ?? '').trim() || null } : null,
+          extraContacts: extras.filter((c) => c.phone.trim() || c.name.trim()).map((c) => ({ name: c.name.trim() || null, phone: c.phone.trim() })),
+          notify,
+        };
+        const r = await run(() => put(`/agenda/orders/${order.id}`, body));
+        if (r) { toast(`Pedido atualizado${notifySummary(r)}`); onDone(); }
+      }}>
+        <Field label="Tipo">
+          <select value={type} onChange={(e) => setType(e.target.value)}><option value="FISICO">Físico</option><option value="ONLINE">Online</option></select>
+        </Field>
+        <Field label="Itens">
+          <div className="stack" style={{ gap: 6 }}>
+            {items.map((it, i) => (
+              <div key={i} className="row" style={{ flexWrap: 'nowrap' }}>
+                <input type="number" min={1} max={9999} value={it.quantidade} onChange={(e) => setItem(i, 'quantidade', e.target.value)} style={{ width: 70 }} aria-label={`Quantidade do item ${i + 1}`} />
+                <input required maxLength={120} placeholder="Produto" value={it.nome} onChange={(e) => setItem(i, 'nome', e.target.value)} style={{ flex: 2 }} aria-label={`Item ${i + 1}`} />
+                <input maxLength={200} placeholder="Obs. (opcional)" value={it.obs} onChange={(e) => setItem(i, 'obs', e.target.value)} style={{ flex: 1 }} aria-label={`Observação do item ${i + 1}`} />
+                <button type="button" className="btn sm ghost" disabled={items.length <= 1} onClick={() => setItems(items.filter((_, j) => j !== i))} aria-label="Remover item">✕</button>
+              </div>
+            ))}
+            {items.length < 30 && <div><button type="button" className="btn sm" onClick={() => setItems([...items, { nome: '', quantidade: 1, obs: '' }])}>+ Adicionar item</button></div>}
+          </div>
+        </Field>
+        <Field label="Descrição (opcional)"><textarea rows={2} maxLength={500} value={description} onChange={(e) => setDescription(e.target.value)} /></Field>
+        <label className="row small"><input type="checkbox" checked={hasDelivery} onChange={(e) => setHasDelivery(e.target.checked)} style={{ width: 'auto' }} /> Dados de entrega</label>
+        {hasDelivery && (
+          <div className="grid" style={{ gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+            <Field label="Quem recebe"><input required maxLength={100} value={dl.nome} onChange={(e) => setDl({ ...dl, nome: e.target.value })} /></Field>
+            <Field label="Telefone"><input required type="tel" maxLength={30} value={dl.telefone} onChange={(e) => setDl({ ...dl, telefone: e.target.value })} /></Field>
+            <Field label="Endereço (rua, bairro e cidade)"><input required maxLength={200} value={dl.endereco} onChange={(e) => setDl({ ...dl, endereco: e.target.value })} /></Field>
+            <Field label="Número"><input required maxLength={20} value={dl.numero} onChange={(e) => setDl({ ...dl, numero: e.target.value })} /></Field>
+            <Field label="CEP"><input required maxLength={12} value={dl.cep} onChange={(e) => setDl({ ...dl, cep: e.target.value })} /></Field>
+            <Field label="Complemento (opcional)"><input maxLength={100} value={dl.complemento ?? ''} onChange={(e) => setDl({ ...dl, complemento: e.target.value })} /></Field>
+          </div>
+        )}
+        <Field label={`Contatos adicionais (${extras.length}/${MAX_ORDER_EXTRAS})`} hint="Recebem pelo WhatsApp os avisos de status do pedido (junto com o cliente).">
+          <div className="stack" style={{ gap: 6 }}>
+            {extras.map((c, i) => (
+              <div key={i} className="row" style={{ flexWrap: 'nowrap' }}>
+                <input placeholder="Nome (opcional)" maxLength={80} value={c.name} onChange={(e) => setExtra(i, 'name', e.target.value)} style={{ flex: 1 }} aria-label={`Nome do contato adicional ${i + 1}`} />
+                <input required type="tel" placeholder="WhatsApp (DDD + número)" maxLength={30} value={c.phone} onChange={(e) => setExtra(i, 'phone', e.target.value)} style={{ flex: 1 }} aria-label={`Telefone do contato adicional ${i + 1}`} />
+                <button type="button" className="btn sm ghost" onClick={() => setExtras(extras.filter((_, j) => j !== i))} aria-label="Remover contato">✕</button>
+              </div>
+            ))}
+            {extras.length < MAX_ORDER_EXTRAS && <div><button type="button" className="btn sm" onClick={() => setExtras([...extras, { name: '', phone: '' }])}>+ Adicionar contato</button></div>}
+          </div>
+        </Field>
+        <label className="row small"><input type="checkbox" checked={notify} onChange={(e) => setNotify(e.target.checked)} style={{ width: 'auto' }} /> Notificar cliente sobre a alteração (envia o resumo do que mudou)</label>
+        <div className="row" style={{ justifyContent: 'flex-end' }}>
+          <button type="button" className="btn" onClick={onClose}>Voltar</button>
+          <button className="btn primary" disabled={busy}>Salvar alterações</button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+function OrderCancelModal({ order, onClose, onDone }: { order: any; onClose: () => void; onDone: () => void }) {
+  const [reason, setReason] = useState('');
+  const { busy, run } = useAction();
+  const toast = useToast();
+  return (
+    <Modal title={`Cancelar pedido ${order.code}`} onClose={onClose}>
+      <form className="stack" onSubmit={async (e) => {
+        e.preventDefault();
+        const r = await run(() => post(`/agenda/orders/${order.id}/cancel`, { reason: reason.trim() }));
+        if (r) { toast(`Pedido cancelado${notifySummary(r)}`); onDone(); }
+      }}>
+        <Field label="Motivo do cancelamento" hint="O cliente, os contatos adicionais e a equipe recebem o aviso pelo WhatsApp com este motivo.">
+          <textarea required minLength={3} rows={3} maxLength={500} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Ex.: produto sem estoque" />
+        </Field>
+        <div className="row" style={{ justifyContent: 'flex-end' }}>
+          <button type="button" className="btn" onClick={onClose}>Voltar</button>
+          <button className="btn danger" disabled={busy || reason.trim().length < 3}>Cancelar pedido</button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+function OrderHistoryModal({ order, onClose }: { order: any; onClose: () => void }) {
+  const h = useApi<any>(`/agenda/orders/${order.id}/history`);
+  const KIND_ICON: Record<string, string> = { STATUS: '🔄', PAGAMENTO: '💳', EDICAO: '✏️', CANCELAMENTO: '❌' };
+  return (
+    <Modal title={`Histórico do pedido ${order.code}`} onClose={onClose}>
+      <Async state={h}>{(d: any) => !d.items.length ? <Empty title="Sem histórico">As mudanças de status aparecem aqui.</Empty> : (
+        <ol className="stack" style={{ gap: 8, listStyle: 'none', padding: 0, margin: 0 }}>
+          {d.items.map((x: any) => (
+            <li key={x.id} className="kcard">
+              <div><strong>{KIND_ICON[x.kind] ?? '•'} {x.kind === 'EDICAO' ? 'Pedido editado' : x.fromLabel ? `${x.fromLabel} → ${x.toLabel}` : x.toLabel}</strong></div>
+              {x.note && <div className="small">📝 {x.note}</div>}
+              <div className="small muted">{new Date(x.createdAt).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })} · {x.by}{x.notified ? ` · 📣 ${x.notified} aviso(s) enviado(s)` : ''}</div>
+            </li>
+          ))}
+        </ol>
+      )}</Async>
+    </Modal>
   );
 }
 

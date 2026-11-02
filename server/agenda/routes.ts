@@ -14,7 +14,7 @@ import {
   icsOf, publicEventUrl, escHtml, KIND_LABEL, notifyRecipients, hasRecipients, MAX_EXTRA_CONTACTS, MAX_TEAM_CONTACTS, normalizeTeamContacts, ownerPhones,
   AI_HANDLES, ORDER_TYPES,
 } from './service.js';
-import { ORDER_STATUSES, updateOrderStatus, viewOrders } from './orders.js';
+import { ORDER_STATUSES, ORDER_GROUPS, LEGACY_STATUS, PAYMENT_STATUSES, MAX_ORDER_EXTRAS, changeOrder, editOrder, cancelOrder, orderHistory, viewOrders } from './orders.js';
 import { googleConfigured, googleRedirectUri, makeState, readState, authUrl, exchangeCode, revokeGoogle, forgetToken } from './google.js';
 import { parseLocal, humanPt, toLocalIso } from './time.js';
 
@@ -143,22 +143,70 @@ agendaRouter.put('/settings', admins, ah(async (req, res) => {
 
 // ---------- Pedidos registrados pela IA (mesmo painel das reuniões) ----------
 
+const staff = requireRole('OWNER', 'ADMIN', 'AGENT');
+const statusIn = [...ORDER_STATUSES, ...Object.keys(LEGACY_STATUS)] as [string, ...string[]];
+
 agendaRouter.get('/orders', ah(async (req, res) => {
-  const q = z.object({ status: z.enum(['all', ...ORDER_STATUSES] as [string, ...string[]]).default('all'), contactId: z.string().max(40).optional() }).parse(req.query);
+  const q = z.object({
+    status: z.enum(['all', ...statusIn] as [string, ...string[]]).default('all'),
+    group: z.enum(['all', ...Object.keys(ORDER_GROUPS)] as [string, ...string[]]).default('all'),
+    payment: z.enum(['all', ...PAYMENT_STATUSES] as [string, ...string[]]).default('all'),
+    contactId: z.string().max(40).optional(),
+  }).parse(req.query);
   const orgId = orgOf(req);
   const where: any = { orgId };
-  if (q.status !== 'all') where.status = q.status;
+  if (q.status !== 'all') where.status = LEGACY_STATUS[q.status] ?? q.status;
+  else if (q.group !== 'all') where.status = { in: ORDER_GROUPS[q.group] };
+  if (q.payment !== 'all') where.paymentStatus = q.payment;
   if (q.contactId) where.contactId = q.contactId;
   const list = await prisma.order.findMany({ where, orderBy: { createdAt: 'desc' }, take: 300 });
   res.json({ items: await viewOrders(orgId, list) });
 }));
 
-/** Equipe muda o andamento do pedido: Novo → Em andamento → Concluído (ou Cancelado). */
-agendaRouter.patch('/orders/:id', ah(async (req, res) => {
-  const b = z.object({ status: z.enum(ORDER_STATUSES as [string, ...string[]]), notes: z.string().max(1000).optional().nullable() }).parse(req.body);
+/** Equipe (Dono/Admin/Atendente) muda o status e/ou o pagamento; "Notificar cliente e contatos" (padrão ligado para status). */
+agendaRouter.patch('/orders/:id', staff, ah(async (req, res) => {
+  const b = z.object({
+    status: z.enum(statusIn).optional(),
+    paymentStatus: z.enum(PAYMENT_STATUSES as [string, ...string[]]).optional(),
+    note: z.string().max(500).optional().nullable(),
+    /** Compatibilidade com a versão anterior (observação). */
+    notes: z.string().max(1000).optional().nullable(),
+    notify: z.boolean().optional(),
+  }).refine((x) => x.status || x.paymentStatus, 'Informe o status ou o pagamento').parse(req.body);
   const orgId = orgOf(req);
-  const o = await updateOrderStatus(req.params.id, b.status as any, { orgId, userId: req.auth!.userId, req }, b.notes);
-  res.json((await viewOrders(orgId, [o]))[0]);
+  const r = await changeOrder(req.params.id, { status: b.status, paymentStatus: b.paymentStatus, note: b.note ?? b.notes, notify: b.notify }, { orgId, userId: req.auth!.userId, req, admin: isAdmin(req) });
+  res.json({ ...(await viewOrders(orgId, [r.order]))[0], notifications: r.notifications });
+}));
+
+/** Loja edita o pedido; "Notificar cliente sobre a alteração" (padrão desligado) envia o resumo do que mudou. */
+agendaRouter.put('/orders/:id', staff, ah(async (req, res) => {
+  const b = z.object({
+    type: z.enum(['FISICO', 'ONLINE']).optional(),
+    items: z.array(z.object({ nome: z.string().max(120), quantidade: z.number().int().min(1).max(9999).optional(), obs: z.string().max(200).optional().nullable() })).max(30).optional(),
+    description: z.string().max(500).optional().nullable(),
+    delivery: z.object({
+      nome: z.string().max(100), endereco: z.string().max(200), cep: z.string().max(12), numero: z.string().max(20),
+      complemento: z.string().max(100).optional().nullable(), telefone: z.string().max(30),
+    }).nullable().optional(),
+    extraContacts: z.array(z.object({ name: z.string().max(80).optional().nullable(), phone: z.string().max(30) })).max(MAX_ORDER_EXTRAS, `No máximo ${MAX_ORDER_EXTRAS} contatos adicionais por pedido`).optional(),
+    note: z.string().max(500).optional().nullable(),
+    notify: z.boolean().optional(),
+  }).parse(req.body);
+  const orgId = orgOf(req);
+  const r = await editOrder(req.params.id, b, { orgId, userId: req.auth!.userId, req });
+  res.json({ ...(await viewOrders(orgId, [r.order]))[0], notifications: r.notifications, changed: r.fields });
+}));
+
+/** Cancelar pedido (Dono/Admin), com motivo. Sempre avisa cliente, contatos adicionais e a equipe. */
+agendaRouter.post('/orders/:id/cancel', admins, ah(async (req, res) => {
+  const b = z.object({ reason: z.string().trim().min(3, 'Informe o motivo do cancelamento').max(500) }).parse(req.body);
+  const orgId = orgOf(req);
+  const r = await cancelOrder(req.params.id, b.reason, { orgId, userId: req.auth!.userId, req });
+  res.json({ ...(await viewOrders(orgId, [r.order]))[0], notifications: r.notifications });
+}));
+
+agendaRouter.get('/orders/:id/history', ah(async (req, res) => {
+  res.json({ items: await orderHistory(req.params.id, orgOf(req)) });
 }));
 
 // ---------- Feed assinável (URL secreta webcal/ICS que atualiza sozinho no celular) ----------

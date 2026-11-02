@@ -47,3 +47,30 @@ describe('Pedidos: marcadores e regras', () => {
     expect(isOrderConfirmed({ clientText: 'sim', lastAssistant: 'Posso registrar o seu pedido de Ração?', items })).toBe(false);
   });
 });
+
+import { transitionError, phoneKeys, statusMessage, ORDER_GROUPS, ORDER_STATUSES } from '../../server/agenda/orders.js';
+
+describe('Pedidos: regras de status (0029)', () => {
+  it('transições', () => {
+    expect(transitionError('NOVO', 'CONFIRMADO', { admin: false })).toBeNull();
+    expect(transitionError('CONFIRMADO', 'FINALIZADO', { admin: false })).toBeNull(); // online pula o envio
+    expect(transitionError('NOVO', 'NOVO', { admin: true })).toMatch(/já está/);
+    expect(transitionError('NOVO', 'CANCELADO', { admin: true })).toMatch(/Cancelar pedido/);
+    expect(transitionError('FINALIZADO', 'ENTREGUE', { admin: true })).toMatch(/Devolvido/);
+    expect(transitionError('FINALIZADO', 'DEVOLVIDO', { admin: false })).toBeNull();
+    expect(transitionError('CANCELADO', 'NOVO', { admin: false })).toMatch(/donos e administradores/);
+    expect(transitionError('CANCELADO', 'NOVO', { admin: true })).toBeNull();
+    expect(transitionError('CANCELADO', 'CONFIRMADO', { admin: true })).toMatch(/reabra/);
+  });
+
+  it('grupos cobrem todos os status uma vez', () => {
+    const all = Object.values(ORDER_GROUPS).flat();
+    expect(all.sort()).toEqual([...ORDER_STATUSES].sort());
+  });
+
+  it('telefone com e sem o 9º dígito; mensagem em português', () => {
+    expect(phoneKeys('11 98888-7777')).toEqual(['5511988887777', '551188887777']);
+    expect(phoneKeys('551188887777')).toEqual(['551188887777', '5511988887777']);
+    expect(statusMessage({ code: 'P-ABC234' }, 'PRONTO_RETIRADA', true, 'Retire na loja')).toBe('📦 Atualização do seu pedido *P-ABC234*\nNovo status: *Pronto para retirada*\n📝 Observação da loja: Retire na loja');
+  });
+});

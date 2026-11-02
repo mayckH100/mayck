@@ -1068,8 +1068,15 @@ model Order {
   description    String?
   /// Dados de entrega (JSON { nome, endereco, cep, numero, complemento, telefone }) — nulo quando não coletados.
   delivery       String?
-  /// NOVO | EM_ANDAMENTO | CONCLUIDO | CANCELADO
+  /// Fluxo: NOVO | CONFIRMADO | EM_SEPARACAO | PRONTO_RETIRADA | EM_TRANSPORTE | SAIU_ENTREGA | ENTREGUE | FINALIZADO
+  /// Exceções: CANCELADO | SUSPENSO | ATRASADO | DEVOLVIDO
   status         String   @default("NOVO")
+  /// Pagamento (independente do status): AGUARDANDO | PAGO | PARCIAL | ESTORNADO | NAO_SE_APLICA
+  paymentStatus  String   @default("AGUARDANDO")
+  /// Contatos adicionais do pedido (JSON [{ "name": string|null, "phone": string }]) — recebem os avisos de status.
+  extraContacts  String   @default("[]")
+  /// Motivo do cancelamento (preenchido pela loja ao cancelar).
+  cancelReason   String?
   source         String   @default("AI") // AI | MANUAL
   notes          String?
   /// Assinatura dos itens/tipo — evita registrar o mesmo pedido duas vezes.
@@ -1084,4 +1091,23 @@ model Order {
   @@index([orgId, createdAt])
   @@index([orgId, status])
   @@index([orgId, contactId])
+}
+
+/// Histórico do pedido: mudanças de status, de pagamento, edições e cancelamento (quem, quando, de→para, observação).
+model OrderStatusHistory {
+  id        String   @id @default(cuid())
+  orgId     String
+  orderId   String
+  /// STATUS | PAGAMENTO | EDICAO | CANCELAMENTO
+  kind      String   @default("STATUS")
+  fromValue String?
+  toValue   String?
+  note      String?
+  /// Usuário que fez a mudança (nulo = IA/sistema).
+  userId    String?
+  /// Quantos destinatários receberam o aviso por WhatsApp (0 = não notificado).
+  notified  Int      @default(0)
+  createdAt DateTime @default(now())
+
+  @@index([orgId, orderId, createdAt])
 }

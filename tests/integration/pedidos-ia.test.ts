@@ -220,14 +220,15 @@ describe('Pedidos pela IA: Físico (pet shop) — dados de entrega, confirmaçã
     expect(await ordersOf(orgId, P)).toHaveLength(0);
   });
 
-  it('equipe muda o status no painel; atendente também pode', async () => {
+  it('equipe muda o status no painel; atendente também pode (valores antigos são aceitos como sinônimos)', async () => {
     const o = (await prisma.order.findFirst({ where: { orgId } }))!;
-    const r = await owner.patch(`/api/agenda/orders/${o.id}`, { status: 'EM_ANDAMENTO' });
+    const r = await owner.patch(`/api/agenda/orders/${o.id}`, { status: 'EM_ANDAMENTO', notify: false });
     expect(r.status).toBe(200);
-    expect(r.body.status).toBe('EM_ANDAMENTO');
+    expect(r.body.status).toBe('EM_SEPARACAO');
     const agent = await invite(owner, 'AGENT');
-    expect((await agent.patch(`/api/agenda/orders/${o.id}`, { status: 'CONCLUIDO' })).body.status).toBe('CONCLUIDO');
+    expect((await agent.patch(`/api/agenda/orders/${o.id}`, { status: 'CONCLUIDO', notify: false })).body.status).toBe('FINALIZADO');
     expect((await owner.patch(`/api/agenda/orders/${o.id}`, { status: 'PAGO' })).status).toBe(400);
+    expect((await owner.get('/api/agenda/orders?status=FINALIZADO')).body.items.map((x: any) => x.id)).toContain(o.id);
     expect((await owner.get('/api/agenda/orders?status=CONCLUIDO')).body.items.map((x: any) => x.id)).toContain(o.id);
   });
 });
