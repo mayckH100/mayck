@@ -5,7 +5,7 @@ import { post } from '../api';
 import { Loading, useToast } from '../ui';
 import { STATUS_LABEL, fmtDay, subOf } from '../billing';
 import { MCKBOT_URL } from './common';
-import { MmLogin, MmRegister, MmNoOrg, MmBrand, MmForgot, MmReset, MmVerify } from './pages/Auth';
+import { MmLogin, MmRegister, MmNoOrg, MmBrand, MmForgot, MmReset, MmVerify, MmCompletar } from './pages/Auth';
 import { InstallButton } from '../pwa';
 import MmDashboard from './pages/Dashboard';
 import MmLeads from './pages/Leads';
@@ -153,6 +153,7 @@ export default function MensagemApp() {
   const path = window.location.pathname;
   if (path.endsWith('/redefinir-senha')) return <MmReset />;
   if (path.endsWith('/verificar-email')) return <MmVerify />;
+  if (me.cadastroPendente) return <MmCompletar />;
   if (!me.org) return <MmNoOrg />;
   if (!can('OWNER', 'ADMIN')) {
     // Atendente (AGENT): só consulta o módulo Automações e Cobranças, sem alterar nada.

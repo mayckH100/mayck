@@ -23,14 +23,20 @@ const tokenFrom = (text: string) => /token=([A-Za-z0-9_-]+)/.exec(text)![1];
 describe('Recuperação de senha', () => {
   beforeEach(() => { outbox.length = 0; });
 
-  it('cadastro envia e-mail de boas-vindas com link de confirmação (não bloqueia o login)', async () => {
+  it('cadastro confirmado por código envia boas-vindas sem link (e-mail já confirmado); conta antiga ainda confirma por link', async () => {
     const c = await registerClient();
     const mail = await waitMail(c.me.user.email, 'welcome');
     expect(mail.subject).toMatch(/MCKBOT/);
     expect(mail.html).toContain('#d90429');
-    expect(c.me.user.emailVerified).toBe(false);
-    const token = tokenFrom(mail.text);
-    expect(mail.text).toContain('/verificar-email?token=');
+    expect(mail.text).not.toContain('/verificar-email?token=');
+    expect(c.me.user.emailVerified).toBe(true);
+    // Conta antiga (sem e-mail confirmado): o link de confirmação continua funcionando.
+    await prisma.user.update({ where: { id: c.me.user.id }, data: { emailVerifiedAt: null } });
+    outbox.length = 0;
+    expect((await c.post('/api/auth/resend-verification', {})).status).toBe(200);
+    const again = await waitMail(c.me.user.email, 'welcome');
+    const token = tokenFrom(again.text);
+    expect(again.text).toContain('/verificar-email?token=');
     const v = await request(app).post('/api/auth/verify-email').set(H).send({ token });
     expect(v.status).toBe(200);
     expect((await c.get('/api/auth/me')).body.user.emailVerified).toBe(true);

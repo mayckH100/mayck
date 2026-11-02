@@ -4,6 +4,8 @@ import { prisma } from '../server/db.js';
 import { encrypt, hmacSha256Hex, randomToken } from '../server/lib/crypto.js';
 import { setFetch } from '../server/lib/fetcher.js';
 import { setResolver } from '../server/lib/ssrf.js';
+import { setDnsResolver } from '../server/lib/emailCheck.js';
+import { outbox } from '../server/lib/mailer.js';
 
 export const app = createApp();
 let seq = 0;
@@ -24,14 +26,72 @@ export class Client {
   del(url: string) { return this.agent.delete(url).set(this.h()); }
 }
 
-export async function registerClient(opts: { email?: string; orgName?: string; password?: string } = {}) {
+// DNS simulado para o cadastro (nunca consulta a rede nos testes):
+//  "*.semmx.dev"/"*.invalid" → domínio não existe; "*.dnsfalho.dev" → falha transitória; demais → MX válido.
+export function installDnsMock() {
+  const nx = () => Object.assign(new Error('queryMx ENOTFOUND'), { code: 'ENOTFOUND' });
+  const fail = () => Object.assign(new Error('queryMx ESERVFAIL'), { code: 'ESERVFAIL' });
+  const pick = async <T>(d: string, ok: T): Promise<T> => {
+    if (d.endsWith('semmx.dev') || d.endsWith('.invalid')) throw nx();
+    if (d.endsWith('dnsfalho.dev')) throw fail();
+    return ok;
+  };
+  setDnsResolver({ mx: (d) => pick(d, [{ exchange: `mx.${d}`, priority: 10 }]), a: (d) => pick(d, ['93.184.216.34']), aaaa: (d) => pick(d, []) });
+}
+installDnsMock();
+
+let docSeq = Math.floor(Math.random() * 1e8);
+/** CPF válido e único por execução (dígitos verificadores calculados). */
+export function fakeCpf(): string {
+  const base = String(100000000 + (docSeq++ * 7919) % 899999999).split('').map(Number);
+  const dv = (arr: number[]) => { const len = arr.length; const sum = arr.reduce((a, n, i) => a + n * (len + 1 - i), 0); const r = (sum * 10) % 11; return r === 10 ? 0 : r; };
+  const d1 = dv(base); const d2 = dv([...base, d1]);
+  return [...base, d1, d2].join('');
+}
+/** CNPJ válido e único. */
+export function fakeCnpj(): string {
+  const base = (String(10000000 + (docSeq++ * 104729) % 89999999) + '0001').split('').map(Number);
+  const dv = (arr: number[]) => { const w = arr.length === 12 ? [5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2] : [6, 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2]; const r = arr.reduce((a, n, i) => a + n * w[i], 0) % 11; return r < 2 ? 0 : 11 - r; };
+  const d1 = dv(base); const d2 = dv([...base, d1]);
+  return [...base, d1, d2].join('');
+}
+let celSeq = Math.floor(Math.random() * 9e7);
+/** Celular brasileiro único (só dígitos com DDD, ex.: 11987654321). */
+export function fakeCelular(): string {
+  return `119${String(10000000 + (celSeq++ % 89999999))}`;
+}
+
+/** Código de 6 dígitos do último e-mail de cadastro enviado para o endereço. */
+export function signupCodeFor(email: string): string | null {
+  for (let i = outbox.length - 1; i >= 0; i--) {
+    const m = outbox[i];
+    if (m.to === email && m.kind === 'signup_code') return /(\d{6})/.exec(m.subject)?.[1] ?? null;
+  }
+  return null;
+}
+
+export interface SignupData { name?: string; email?: string; password?: string; orgName?: string; documento?: string; celular?: string; app?: string }
+export function signupData(opts: SignupData = {}) {
+  return {
+    name: opts.name ?? 'Usuário Teste', email: opts.email ?? `${uniq()}@teste.dev`, password: opts.password ?? 'senhaSegura123',
+    orgName: opts.orgName ?? uniq('Org '), documento: opts.documento ?? fakeCpf(), celular: opts.celular ?? fakeCelular(), ...(opts.app ? { app: opts.app } : {}),
+  };
+}
+
+/** Cadastro completo (dados → código do e-mail → conta ativa). Devolve o cliente já logado. */
+export async function registerClient(opts: SignupData = {}) {
   const c = new Client();
-  const email = opts.email ?? `${uniq()}@teste.dev`;
-  const res = await c.agent.post('/api/auth/register').set('x-requested-with', 'mckbot').send({ name: 'Usuário Teste', email, password: opts.password ?? 'senhaSegura123', orgName: opts.orgName ?? uniq('Org ') });
-  if (res.status !== 201) throw new Error('registro falhou: ' + JSON.stringify(res.body));
+  const data = signupData(opts);
+  const r1 = await c.agent.post('/api/auth/register').set('x-requested-with', 'mckbot').send(data);
+  if (r1.status !== 202) throw new Error('cadastro falhou: ' + JSON.stringify(r1.body));
+  const code = signupCodeFor(data.email);
+  if (!code) throw new Error('código do cadastro não chegou na caixa de saída');
+  const res = await c.agent.post('/api/auth/register/confirm').set('x-requested-with', 'mckbot').send({ signupToken: r1.body.signupToken, code });
+  if (res.status !== 201) throw new Error('confirmação falhou: ' + JSON.stringify(res.body));
   c.csrf = res.body.csrfToken;
   c.me = res.body;
-  return c;
+  (c as Client & { signup: typeof data }).signup = data;
+  return c as Client & { signup: typeof data };
 }
 
 export async function loginClient(email: string, password: string) {

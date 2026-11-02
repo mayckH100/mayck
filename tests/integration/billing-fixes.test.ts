@@ -161,6 +161,8 @@ describe('Correções de cobrança, Mercado Pago e superadmin', () => {
     delete process.env.SUPERADMIN_EMAILS;
     const c = await registerClient({ email });
     expect(c.me.isSuperAdmin).toBe(false);
+    // Simula conta antiga, criada antes da confirmação obrigatória por código.
+    await prisma.user.update({ where: { email }, data: { emailVerifiedAt: null } });
     process.env.SUPERADMIN_EMAILS = ` outro@teste.dev , ${email.toUpperCase()} `;
     // E-mail ainda não confirmado: não promove (impede tomar a vaga de um e-mail da lista sem ser dono dele)
     expect((await loginClient(email, PASS)).res.body.isSuperAdmin).toBe(false);
@@ -172,10 +174,11 @@ describe('Correções de cobrança, Mercado Pago e superadmin', () => {
     process.env.SUPERADMIN_EMAILS = 'outro@teste.dev';
     const again = await loginClient(email, PASS);
     expect(again.res.body.isSuperAdmin).toBe(true);
-    // Cadastro novo com e-mail da lista NÃO nasce superadmin (e-mail ainda não confirmado)
+    // Cadastro novo com e-mail da lista: o código enviado ao e-mail prova a posse, então já nasce superadmin;
+    // quem não está na lista, nunca.
     const e2 = `${uniq('boot2')}@teste.dev`;
     process.env.SUPERADMIN_EMAILS = e2;
-    expect((await registerClient({ email: e2 })).me.isSuperAdmin).toBe(false);
+    expect((await registerClient({ email: e2 })).me.isSuperAdmin).toBe(true);
     expect((await registerClient()).me.isSuperAdmin).toBe(false);
     delete process.env.SUPERADMIN_EMAILS;
   });
@@ -183,7 +186,8 @@ describe('Correções de cobrança, Mercado Pago e superadmin', () => {
   it('syncSuperAdmins (startup) promove usuários existentes da lista e não mexe nos outros', async () => {
     const a = await registerClient();
     const b = await registerClient();
-    const pend = await registerClient(); // na lista, mas sem e-mail confirmado: não promove
+    const pend = await registerClient(); // na lista, mas sem e-mail confirmado (conta antiga): não promove
+    await prisma.user.update({ where: { id: pend.me.user.id }, data: { emailVerifiedAt: null } });
     await prisma.user.updateMany({ where: { id: { in: [a.me.user.id, b.me.user.id] } }, data: { emailVerifiedAt: new Date() } });
     process.env.SUPERADMIN_EMAILS = `${a.me.user.email},${pend.me.user.email}`;
     expect(await syncSuperAdmins()).toBe(1);

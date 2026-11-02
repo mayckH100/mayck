@@ -147,7 +147,7 @@ test.describe.serial('MCKBOT — fluxo completo no navegador', () => {
     await page.getByLabel('E-mail').fill(email);
     await page.getByLabel('Senha').fill('errada123');
     await page.getByRole('button', { name: 'Entrar' }).click();
-    await expect(page.getByRole('alert')).toContainText('E-mail ou senha incorretos');
+    await expect(page.getByRole('alert')).toContainText('Credenciais inválidas');
     await page.getByLabel('Senha').fill(password);
     await page.getByRole('button', { name: 'Entrar' }).click();
     await expect(page.getByRole('heading', { name: 'Visão geral' })).toBeVisible();

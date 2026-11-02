@@ -43,7 +43,7 @@ export async function loadSession(req: Request, _res: Response, next: NextFuncti
     if (!token) return next();
     const session = await prisma.session.findUnique({ where: { id: sha256(token) } });
     if (!session || session.expiresAt < new Date()) return next();
-    const user = await prisma.user.findUnique({ where: { id: session.userId }, select: { isSuperAdmin: true, disabledAt: true, totpEnabledAt: true } });
+    const user = await prisma.user.findUnique({ where: { id: session.userId }, select: { isSuperAdmin: true, disabledAt: true, totpEnabledAt: true, documento: true, celular: true } });
     if (!user || user.disabledAt) return next(); // usuário desativado: sessão não vale (401 nas rotas protegidas)
     let role: Role | null = null;
     let orgId = session.orgId;
@@ -52,7 +52,10 @@ export async function loadSession(req: Request, _res: Response, next: NextFuncti
       if (m) role = m.role as Role;
       else orgId = null; // removido da organização
     }
-    req.auth = { userId: session.userId, sessionId: session.id, csrfToken: session.csrfToken, orgId, role, isSuperAdmin: user.isSuperAdmin, mfaEnabled: !!user.totpEnabledAt };
+    req.auth = {
+      userId: session.userId, sessionId: session.id, csrfToken: session.csrfToken, orgId, role, isSuperAdmin: user.isSuperAdmin, mfaEnabled: !!user.totpEnabledAt,
+      needsCadastro: needsCadastro(user, role),
+    };
     // "Visto por último" para a tela Sessões ativas (no máximo uma escrita a cada 5 min por sessão).
     if (!session.lastSeenAt || Date.now() - session.lastSeenAt.getTime() > SEEN_EVERY_MS) {
       prisma.session.updateMany({ where: { id: session.id }, data: { lastSeenAt: new Date(), ip: req.ip } }).catch(() => undefined);
@@ -95,6 +98,23 @@ export function csrfProtection(req: Request, _res: Response, next: NextFunction)
   if (req.headers['x-requested-with'] !== 'mckbot') return next(new HttpError(403, 'Falha na verificação CSRF'));
   if (req.auth && req.headers['x-csrf-token'] !== req.auth.csrfToken) {
     return next(new HttpError(403, 'Token CSRF inválido'));
+  }
+  next();
+}
+
+/**
+ * Titular da conta (OWNER da organização atual) precisa ter CPF/CNPJ e celular. Contas antigas completam na
+ * próxima entrada; superadmin nunca é bloqueado; membros convidados (ADMIN/AGENT) não são titulares.
+ */
+export function needsCadastro(user: { isSuperAdmin: boolean; documento: string | null; celular: string | null }, role: Role | null): boolean {
+  if (user.isSuperAdmin || role !== 'OWNER') return false;
+  return !user.documento || !user.celular;
+}
+
+/** Bloqueia as rotas de dados enquanto o titular não completa o cadastro (CPF/CNPJ e celular). */
+export function requireCadastroCompleto(req: Request, _res: Response, next: NextFunction) {
+  if (req.auth?.needsCadastro) {
+    return next(new HttpError(403, 'Complete seu cadastro (CPF/CNPJ e celular) para continuar.', { code: 'CADASTRO_INCOMPLETO' }));
   }
   next();
 }

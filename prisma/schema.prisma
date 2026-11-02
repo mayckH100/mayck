@@ -20,6 +20,10 @@ model User {
   isSuperAdmin    Boolean       @default(false)
   disabledAt      DateTime?
   emailVerifiedAt DateTime?
+  /// CPF (11) ou CNPJ (14) do titular, só dígitos. Dado pessoal: nunca em log/auditoria; mascarado na interface.
+  documento       String?       @unique
+  /// Celular do titular em E.164 (+5511912345678); também serve de identificador no login.
+  celular         String?       @unique
   /// Verificação em duas etapas (TOTP): segredo cifrado (AES-GCM com MASTER_KEY); pendente = em configuração.
   totpSecretEnc   String?
   totpPendingEnc  String?
@@ -81,6 +85,31 @@ model AuthToken {
   user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, kind])
+}
+
+/// Cadastro aguardando o código enviado por e-mail. Nada é criado em User/Organization antes da confirmação.
+model PendingSignup {
+  id           String   @id @default(cuid())
+  tokenHash    String   @unique
+  email        String
+  name         String
+  passwordHash String
+  orgName      String
+  documento    String
+  celular      String
+  app          String   @default("mckbot")
+  codeHash     String
+  attempts     Int      @default(0)
+  sends        Int      @default(1)
+  /// E-mail já tem conta: nenhum código é enviado (o e-mail avisa "você já tem conta"); a resposta é igual para não vazar.
+  existingUser Boolean  @default(false)
+  expiresAt    DateTime
+  lastSentAt   DateTime @default(now())
+  ip           String?
+  createdAt    DateTime @default(now())
+
+  @@index([email])
+  @@index([createdAt])
 }
 
 model Organization {

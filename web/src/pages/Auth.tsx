@@ -7,6 +7,7 @@ import { InstallButton } from '../pwa';
 import { PlansShowcase, ForgotPassword, ResetPassword, VerifyEmail } from './PublicAuth';
 import { normalizeCoupon, storedCoupon } from '../billing';
 import { MfaLoginStep } from './Security';
+import { SignupFlow, CompleteCadastro } from './Cadastro';
 
 export function Brand() {
   return <div className="brand"><img src="/logo.svg" alt="" /> MCKBOT</div>;
@@ -16,13 +17,14 @@ const AuthWrap = ({ children }: { children: React.ReactNode }) => <div className
 export const Forgot = () => <ForgotPassword app="mckbot" Wrap={AuthWrap} Brand={Brand} />;
 export const Reset = () => <ResetPassword app="mckbot" Wrap={AuthWrap} Brand={Brand} />;
 export const Verify = () => <VerifyEmail Wrap={AuthWrap} Brand={Brand} />;
+export const Completar = () => <CompleteCadastro Wrap={AuthWrap} Brand={Brand} />;
 
 const PLAN_NAME: Record<string, string> = { MCKBOT: 'MCKBOT', MCKMENSAGEM: 'MCK Mensagens', COMBO: 'Combo MCKBOT + MCK Mensagens' };
 
 export function Login() {
   const { setMe } = useAuth();
   const nav = useNavigate();
-  const [email, setEmail] = useState('');
+  const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -31,7 +33,7 @@ export function Login() {
     e.preventDefault();
     setBusy(true); setError('');
     try {
-      const r = await post('/auth/login', { email, password, app: 'mckbot' });
+      const r = await post('/auth/login', { identifier, password, app: 'mckbot' });
       if (r?.mfaRequired) { setMfaToken(r.mfaToken); setPassword(''); } else { setMe(r); nav('/'); }
     } catch (err) { setError((err as Error).message); } finally { setBusy(false); }
   };
@@ -44,8 +46,8 @@ export function Login() {
         <form className="card stack" onSubmit={submit}>
           <Brand />
           <p className="muted" style={{ textAlign: 'center' }}>Atendimento no WhatsApp com fluxos e IA</p>
-          {error && <div className="alert err" role="alert">{error}{/incorret|bloquead/i.test(error) && <> <Link to="/esqueci-senha" style={{ fontWeight: 600 }}>Redefinir minha senha</Link></>}</div>}
-          <Field label="E-mail"><input type="email" autoComplete="email" required value={email} onChange={(e) => setEmail(e.target.value)} /></Field>
+          {error && <div className="alert err" role="alert">{error}{/incorret|inválid|bloquead/i.test(error) && <> <Link to="/esqueci-senha" style={{ fontWeight: 600 }}>Redefinir minha senha</Link></>}</div>}
+          <Field label="E-mail, CPF/CNPJ ou celular"><input autoComplete="username" required value={identifier} onChange={(e) => setIdentifier(e.target.value)} /></Field>
           <Field label="Senha"><input type="password" autoComplete="current-password" required value={password} onChange={(e) => setPassword(e.target.value)} /></Field>
           <div style={{ textAlign: 'right', marginTop: -6 }}><Link to="/esqueci-senha" style={{ fontWeight: 600 }}>Esqueci minha senha</Link></div>
           <button className="btn primary" disabled={busy}>{busy ? 'Entrando…' : 'Entrar'}</button>
@@ -68,30 +70,14 @@ export function Register() {
   const [sp] = useSearchParams();
   const plano = sp.get('plano');
   const cupom = normalizeCoupon(sp.get('cupom')) || storedCoupon();
-  const [f, setF] = useState({ name: '', email: '', password: '', orgName: '' });
-  const [error, setError] = useState('');
-  const [busy, setBusy] = useState(false);
-  const submit = async (e: FormEvent) => {
-    e.preventDefault();
-    setBusy(true); setError('');
-    try { setMe(await post('/auth/register', { ...f, app: 'mckbot' })); nav(cupom ? `/plano?cupom=${encodeURIComponent(cupom)}` : plano && PLAN_NAME[plano] ? '/plano' : '/'); } catch (err) { setError((err as Error).message); } finally { setBusy(false); }
-  };
-  const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement>) => setF({ ...f, [k]: e.target.value });
   return (
     <div className="auth">
-      <form className="card stack" onSubmit={submit}>
-        <Brand />
-        <h2 style={{ textAlign: 'center' }}>Criar conta</h2>
-        {plano && PLAN_NAME[plano] && <div className="alert info">Plano escolhido: <strong>{PLAN_NAME[plano]}</strong>. Você começa no teste grátis e assina quando quiser, na tela Plano.</div>}
-        {cupom && <div className="alert info">Cupom de desconto <strong>{cupom}</strong> guardado: ele já aparece aplicado na tela Plano quando você for assinar.</div>}
-        {error && <div className="alert err" role="alert">{error}</div>}
-        <Field label="Seu nome"><input required minLength={2} value={f.name} onChange={set('name')} autoComplete="name" /></Field>
-        <Field label="E-mail"><input type="email" required value={f.email} onChange={set('email')} autoComplete="email" /></Field>
-        <Field label="Senha" hint="Mínimo de 8 caracteres"><input type="password" required minLength={8} value={f.password} onChange={set('password')} autoComplete="new-password" /></Field>
-        <Field label="Nome da empresa"><input required minLength={2} value={f.orgName} onChange={set('orgName')} /></Field>
-        <button className="btn primary" disabled={busy}>{busy ? 'Criando…' : 'Criar conta'}</button>
-        <p className="small muted" style={{ textAlign: 'center' }}>Já tem conta? <Link to="/login">Entrar</Link></p>
-      </form>
+      <SignupFlow app="mckbot" Brand={Brand}
+        notices={<>
+          {plano && PLAN_NAME[plano] && <div className="alert info">Plano escolhido: <strong>{PLAN_NAME[plano]}</strong>. Você começa no teste grátis e assina quando quiser, na tela Plano.</div>}
+          {cupom && <div className="alert info">Cupom de desconto <strong>{cupom}</strong> guardado: ele já aparece aplicado na tela Plano quando você for assinar.</div>}
+        </>}
+        onDone={(m) => { setMe(m); nav(cupom ? `/plano?cupom=${encodeURIComponent(cupom)}` : plano && PLAN_NAME[plano] ? '/plano' : '/'); }} />
     </div>
   );
 }

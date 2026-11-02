@@ -194,7 +194,7 @@ export function welcomeMail(o: { to: string; name: string; app: AppBrand; verify
   const b = BRANDS[o.app];
   const { html, text } = layout(o.app, o.req, `Bem-vindo(a) ao ${b.name}, ${o.name}!`, [
     'Sua conta foi criada com sucesso. Você já pode entrar e começar a usar a plataforma — o período de teste grátis começa agora.',
-    o.verifyUrl ? 'Para confirmar que este e-mail é seu, clique no botão abaixo. Isso não bloqueia o seu acesso.' : 'Guarde este e-mail: ele é o login da sua conta.',
+    o.verifyUrl ? 'Para confirmar que este e-mail é seu, clique no botão abaixo. Isso não bloqueia o seu acesso.' : 'Para entrar, use seu e-mail, CPF/CNPJ ou celular e a senha que você criou.',
   ], o.verifyUrl ? { label: 'Confirmar meu e-mail', url: o.verifyUrl } : { label: `Abrir o ${b.name}`, url: appPath(o.app, '/', o.req) },
   'Se você não criou esta conta, ignore esta mensagem.');
   return { to: o.to, subject: `Sua conta no ${b.name} foi criada`, html, text, kind: 'welcome' };
@@ -251,4 +251,26 @@ export function mfaChangedMail(o: { to: string; name: string; enabled: boolean; 
     o.enabled ? 'A partir de agora, além da senha, o login pede o código do seu app autenticador. Guarde os códigos de recuperação em local seguro.' : 'Agora o login pede só a senha. Recomendamos manter a proteção ligada.',
   ], undefined, 'Se não foi você, redefina a senha imediatamente e fale com o suporte.');
   return { to: o.to, subject: o.enabled ? 'Verificação em duas etapas ativada' : 'Verificação em duas etapas desativada', html, text, kind: o.enabled ? 'mfa_enabled' : 'mfa_disabled' };
+}
+
+/** Código de 6 dígitos para confirmar o e-mail no cadastro (a conta só é criada depois da confirmação). */
+export function signupCodeMail(o: { to: string; name: string; app: AppBrand; code: string; minutes: number; req?: Request }): MailMessage {
+  const b = BRANDS[o.app];
+  const { html, text } = layout(o.app, o.req, `Seu código de confirmação: ${o.code}`, [
+    `Olá, ${esc(o.name)}. Para concluir o cadastro no ${b.name}, digite este código na tela de confirmação:`,
+    `<span style="font-size:30px;font-weight:bold;letter-spacing:8px;font-family:monospace">${o.code}</span>`,
+    `O código vale por <strong>${o.minutes} minutos</strong>. Nunca compartilhe este código com ninguém: nossa equipe nunca pede o código.`,
+  ], undefined, 'Se você não tentou criar uma conta, ignore este e-mail: nada será criado sem o código.');
+  return { to: o.to, subject: `${o.code} é o seu código de confirmação do ${b.name}`, html, text, kind: 'signup_code' };
+}
+
+/** Alguém tentou cadastrar um e-mail que já tem conta: avisa o dono em vez de enviar código (evita vazar quais e-mails têm conta). */
+export function accountExistsMail(o: { to: string; name: string; app: AppBrand; req?: Request }): MailMessage {
+  const b = BRANDS[o.app];
+  const { html, text } = layout(o.app, o.req, 'Você já tem uma conta', [
+    `Olá, ${esc(o.name)}. Recebemos um pedido de cadastro no ${b.name} com este e-mail, mas ele já tem uma conta.`,
+    'Para acessar, entre com seu e-mail, CPF/CNPJ ou celular e a senha. Se esqueceu a senha, use o link abaixo.',
+  ], { label: 'Redefinir minha senha', url: appPath(o.app, '/esqueci-senha', o.req) },
+  'Se não foi você, pode ignorar esta mensagem: nenhuma conta nova foi criada e sua senha continua a mesma.');
+  return { to: o.to, subject: `Você já tem uma conta no ${b.name}`, html, text, kind: 'signup_account_exists' };
 }

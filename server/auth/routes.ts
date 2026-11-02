@@ -14,7 +14,11 @@ import { config } from '../config.js';
 import { PRODUCTS, getSubscriptionView } from '../billing/service.js';
 import { ensureSuperAdmin } from './superadmin.js';
 import { randomToken } from '../lib/crypto.js';
-import { sendMailLater, welcomeMail, resetMail, passwordChangedMail, brandOf, appPath, type AppBrand } from '../lib/mailer.js';
+import { sendMailLater, welcomeMail, resetMail, passwordChangedMail, signupCodeMail, accountExistsMail, brandOf, appPath, type AppBrand } from '../lib/mailer.js';
+import { needsCadastro } from './session.js';
+import { parseDocumento, normalizeCelular, maskDocumento, maskCelular, onlyDigits, isValidCpf, isValidCnpj } from '../lib/documento.js';
+import { checkSignupEmail } from '../lib/emailCheck.js';
+import { randomInt, timingSafeEqual } from 'node:crypto';
 
 export const authRouter = Router();
 authRouter.use(securityRouter); // 2FA e sessões ativas
@@ -33,7 +37,7 @@ const loginLimiter = rateLimit({
   limit: () => config.LOGIN_RATE_LIMIT,
   standardHeaders: 'draft-7',
   legacyHeaders: false,
-  keyGenerator: (req) => `${req.ip}|${String(req.body?.email ?? '').toLowerCase()}`,
+  keyGenerator: (req) => `${req.ip}|${String(req.body?.identifier ?? req.body?.email ?? '').trim().toLowerCase()}`,
   message: { error: 'Muitas tentativas. Aguarde alguns minutos e tente novamente.' },
 });
 
@@ -59,7 +63,13 @@ export async function meResponse(userId: string, orgId: string | null, csrfToken
   const current = memberships.find((m) => m.orgId === orgId) ?? null;
   const subscriptions = current ? await Promise.all(PRODUCTS.map((p) => getSubscriptionView(current.orgId, p))) : [];
   return {
-    user: { id: user.id, email: user.email, name: user.name, phone: user.phone, isSuperAdmin: user.isSuperAdmin, emailVerified: !!user.emailVerifiedAt, mfaEnabled: !!user.totpEnabledAt, mfaRequired: user.isSuperAdmin && superAdminMfaRequired() },
+    user: {
+      id: user.id, email: user.email, name: user.name, phone: user.phone, isSuperAdmin: user.isSuperAdmin, emailVerified: !!user.emailVerifiedAt, mfaEnabled: !!user.totpEnabledAt, mfaRequired: user.isSuperAdmin && superAdminMfaRequired(),
+      // CPF/CNPJ e celular só mascarados (dado pessoal).
+      documento: maskDocumento(user.documento), celular: maskCelular(user.celular),
+    },
+    // Titular sem CPF/CNPJ ou celular: o app mostra a tela única de completar cadastro antes de qualquer outra.
+    cadastroPendente: needsCadastro(user, (current?.role ?? null) as never) ? { documento: !user.documento, celular: !user.celular } : null,
     isSuperAdmin: user.isSuperAdmin,
     subscriptions,
     org: current ? { id: current.org.id, name: current.org.name, plan: current.org.plan, timezone: current.org.timezone, backupPhone: current.org.backupPhone, handoffAlertMinutes: current.org.handoffAlertMinutes } : null,
@@ -69,26 +79,220 @@ export async function meResponse(userId: string, orgId: string | null, csrfToken
   };
 }
 
-authRouter.post('/register', registerIpLimiter, loginLimiter, ah(async (req, res) => {
-  const body = z.object({ name: z.string().trim().min(2).max(100), email, password, orgName: z.string().trim().min(2).max(100) }).parse(req.body);
-  const exists = await prisma.user.findUnique({ where: { email: body.email } });
-  if (exists) throw new HttpError(409, 'Já existe uma conta com este e-mail');
-  const user = await prisma.user.create({ data: { email: body.email, name: body.name, passwordHash: await bcrypt.hash(body.password, 12) } });
-  await ensureSuperAdmin(user);
-  const org = await createOrganization(user.id, body.orgName);
-  const csrf = await createSession(res, req, user.id, org.id);
-  await trackDevice(req, res, user, org.id, brandOf(req.body?.app), false);
-  await audit(req, 'auth.register', { orgId: org.id, userId: user.id, entity: 'user', entityId: user.id });
-  // Boas-vindas + link de confirmação do e-mail (não bloqueia o login; falha de SMTP não afeta o cadastro).
+// ---- Cadastro com confirmação do e-mail por código ----
+// Nada utilizável é criado antes do código: os dados ficam em PendingSignup e a conta (usuário + organização)
+// só nasce em /register/confirm. Um cadastro pendente não consegue entrar nem usar os apps.
+const SIGNUP_CODE_TTL_MS = 15 * 60 * 1000;
+const SIGNUP_MAX_ATTEMPTS = 5;
+const SIGNUP_RESEND_COOLDOWN_MS = 60 * 1000;
+const SIGNUP_MAX_SENDS = 5;
+const SIGNUP_PENDING_TTL_MS = 24 * 60 * 60 * 1000;
+const SIGNUP_SENT_MSG = 'Enviamos um código de 6 dígitos para o seu e-mail. Digite-o para concluir o cadastro (confira também o spam).';
+const DUP_MSG = 'Já existe uma conta com este e-mail, CPF/CNPJ ou celular. Entre ou recupere a senha.';
+
+const signupEmailLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  limit: () => config.SIGNUP_RATE_LIMIT,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  keyGenerator: (req) => `signup|${String(req.body?.email ?? '').trim().toLowerCase()}`,
+  message: { error: 'Muitos pedidos de cadastro para este e-mail. Aguarde um pouco e tente novamente.' },
+});
+
+const codeHash = (pendingId: string, code: string) => sha256(`signup:${pendingId}:${code}`);
+const newCode = () => String(randomInt(0, 1_000_000)).padStart(6, '0');
+function sameHash(a: string, b: string) {
+  const x = Buffer.from(a), y = Buffer.from(b);
+  return x.length === y.length && timingSafeEqual(x, y);
+}
+
+function sendSignupMail(req: Request, p: { email: string; name: string; app: string; existingUser: boolean }, code: string) {
+  const app = brandOf(p.app);
+  if (p.existingUser) sendMailLater(accountExistsMail({ to: p.email, name: p.name, app, req }));
+  else sendMailLater(signupCodeMail({ to: p.email, name: p.name, app, code, minutes: SIGNUP_CODE_TTL_MS / 60000, req }));
+}
+
+const signupBody = z.object({
+  name: z.string().trim().min(2, 'Informe seu nome').max(100),
+  email,
+  password,
+  orgName: z.string().trim().min(2, 'Informe o nome da empresa').max(100),
+  documento: z.string().max(30).optional(),
+  celular: z.string().max(30).optional(),
+  app: z.enum(['mckbot', 'mensagem']).optional(),
+});
+
+authRouter.post('/register', registerIpLimiter, loginLimiter, signupEmailLimiter, ah(async (req, res) => {
+  const body = signupBody.parse(req.body);
+  const doc = parseDocumento(body.documento);
+  if (!doc) throw badRequest(body.documento ? 'CPF/CNPJ inválido. Confira os números digitados.' : 'Informe o CPF (ou o CNPJ, se for empresa) do titular da conta.');
+  const celular = normalizeCelular(body.celular);
+  if (!celular) throw badRequest(body.celular ? 'Celular inválido. Informe DDD + número, ex.: (11) 91234-5678.' : 'Informe o seu celular com DDD.');
+  const check = await checkSignupEmail(body.email);
+  if (!check.ok) throw badRequest(check.error);
+
+  // Mesmo trabalho (hash + consultas) com ou sem conta existente: tempo de resposta uniforme.
+  const passwordHash = await bcrypt.hash(body.password, 12);
+  const existing = await prisma.user.findUnique({ where: { email: body.email }, select: { id: true, name: true } });
+  await prisma.pendingSignup.deleteMany({ where: { OR: [{ email: body.email }, { createdAt: { lt: new Date(Date.now() - SIGNUP_PENDING_TTL_MS) } }] } });
+  const signupToken = randomToken(32);
+  const code = newCode();
+  const pending = await prisma.pendingSignup.create({
+    data: {
+      tokenHash: sha256(signupToken), email: body.email, name: body.name, passwordHash, orgName: body.orgName,
+      documento: doc.digits, celular, app: brandOf(body.app), codeHash: 'x', existingUser: !!existing,
+      expiresAt: new Date(Date.now() + SIGNUP_CODE_TTL_MS), ip: req.ip ?? null,
+    },
+  });
+  // Conta existente: o hash guardado nunca bate com nenhum código (o dono recebe o aviso "você já tem conta").
+  await prisma.pendingSignup.update({ where: { id: pending.id }, data: { codeHash: existing ? sha256(randomToken(32)) : codeHash(pending.id, code) } });
+  sendSignupMail(req, { email: body.email, name: existing?.name ?? body.name, app: pending.app, existingUser: !!existing }, code);
+  await audit(req, existing ? 'auth.signup_existing_email' : 'auth.signup_code_sent', { orgId: null, userId: existing?.id ?? null, meta: { email: body.email, documento: 'informado' } });
+  res.status(202).json({
+    pending: true, signupToken, email: body.email, message: SIGNUP_SENT_MSG,
+    expiresInSec: SIGNUP_CODE_TTL_MS / 1000, resendInSec: SIGNUP_RESEND_COOLDOWN_MS / 1000,
+  });
+}));
+
+const findPending = async (signupToken: string) => prisma.pendingSignup.findUnique({ where: { tokenHash: sha256(signupToken) } });
+const PENDING_GONE = 'Este cadastro expirou ou não foi encontrado. Preencha o cadastro de novo.';
+
+authRouter.post('/register/confirm', loginIpLimiter, ah(async (req, res) => {
+  const body = z.object({ signupToken: z.string().min(20).max(200), code: z.string().trim().max(20) }).parse(req.body);
+  const p = await findPending(body.signupToken);
+  if (!p || p.createdAt.getTime() < Date.now() - SIGNUP_PENDING_TTL_MS) throw new HttpError(400, PENDING_GONE);
+  if (p.attempts >= SIGNUP_MAX_ATTEMPTS) throw new HttpError(429, 'Muitas tentativas com código errado. Peça um novo código.', { code: 'CODE_LOCKED' });
+  if (p.expiresAt < new Date()) throw new HttpError(400, 'O código expirou. Peça um novo código.', { code: 'CODE_EXPIRED' });
+  const code = onlyDigits(body.code);
+  const ok = code.length === 6 && !p.existingUser && sameHash(codeHash(p.id, code), p.codeHash);
+  if (!ok) {
+    // Incremento atômico: pedidos simultâneos não ganham tentativas extras.
+    const upd = await prisma.pendingSignup.updateMany({ where: { id: p.id, attempts: { lt: SIGNUP_MAX_ATTEMPTS } }, data: { attempts: { increment: 1 } } });
+    const left = SIGNUP_MAX_ATTEMPTS - p.attempts - 1;
+    await audit(req, 'auth.signup_code_failed', { orgId: null, meta: { email: p.email } });
+    if (upd.count === 0 || left <= 0) throw new HttpError(429, 'Muitas tentativas com código errado. Peça um novo código.', { code: 'CODE_LOCKED' });
+    throw new HttpError(400, `Código incorreto. Você ainda tem ${left} tentativa${left === 1 ? '' : 's'}.`, { code: 'CODE_INVALID', attemptsLeft: left });
+  }
+  // Uso único: só um pedido concorrente consome o cadastro pendente.
+  const del = await prisma.pendingSignup.deleteMany({ where: { id: p.id } });
+  if (del.count !== 1) throw new HttpError(400, PENDING_GONE);
+  // Checagem de duplicidade feita aqui (depois de provar que o e-mail é seu): limita a sondagem de CPF/celular.
+  const dup = await prisma.user.findFirst({ where: { OR: [{ email: p.email }, { documento: p.documento }, { celular: p.celular }] }, select: { id: true } });
+  if (dup) {
+    await audit(req, 'auth.signup_duplicate', { orgId: null, meta: { email: p.email } });
+    throw new HttpError(409, DUP_MSG, { code: 'DUPLICATE' });
+  }
+  let user;
   try {
-    const app = brandOf(req.body?.app);
-    const token = await issueToken(user.id, 'VERIFY_EMAIL', VERIFY_TTL_MS, req.ip);
-    sendMailLater(welcomeMail({ to: user.email, name: user.name, app, verifyUrl: appPath(app, `/verificar-email?token=${token}`, req), req }));
-  } catch (e) { console.error('[mail] boas-vindas:', (e as Error).message); }
+    user = await prisma.user.create({ data: { email: p.email, name: p.name, passwordHash: p.passwordHash, documento: p.documento, celular: p.celular, emailVerifiedAt: new Date() } });
+  } catch (e) {
+    if ((e as { code?: string }).code === 'P2002') throw new HttpError(409, DUP_MSG, { code: 'DUPLICATE' });
+    throw e;
+  }
+  if (await ensureSuperAdmin(user)) await audit(req, 'auth.superadmin_bootstrap', { userId: user.id, meta: { email: user.email } });
+  const org = await createOrganization(user.id, p.orgName);
+  const csrf = await createSession(res, req, user.id, org.id);
+  const app = brandOf(p.app);
+  await trackDevice(req, res, user, org.id, app, false);
+  await audit(req, 'auth.register', { orgId: org.id, userId: user.id, entity: 'user', entityId: user.id, meta: { emailVerified: true, documento: 'informado', celular: 'informado' } });
+  sendMailLater(welcomeMail({ to: user.email, name: user.name, app, req }));
   res.status(201).json(await meResponse(user.id, org.id, csrf));
 }));
 
+authRouter.post('/register/resend', loginIpLimiter, ah(async (req, res) => {
+  const body = z.object({ signupToken: z.string().min(20).max(200) }).parse(req.body);
+  const p = await findPending(body.signupToken);
+  if (!p || p.createdAt.getTime() < Date.now() - SIGNUP_PENDING_TTL_MS) throw new HttpError(400, PENDING_GONE);
+  const wait = Math.ceil((p.lastSentAt.getTime() + SIGNUP_RESEND_COOLDOWN_MS - Date.now()) / 1000);
+  if (wait > 0) throw new HttpError(429, `Aguarde ${wait} segundo${wait === 1 ? '' : 's'} para pedir outro código.`, { code: 'RESEND_COOLDOWN', retryInSec: wait });
+  if (p.sends >= SIGNUP_MAX_SENDS) throw new HttpError(429, 'Limite de reenvios atingido. Preencha o cadastro de novo mais tarde.', { code: 'RESEND_LIMIT' });
+  const code = newCode();
+  // Condição em lastSentAt: dois reenvios simultâneos não disparam dois e-mails.
+  const upd = await prisma.pendingSignup.updateMany({
+    where: { id: p.id, lastSentAt: p.lastSentAt },
+    data: {
+      codeHash: p.existingUser ? sha256(randomToken(32)) : codeHash(p.id, code), attempts: 0, sends: { increment: 1 },
+      lastSentAt: new Date(), expiresAt: new Date(Date.now() + SIGNUP_CODE_TTL_MS),
+    },
+  });
+  if (upd.count === 1) {
+    const existing = p.existingUser ? await prisma.user.findUnique({ where: { email: p.email }, select: { name: true } }) : null;
+    sendSignupMail(req, { email: p.email, name: existing?.name ?? p.name, app: p.app, existingUser: p.existingUser }, code);
+  }
+  res.json({ ok: true, message: SIGNUP_SENT_MSG, expiresInSec: SIGNUP_CODE_TTL_MS / 1000, resendInSec: SIGNUP_RESEND_COOLDOWN_MS / 1000 });
+}));
+
+// Tela de completar cadastro: limita tentativas de CPF/celular por conta (evita sondar quais documentos existem).
+const completeCadastroLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: () => config.LOGIN_RATE_LIMIT,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  keyGenerator: (req) => `cadastro|${req.auth?.userId ?? req.ip}`,
+  message: { error: 'Muitas tentativas. Aguarde alguns minutos e tente novamente.' },
+});
+
+/** Tela única para contas antigas: o titular informa CPF/CNPJ e/ou celular que faltam (não altera o que já existe). */
+authRouter.post('/complete-cadastro', requireAuth, completeCadastroLimiter, ah(async (req, res) => {
+  const body = z.object({ documento: z.string().max(30).optional(), celular: z.string().max(30).optional() }).parse(req.body);
+  const user = await prisma.user.findUniqueOrThrow({ where: { id: req.auth!.userId } });
+  const data: { documento?: string; celular?: string } = {};
+  if (!user.documento) {
+    const doc = parseDocumento(body.documento);
+    if (!doc) throw badRequest(body.documento ? 'CPF/CNPJ inválido. Confira os números digitados.' : 'Informe o CPF (ou o CNPJ, se for empresa) do titular da conta.');
+    data.documento = doc.digits;
+  }
+  if (!user.celular) {
+    const cel = normalizeCelular(body.celular);
+    if (!cel) throw badRequest(body.celular ? 'Celular inválido. Informe DDD + número, ex.: (11) 91234-5678.' : 'Informe o seu celular com DDD.');
+    data.celular = cel;
+  }
+  if (!data.documento && !data.celular) return void res.json(await meResponse(user.id, req.auth!.orgId, req.auth!.csrfToken));
+  const taken = await prisma.user.findFirst({ where: { id: { not: user.id }, OR: [...(data.documento ? [{ documento: data.documento }] : []), ...(data.celular ? [{ celular: data.celular }] : [])] }, select: { documento: true } });
+  if (taken) {
+    const what = data.documento && taken.documento === data.documento ? 'Este CPF/CNPJ' : 'Este celular';
+    throw new HttpError(409, `${what} já está vinculado a outra conta. Se achar que é um engano, fale com o suporte.`);
+  }
+  try {
+    await prisma.user.update({ where: { id: user.id }, data });
+  } catch (e) {
+    if ((e as { code?: string }).code === 'P2002') throw new HttpError(409, 'Este CPF/CNPJ ou celular já está vinculado a outra conta. Se achar que é um engano, fale com o suporte.');
+    throw e;
+  }
+  await audit(req, 'auth.cadastro_completado', { userId: user.id, entity: 'user', entityId: user.id, meta: { ...(data.documento ? { documento: 'informado' } : {}), ...(data.celular ? { celular: 'informado' } : {}) } });
+  res.json(await meResponse(user.id, req.auth!.orgId, req.auth!.csrfToken));
+}));
+
+/** Só o formato (nunca a existência): e-mail válido, ou apenas números e sinais de máscara. */
+function checkIdentifierFormat(identifier: string) {
+  if (identifier.includes('@')) { email.parse(identifier); return; }
+  if (/[^\d+()\-./\s]/.test(identifier) || onlyDigits(identifier).length < 8) throw badRequest('Informe um e-mail, CPF/CNPJ ou celular válido.');
+}
+
+/**
+ * Login por e-mail, CPF, CNPJ ou celular. 11 dígitos podem ser CPF ou celular: tenta CPF válido primeiro, depois celular.
+ * Devolve null quando não encontra (a rota responde com o mesmo erro genérico de senha errada).
+ */
+export async function findUserByIdentifier(raw: string) {
+  const id = raw.trim();
+  if (!id) return null;
+  if (id.includes('@')) return prisma.user.findUnique({ where: { email: id.toLowerCase() } });
+  if (/[^\d+()\-./\s]/.test(id)) return null;
+  const d = onlyDigits(id);
+  if (!id.startsWith('+')) {
+    if (d.length === 11 && isValidCpf(d)) {
+      const u = await prisma.user.findUnique({ where: { documento: d } });
+      if (u) return u;
+    } else if (d.length === 14 && isValidCnpj(d)) {
+      return prisma.user.findUnique({ where: { documento: d } });
+    }
+  }
+  const cel = normalizeCelular(id);
+  return cel ? prisma.user.findUnique({ where: { celular: cel } }) : null;
+}
+
 const MFA_TTL_MS = 5 * 60 * 1000;
+export const LOGIN_FAIL_MSG = 'Credenciais inválidas. Confira o e-mail, CPF/CNPJ ou celular e a senha.';
 const firstOrgId = async (userId: string) => (await prisma.membership.findFirst({ where: { userId }, orderBy: { createdAt: 'asc' } }))?.orgId ?? null;
 
 /** Etapa final do login (senha e, se ativa, 2FA já conferidas): zera falhas, cria sessão, confere aparelho e audita. */
@@ -103,8 +307,14 @@ async function completeLogin(req: Request, res: Response, user: { id: string; em
 }
 
 authRouter.post('/login', loginIpLimiter, loginLimiter, ah(async (req, res) => {
-  const body = z.object({ email, password: z.string().min(1).max(200) }).parse(req.body);
-  const user = await prisma.user.findUnique({ where: { email: body.email } });
+  // "identifier" aceita e-mail, CPF, CNPJ ou celular; "email" continua aceito (clientes antigos).
+  const parsed = z.object({ identifier: z.string().trim().min(1).max(200).optional(), email: z.string().trim().max(200).optional(), password: z.string().min(1).max(200) }).parse(req.body);
+  const identifier = parsed.identifier ?? parsed.email ?? '';
+  if (!identifier) throw badRequest('Informe seu e-mail, CPF/CNPJ ou celular.');
+  checkIdentifierFormat(identifier);
+  // Na auditoria vai só o e-mail; CPF/CNPJ/celular digitados nunca são registrados.
+  const body = { password: parsed.password, email: identifier.includes('@') ? identifier.toLowerCase() : '(cpf/cnpj/celular)' };
+  const user = await findUserByIdentifier(identifier);
   // Compara mesmo quando o usuário não existe, para não vazar por tempo de resposta quais e-mails têm conta.
   const ok = await bcrypt.compare(body.password, user?.passwordHash ?? (await dummyHash()));
   const app = brandOf(req.body?.app);
@@ -112,22 +322,22 @@ authRouter.post('/login', loginIpLimiter, loginLimiter, ah(async (req, res) => {
     // Bloqueio temporário por conta (vale mesmo com a senha certa, até o prazo acabar).
     const locked = lockRemainingMin(user);
     if (locked > 0) {
-      await audit(req, 'auth.login_locked', { orgId: await firstOrgId(user.id), userId: user.id, meta: { email: body.email, minutes: locked } });
+      await audit(req, 'auth.login_locked', { orgId: await firstOrgId(user.id), userId: user.id, meta: { email: user.email, minutes: locked } });
       throw lockedError(locked);
     }
   }
   if (user && ok && user.disabledAt) {
-    await audit(req, 'auth.login_disabled', { userId: user.id, meta: { email: body.email } });
+    await audit(req, 'auth.login_disabled', { userId: user.id, meta: { email: user.email } });
     throw new HttpError(401, 'Esta conta está desativada. Fale com o suporte.');
   }
   if (!user || !ok) {
     const orgId = user ? await firstOrgId(user.id) : null;
-    await audit(req, 'auth.login_failed', { orgId, userId: user?.id ?? null, meta: { email: body.email } });
+    await audit(req, 'auth.login_failed', { orgId, userId: user?.id ?? null, meta: { email: user?.email ?? body.email } });
     if (user) {
       const minutes = await registerFailure(req, user, orgId, app, 'password');
       if (minutes > 0) throw lockedError(minutes);
     }
-    throw new HttpError(401, 'E-mail ou senha incorretos');
+    throw new HttpError(401, LOGIN_FAIL_MSG);
   }
   if (user.totpEnabledAt) {
     // Senha certa + 2FA ativa: devolve um token curto (5 min) para a etapa do código. Nenhuma sessão é criada ainda.
@@ -267,18 +477,24 @@ export async function sendResetLink(req: Request, user: { id: string; email: str
   sendMailLater(resetMail({ to: user.email, name: user.name, app, url: appPath(app, `/redefinir-senha?token=${token}`, req), req }));
 }
 
-const FORGOT_MSG = 'Se existir uma conta com este e-mail, enviamos um link para redefinir a senha. Confira a caixa de entrada e o spam.';
+const FORGOT_MSG = 'Se existir uma conta com estes dados, enviamos um link para redefinir a senha para o e-mail cadastrado. Confira a caixa de entrada e o spam.';
 
 authRouter.post('/forgot', forgotIpLimiter, forgotLimiter, ah(async (req, res) => {
-  const body = z.object({ email, app: z.enum(['mckbot', 'mensagem']).optional() }).parse(req.body);
+  // Aceita e-mail, CPF, CNPJ ou celular; o link vai sempre para o e-mail cadastrado da conta.
+  const parsed = z.object({ identifier: z.string().trim().min(1).max(200).optional(), email: z.string().trim().max(200).optional(), app: z.enum(['mckbot', 'mensagem']).optional() }).parse(req.body);
+  const identifier = parsed.identifier ?? parsed.email ?? '';
+  if (!identifier) throw badRequest('Informe seu e-mail, CPF/CNPJ ou celular.');
+  checkIdentifierFormat(identifier);
+  const body = { ...parsed, email: identifier.includes('@') ? identifier.toLowerCase() : null };
   const app: AppBrand = brandOf(body.app);
   // Resposta sempre igual e imediata; o trabalho acontece em segundo plano para não vazar, pelo tempo, se o e-mail existe.
   res.json({ ok: true, message: FORGOT_MSG });
   void (async () => {
     try {
-      const user = await prisma.user.findUnique({ where: { email: body.email } });
-      if (!user || user.disabledAt) {
-        await audit(req, 'auth.forgot_unknown', { meta: { email: body.email } });
+      const user = await findUserByIdentifier(identifier);
+      // Por CPF/CNPJ/celular, só envia para e-mail já confirmado (o link nunca vai para um endereço não verificado).
+      if (!user || user.disabledAt || (!body.email && !user.emailVerifiedAt)) {
+        await audit(req, 'auth.forgot_unknown', { meta: { email: body.email ?? 'identificador' } });
         return;
       }
       await sendResetLink(req, user, app);

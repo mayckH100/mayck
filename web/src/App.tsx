@@ -3,7 +3,7 @@ import { Routes, Route, Navigate, NavLink, useLocation, useNavigate } from 'reac
 import { useAuth, ROLE_LABEL, type Role } from './auth';
 import { post, get } from './api';
 import { Loading, useApi, useToast } from './ui';
-import { Login, Register, AcceptInvite, NoOrg, Forgot, Reset, Verify } from './pages/Auth';
+import { Login, Register, AcceptInvite, NoOrg, Forgot, Reset, Verify, Completar } from './pages/Auth';
 import { InstallButton } from './pwa';
 import Dashboard from './pages/Dashboard';
 import Inbox from './pages/Inbox';
@@ -203,6 +203,7 @@ export default function App() {
       </Routes>
     );
   }
+  if (me.cadastroPendente) return <Completar />;
   if (!me.org) {
     return (
       <Routes>

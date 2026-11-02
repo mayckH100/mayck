@@ -127,6 +127,6 @@ describe('Login inexistente', () => {
   it('responde igual para e-mail inexistente', async () => {
     const r = await loginClient(`${uniq()}@naoexiste.dev`, 'qualquer');
     expect(r.res.status).toBe(401);
-    expect(r.res.body.error).toBe('E-mail ou senha incorretos');
+    expect(r.res.body.error).toBe('Credenciais inválidas. Confira o e-mail, CPF/CNPJ ou celular e a senha.');
   });
 });

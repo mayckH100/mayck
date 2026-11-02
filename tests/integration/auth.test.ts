@@ -1,12 +1,15 @@
 import { describe, it, expect } from 'vitest';
 import request from 'supertest';
-import { app, registerClient, loginClient, uniq, prisma } from '../helpers.js';
+import { app, registerClient, loginClient, uniq, prisma, signupData, signupCodeFor } from '../helpers.js';
 import { config } from '../../server/config.js';
 
 describe('Autenticação e sessão', () => {
-  it('cadastro cria usuário, organização (dono), etapas do Kanban e cookie httpOnly', async () => {
-    const email = `${uniq()}@teste.dev`;
-    const res = await request(app).post('/api/auth/register').set('x-requested-with', 'mckbot').send({ name: 'Ana', email, password: 'senhaSegura123', orgName: 'Loja da Ana' });
+  it('cadastro (com código do e-mail) cria usuário, organização (dono), etapas do Kanban e cookie httpOnly', async () => {
+    const data = signupData({ name: 'Ana', orgName: 'Loja da Ana' });
+    const r1 = await request(app).post('/api/auth/register').set('x-requested-with', 'mckbot').send(data);
+    expect(r1.status).toBe(202);
+    expect(await prisma.user.findUnique({ where: { email: data.email } })).toBeNull(); // nada criado antes do código
+    const res = await request(app).post('/api/auth/register/confirm').set('x-requested-with', 'mckbot').send({ signupToken: r1.body.signupToken, code: signupCodeFor(data.email) });
     expect(res.status).toBe(201);
     expect(res.body.role).toBe('OWNER');
     expect(res.body.csrfToken).toBeTruthy();
@@ -14,17 +17,21 @@ describe('Autenticação e sessão', () => {
     expect(cookie).toMatch(/mck_sid=/);
     expect(cookie).toMatch(/HttpOnly/i);
     expect(cookie).toMatch(/SameSite=Lax/i);
-    const user = await prisma.user.findUnique({ where: { email } });
+    const user = await prisma.user.findUnique({ where: { email: data.email } });
     expect(user!.passwordHash).toMatch(/^\$2[aby]\$12\$/);
+    expect(user!.emailVerifiedAt).toBeTruthy();
     expect(await prisma.kanbanStage.count({ where: { orgId: res.body.org.id } })).toBe(5);
   });
 
-  it('rejeita senha curta e e-mail duplicado', async () => {
+  it('rejeita senha curta; e-mail duplicado não cria nada e não envia código', async () => {
     const c = await registerClient();
-    const r1 = await request(app).post('/api/auth/register').set('x-requested-with', 'mckbot').send({ name: 'X', email: `${uniq()}@t.dev`, password: '123', orgName: 'Org' });
+    const r1 = await request(app).post('/api/auth/register').set('x-requested-with', 'mckbot').send(signupData({ password: '123' }));
     expect(r1.status).toBe(400);
-    const r2 = await request(app).post('/api/auth/register').set('x-requested-with', 'mckbot').send({ name: 'X Y', email: c.me.user.email, password: 'senhaSegura123', orgName: 'Org' });
-    expect(r2.status).toBe(409);
+    const r2 = await request(app).post('/api/auth/register').set('x-requested-with', 'mckbot').send(signupData({ email: c.me.user.email }));
+    expect(r2.status).toBe(202); // mesma resposta de um e-mail novo (sem enumeração)
+    const r3 = await request(app).post('/api/auth/register/confirm').set('x-requested-with', 'mckbot').send({ signupToken: r2.body.signupToken, code: '123456' });
+    expect(r3.status).toBe(400);
+    expect(await prisma.user.count({ where: { email: c.me.user.email } })).toBe(1);
   });
 
   it('login correto, senha errada e logout', async () => {

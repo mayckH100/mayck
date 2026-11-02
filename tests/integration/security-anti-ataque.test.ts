@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterEach } from 'vitest';
 import request from 'supertest';
-import { app, registerClient, Client, uniq, prisma, createTestChannel, inboundPayload, postWebhook } from '../helpers.js';
+import { app, registerClient, Client, uniq, prisma, createTestChannel, inboundPayload, postWebhook, signupData, signupCodeFor } from '../helpers.js';
 import { backupDestinations, backupAutoEnabled, backupEmailTo } from '../../server/lib/backup.js';
 import { safeErrorForLog } from '../../server/lib/http.js';
 
@@ -20,8 +20,9 @@ describe('Escudo 2: cabeçalhos de segurança', () => {
   });
 
   it('cookie de sessão é HttpOnly e SameSite', async () => {
-    const r = await request(app).post('/api/auth/register').set('x-requested-with', 'mckbot')
-      .send({ name: 'Cookie Teste', email: `${uniq()}@t.dev`, password: 'senhaSegura123', orgName: 'Org Cookie' });
+    const data = signupData({ name: 'Cookie Teste', email: `${uniq()}@t.dev`, orgName: 'Org Cookie' });
+    const r0 = await request(app).post('/api/auth/register').set('x-requested-with', 'mckbot').send(data);
+    const r = await request(app).post('/api/auth/register/confirm').set('x-requested-with', 'mckbot').send({ signupToken: r0.body.signupToken, code: signupCodeFor(data.email) });
     const set = ([] as string[]).concat(r.headers['set-cookie'] ?? []);
     const sid = set.find((c) => c.startsWith('mck_sid='))!;
     expect(sid).toMatch(/HttpOnly/i);

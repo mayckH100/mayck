@@ -5,7 +5,9 @@ export type Role = 'OWNER' | 'ADMIN' | 'AGENT';
 export type SubStatus = 'TRIAL' | 'ATIVA' | 'VENCIDA' | 'BLOQUEADA';
 export interface SubscriptionView { product: 'MCKBOT' | 'MCKMENSAGEM'; status: SubStatus; active: boolean; cycle: 'MENSAL' | 'ANUAL'; validUntil: string; source: string }
 export interface Me {
-  user: { id: string; email: string; name: string; phone: string | null; isSuperAdmin?: boolean; mfaEnabled?: boolean; mfaRequired?: boolean };
+  user: { id: string; email: string; name: string; phone: string | null; isSuperAdmin?: boolean; mfaEnabled?: boolean; mfaRequired?: boolean; documento?: string | null; celular?: string | null };
+  /** Titular sem CPF/CNPJ ou celular: mostrar a tela de completar cadastro antes de tudo. */
+  cadastroPendente?: { documento: boolean; celular: boolean } | null;
   isSuperAdmin?: boolean;
   subscriptions?: SubscriptionView[];
   org: { id: string; name: string; plan: string; timezone: string; backupPhone?: string | null; handoffAlertMinutes?: number } | null;

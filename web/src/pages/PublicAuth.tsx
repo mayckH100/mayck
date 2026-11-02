@@ -58,18 +58,18 @@ export function ForgotPassword({ app, Wrap, Brand }: { app: AppKind; Wrap: Wrap;
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     setBusy(true); setError('');
-    try { const r = await post<{ message: string }>('/auth/forgot', { email, app }); setMsg(r.message); } catch (err) { setError((err as Error).message); } finally { setBusy(false); }
+    try { const r = await post<{ message: string }>('/auth/forgot', { identifier: email, app }); setMsg(r.message); } catch (err) { setError((err as Error).message); } finally { setBusy(false); }
   };
   return (
     <Wrap>
       <form className="card stack" onSubmit={submit}>
         <Brand />
         <h2 style={{ textAlign: 'center' }}>Esqueci minha senha</h2>
-        {msg ? <div className="alert ok" role="status">{msg}</div> : <p className="muted small" style={{ textAlign: 'center' }}>Informe o e-mail da sua conta. Enviaremos um link para criar uma nova senha (válido por 1 hora).</p>}
+        {msg ? <div className="alert ok" role="status">{msg}</div> : <p className="muted small" style={{ textAlign: 'center' }}>Informe o e-mail, CPF/CNPJ ou celular da sua conta. Enviaremos um link para o e-mail cadastrado para criar uma nova senha (válido por 1 hora).</p>}
         {error && <div className="alert err" role="alert">{error}</div>}
         {!msg && (
           <>
-            <Field label="E-mail"><input type="email" autoComplete="email" required value={email} onChange={(e) => setEmail(e.target.value)} /></Field>
+            <Field label="E-mail, CPF/CNPJ ou celular"><input autoComplete="username" required value={email} onChange={(e) => setEmail(e.target.value)} /></Field>
             <button className="btn primary" disabled={busy}>{busy ? 'Enviando…' : 'Enviar link'}</button>
           </>
         )}

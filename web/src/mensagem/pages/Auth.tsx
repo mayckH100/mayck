@@ -8,6 +8,7 @@ import { InstallButton } from '../../pwa';
 import { PlansShowcase, ForgotPassword, ResetPassword, VerifyEmail } from '../../pages/PublicAuth';
 import { normalizeCoupon, storedCoupon } from '../../billing';
 import { MfaLoginStep } from '../../pages/Security';
+import { SignupFlow, CompleteCadastro } from '../../pages/Cadastro';
 
 export function MmBrand() {
   return <div className="mm-brand"><img src="/mensagem-logo.svg" alt="" /> MCK Mensagens</div>;
@@ -16,6 +17,7 @@ export function MmBrand() {
 export const MmForgot = () => <ForgotPassword app="mensagem" Wrap={AuthLayout} Brand={MmBrand} />;
 export const MmReset = () => <ResetPassword app="mensagem" Wrap={AuthLayout} Brand={MmBrand} />;
 export const MmVerify = () => <VerifyEmail Wrap={AuthLayout} Brand={MmBrand} />;
+export const MmCompletar = () => <CompleteCadastro Wrap={AuthLayout} Brand={MmBrand} />;
 const PLAN_NAME: Record<string, string> = { MCKBOT: 'MCKBOT', MCKMENSAGEM: 'MCK Mensagens', COMBO: 'Combo MCKBOT + MCK Mensagens' };
 
 function AuthLayout({ children }: { children: ReactNode }) {
@@ -50,7 +52,7 @@ export function MmLogin() {
     e.preventDefault();
     setBusy(true); setError('');
     try {
-      const r = await post('/auth/login', { email, password, app: 'mensagem' });
+      const r = await post('/auth/login', { identifier: email, password, app: 'mensagem' });
       if (r?.mfaRequired) { setMfaToken(r.mfaToken); setPassword(''); } else { setMe(r); nav('/'); }
     } catch (err) { setError((err as Error).message); } finally { setBusy(false); }
   };
@@ -63,8 +65,8 @@ export function MmLogin() {
       <form className="card stack" onSubmit={submit}>
         <MmBrand />
         <p className="muted" style={{ textAlign: 'center' }}>Entre com a sua conta MCK (a mesma do MCKBOT)</p>
-        {error && <div className="alert err" role="alert">{error}{/incorret|bloquead/i.test(error) && <> <Link to="/esqueci-senha" style={{ fontWeight: 600 }}>Redefinir minha senha</Link></>}</div>}
-        <Field label="E-mail"><input type="email" autoComplete="email" required value={email} onChange={(e) => setEmail(e.target.value)} /></Field>
+        {error && <div className="alert err" role="alert">{error}{/incorret|inválid|bloquead/i.test(error) && <> <Link to="/esqueci-senha" style={{ fontWeight: 600 }}>Redefinir minha senha</Link></>}</div>}
+        <Field label="E-mail, CPF/CNPJ ou celular"><input autoComplete="username" required value={email} onChange={(e) => setEmail(e.target.value)} /></Field>
         <Field label="Senha"><input type="password" autoComplete="current-password" required value={password} onChange={(e) => setPassword(e.target.value)} /></Field>
         <div style={{ textAlign: 'right', marginTop: -6 }}><Link to="/esqueci-senha" style={{ fontWeight: 600 }}>Esqueci minha senha</Link></div>
         <button className="btn primary" disabled={busy}>{busy ? 'Entrando…' : 'Entrar'}</button>
@@ -87,30 +89,14 @@ export function MmRegister() {
   const [sp] = useSearchParams();
   const plano = sp.get('plano');
   const cupom = normalizeCoupon(sp.get('cupom')) || storedCoupon();
-  const [f, setF] = useState({ name: '', email: '', password: '', orgName: '' });
-  const [error, setError] = useState('');
-  const [busy, setBusy] = useState(false);
-  const submit = async (e: FormEvent) => {
-    e.preventDefault();
-    setBusy(true); setError('');
-    try { setMe(await post('/auth/register', { ...f, app: 'mensagem' })); nav(cupom ? `/assinatura?cupom=${encodeURIComponent(cupom)}` : plano && PLAN_NAME[plano] ? '/assinatura' : '/'); } catch (err) { setError((err as Error).message); } finally { setBusy(false); }
-  };
-  const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement>) => setF({ ...f, [k]: e.target.value });
   return (
     <AuthLayout>
-      <form className="card stack" onSubmit={submit}>
-        <MmBrand />
-        <h2 style={{ textAlign: 'center' }}>Criar conta</h2>
-        {plano && PLAN_NAME[plano] && <div className="alert info">Plano escolhido: <strong>{PLAN_NAME[plano]}</strong>. Você começa no teste grátis e assina quando quiser, em Assinatura.</div>}
-        {cupom && <div className="alert info">Cupom de desconto <strong>{cupom}</strong> guardado: ele já aparece aplicado em Assinatura quando você for assinar.</div>}
-        {error && <div className="alert err" role="alert">{error}</div>}
-        <Field label="Seu nome"><input required minLength={2} value={f.name} onChange={set('name')} autoComplete="name" /></Field>
-        <Field label="E-mail"><input type="email" required value={f.email} onChange={set('email')} autoComplete="email" /></Field>
-        <Field label="Senha" hint="Mínimo de 8 caracteres"><input type="password" required minLength={8} value={f.password} onChange={set('password')} autoComplete="new-password" /></Field>
-        <Field label="Nome da empresa"><input required minLength={2} value={f.orgName} onChange={set('orgName')} /></Field>
-        <button className="btn primary" disabled={busy}>{busy ? 'Criando…' : 'Criar conta'}</button>
-        <p className="small muted" style={{ textAlign: 'center' }}>Já tem conta? <Link to="/login">Entrar</Link></p>
-      </form>
+      <SignupFlow app="mensagem" Brand={MmBrand}
+        notices={<>
+          {plano && PLAN_NAME[plano] && <div className="alert info">Plano escolhido: <strong>{PLAN_NAME[plano]}</strong>. Você começa no teste grátis e assina quando quiser, em Assinatura.</div>}
+          {cupom && <div className="alert info">Cupom de desconto <strong>{cupom}</strong> guardado: ele já aparece aplicado em Assinatura quando você for assinar.</div>}
+        </>}
+        onDone={(m) => { setMe(m); nav(cupom ? `/assinatura?cupom=${encodeURIComponent(cupom)}` : plano && PLAN_NAME[plano] ? '/assinatura' : '/'); }} />
     </AuthLayout>
   );
 }

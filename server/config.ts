@@ -8,6 +8,8 @@ const schema = z.object({
   COOKIE_SECURE: z.enum(['true', 'false']).optional(),
   LOGIN_RATE_LIMIT: z.coerce.number().default(10),
   FORGOT_RATE_LIMIT: z.coerce.number().default(5),
+  /** Cadastros (pedidos de código) por e-mail por hora. */
+  SIGNUP_RATE_LIMIT: z.coerce.number().default(5),
   API_RATE_LIMIT: z.coerce.number().default(300),
   WEBHOOK_RATE_LIMIT: z.coerce.number().default(600),
   ALLOW_PRIVATE_HTTP: z.enum(['true', 'false']).default('false'),
