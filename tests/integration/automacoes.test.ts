@@ -76,6 +76,14 @@ describe('Automações e Cobranças (fase 1)', () => {
     expect((await owner.post(`${API}/clientes`, { nome: 'Outro', email: c.email.toUpperCase() })).status).toBe(409);
     expect((await owner.post(`${API}/clientes`, { nome: 'Outro', documento: '12345678909' })).status).toBe(409);
     expect((await owner.post(`${API}/clientes`, { nome: 'Doc ruim', documento: '123' })).status).toBe(400);
+    // CNPJ alfanumérico: guardado sem máscara e em maiúsculas; duplicidade e busca valem com minúsculas.
+    const alfa = await owner.post(`${API}/clientes`, { nome: 'Empresa Alfa', documento: '12.abc.345/01de-35' });
+    expect(alfa.status).toBe(201);
+    expect(alfa.body.documento).toBe('12ABC34501DE35');
+    expect((await owner.post(`${API}/clientes`, { nome: 'Outra Alfa', documento: '12ABC34501DE35' })).status).toBe(409);
+    expect((await owner.post(`${API}/clientes`, { nome: 'Alfa ruim', documento: '12ABC34501DEXY' })).status).toBe(400);
+    expect((await owner.get(`${API}/clientes?q=${encodeURIComponent('abc34501de')}`)).body.items.map((i: any) => i.id)).toContain(alfa.body.id);
+    await prisma.cliente.delete({ where: { id: alfa.body.id } });
     // Busca por nome, telefone, e-mail, CPF e id.
     for (const q of [c.nome, c.whatsapp.slice(-8), c.email, '12345678909', c.id]) {
       const r = await owner.get(`${API}/clientes?q=${encodeURIComponent(q)}`);

@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { post } from '../api';
 import { useAuth, type Me } from '../auth';
 import { Field } from '../ui';
-import { maskDocumento, maskCelular, isValidDocumento, isValidCelular, onlyDigits } from '../lib/documento';
+import { maskDocumento, maskCelular, isValidDocumento, isValidCelular, onlyDigits, normalizeDocumento } from '../lib/documento';
 
 type App = 'mckbot' | 'mensagem';
 interface Pending { signupToken: string; email: string; message: string; resendInSec: number }
@@ -27,7 +27,7 @@ export function SignupFlow({ app, Brand, notices, onDone }: { app: App; Brand: (
     try { setPending(await post<Pending>('/auth/register', { ...f, app })); } catch (err) { setError((err as Error).message); } finally { setBusy(false); }
   };
   if (pending) return <SignupCode pending={pending} Brand={Brand} onBack={() => setPending(null)} onDone={onDone} />;
-  const docLen = onlyDigits(f.documento).length;
+  const docLen = normalizeDocumento(f.documento).length;
   return (
     <form className="card stack" onSubmit={submit}>
       <Brand />
@@ -36,8 +36,8 @@ export function SignupFlow({ app, Brand, notices, onDone }: { app: App; Brand: (
       {error && <div className="alert err" role="alert">{error}</div>}
       <Field label="Seu nome"><input required minLength={2} value={f.name} onChange={set('name')} autoComplete="name" /></Field>
       <Field label="E-mail" hint="Enviaremos um código para confirmar que o e-mail é seu"><input type="email" required value={f.email} onChange={set('email')} autoComplete="email" /></Field>
-      <Field label="CPF ou CNPJ do titular" hint={docLen > 11 ? 'CNPJ da empresa' : 'CPF (ou CNPJ, se for empresa)'}>
-        <input required inputMode="numeric" value={f.documento} onChange={set('documento', maskDocumento)} placeholder="000.000.000-00" autoComplete="off" aria-label="CPF ou CNPJ" />
+      <Field label="CPF ou CNPJ do titular" hint={docLen > 11 || /[A-Z]/i.test(f.documento) ? 'CNPJ da empresa' : 'CPF (ou CNPJ, se for empresa)'}>
+        <input required inputMode="text" autoCapitalize="characters" value={f.documento} onChange={set('documento', maskDocumento)} placeholder="000.000.000-00" autoComplete="off" aria-label="CPF ou CNPJ" />
       </Field>
       <Field label="Celular (WhatsApp)" hint="Com DDD. Também serve para entrar na conta">
         <input required type="tel" inputMode="tel" value={f.celular} onChange={set('celular', maskCelular)} placeholder="(11) 91234-5678" autoComplete="tel-national" aria-label="Celular" />
@@ -125,7 +125,7 @@ export function CompleteCadastro({ Brand, Wrap }: { Brand: () => JSX.Element; Wr
         </p>
         {error && <div className="alert err" role="alert">{error}</div>}
         {need.documento && (
-          <Field label="CPF ou CNPJ do titular"><input required inputMode="numeric" value={documento} onChange={(e) => setDocumento(maskDocumento(e.target.value))} placeholder="000.000.000-00" autoComplete="off" aria-label="CPF ou CNPJ" /></Field>
+          <Field label="CPF ou CNPJ do titular"><input required inputMode="text" autoCapitalize="characters" value={documento} onChange={(e) => setDocumento(maskDocumento(e.target.value))} placeholder="000.000.000-00" autoComplete="off" aria-label="CPF ou CNPJ" /></Field>
         )}
         {need.celular && (
           <Field label="Celular (WhatsApp)"><input required type="tel" inputMode="tel" value={celular} onChange={(e) => setCelular(maskCelular(e.target.value))} placeholder="(11) 91234-5678" autoComplete="tel-national" aria-label="Celular" /></Field>

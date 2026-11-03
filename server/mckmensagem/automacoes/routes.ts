@@ -18,6 +18,7 @@ import { cobrancasRouter, boletoView, arquivoView, comprovanteView } from './cob
 import { ABERTOS, COBRAVEIS, saldoDe, saldoCliente, reenvioPadraoDe, vencYmd, STATUS_LABEL } from './financeiro.js';
 import { TIPOS_SUPORTADOS } from './arquivos.js';
 import type { Automacao, Cliente } from '@prisma/client';
+import { normalizeDocumento } from '../../lib/documento.js';
 
 /**
  * Automações e Cobranças — FASE 1 (clientes, lembretes, marketing, calendário, histórico, configurações)
@@ -50,10 +51,11 @@ const opt = (s: z.ZodString) => s.optional().nullable().or(z.literal(''));
 const digits = (v?: string | null) => (v ?? '').replace(/\D/g, '');
 const dataMeioDia = (v?: string | null) => (v ? new Date(`${v}T12:00:00.000Z`) : null);
 
+/** CPF (11 dígitos) ou CNPJ numérico/alfanumérico (12 caracteres A-Z/0-9 + 2 dígitos), sem máscara e em maiúsculas. */
 function validarDocumento(raw?: string | null): string | null {
-  const d = digits(raw);
+  const d = normalizeDocumento(raw ?? '');
   if (!d) return null;
-  if (d.length !== 11 && d.length !== 14) throw new HttpError(400, 'CPF deve ter 11 dígitos e CNPJ 14 dígitos');
+  if (!/^\d{11}$/.test(d) && !/^[A-Z0-9]{12}\d{2}$/.test(d)) throw new HttpError(400, 'CPF deve ter 11 dígitos e CNPJ 14 caracteres (12 letras/números + 2 dígitos)');
   return d;
 }
 function fone(raw: string | null | undefined, campo: string): string | null {
@@ -132,6 +134,8 @@ function filtroClientes(orgId: string, q?: string, status?: string) {
     const d = digits(q);
     where.OR = [{ nome: { contains: q } }, { email: { contains: q.toLowerCase() } }, { empresa: { contains: q } }, { id: q }];
     if (d.length >= 4) where.OR.push({ telefone: { contains: d } }, { whatsapp: { contains: d } }, { documento: { contains: d } });
+    const doc = normalizeDocumento(q);
+    if (/[A-Z]/.test(doc) && /^[A-Z0-9]{4,14}$/.test(doc)) where.OR.push({ documento: { contains: doc } }); // CNPJ alfanumérico
   }
   return where;
 }

@@ -18,6 +18,34 @@ describe('CPF / CNPJ', () => {
     expect(isValidCnpj('00.000.000/0000-00')).toBe(false);
     expect(isValidCnpj('58.460.367/0001-78')).toBe(true);
   });
+  it('aceita CNPJ alfanumérico (exemplo oficial Receita/Serpro 12.ABC.345/01DE-35)', () => {
+    expect(isValidCnpj('12.ABC.345/01DE-35')).toBe(true);
+    expect(isValidCnpj('12ABC34501DE35')).toBe(true);
+    expect(isValidCnpj('12abc34501de35')).toBe(true); // minúsculas são normalizadas
+    expect(isValidCnpj('12ABC34501DE36')).toBe(false); // 2º DV errado
+    expect(isValidCnpj('12ABC34501DE45')).toBe(false); // 1º DV errado
+    expect(isValidCnpj('12ABC34501DEA5')).toBe(false); // DV precisa ser numérico
+    expect(isValidCnpj('AAAAAAAAAAAAAA')).toBe(false);
+    expect(isValidCnpj('12ABC34501D35')).toBe(false); // 13 caracteres
+  });
+  it('web: mesma validação e máscara com letras em maiúsculas', async () => {
+    const w = await import('../../web/src/lib/documento.js');
+    expect(w.isValidCnpj('12.abc.345/01de-35')).toBe(true);
+    expect(w.isValidCnpj('11.222.333/0001-81')).toBe(true);
+    expect(w.isValidDocumento('529.982.247-25')).toBe(true);
+    expect(w.isValidDocumento('529a98224725')).toBe(false);
+    expect(w.isValidDocumento('12ABC34501DE36')).toBe(false);
+    expect(w.maskDocumento('12abc34501de35')).toBe('12.ABC.345/01DE-35');
+    expect(w.maskDocumento('12abc34501deXY')).toBe('12.ABC.345/01DE');
+    expect(w.maskDocumento('11222333000181')).toBe('11.222.333/0001-81');
+    expect(w.maskDocumento('52998224725')).toBe('529.982.247-25');
+  });
+  it('parseDocumento normaliza CNPJ alfanumérico para maiúsculas sem máscara', () => {
+    expect(parseDocumento('12.abc.345/01de-35')).toEqual({ tipo: 'CNPJ', digits: '12ABC34501DE35' });
+    expect(parseDocumento('12ABC34501DE36')).toBeNull();
+    expect(parseDocumento('12ABC34501DE35!')).toBeNull();
+    expect(maskDocumento('12ABC34501DE35')).toBe('**.ABC.345/01DE-**');
+  });
   it('parseDocumento devolve só dígitos e o tipo; recusa letras', () => {
     expect(parseDocumento('529.982.247-25')).toEqual({ tipo: 'CPF', digits: '52998224725' });
     expect(parseDocumento('11.222.333/0001-81')).toEqual({ tipo: 'CNPJ', digits: '11222333000181' });

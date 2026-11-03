@@ -266,6 +266,7 @@ authRouter.post('/complete-cadastro', requireAuth, completeCadastroLimiter, ah(a
 /** Só o formato (nunca a existência): e-mail válido, ou apenas números e sinais de máscara. */
 function checkIdentifierFormat(identifier: string) {
   if (identifier.includes('@')) { email.parse(identifier); return; }
+  if (isValidCnpj(identifier) && !/[^0-9A-Za-z.\-/\s]/.test(identifier)) return; // CNPJ alfanumérico
   if (/[^\d+()\-./\s]/.test(identifier) || onlyDigits(identifier).length < 8) throw badRequest('Informe um e-mail, CPF/CNPJ ou celular válido.');
 }
 
@@ -277,6 +278,11 @@ export async function findUserByIdentifier(raw: string) {
   const id = raw.trim();
   if (!id) return null;
   if (id.includes('@')) return prisma.user.findUnique({ where: { email: id.toLowerCase() } });
+  if (/[A-Za-z]/.test(id)) {
+    // CNPJ alfanumérico (letras só podem ser CNPJ; guardado em maiúsculas).
+    const doc = parseDocumento(id);
+    return doc?.tipo === 'CNPJ' ? prisma.user.findUnique({ where: { documento: doc.digits } }) : null;
+  }
   if (/[^\d+()\-./\s]/.test(id)) return null;
   const d = onlyDigits(id);
   if (!id.startsWith('+')) {

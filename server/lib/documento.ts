@@ -6,7 +6,7 @@
 
 export const onlyDigits = (s: string) => String(s ?? '').replace(/\D+/g, '');
 
-const allSame = (d: string) => /^(\d)\1+$/.test(d);
+const allSame = (d: string) => /^(.)\1+$/.test(d);
 
 export function isValidCpf(raw: string): boolean {
   const d = onlyDigits(raw);
@@ -20,13 +20,22 @@ export function isValidCpf(raw: string): boolean {
   return calc(9) === Number(d[9]) && calc(10) === Number(d[10]);
 }
 
+/** Tira a máscara (. - / espaços) e põe em maiúsculas. Não remove letras: o CNPJ alfanumérico as usa. */
+export const normalizeDocumento = (s: string) => String(s ?? '').replace(/[.\-/\s]+/g, '').toUpperCase();
+
+/**
+ * CNPJ numérico ou alfanumérico (IN RFB 2.229/2024; Anexo XV da IN RFB 2.119/2022):
+ * 12 caracteres [A-Z0-9] + 2 dígitos verificadores numéricos. Valor de cada caractere = código ASCII − 48
+ * (0–9 continuam 0–9; A=17 … Z=42), mesmos pesos e módulo 11 do CNPJ numérico.
+ * Exemplo oficial (Receita/Serpro): 12.ABC.345/01DE-35.
+ */
 export function isValidCnpj(raw: string): boolean {
-  const d = onlyDigits(raw);
-  if (d.length !== 14 || allSame(d)) return false;
+  const d = normalizeDocumento(raw);
+  if (!/^[A-Z0-9]{12}\d{2}$/.test(d) || allSame(d)) return false;
   const calc = (len: number) => {
     const weights = len === 12 ? [5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2] : [6, 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2];
     let sum = 0;
-    for (let i = 0; i < len; i++) sum += Number(d[i]) * weights[i];
+    for (let i = 0; i < len; i++) sum += (d.charCodeAt(i) - 48) * weights[i];
     const r = sum % 11;
     return r < 2 ? 0 : 11 - r;
   };
@@ -35,11 +44,14 @@ export function isValidCnpj(raw: string): boolean {
 
 export type TipoDocumento = 'CPF' | 'CNPJ';
 
-/** Valida CPF (11 dígitos) ou CNPJ (14 dígitos), com ou sem máscara. Devolve só os dígitos, ou null se inválido. */
+/**
+ * Valida CPF (11 dígitos) ou CNPJ (14 caracteres, numérico ou alfanumérico), com ou sem máscara.
+ * Devolve o documento normalizado (sem máscara, letras em maiúsculas) em `digits`, ou null se inválido.
+ */
 export function parseDocumento(raw: unknown): { tipo: TipoDocumento; digits: string } | null {
   if (typeof raw !== 'string' || raw.length > 30) return null;
-  if (/[^\d.\-/\s]/.test(raw)) return null;
-  const d = onlyDigits(raw);
+  if (/[^0-9A-Za-z.\-/\s]/.test(raw)) return null;
+  const d = normalizeDocumento(raw);
   if (d.length === 11 && isValidCpf(d)) return { tipo: 'CPF', digits: d };
   if (d.length === 14 && isValidCnpj(d)) return { tipo: 'CNPJ', digits: d };
   return null;

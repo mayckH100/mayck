@@ -55,6 +55,15 @@ export function fakeCnpj(): string {
   const d1 = dv(base); const d2 = dv([...base, d1]);
   return [...base, d1, d2].join('');
 }
+/** CNPJ alfanumérico válido e único (12 caracteres A-Z/0-9 + 2 DVs; valor = ASCII − 48). */
+export function fakeCnpjAlfa(): string {
+  const L = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
+  const n = docSeq++;
+  const base = `${L[n % 24]}${L[Math.floor(n / 24) % 24]}${String(100000 + (n * 7919) % 899999)}${L[Math.floor(n / 576) % 24]}${L[(n * 7) % 24]}01`;
+  const dv = (s: string) => { const w = s.length === 12 ? [5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2] : [6, 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2]; const r = [...s].reduce((a, ch, i) => a + (ch.charCodeAt(0) - 48) * w[i], 0) % 11; return r < 2 ? 0 : 11 - r; };
+  const d1 = dv(base); const d2 = dv(base + d1);
+  return `${base}${d1}${d2}`;
+}
 let celSeq = Math.floor(Math.random() * 9e7);
 /** Celular brasileiro único (só dígitos com DDD, ex.: 11987654321). */
 export function fakeCelular(): string {

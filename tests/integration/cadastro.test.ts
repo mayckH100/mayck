@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import request from 'supertest';
-import { app, registerClient, loginClient, uniq, prisma, signupData, signupCodeFor, fakeCpf, fakeCnpj, fakeCelular, Client } from '../helpers.js';
+import { app, registerClient, loginClient, uniq, prisma, signupData, signupCodeFor, fakeCpf, fakeCnpj, fakeCnpjAlfa, fakeCelular, Client } from '../helpers.js';
 import { outbox } from '../../server/lib/mailer.js';
 
 const H = { 'x-requested-with': 'mckbot' };
@@ -134,6 +134,29 @@ describe('Cadastro com código por e-mail', () => {
       expect(r2.status).toBe(409);
       expect(r2.body.error).toBe('Já existe uma conta com este e-mail, CPF/CNPJ ou celular. Entre ou recupere a senha.');
       expect(await prisma.user.findUnique({ where: { email: data.email } })).toBeNull();
+    }
+  });
+
+  it('CNPJ alfanumérico: aceita com máscara/minúsculas, guarda em maiúsculas, bloqueia duplicado e entra com ele', async () => {
+    const cnpj = fakeCnpjAlfa();
+    const fmt = `${cnpj.slice(0, 2)}.${cnpj.slice(2, 5)}.${cnpj.slice(5, 8)}/${cnpj.slice(8, 12)}-${cnpj.slice(12)}`.toLowerCase();
+    const c = await registerClient({ documento: fmt, password: 'senhaAlfa123' });
+    expect(c.me.user.documento).toBe(`**.${cnpj.slice(2, 5)}.${cnpj.slice(5, 8)}/${cnpj.slice(8, 12)}-**`);
+    expect((await prisma.user.findUnique({ where: { email: c.me.user.email } }))?.documento).toBe(cnpj);
+    // Mesmo CNPJ (agora em maiúsculas, sem máscara): duplicado.
+    const data = signupData({ documento: cnpj });
+    const r1 = await start(data);
+    expect(r1.status).toBe(202);
+    expect((await confirm(r1.body.signupToken, signupCodeFor(data.email))).status).toBe(409);
+    // DV errado é recusado.
+    const bad = cnpj.slice(0, 13) + String((Number(cnpj[13]) + 1) % 10);
+    const r3 = await start(signupData({ documento: bad }));
+    expect(r3.status).toBe(400);
+    expect(r3.body.error).toMatch(/CPF\/CNPJ inválido/);
+    // Login pelo CNPJ alfanumérico (com máscara e minúsculas).
+    for (const id of [cnpj, fmt]) {
+      const r = await request(app).post('/api/auth/login').set(H).send({ identifier: id, password: 'senhaAlfa123' });
+      expect(r.status, id).toBe(200);
     }
   });
 });
