@@ -4,6 +4,7 @@ import { randomToken, sha256 } from '../lib/crypto.js';
 import { HttpError, forbidden } from '../lib/http.js';
 import { config, isProd } from '../config.js';
 import type { Role } from '../types.js';
+import { accessOf, type Access } from '../lib/permissions.js';
 
 export const COOKIE = 'mck_sid';
 /** 2FA obrigatória para superadmin (Painel Master). Desligável só por variável de ambiente (emergência/testes). */
@@ -47,14 +48,16 @@ export async function loadSession(req: Request, _res: Response, next: NextFuncti
     if (!user || user.disabledAt) return next(); // usuário desativado: sessão não vale (401 nas rotas protegidas)
     let role: Role | null = null;
     let orgId = session.orgId;
+    let access: Access = { modules: null, channelIds: null };
     if (orgId) {
       const m = await prisma.membership.findUnique({ where: { userId_orgId: { userId: session.userId, orgId } } });
-      if (m) role = m.role as Role;
+      if (m) { role = m.role as Role; access = accessOf(role, m); }
       else orgId = null; // removido da organização
     }
     req.auth = {
       userId: session.userId, sessionId: session.id, csrfToken: session.csrfToken, orgId, role, isSuperAdmin: user.isSuperAdmin, mfaEnabled: !!user.totpEnabledAt,
       needsCadastro: needsCadastro(user, role),
+      modules: access.modules, channelIds: access.channelIds,
     };
     // "Visto por último" para a tela Sessões ativas (no máximo uma escrita a cada 5 min por sessão).
     if (!session.lastSeenAt || Date.now() - session.lastSeenAt.getTime() > SEEN_EVERY_MS) {

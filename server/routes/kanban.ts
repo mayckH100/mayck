@@ -5,6 +5,7 @@ import { ah, notFound } from '../lib/http.js';
 import { orgOf, requireRole } from '../auth/session.js';
 import { audit } from '../lib/audit.js';
 import { parseJson } from '../lib/json.js';
+import { visibleContactIds } from './contacts.js';
 
 export const kanbanRouter = Router();
 
@@ -16,6 +17,8 @@ kanbanRouter.get('/', ah(async (req, res) => {
     name_asc: { name: 'asc' }, name_desc: { name: 'desc' }, created_desc: { createdAt: 'desc' }, created_asc: { createdAt: 'asc' }, last_desc: { lastMessageAt: 'desc' }, last_asc: { lastMessageAt: 'asc' },
   }[q.sort] as any;
   const where: any = { orgId };
+  const visible = await visibleContactIds(req); // canais WhatsApp limitados: só contatos desses canais
+  if (visible) where.id = { in: visible };
   if (q.q) where.OR = [{ name: { contains: q.q } }, { phone: { contains: q.q } }];
   const contacts = await prisma.contact.findMany({ where, orderBy, take: 500 });
   const open = await prisma.conversation.findMany({ where: { orgId, status: { not: 'CLOSED' }, contactId: { in: contacts.map((c) => c.id) } }, select: { id: true, contactId: true, unreadCount: true } });
@@ -32,7 +35,8 @@ kanbanRouter.post('/move', ah(async (req, res) => {
   const { contactId, stageId } = z.object({ contactId: z.string(), stageId: z.string().nullable() }).parse(req.body);
   const orgId = orgOf(req);
   const c = await prisma.contact.findFirst({ where: { id: contactId, orgId } });
-  if (!c) throw notFound('Contato');
+  const visible = await visibleContactIds(req);
+  if (!c || (visible && !visible.includes(c.id))) throw notFound('Contato');
   if (stageId && !(await prisma.kanbanStage.findFirst({ where: { id: stageId, orgId } }))) throw notFound('Etapa');
   await prisma.contact.update({ where: { id: c.id }, data: { stageId } });
   await audit(req, 'kanban.move', { entity: 'contact', entityId: c.id, meta: { from: c.stageId, to: stageId } });

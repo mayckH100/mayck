@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { allowedChannels } from '../lib/permissions.js';
 import { z } from 'zod';
 import { prisma } from '../db.js';
 import { ah, notFound, badRequest, HttpError } from '../lib/http.js';
@@ -78,7 +79,8 @@ channelsRouter.get('/alertas', requireRole('OWNER', 'ADMIN'), ah(async (req, res
 }));
 
 channelsRouter.get('/', ah(async (req, res) => {
-  const list = await prisma.channel.findMany({ where: { orgId: orgOf(req) }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] });
+  const allowed = allowedChannels(req); // membro com canais limitados só vê os seus
+  const list = await prisma.channel.findMany({ where: { orgId: orgOf(req), ...(allowed ? { id: { in: allowed } } : {}) }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] });
   const labels = await channelLabels(orgOf(req));
   res.json(await Promise.all(list.map((c) => view(c, req, labels.get(c.id)))));
 }));

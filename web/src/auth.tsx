@@ -12,6 +12,8 @@ export interface Me {
   subscriptions?: SubscriptionView[];
   org: { id: string; name: string; plan: string; timezone: string; backupPhone?: string | null; handoffAlertMinutes?: number } | null;
   role: Role | null;
+  /** Módulos e canais WhatsApp liberados para este membro na organização atual (o proprietário tem tudo). */
+  access?: { modules: string[]; channelIds: string[] | null } | null;
   orgs: { id: string; name: string; role: Role }[];
   csrfToken: string;
 }
@@ -21,6 +23,8 @@ interface Ctx {
   refresh: () => Promise<void>;
   logout: () => Promise<void>;
   can: (...roles: Role[]) => boolean;
+  /** O membro tem acesso ao módulo (o servidor também bloqueia). */
+  hasModule: (mod: string) => boolean;
 }
 const AuthCtx = createContext<Ctx>(null as unknown as Ctx);
 
@@ -39,7 +43,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
   const logout = async () => { await post('/auth/logout').catch(() => undefined); setMeState(null); };
   const can = (...roles: Role[]) => !!me?.role && roles.includes(me.role);
-  return <AuthCtx.Provider value={{ me, loading, setMe, refresh, logout, can }}>{children}</AuthCtx.Provider>;
+  const hasModule = (mod: string) => !!me?.role && (me.role === 'OWNER' || !me.access || me.access.modules.includes(mod));
+  return <AuthCtx.Provider value={{ me, loading, setMe, refresh, logout, can, hasModule }}>{children}</AuthCtx.Provider>;
 }
 export const useAuth = () => useContext(AuthCtx);
 export const ROLE_LABEL: Record<Role, string> = { OWNER: 'Proprietário', ADMIN: 'Administrador', AGENT: 'Atendente' };

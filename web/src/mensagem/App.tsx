@@ -19,13 +19,14 @@ import SubscriptionGate from '../SubscriptionGate';
 import Announcements from '../Announcements';
 import WaDownBanner from '../WaDownBanner';
 
-const NAV = [
-  { to: '/', label: 'Painel', icon: '◔' },
-  { to: '/contatos', label: 'Contatos', icon: '☺' },
-  { to: '/campanhas', label: 'Campanhas', icon: '➤' },
-  { to: '/ia-leads', label: 'IA de qualificação', icon: '✦' },
-  { to: '/automacoes', label: 'Automações e Cobranças', icon: '⏱' },
-  { to: '/assinatura', label: 'Assinatura', icon: '◈' },
+// module: permissão da equipe exigida para ver o item (o servidor também bloqueia com 403).
+const NAV: { to: string; label: string; icon: string; module?: string }[] = [
+  { to: '/', label: 'Painel', icon: '◔', module: 'mensagens' },
+  { to: '/contatos', label: 'Contatos', icon: '☺', module: 'mensagens' },
+  { to: '/campanhas', label: 'Campanhas', icon: '➤', module: 'mensagens' },
+  { to: '/ia-leads', label: 'IA de qualificação', icon: '✦', module: 'mensagens' },
+  { to: '/automacoes', label: 'Automações e Cobranças', icon: '⏱', module: 'automacoes' },
+  { to: '/assinatura', label: 'Assinatura', icon: '◈', module: 'plano' },
   { to: '/tutoriais', label: 'Tutoriais', icon: '▶' },
   { to: '/seguranca', label: 'Segurança', icon: '⛨' },
 ];
@@ -70,7 +71,7 @@ function BillingReturnRedirect() {
 }
 
 function Shell({ children, nav: navItems = NAV }: { children: ReactNode; nav?: typeof NAV }) {
-  const { me, setMe, logout } = useAuth();
+  const { me, setMe, logout, hasModule } = useAuth();
   const [open, setOpen] = useState(false);
   const nav = useNavigate();
   const toast = useToast();
@@ -84,7 +85,7 @@ function Shell({ children, nav: navItems = NAV }: { children: ReactNode; nav?: t
       {me.orgs.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
     </select>
   );
-  const links = navItems.map((n) => (
+  const links = navItems.filter((n) => !n.module || hasModule(n.module)).map((n) => (
     <NavLink key={n.to} to={n.to} end={n.to === '/'} className={({ isActive }) => (isActive ? 'active' : '')}><span aria-hidden>{n.icon}</span>{n.label}</NavLink>
   ));
   return (

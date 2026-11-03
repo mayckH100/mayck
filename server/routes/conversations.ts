@@ -11,6 +11,7 @@ import { listContactAiNotes, AI_NOTE_MAX_LEN } from '../ai/contactNotes.js';
 import { createContactAiNote } from './contacts.js';
 import { isProductActive } from '../billing/service.js';
 import { channelLabels, type ChannelLabelInfo } from '../whatsapp/channelLabel.js';
+import { allowedChannels, channelWhere } from '../lib/permissions.js';
 
 /** Rótulo do WhatsApp da conversa para a tela ("WhatsApp 2 · Amanda" + número). */
 const channelOf = (labels: Map<string, ChannelLabelInfo>, id: string | null) => {
@@ -23,13 +24,17 @@ export const conversationsRouter = Router();
 conversationsRouter.get('/', ah(async (req, res) => {
   const q = z.object({ status: z.enum(['open', 'pending', 'closed', 'all']).default('open'), q: z.string().max(100).optional(), mine: z.coerce.boolean().optional(), channelId: z.string().max(40).optional() }).parse(req.query);
   const orgId = orgOf(req);
-  const where: any = { orgId };
+  // Membro com canais limitados só vê conversas desses canais.
+  const where: any = { orgId, ...channelWhere(req) };
   if (q.status === 'open') where.status = 'OPEN';
   if (q.status === 'pending') where.status = 'PENDING';
   if (q.status === 'closed') where.status = 'CLOSED';
   if (q.mine) where.assignedUserId = req.auth!.userId;
   // Filtro por WhatsApp (só canais da própria organização entram no where — orgId já restringe).
-  if (q.channelId) where.channelId = q.channelId;
+  if (q.channelId) {
+    const allowed = allowedChannels(req);
+    where.channelId = allowed && !allowed.includes(q.channelId) ? { in: [] } : q.channelId;
+  }
   if (q.q) {
     const ids = await prisma.contact.findMany({ where: { orgId, OR: [{ name: { contains: q.q } }, { phone: { contains: q.q } }] }, select: { id: true } });
     where.contactId = { in: ids.map((i) => i.id) };
@@ -38,7 +43,7 @@ conversationsRouter.get('/', ah(async (req, res) => {
   const contacts = await prisma.contact.findMany({ where: { orgId, id: { in: convs.map((c) => c.contactId) } } });
   const lastMsgs = await Promise.all(convs.map((c) => prisma.message.findFirst({ where: { orgId, conversationId: c.id, direction: { in: ['IN', 'OUT'] } }, orderBy: { createdAt: 'desc' } })));
   const qrIds = new Set((await prisma.channel.findMany({ where: { orgId, provider: 'whatsapp_qr' }, select: { id: true } })).map((c) => c.id));
-  const counts = await prisma.conversation.groupBy({ by: ['status'], where: { orgId }, _count: { _all: true } });
+  const counts = await prisma.conversation.groupBy({ by: ['status'], where: { orgId, ...channelWhere(req) }, _count: { _all: true } });
   const labels = await channelLabels(orgId);
   res.json({
     counts: Object.fromEntries(counts.map((c) => [c.status, c._count._all])),
@@ -52,7 +57,7 @@ conversationsRouter.get('/', ah(async (req, res) => {
 // Conversas "Aguardando atendente" (transferidas pela IA/fluxo, sem resposta do atendente) — aviso no app web.
 conversationsRouter.get('/waiting', ah(async (req, res) => {
   const orgId = orgOf(req);
-  const convs = await prisma.conversation.findMany({ where: { orgId, waitingSince: { not: null }, status: { not: 'CLOSED' } }, orderBy: { waitingSince: 'asc' }, take: 50 });
+  const convs = await prisma.conversation.findMany({ where: { orgId, ...channelWhere(req), waitingSince: { not: null }, status: { not: 'CLOSED' } }, orderBy: { waitingSince: 'asc' }, take: 50 });
   const contacts = await prisma.contact.findMany({ where: { orgId, id: { in: convs.map((c) => c.contactId) } }, select: { id: true, name: true, phone: true } });
   const now = Date.now();
   const labels = await channelLabels(orgId);
@@ -66,7 +71,7 @@ conversationsRouter.get('/waiting', ah(async (req, res) => {
 }));
 
 async function getConv(req: import('express').Request) {
-  const c = await prisma.conversation.findFirst({ where: { id: req.params.id, orgId: orgOf(req) } });
+  const c = await prisma.conversation.findFirst({ where: { id: req.params.id, orgId: orgOf(req), ...channelWhere(req) } });
   if (!c) throw notFound('Conversa');
   return c;
 }

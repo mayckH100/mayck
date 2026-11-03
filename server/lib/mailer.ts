@@ -2,6 +2,7 @@ import nodemailer, { type Transporter } from 'nodemailer';
 import type { Request } from 'express';
 import { httpFetch } from './fetcher.js';
 import { mailStubbed, e2eHooksEnabled } from './testHooks.js';
+import { isTest } from '../config.js';
 
 /**
  * E-mails transacionais: API HTTP do Brevo (BREVO_API_KEY, recomendada no Render Free, que bloqueia SMTP)
@@ -73,6 +74,49 @@ function getTransporter(): Transporter | null {
     transporterKey = key;
   }
   return transporter;
+}
+
+/** Só nos testes: faz sendMail/deliverMail usarem o caminho real (Brevo/SMTP, com fetch simulado) em vez da caixa em memória. */
+let realSendInTests = false;
+export function setRealSendInTests(on: boolean) {
+  if (!isTest) throw new Error('setRealSendInTests só pode ser usado em testes');
+  realSendInTests = on;
+}
+const useOutbox = () => mailStubbed() && !(isTest && realSendInTests);
+
+export type DeliveryResult = { ok: true; provider: 'brevo' | 'smtp' | 'test' } | { ok: false; reason: 'not_configured' | 'failed'; error: string };
+
+/**
+ * Envio com resultado (sem lançar erro): diz se saiu, por qual provedor, ou por que não saiu.
+ * Usado quando a tela precisa contar a verdade ao usuário (ex.: convite da equipe). Nunca registra o conteúdo.
+ */
+export async function deliverMail(msg: MailMessage): Promise<DeliveryResult> {
+  if (useOutbox()) { outbox.push(msg); return { ok: true, provider: 'test' }; }
+  if (brevoConfigured()) {
+    try {
+      await sendViaBrevo(msg);
+      console.info(`[mail] "${msg.kind}" enviado para ${maskEmail(msg.to)} (Brevo API)`);
+      return { ok: true, provider: 'brevo' };
+    } catch (e) {
+      const error = ((e as Error).message || 'Falha na API do Brevo').slice(0, 300);
+      console.error(`[mail] falha ao enviar "${msg.kind}" para ${maskEmail(msg.to)} (Brevo API):`, error);
+      return { ok: false, reason: 'failed', error };
+    }
+  }
+  const t = getTransporter();
+  if (!t) {
+    console.warn(`[mail] nenhum provedor de e-mail configurado — "${msg.kind}" para ${maskEmail(msg.to)} não enviado.`);
+    return { ok: false, reason: 'not_configured', error: 'Nenhum provedor de e-mail configurado' };
+  }
+  try {
+    await t.sendMail({ from: process.env.MAIL_FROM, to: msg.to, subject: msg.subject, html: msg.html, text: msg.text });
+    console.info(`[mail] "${msg.kind}" enviado para ${maskEmail(msg.to)}`);
+    return { ok: true, provider: 'smtp' };
+  } catch (e) {
+    const error = ((e as Error).message || 'Falha no SMTP').slice(0, 300);
+    console.error(`[mail] falha ao enviar "${msg.kind}" para ${maskEmail(msg.to)}:`, error);
+    return { ok: false, reason: 'failed', error };
+  }
 }
 
 /** Envia sem lançar erro: falha de SMTP nunca derruba cadastro, recuperação ou troca de senha. */
@@ -318,4 +362,16 @@ export function waDownDigestMail(o: { to: string; items: { orgName: string; chan
     rows.join('<br>\n'),
   ], { label: 'Abrir o Painel Master', url: appPath('mckbot', '/master') });
   return { to: o.to, subject: `Resumo: ${o.items.length} WhatsApp(s) desconectado(s) há mais de 1 hora`, html, text, kind: 'wa_down_digest' };
+}
+
+/** Convite para a equipe: quem convidou, organização, papel, o que a pessoa vai acessar e o botão com o link (7 dias, uso único). */
+export function inviteMail(o: { to: string; inviterName: string; orgName: string; roleLabel: string; modules: string[]; channels: string[] | null; url: string; days: number; req?: Request }): MailMessage {
+  const list = (items: string[]) => items.map((m) => `• ${esc(m)}`).join('<br>');
+  const { html, text } = layout('mckbot', o.req, `Você foi convidado(a) para a equipe ${o.orgName}`, [
+    `<strong>${esc(o.inviterName)}</strong> convidou você para fazer parte da equipe <strong>${esc(o.orgName)}</strong> no MCKBOT, como <strong>${esc(o.roleLabel)}</strong>.`,
+    `<strong>O que você vai acessar:</strong><br>${o.modules.length ? list(o.modules) : '• Nenhum módulo liberado ainda (o administrador pode liberar depois)'}`,
+    `<strong>Canais WhatsApp que você vai atender:</strong> ${o.channels ? (o.channels.length ? o.channels.map(esc).join(', ') : 'nenhum') : 'todos'}`,
+    `Para aceitar, clique no botão abaixo. Se ainda não tem conta, você cria a sua senha na hora. O convite vale por <strong>${o.days} dias</strong> e só pode ser usado uma vez.`,
+  ], { label: 'Aceitar convite', url: o.url }, 'Se você não esperava este convite, ignore este e-mail: nada acontece sem você aceitar.');
+  return { to: o.to, subject: `${o.inviterName} convidou você para a equipe ${o.orgName} no MCKBOT`, html, text, kind: 'team_invite' };
 }

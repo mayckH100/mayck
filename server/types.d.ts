@@ -13,6 +13,10 @@ declare global {
         mfaEnabled: boolean;
         /** Titular (OWNER) sem CPF/CNPJ ou celular: só as rotas de /api/auth funcionam até completar o cadastro. */
         needsCadastro?: boolean;
+        /** Módulos permitidos (null = tudo o que o papel permite). Ver server/lib/permissions.ts. */
+        modules?: import('./lib/permissions.js').ModuleId[] | null;
+        /** Canais WhatsApp que pode atender (null = todos). */
+        channelIds?: string[] | null;
       };
       rawBody?: Buffer;
     }

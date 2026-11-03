@@ -133,6 +133,10 @@ model Membership {
   userId    String
   orgId     String
   role      String // OWNER | ADMIN | AGENT
+  /// Módulos que o membro pode acessar (JSON: ["inbox","kanban",...]). Nulo = tudo o que o papel permite (comportamento antigo).
+  modules    String?
+  /// Canais WhatsApp que o membro pode atender (JSON: [channelId,...]). Nulo = todos os canais.
+  channelIds String?
   createdAt DateTime     @default(now())
   user      User         @relation(fields: [userId], references: [id], onDelete: Cascade)
   org       Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
@@ -150,6 +154,12 @@ model Invitation {
   invitedById String
   expiresAt   DateTime
   acceptedAt  DateTime?
+  /// Permissões que o membro recebe ao aceitar (mesmo formato de Membership.modules/channelIds; nulo = padrão do papel/todos).
+  modules     String?
+  channelIds  String?
+  /// Envio do e-mail do convite: último envio e quantidade (limite de reenvio).
+  lastSentAt  DateTime?
+  sendCount   Int       @default(0)
   createdAt   DateTime  @default(now())
 
   @@index([orgId])

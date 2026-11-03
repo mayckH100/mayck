@@ -16,6 +16,7 @@ import { automacoesRouter } from './mckmensagem/automacoes/routes.js';
 import { billingRouter, billingWebhookRouter } from './billing/routes.js';
 import { requireMckbotForWrites } from './billing/guard.js';
 import { authRouter } from './auth/routes.js';
+import { requireModule } from './lib/permissions.js';
 import { tutorialsRouter } from './tutorials/routes.js';
 import { webhookRouter } from './routes/webhook.js';
 import { channelsRouter } from './routes/channels.js';
@@ -116,22 +117,23 @@ export function createApp() {
   app.use('/api/master', requireSuperAdmin, masterRouter);
   app.use('/api/announcements', announcementsRouter); // avisos do Master para os clientes (pop-up com imagem)
   app.use('/api/org', requireOrg, orgRouter);
-  app.use('/api/channels', requireOrg, channelsRouter);
-  app.use('/api/flows', requireOrg, requireMckbotForWrites, flowsRouter);
-  app.use('/api/ai', requireOrg, requireMckbotForWrites, aiRouter);
-  app.use('/api/contacts', requireOrg, requireMckbotForWrites, contactsRouter);
-  app.use('/api/kanban', requireOrg, requireMckbotForWrites, kanbanRouter);
-  app.use('/api/conversations', requireOrg, conversationsRouter);
-  app.use('/api/team', requireOrg, teamRouter);
-  app.use('/api/plans', requireOrg, plansRouter);
-  app.use('/api/billing', requireOrg, billingRouter);
-  app.use('/api/agenda', requireOrg, requireMckbotForWrites, agendaRouter);
-  app.use('/api/integrations', requireOrg, requireMckbotForWrites, integrationsRouter);
-  app.use('/api/audit', requireOrg, auditRouter);
+  app.use('/api/channels', requireOrg, requireModule('canais', [{ method: 'GET', path: /^\/$/ }]), channelsRouter); // lista de canais: usada pelo Inbox e pelo aviso do topo (filtrada pelos canais do membro)
+  app.use('/api/flows', requireOrg, requireModule('fluxos', [{ method: 'GET', path: /^\/$/, anyOf: ['inbox'] }, { method: 'POST', path: /^\/[^/]+\/start$/, anyOf: ['inbox'] }]), requireMckbotForWrites, flowsRouter);
+  app.use('/api/ai', requireOrg, requireModule('ia'), requireMckbotForWrites, aiRouter);
+  app.use('/api/contacts', requireOrg, requireModule('contatos', [{ method: 'GET', path: /^\/$/, anyOf: ['agenda'] }, { method: 'PATCH', path: /^\/[^/]+$/, anyOf: ['inbox'] }, ...['GET', 'POST', 'PATCH', 'DELETE'].map((method) => ({ method, path: /^\/[^/]+\/ai-notes(\/[^/]+)?$/, anyOf: ['inbox' as const] }))]), requireMckbotForWrites, contactsRouter);
+  app.use('/api/kanban', requireOrg, requireModule('kanban', [{ method: 'GET', path: /^\/$/, anyOf: ['inbox'] }]), requireMckbotForWrites, kanbanRouter);
+  app.use('/api/conversations', requireOrg, requireModule('inbox'), conversationsRouter);
+  app.use('/api/team', requireOrg, requireModule('equipe', [{ method: 'GET', path: /^\/$/, anyOf: ['agenda', 'inbox'] }]), teamRouter);
+  app.use('/api/plans', requireOrg, requireModule('plano'), plansRouter);
+  app.use('/api/billing', requireOrg, requireModule('plano', [{ method: 'GET', path: /^\/status$/ }]), billingRouter);
+  app.use('/api/agenda', requireOrg, requireModule('agenda'), requireMckbotForWrites, agendaRouter);
+  app.use('/api/integrations', requireOrg, requireModule('integracoes'), requireMckbotForWrites, integrationsRouter);
+  app.use('/api/audit', requireOrg, requireModule('auditoria'), auditRouter);
   app.use('/api/tutorials', requireOrg, tutorialsRouter); // vídeos só para assinantes pagos (rota autenticada, com Range)
   // Automações e Cobranças (MCK Mensagens): OWNER/ADMIN alteram; AGENT só lê (checado dentro do router).
-  app.use('/api/mckmensagem/automacoes', requireOrg, automacoesRouter);
-  app.use('/api/mckmensagem', requireOrg, requireRole('OWNER', 'ADMIN'), mckmensagemRouter);
+  app.use('/api/mckmensagem/automacoes', requireOrg, requireModule('automacoes'), automacoesRouter);
+  app.use('/api/mckmensagem', requireOrg, requireRole('OWNER', 'ADMIN'), requireModule('mensagens'), mckmensagemRouter);
+  app.use('/api/reports', requireOrg, requireModule('relatorios'));
   app.use('/api', requireOrg, dashboardRouter);
   app.use('/api', (_req, res) => res.status(404).json({ error: 'Rota não encontrada' }));
 

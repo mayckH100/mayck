@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { prisma } from '../db.js';
 import { ah, notFound, HttpError } from '../lib/http.js';
 import { orgOf, requireRole } from '../auth/session.js';
+import { allowedChannels } from '../lib/permissions.js';
 import { audit } from '../lib/audit.js';
 import { parseJson } from '../lib/json.js';
 import { listContactAiNotes, AI_NOTE_MAX_LEN } from '../ai/contactNotes.js';
@@ -11,6 +12,22 @@ import { nameKey, siblingsOf, otherNumbersCount } from '../lib/same-client.js';
 import { safeSyncContactsToLeads, safeOnContactUpdated, leadIdsOfContact, contactDeletionOps } from '../mckmensagem/contactSync.js';
 
 export const contactsRouter = Router();
+
+/**
+ * Membro com canais WhatsApp limitados: só vê contatos que têm conversa em um desses canais.
+ * Devolve null quando pode ver todos.
+ */
+export async function visibleContactIds(req: express.Request): Promise<string[] | null> {
+  const ids = allowedChannels(req);
+  if (!ids) return null;
+  const rows = await prisma.conversation.findMany({ where: { orgId: orgOf(req), channelId: { in: ids } }, select: { contactId: true }, distinct: ['contactId'] });
+  return rows.map((r) => r.contactId);
+}
+
+// Toda rota /:id de contato respeita o filtro de canais (404, como se não existisse).
+contactsRouter.param('id', (req, _res, next, id: string) => {
+  visibleContactIds(req).then((ids) => next(ids && !ids.includes(id) ? notFound('Contato') : undefined), next);
+});
 
 export function normalizePhone(raw: string): string | null {
   let d = raw.replace(/\D/g, '');
@@ -26,6 +43,8 @@ contactsRouter.get('/', ah(async (req, res) => {
   const q = z.object({ q: z.string().max(100).optional(), tag: z.string().max(50).optional(), stageId: z.string().optional(), page: z.coerce.number().int().min(1).default(1) }).parse(req.query);
   const orgId = orgOf(req);
   const where: any = { orgId };
+  const visible = await visibleContactIds(req);
+  if (visible) where.id = { in: visible };
   if (q.q) where.OR = [{ name: { contains: q.q } }, { phone: { contains: q.q.replace(/[^\d+]/g, '') || q.q } }, { email: { contains: q.q } }];
   if (q.tag) where.tags = { contains: JSON.stringify(q.tag) };
   if (q.stageId) where.stageId = q.stageId === 'none' ? null : q.stageId;

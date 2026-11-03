@@ -8,6 +8,8 @@ import { createSession, destroySession, requireAuth, superAdminMfaRequired } fro
 import { securityRouter, registerFailure, clearFailures, lockRemainingMin, lockedError, trackDevice, checkSecondFactor } from './security.js';
 import type { Request, Response } from 'express';
 import { createOrganization } from './orgDefaults.js';
+import { accessOf, effectiveModules } from '../lib/permissions.js';
+import type { Role } from '../types.js';
 import { audit } from '../lib/audit.js';
 import { sha256 } from '../lib/crypto.js';
 import { config } from '../config.js';
@@ -76,6 +78,8 @@ export async function meResponse(userId: string, orgId: string | null, csrfToken
     subscriptions,
     org: current ? { id: current.org.id, name: current.org.name, plan: current.org.plan, timezone: current.org.timezone, backupPhone: current.org.backupPhone, handoffAlertMinutes: current.org.handoffAlertMinutes } : null,
     role: current?.role ?? null,
+    // Módulos e canais que o membro pode usar (o menu esconde o resto; o servidor bloqueia de verdade).
+    access: current ? (() => { const a = accessOf(current.role as Role, current); return { modules: effectiveModules(current.role as Role, a), channelIds: a.channelIds }; })() : null,
     orgs: memberships.map((m) => ({ id: m.org.id, name: m.org.name, role: m.role })),
     csrfToken,
   };
@@ -432,7 +436,7 @@ authRouter.post('/accept-invite', loginLimiter, ah(async (req, res) => {
     user = await prisma.user.create({ data: { email: inv.email, name: body.name, passwordHash: await bcrypt.hash(body.password, 12) } });
   }
   await prisma.$transaction([
-    prisma.membership.upsert({ where: { userId_orgId: { userId: user.id, orgId: inv.orgId } }, create: { userId: user.id, orgId: inv.orgId, role: inv.role }, update: {} }),
+    prisma.membership.upsert({ where: { userId_orgId: { userId: user.id, orgId: inv.orgId } }, create: { userId: user.id, orgId: inv.orgId, role: inv.role, modules: inv.modules, channelIds: inv.channelIds }, update: {} }),
     prisma.invitation.update({ where: { id: inv.id }, data: { acceptedAt: new Date() } }),
   ]);
   let csrf = req.auth?.csrfToken;

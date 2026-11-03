@@ -28,20 +28,20 @@ import Announcements from './Announcements';
 import WaDownBanner from './WaDownBanner';
 import { STATUS_LABEL, fmtDay } from './billing';
 
-const NAV: { to: string; label: string; icon: string; roles?: Role[]; sep?: string; superAdmin?: boolean }[] = [
+const NAV: { to: string; label: string; icon: string; roles?: Role[]; sep?: string; superAdmin?: boolean; module?: string }[] = [
   { to: '/', label: 'Visão geral', icon: '◧' },
-  { to: '/inbox', label: 'Inbox', icon: '✉', sep: 'Atendimento' },
-  { to: '/kanban', label: 'Kanban', icon: '▦' },
-  { to: '/agenda', label: 'Agenda', icon: '📅' },
-  { to: '/contatos', label: 'Contatos', icon: '☺' },
-  { to: '/fluxos', label: 'Fluxos', icon: '⇄', sep: 'Automação' },
-  { to: '/ia', label: 'Inteligência artificial', icon: '✦' },
-  { to: '/canais', label: 'Canais WhatsApp', icon: '☏' },
-  { to: '/integracoes', label: 'Integrações', icon: '⚙', roles: ['OWNER', 'ADMIN'] },
-  { to: '/relatorios', label: 'Relatórios', icon: '▤', sep: 'Gestão' },
-  { to: '/equipe', label: 'Equipe', icon: '♟' },
-  { to: '/plano', label: 'Plano', icon: '◈' },
-  { to: '/auditoria', label: 'Auditoria', icon: '☰', roles: ['OWNER', 'ADMIN'] },
+  { to: '/inbox', module: 'inbox', label: 'Inbox', icon: '✉', sep: 'Atendimento' },
+  { to: '/kanban', module: 'kanban', label: 'Kanban', icon: '▦' },
+  { to: '/agenda', module: 'agenda', label: 'Agenda', icon: '📅' },
+  { to: '/contatos', module: 'contatos', label: 'Contatos', icon: '☺' },
+  { to: '/fluxos', module: 'fluxos', label: 'Fluxos', icon: '⇄', sep: 'Automação' },
+  { to: '/ia', module: 'ia', label: 'Inteligência artificial', icon: '✦' },
+  { to: '/canais', module: 'canais', label: 'Canais WhatsApp', icon: '☏' },
+  { to: '/integracoes', module: 'integracoes', label: 'Integrações', icon: '⚙', roles: ['OWNER', 'ADMIN'] },
+  { to: '/relatorios', module: 'relatorios', label: 'Relatórios', icon: '▤', sep: 'Gestão' },
+  { to: '/equipe', module: 'equipe', label: 'Equipe', icon: '♟' },
+  { to: '/plano', module: 'plano', label: 'Plano', icon: '◈' },
+  { to: '/auditoria', module: 'auditoria', label: 'Auditoria', icon: '☰', roles: ['OWNER', 'ADMIN'] },
   { to: '/perfil', label: 'Perfil', icon: '☻', sep: 'Conta' },
   { to: '/tutoriais', label: 'Tutoriais', icon: '▶' },
   { to: '/boas-praticas', label: 'Boas práticas', icon: '?' },
@@ -129,7 +129,7 @@ function WaitingAlerts() {
 }
 
 function Shell({ children }: { children: ReactNode }) {
-  const { me, setMe, logout, can } = useAuth();
+  const { me, setMe, logout, can, hasModule } = useAuth();
   const [open, setOpen] = useState(false);
   const nav = useNavigate();
   const toast = useToast();
@@ -147,7 +147,7 @@ function Shell({ children }: { children: ReactNode }) {
       <aside className={`sidebar ${open ? 'open' : ''}`} onClick={() => setOpen(false)}>
         <div className="brand"><img src="/logo.svg" alt="" /> MCKBOT</div>
         <nav className="nav">
-          {NAV.filter((n) => (!n.roles || can(...n.roles)) && (!n.superAdmin || me?.isSuperAdmin)).map((n) => (
+          {NAV.filter((n) => (!n.roles || can(...n.roles)) && (!n.module || hasModule(n.module)) && (!n.superAdmin || me?.isSuperAdmin)).map((n) => (
             <div key={n.to}>
               {n.sep && <div className="sep">{n.sep}</div>}
               <NavLink to={n.to} end={n.to === '/'} className={({ isActive }) => (isActive ? 'active' : '')}><span aria-hidden>{n.icon}</span>{n.label}</NavLink>
@@ -155,7 +155,7 @@ function Shell({ children }: { children: ReactNode }) {
           ))}
         </nav>
         <div className="side-foot" onClick={(e) => e.stopPropagation()}>
-          {can('OWNER', 'ADMIN') && <a href="/mensagem/" className="btn sm" style={{ background: '#0a0a0b', borderColor: '#e10a2c', color: '#fff', textDecoration: 'none' }}>Ir para MCK Mensagens ↗</a>}
+          {can('OWNER', 'ADMIN') && (hasModule('mensagens') || hasModule('automacoes')) && <a href="/mensagem/" className="btn sm" style={{ background: '#0a0a0b', borderColor: '#e10a2c', color: '#fff', textDecoration: 'none' }}>Ir para MCK Mensagens ↗</a>}
           <label className="small" htmlFor="org-sel">Organização</label>
           <select id="org-sel" value={me?.org?.id} onChange={(e) => switchOrg(e.target.value)}>
             {me?.orgs.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
@@ -172,7 +172,7 @@ function Shell({ children }: { children: ReactNode }) {
             <span className="badge">{me?.role ? ROLE_LABEL[me.role] : ''}</span>
           </div>
           <div className="row">
-            {can('OWNER', 'ADMIN') && <button className="btn primary sm" onClick={() => nav('/fluxos?novo=1')}>+ Criar fluxo</button>}
+            {can('OWNER', 'ADMIN') && hasModule('fluxos') && <button className="btn primary sm" onClick={() => nav('/fluxos?novo=1')}>+ Criar fluxo</button>}
             <NavLink to="/perfil" className="small">{me?.user.name}</NavLink>
           </div>
         </header>
