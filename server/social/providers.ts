@@ -167,18 +167,20 @@ export async function publishInstagram(acc: ConnectedAccount, post: PostInput, o
   const container = await jsonCall(`${GRAPH()}/${encodeURIComponent(acc.accountId)}/media`, form(params), 'Instagram');
   const creationId = String(container.id ?? '');
   if (!creationId) throw new ProviderError('Instagram: não devolveu o contêiner da mídia');
-  if (post.mediaType === 'video') {
-    const every = opts.pollIntervalMs ?? 5000;
-    const max = opts.maxPolls ?? 60; // ~5 min
+  {
+    // Imagem e vídeo: espera o contêiner ficar FINISHED antes de publicar (imagem costuma levar poucos segundos).
+    const isVideo = post.mediaType === 'video';
+    const every = opts.pollIntervalMs ?? (isVideo ? 5000 : 2000);
+    const max = opts.maxPolls ?? (isVideo ? 60 : 30); // vídeo ~5 min, imagem ~1 min
     let status = '';
     for (let i = 0; i < max; i++) {
       const st = await jsonCall(`${GRAPH()}/${encodeURIComponent(creationId)}?${new URLSearchParams({ fields: 'status_code,status', access_token: token }).toString()}`, {}, 'Instagram');
       status = String(st.status_code ?? '');
       if (status === 'FINISHED') break;
-      if (status === 'ERROR' || status === 'EXPIRED') throw new ProviderError(`Instagram não processou o vídeo (${st.status || status})`);
+      if (status === 'ERROR' || status === 'EXPIRED') throw new ProviderError(`Instagram não processou a mídia (${st.status || status})`);
       await sleep(every);
     }
-    if (status !== 'FINISHED') throw new ProviderError('Instagram: o vídeo demorou demais para processar. Tente publicar de novo.');
+    if (status !== 'FINISHED') throw new ProviderError('Instagram: a mídia demorou demais para processar. Tente publicar de novo.');
   }
   const pub = await jsonCall(`${GRAPH()}/${encodeURIComponent(acc.accountId)}/media_publish`, form({ creation_id: creationId, access_token: token }), 'Instagram');
   const mediaId = String(pub.id ?? '');
