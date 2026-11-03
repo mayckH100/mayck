@@ -34,6 +34,7 @@ import { profileRouter, orgRouter, auditRouter } from './routes/misc.js';
 import { agendaRouter, publicAgendaRouter, googleCallbackRouter } from './agenda/routes.js';
 import { e2eHooksEnabled, e2eRouter } from './lib/testHooks.js';
 import { outbox } from './lib/mailer.js';
+import { socialRouter, socialCallbackRouter, publicNovidadesRouter } from './social/routes.js';
 
 export function createApp() {
   const app = express();
@@ -111,11 +112,14 @@ export function createApp() {
   app.use('/api/public/site', publicSiteRouter); // site oficial /empresa: contato, Facebook, promoção, tutoriais (sem login, só leitura)
   app.use('/api/public/agenda', publicAgendaRouter); // evento (.ics/página "Adicionar à agenda") e feed webcal por URL secreta
   app.use('/api/agenda/google/callback', googleCallbackRouter); // retorno do OAuth do Google (sessão + state assinado)
+  app.use('/api/novidades', publicNovidadesRouter); // Novidades publicadas (site /empresa/novidades), sem login, só leitura
+  app.use('/api/social', socialCallbackRouter); // retorno do OAuth das redes sociais (state assinado + cookie + sessão do Master)
   // Daqui em diante: titular sem CPF/CNPJ ou celular só usa /api/auth (tela única de completar cadastro).
   app.use('/api', requireCadastroCompleto);
   app.use('/api/profile', profileRouter);
   app.use('/api/master', requireSuperAdmin, masterRouter);
   app.use('/api/announcements', announcementsRouter); // avisos do Master para os clientes (pop-up com imagem)
+  app.use('/api/social', requireSuperAdmin, socialRouter); // Novidades: redes sociais do Painel Master
   app.use('/api/org', requireOrg, orgRouter);
   app.use('/api/channels', requireOrg, requireModule('canais', [{ method: 'GET', path: /^\/$/ }]), channelsRouter); // lista de canais: usada pelo Inbox e pelo aviso do topo (filtrada pelos canais do membro)
   app.use('/api/flows', requireOrg, requireModule('fluxos', [{ method: 'GET', path: /^\/$/, anyOf: ['inbox'] }, { method: 'POST', path: /^\/[^/]+\/start$/, anyOf: ['inbox'] }]), requireMckbotForWrites, flowsRouter);
@@ -163,6 +167,8 @@ export function createApp() {
     // Site institucional MCK DESENVOLVIMENTO (páginas estáticas em web/public/empresa).
     const empresaHtml = path.join(webDir, 'empresa', 'index.html');
     if (existsSync(empresaHtml)) app.get(['/empresa', '/empresa/'], (_req, res) => res.sendFile(empresaHtml));
+    const novidadesHtml = path.join(webDir, 'empresa', 'novidades.html');
+    if (existsSync(novidadesHtml)) app.get(['/empresa/novidades', '/empresa/novidades/'], (_req, res) => res.sendFile(novidadesHtml));
     app.get('*', (_req, res) => res.sendFile(path.join(webDir, 'index.html')));
   }
 
