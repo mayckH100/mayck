@@ -25,6 +25,7 @@ import Master from './pages/Master';
 import Tutorials from './Tutorials';
 import SubscriptionGate from './SubscriptionGate';
 import Announcements from './Announcements';
+import WaDownBanner from './WaDownBanner';
 import { STATUS_LABEL, fmtDay } from './billing';
 
 const NAV: { to: string; label: string; icon: string; roles?: Role[]; sep?: string; superAdmin?: boolean }[] = [
@@ -180,6 +181,7 @@ function Shell({ children }: { children: ReactNode }) {
             WhatsApp <strong>não conectado</strong>: nenhuma mensagem será enviada até você configurar a WhatsApp Cloud API. <NavLink to="/canais">Configurar canal →</NavLink>
           </div>
         )}
+        <WaDownBanner reconnectHref="/canais" hideOnPath={loc.pathname.startsWith('/canais')} />
         <SubscriptionBanner />
         <BillingReturnRedirect />
         <WaitingAlerts />

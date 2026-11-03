@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { patch } from '../api';
+import { patch, put } from '../api';
 import { useAuth } from '../auth';
 import { useAction, Field } from '../ui';
 import { SecuritySection, PasswordCard, RenewalRemindersCard } from './Security';
@@ -23,6 +23,24 @@ export default function Profile() {
         </form>
         <PasswordCard app="mckbot" />
         <RenewalRemindersCard />
+        {can('OWNER', 'ADMIN') && (
+          <div className="card stack">
+            <h2>Alertas</h2>
+            <label className="row small" style={{ gap: 8, alignItems: 'flex-start', cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                style={{ width: 'auto' }}
+                checked={me?.user.waDownEmail !== false}
+                disabled={busy}
+                onChange={async (e) => { const v = e.target.checked; if (await run(() => put('/profile/alertas', { waDownEmail: v }), v ? 'Você vai receber o alerta por e-mail' : 'Alerta por e-mail desligado')) refresh(); }}
+              />
+              <span>
+                <strong>Avisar por e-mail quando um WhatsApp desconectar</strong>
+                <span className="muted" style={{ display: 'block' }}>Depois de 5 minutos fora do ar (reconexões rápidas e reinícios do servidor não contam), com o link para reconectar e um lembrete se continuar fora depois de 24 h. O aviso no app aparece sempre.</span>
+              </span>
+            </label>
+          </div>
+        )}
         {can('OWNER', 'ADMIN') && (
           <form className="card stack" onSubmit={async (e) => { e.preventDefault(); if (await run(() => patch('/org', org), 'Organização atualizada')) refresh(); }}>
             <h2>Organização</h2>

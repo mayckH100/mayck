@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { get, post, patch, del } from '../api';
 import { useAuth } from '../auth';
 import { useApi, Async, Empty, useAction, Modal, Field, fmtDate, StatusBadge, useToast, copy } from '../ui';
+import { fmtWaDownSince } from '../WaDownBanner';
 
 /** "Quem responde automaticamente" no canal: só fluxos, só IA, ou fluxos + IA (padrão). */
 const AUTO_REPLY_OPTIONS: { v: 'flows' | 'ai' | 'both'; label: string; help: string }[] = [
@@ -87,8 +88,26 @@ export default function Channels() {
   const [adding, setAdding] = useState(false);
   const { busy, run } = useAction();
   const toast = useToast();
+  // "Voltou a conectar": nota só no app (24 h), pode ser dispensada.
+  const [hiddenBack, setHiddenBack] = useState<string[]>(() => { try { return JSON.parse(localStorage.getItem('mckbot:wa-voltou') || '[]'); } catch { return []; } });
+  const hideBack = (key: string) => { const n = [...hiddenBack, key].slice(-50); setHiddenBack(n); localStorage.setItem('mckbot:wa-voltou', JSON.stringify(n)); };
+  const downList = (state.data ?? []).filter((c) => c.downAlert?.alertedAt && c.status !== 'CONNECTED');
+  const backList = (state.data ?? []).filter((c) => c.downAlert?.backAt && !hiddenBack.includes(`${c.id}:${c.downAlert.backAt}`));
+  useEffect(() => { const t = setInterval(() => state.reload(), 60_000); return () => clearInterval(t); }, []);
   return (
     <>
+      {downList.map((c) => (
+        <div key={`down-${c.id}`} className="alert err row between" role="alert" style={{ marginBottom: 12, gap: 8, flexWrap: 'wrap' }}>
+          <span><strong>{c.label ?? c.name}</strong> está <strong>desconectado</strong> desde {fmtWaDownSince(c.downAlert.downSince)}. Nada é enviado nem recebido por esse número até reconectar.</span>
+          {admin && <button className="btn sm primary" onClick={() => setQrFor(c)}>Reconectar</button>}
+        </div>
+      ))}
+      {backList.map((c) => (
+        <div key={`back-${c.id}`} className="alert ok row between" style={{ marginBottom: 12, gap: 8 }}>
+          <span><strong>{c.label ?? c.name}</strong> voltou a conectar em {fmtWaDownSince(c.downAlert.backAt)}.</span>
+          <button className="btn sm" onClick={() => hideBack(`${c.id}:${c.downAlert.backAt}`)}>Ok</button>
+        </div>
+      ))}
       <div className="page-head">
         <div><h1>Canais WhatsApp</h1><p className="muted">Conecte seu número pelo <strong>QR code</strong> ou pelo <strong>código de 8 caracteres</strong> (Conectar com número de telefone), do mesmo jeito que o WhatsApp Web. A API oficial da Meta continua disponível como opção avançada.</p></div>
         {admin && <button className="btn primary" disabled={busy} onClick={() => setAdding(true)}>+ Adicionar número</button>}

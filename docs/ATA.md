@@ -28,6 +28,7 @@ Formato de cada atualização: data, quem fez, o que foi feito, o que foi passad
 - 2026-11-02 (Hark): Painel Master → aba "Avisos": pop-up central com imagem (PNG/JPG/WEBP ≤ 2 MB, imagem no banco) para os clientes, por app/público/período, 1x por dia por usuário; renovação tem prioridade. Migração 0030_avisos (só aditiva); ainda sem deploy.
 - 2026-11-02 (Hark): CNPJ alfanumérico aceito (cadastro, login, clientes; regra oficial ASCII−48), GET /healthz (200/503, checa o banco) e testes de tela Playwright (cadastro com código, renovação, Avisos); workflow do GitHub Actions pronto em docs/ci/e2e.yml — falta copiar para .github/workflows (token sem permissão 'workflow'). Baileys: sem release com o PR #2765, patch mantido. Sem deploy.
 - 2026-11-02 (Hark): lembrete por e-mail ao titular 5 dias antes de vencer o teste/plano (RENEWAL_REMINDER_DAYS, padrão 5; por produto, sem repetir, nada entre 21h e 8h de Brasília, desligável no Perfil; só e-mail, pois não há WhatsApp da plataforma) e aba Master → "Vencimentos" (números por produto, listas de 7 dias, link wa.me). Migração 0031_lembretes_vencimento (só aditiva). Sem deploy.
+- 2026-11-02 (Hark): alerta de WhatsApp desconectado (QR e API oficial): > 5 min fora do ar → aviso no app (MCKBOT e MCK Mensagens) + e-mail Brevo para Proprietário/Admin com link para Canais; ignora reconexão rápida e reinício/deploy, 1 alerta por queda + lembrete único em 24 h, opção no Perfil; resumo diário (8h) para SUPERADMIN_EMAILS com canais fora > 1 h. Migração 0032_alerta_whatsapp (só aditiva). Sem deploy.
 
 ### Dificuldades
 - Verificação do Google só por vídeo gravado ao vivo no app.
@@ -38,7 +39,7 @@ Formato de cada atualização: data, quem fez, o que foi feito, o que foi passad
 ### Falta fazer
 - Verificar o Perfil do Google (vídeo) e concluir o TikTok.
 - Instagram: link do site e categoria.
-- Alerta quando o WhatsApp desconectar; avaliar tornar o repositório privado.
+- Avaliar tornar o repositório privado.
 - Posts: nenhum publicado; todos precisam de aprovação.
 
 ### O que melhorar

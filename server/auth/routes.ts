@@ -68,6 +68,7 @@ export async function meResponse(userId: string, orgId: string | null, csrfToken
       // CPF/CNPJ e celular só mascarados (dado pessoal).
       documento: maskDocumento(user.documento), celular: maskCelular(user.celular),
       renewalReminders: user.renewalReminders,
+      waDownEmail: user.waDownEmail,
     },
     // Titular sem CPF/CNPJ ou celular: o app mostra a tela única de completar cadastro antes de qualquer outra.
     cadastroPendente: needsCadastro(user, (current?.role ?? null) as never) ? { documento: !user.documento, celular: !user.celular } : null,

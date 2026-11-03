@@ -43,6 +43,14 @@ profileRouter.put('/reminders', ah(async (req, res) => {
   res.json({ renewalReminders: enabled });
 }));
 
+/** Alerta de WhatsApp desconectado por e-mail (Proprietário/Administrador). Padrão: ligado. */
+profileRouter.put('/alertas', ah(async (req, res) => {
+  const body = z.object({ waDownEmail: z.boolean() }).parse(req.body);
+  const u = await prisma.user.update({ where: { id: req.auth!.userId }, data: { waDownEmail: body.waDownEmail } });
+  await audit(req, 'profile.wa_down_email', { meta: { ligado: u.waDownEmail } });
+  res.json({ waDownEmail: u.waDownEmail });
+}));
+
 profileRouter.post('/password', passwordLimiter, ah(async (req, res) => {
   const body = z.object({ current: z.string().min(1).max(200), next: z.string().min(8, 'A nova senha precisa ter pelo menos 8 caracteres').max(200) }).parse(req.body);
   const u = await prisma.user.findUniqueOrThrow({ where: { id: req.auth!.userId } });

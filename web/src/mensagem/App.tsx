@@ -17,6 +17,7 @@ import Tutorials from '../Tutorials';
 import SecurityPage from '../pages/Security';
 import SubscriptionGate from '../SubscriptionGate';
 import Announcements from '../Announcements';
+import WaDownBanner from '../WaDownBanner';
 
 const NAV = [
   { to: '/', label: 'Painel', icon: '◔' },
@@ -112,6 +113,7 @@ function Shell({ children, nav: navItems = NAV }: { children: ReactNode; nav?: t
           <button className="btn sm" data-sub-exempt onClick={async () => { await logout(); nav('/login'); }}>Sair ({me?.user.name})</button>
         </nav>
       </header>
+      <WaDownBanner reconnectHref={`${MCKBOT_URL.replace(/\/$/, '')}/canais`} />
       <MmSubscriptionBanner />
       <BillingReturnRedirect />
       <SubscriptionGate app="mensagem" />

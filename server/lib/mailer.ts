@@ -294,3 +294,28 @@ export function renewalReminderMail(o: {
   `Não quer mais receber estes lembretes? Desligue em Perfil → Lembretes de vencimento: ${esc(o.profileUrl)}`);
   return { to: o.to, subject: title, html, text, kind: 'renewal_reminder' };
 }
+
+const fmtBr = (d: Date) => d.toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+
+/** Alerta de WhatsApp desconectado (Proprietário/Administrador). O link de reconexão é sempre a tela Canais WhatsApp do MCKBOT. */
+export function waDownMail(o: { to: string; name: string; app: AppBrand; channel: string; orgName: string; since: Date; reminder?: boolean }): MailMessage {
+  const b = BRANDS[o.app];
+  const title = o.reminder ? `Lembrete: ${o.channel} continua desconectado` : `${o.channel} desconectou`;
+  const { html, text } = layout(o.app, undefined, title, [
+    `Olá, ${esc(o.name)}. O <strong>${esc(o.channel)}</strong>${o.orgName ? ` da organização <strong>${esc(o.orgName)}</strong>` : ''} está desconectado desde ${fmtBr(o.since)} (horário de Brasília).`,
+    `Enquanto ele estiver fora do ar, o ${b.name} não envia nem recebe mensagens por esse número (robô, IA, campanhas e avisos ficam parados).`,
+    'Para reconectar, abra Canais WhatsApp e leia o QR code (ou use o código de 8 caracteres) no celular do número.',
+  ], { label: 'Reconectar o WhatsApp', url: appPath('mckbot', '/canais') },
+  o.reminder ? 'Este é o único lembrete deste episódio. Para não receber estes e-mails, desligue a opção em Perfil.' : 'Você recebe um lembrete se continuar desconectado depois de 24 h. Para não receber estes e-mails, desligue a opção em Perfil.');
+  return { to: o.to, subject: o.reminder ? `Lembrete: ${o.channel} continua desconectado` : `WhatsApp desconectado: ${o.channel}`, html, text, kind: o.reminder ? 'wa_down_reminder' : 'wa_down' };
+}
+
+/** Resumo diário para o superadmin: canais fora do ar há mais de 1 hora. */
+export function waDownDigestMail(o: { to: string; items: { orgName: string; channel: string; since: Date }[]; now: Date }): MailMessage {
+  const rows = o.items.map((i) => `• ${esc(i.orgName)} — ${esc(i.channel)} — desde ${fmtBr(i.since)}`);
+  const { html, text } = layout('mckbot', undefined, `${o.items.length} WhatsApp(s) desconectado(s) há mais de 1 hora`, [
+    `Resumo de ${o.now.toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' })} (horário de Brasília):`,
+    rows.join('<br>\n'),
+  ], { label: 'Abrir o Painel Master', url: appPath('mckbot', '/master') });
+  return { to: o.to, subject: `Resumo: ${o.items.length} WhatsApp(s) desconectado(s) há mais de 1 hora`, html, text, kind: 'wa_down_digest' };
+}

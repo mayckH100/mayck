@@ -14,6 +14,7 @@ import { PROVIDER_CLOUD, PROVIDER_QR, isQrChannel } from '../whatsapp/messaging.
 import { AUTO_REPLY_MODES, autoReplyModeOf, defaultAutoReplyMode } from '../whatsapp/autoReplyMode.js';
 import { channelInfo, channelLabels, sanitizeChannelName, customChannelName, CHANNEL_NAME_MAX, type ChannelLabelInfo } from '../whatsapp/channelLabel.js';
 import type { Channel } from '@prisma/client';
+import { DISARM_DOWN_ALERT } from '../whatsapp/downAlerts.js';
 
 /** "Nome do WhatsApp": limpo (sem caracteres invisíveis/HTML), 1 a 40 caracteres. */
 const channelNameSchema = z.string().max(200).transform(sanitizeChannelName).pipe(z.string().min(1, 'Informe o nome do WhatsApp').max(CHANNEL_NAME_MAX, `Nome do WhatsApp: no máximo ${CHANNEL_NAME_MAX} caracteres`));
@@ -46,12 +47,35 @@ async function view(c: Channel, req: import('express').Request, info?: ChannelLa
     lastError: c.lastError, lastWebhookAt: c.lastWebhookAt, lastCheckedAt: c.lastCheckedAt, createdAt: c.createdAt,
     stats: { today, d7, d30, total }, graphApiVersion: config.GRAPH_API_VERSION,
     autoReplyMode: autoReplyModeOf(c),
+    // Alerta de WhatsApp desconectado: episódio confirmado (> 5 min fora do ar) e "voltou a conectar" (24 h).
+    downAlert: downAlertView(c),
     ...(isQrChannel(c) ? {
       replySavedContacts: c.replySavedContacts,
       addressBook: { syncedAt: c.addressBookSyncedAt, savedContacts: await countSavedPhoneContacts(c.id) },
     } : {}),
   };
 }
+
+function downAlertView(c: Channel) {
+  const backRecent = c.waBackAt && Date.now() - c.waBackAt.getTime() < 24 * 3600e3 ? c.waBackAt : null;
+  return { downSince: c.waDownAlertAt ? c.waDownSince : null, alertedAt: c.waDownAlertAt, backAt: c.status === 'CONNECTED' ? backRecent : null };
+}
+
+/**
+ * Alertas de WhatsApp desconectado para o aviso no app (MCKBOT e MCK Mensagens). Só Proprietário/Administrador.
+ * down: episódios confirmados (> 5 min fora do ar); back: voltou a conectar nas últimas 24 h depois de um alerta.
+ */
+channelsRouter.get('/alertas', requireRole('OWNER', 'ADMIN'), ah(async (req, res) => {
+  const orgId = orgOf(req);
+  const list = await prisma.channel.findMany({ where: { orgId, OR: [{ waDownAlertAt: { not: null } }, { waBackAt: { gte: new Date(Date.now() - 24 * 3600e3) } }] } });
+  const labels = await channelLabels(orgId);
+  const label = (c: Channel) => labels.get(c.id)?.label ?? c.name;
+  res.set('Cache-Control', 'no-store');
+  res.json({
+    down: list.filter((c) => c.waDownAlertAt && c.status !== 'CONNECTED').map((c) => ({ id: c.id, label: label(c), downSince: c.waDownSince, alertedAt: c.waDownAlertAt })),
+    back: list.filter((c) => c.status === 'CONNECTED' && c.waBackAt).map((c) => ({ id: c.id, label: label(c), backAt: c.waBackAt })),
+  });
+}));
 
 channelsRouter.get('/', ah(async (req, res) => {
   const list = await prisma.channel.findMany({ where: { orgId: orgOf(req) }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] });
@@ -107,7 +131,7 @@ channelsRouter.patch('/:id', requireRole('OWNER', 'ADMIN'), ah(async (req, res) 
       replySavedContacts: body.replySavedContacts ?? undefined,
       autoReplyMode: body.autoReplyMode ?? undefined,
       // Credenciais alteradas exigem nova verificação real antes de marcar como conectado.
-      ...(credsChanged ? { status: 'NOT_CONNECTED', lastError: null, provider: PROVIDER_CLOUD, waJid: null } : {}),
+      ...(credsChanged ? { status: 'NOT_CONNECTED', lastError: null, provider: PROVIDER_CLOUD, waJid: null, ...DISARM_DOWN_ALERT } : {}),
     },
   });
   if (body.replySavedContacts !== undefined && body.replySavedContacts !== c.replySavedContacts) {
@@ -166,7 +190,7 @@ channelsRouter.post('/:id/qr/start', requireRole('OWNER', 'ADMIN'), ah(async (re
   if (!c) throw notFound('Canal');
   if (!isQrChannel(c)) {
     // Troca para o modo QR: as credenciais da API oficial ficam salvas, mas deixam de ser usadas.
-    c = await prisma.channel.update({ where: { id: c.id }, data: { provider: PROVIDER_QR, status: 'NOT_CONNECTED', lastError: null } });
+    c = await prisma.channel.update({ where: { id: c.id }, data: { provider: PROVIDER_QR, status: 'NOT_CONNECTED', lastError: null, ...DISARM_DOWN_ALERT } });
   }
   await qrManager.start(c.id);
   await audit(req, 'channel.qr_start', { entity: 'channel', entityId: c.id });
@@ -196,7 +220,7 @@ channelsRouter.post('/:id/qr/pairing-code', requireRole('OWNER', 'ADMIN'), ah(as
     throw new HttpError(429, `Limite de ${limit} códigos por hora para este canal. Tente de novo em ${waitMin} min ou use o QR code.`);
   }
   if (!isQrChannel(c)) {
-    c = await prisma.channel.update({ where: { id: c.id }, data: { provider: PROVIDER_QR, status: 'NOT_CONNECTED', lastError: null } });
+    c = await prisma.channel.update({ where: { id: c.id }, data: { provider: PROVIDER_QR, status: 'NOT_CONNECTED', lastError: null, ...DISARM_DOWN_ALERT } });
   }
   try {
     const r = await qrManager.requestPairingCode(c.id, check.digits);
@@ -223,7 +247,8 @@ channelsRouter.post('/:id/qr/disconnect', requireRole('OWNER', 'ADMIN'), ah(asyn
   const c = await prisma.channel.findFirst({ where: { id: req.params.id, orgId: orgOf(req) } });
   if (!c) throw notFound('Canal');
   await qrManager.stop(c.id, { logout: true });
-  await prisma.channel.update({ where: { id: c.id }, data: { status: 'NOT_CONNECTED', waJid: null, lastError: null } });
+  // Desconexão feita de propósito pelo dono: não gera alerta de WhatsApp desconectado.
+  await prisma.channel.update({ where: { id: c.id }, data: { status: 'NOT_CONNECTED', waJid: null, lastError: null, ...DISARM_DOWN_ALERT } });
   await audit(req, 'channel.qr_disconnect', { entity: 'channel', entityId: c.id });
   res.json(await qrView(c));
 }));
@@ -233,11 +258,11 @@ channelsRouter.post('/:id/disconnect', requireRole('OWNER', 'ADMIN'), ah(async (
   if (!c) throw notFound('Canal');
   if (isQrChannel(c)) {
     await qrManager.stop(c.id, { logout: true });
-    const u = await prisma.channel.update({ where: { id: c.id }, data: { status: 'NOT_CONNECTED', waJid: null, lastError: null } });
+    const u = await prisma.channel.update({ where: { id: c.id }, data: { status: 'NOT_CONNECTED', waJid: null, lastError: null, ...DISARM_DOWN_ALERT } });
     await audit(req, 'channel.disconnect', { entity: 'channel', entityId: c.id });
     return res.json(await view(u, req));
   }
-  const updated = await prisma.channel.update({ where: { id: c.id }, data: { status: 'NOT_CONNECTED', accessTokenEnc: null } });
+  const updated = await prisma.channel.update({ where: { id: c.id }, data: { status: 'NOT_CONNECTED', accessTokenEnc: null, ...DISARM_DOWN_ALERT } });
   await audit(req, 'channel.disconnect', { entity: 'channel', entityId: c.id });
   res.json(await view(updated, req));
 }));

@@ -12,6 +12,7 @@ import { maybeDailyBackup, backupAutoEnabled } from './lib/backup.js';
 import { tickAgendaReminders } from './agenda/service.js';
 import { tickHandoffAlerts } from './whatsapp/handoffAlerts.js';
 import { tickRenewalReminders } from './billing/reminders.js';
+import { tickDownAlerts, maybeDownDigest } from './whatsapp/downAlerts.js';
 
 const app = createApp();
 const server = app.listen(config.PORT, () => {
@@ -51,6 +52,13 @@ if (config.ENABLE_SCHEDULER === 'true') {
   };
   setTimeout(reminderTick, 3 * 60_000).unref();
   setInterval(reminderTick, 15 * 60_000).unref();
+  // Alerta de WhatsApp desconectado (> 5 min, ignora reinício/deploy) + resumo diário para o superadmin (a cada minuto).
+  let downRunning = false;
+  setInterval(() => {
+    if (downRunning) return;
+    downRunning = true;
+    tickDownAlerts().then(() => maybeDownDigest()).catch((e) => console.error('[whatsapp-alerta]', (e as Error).message)).finally(() => { downRunning = false; });
+  }, 60_000).unref();
   setInterval(() => {
     prisma.session.deleteMany({ where: { expiresAt: { lt: new Date() } } }).catch(() => undefined);
   }, 3600e3).unref();

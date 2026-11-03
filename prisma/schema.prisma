@@ -42,6 +42,8 @@ model User {
   sessions        Session[]
   authTokens      AuthToken[]
   knownDevices    KnownDevice[]
+  /// Receber por e-mail o alerta de WhatsApp desconectado (Proprietário/Administrador). Padrão: sim.
+  waDownEmail     Boolean       @default(true)
 }
 
 /// Aparelhos (navegadores) já usados para entrar; login de aparelho novo gera alerta por e-mail.
@@ -204,6 +206,15 @@ model Channel {
   replySavedContacts  Boolean   @default(false) // modo QR: responder automaticamente contatos salvos na agenda do celular (padrão: não)
   addressBookSyncedAt DateTime? // modo QR: quando a agenda do celular foi sincronizada por completo pela última vez
   autoReplyMode       String    @default("both") // quem responde automaticamente neste canal: flows (só fluxos) | ai (só IA) | both (fluxos + IA, padrão)
+  /// Alerta de WhatsApp desconectado: última vez que o monitor viu o canal conectado (canal "armado"; vazio = nunca conectou ou foi desconectado de propósito).
+  waUpSeenAt          DateTime?
+  /// Início do episódio de desconexão observado pelo monitor (vazio = conectado).
+  waDownSince         DateTime?
+  /// Alerta (e-mail + aviso no app) enviado neste episódio; lembrete único após 24 h.
+  waDownAlertAt       DateTime?
+  waDownReminderAt    DateTime?
+  /// Voltou a conectar depois de um alerta (aviso "voltou a conectar" no app por 24 h).
+  waBackAt            DateTime?
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 
@@ -625,6 +636,7 @@ model PlatformSettings {
   pricesJson         String   @default("{\"MCKBOT\":{\"MENSAL\":3990,\"ANUAL\":39900},\"MCKMENSAGEM\":{\"MENSAL\":4500,\"ANUAL\":45000},\"COMBO\":{\"MENSAL\":6990,\"ANUAL\":69900}}")
   mpWebhookSecretEnc String?
   siteJson           String   @default("{}") // Site oficial (/empresa): contato, Facebook, tutoriais públicos, promoção em destaque
+  waDigestDay        String? // último dia (AAAA-MM-DD, Brasília) do resumo diário de WhatsApp desconectado para o superadmin
   updatedAt          DateTime @updatedAt
 }
 
