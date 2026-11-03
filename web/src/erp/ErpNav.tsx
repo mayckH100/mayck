@@ -5,8 +5,11 @@ const ITENS = [
   { to: '/erp', label: 'Painel CRM', end: true },
   { to: '/erp/funil', label: 'Funil de vendas' },
   { to: '/erp/clientes', label: 'Clientes e fornecedores' },
+  { to: '/erp/pedidos', label: 'Pedidos' },
+  { to: '/erp/produtos', label: 'Produtos' },
+  { to: '/erp/estoque', label: 'Estoque' },
 ];
-const PROXIMOS = ['Vendas', 'Estoque', 'Produção', 'Compras', 'Fiscal', 'Financeiro'];
+const PROXIMOS = ['Produção', 'Compras', 'Fiscal', 'Financeiro'];
 
 export default function ErpNav() {
   return (

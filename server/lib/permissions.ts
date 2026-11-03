@@ -24,7 +24,7 @@ export const MODULES = [
   { id: 'auditoria', label: 'Auditoria', app: 'MCKBOT' },
   { id: 'mensagens', label: 'MCK Mensagens: leads, campanhas/disparos e IA', app: 'MCKMENSAGEM' },
   { id: 'automacoes', label: 'MCK Mensagens: automações e cobranças', app: 'MCKMENSAGEM' },
-  { id: 'erp_crm', label: 'MCK ERP: CRM (clientes, funil, linha do tempo)', app: 'MCKBOT' },
+  { id: 'erp_crm', label: 'MCK ERP: CRM, vendas, produtos e estoque', app: 'MCKBOT' },
 ] as const;
 export type ModuleId = (typeof MODULES)[number]['id'];
 export const MODULE_IDS = MODULES.map((m) => m.id) as ModuleId[];

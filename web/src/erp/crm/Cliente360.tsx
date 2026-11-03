@@ -23,7 +23,7 @@ export default function Cliente360() {
               <h1>{p.fantasia || p.nome}</h1>
               <p className="muted">{fmtDoc(p.documento)} · {p.municipio ? `${p.municipio}/${p.uf}` : 'sem endereço'} · <span className={`badge ${p.status === 'ATIVO' ? 'green' : p.status === 'BLOQUEADO' ? 'red' : ''}`}>{p.status}</span></p>
             </div>
-            <div className="row"><Link className="btn" to="/erp/clientes">Voltar</Link><button className="btn" onClick={() => setEditando(true)}>Editar</button></div>
+            <div className="row"><Link className="btn" to="/erp/clientes">Voltar</Link><button className="btn" onClick={() => setEditando(true)}>Editar</button>{p.ehCliente && p.status !== 'BLOQUEADO' && <Link className="btn primary" to={`/erp/pedidos?parceiroId=${p.id}`}>+ Orçamento</Link>}</div>
           </div>
           <div className="grid g4">
             <div className="card stat"><div className="l">Total comprado</div><div className="v">{brl(p.resumo.totalGanhoCents)}</div><div className="small muted">{p.resumo.negociosGanhos} negócio(s)</div></div>

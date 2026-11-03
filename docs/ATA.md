@@ -69,3 +69,8 @@ Formato de cada atualização: data, quem fez, o que foi feito, o que foi passad
  - Etapa 2: Produtos, Estoque/WMS e Vendas/OMS (aguarda aprovação do Mayck).
 ### O que melhorar
  - Rodar a suíte completa (npm test) antes de liberar para clientes.
+
+### Atualização 2026-11-03 (noite) — ERP Etapa 2
+ - Feito: Produtos, Estoque/WMS e Vendas/OMS (ver docs/ERP.md). Migração 0039_erp_estoque_vendas, só aditiva. Menu renomeado para "MCK ERP".
+ - Testes: typecheck servidor/web e build da web ok; 19 testes do ERP e permissões passaram. Suíte completa não rodada (economia de crédito, pedido do Mayck).
+ - Falta: testar no deploy (cadastrar produto, dar entrada, criar orçamento, enviar, separar com QR, faturar). Próxima: Etapa 3, Compras + Produção/MRP (aguarda aprovação).

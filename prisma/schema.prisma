@@ -1496,3 +1496,231 @@ model ErpIntegracaoJob {
 
   @@index([status, proximaTentativa])
 }
+
+// ======================= MCK ERP · Etapa 2: Produtos, Estoque/WMS, Vendas/OMS =======================
+// Quantidades em milésimos (Int): 1 un = 1000; 0,250 kg = 250. Valores em centavos. Percentuais em pontos-base (1% = 100).
+
+model ErpConfig {
+  orgId                String   @id
+  descontoMaxBp        Int      @default(1000) // alçada do vendedor (10%); acima disso o pedido vai para aprovação
+  bloquearSemCredito   Boolean  @default(true)
+  validadeOrcamentoDias Int     @default(15)
+  proximoPedido        Int      @default(1)
+  updatedAt            DateTime @updatedAt
+}
+
+model ErpProduto {
+  id               String   @id @default(cuid())
+  orgId            String
+  sku              String
+  nome             String
+  descricao        String?
+  codigoBarras     String?
+  unidade          String   @default("UN") // UN, KG, CX, M...
+  ncm              String?
+  cest             String?
+  origem           Int      @default(0)    // 0 nacional ... 8 (tabela SEFAZ)
+  pesoGramas       Int      @default(0)
+  controlaLote     Boolean  @default(false)
+  controlaValidade Boolean  @default(false)
+  regraSaida       String   @default("FIFO") // FIFO | FEFO
+  estoqueMinimoMil Int      @default(0)
+  pontoPedidoMil   Int      @default(0)
+  precoBaseCents   Int      @default(0)
+  custoMedioCents  Int      @default(0) // por unidade (1000 mil)
+  tipo             String   @default("REVENDA") // REVENDA | PRODUZIDO | INSUMO | SERVICO
+  ativo            Boolean  @default(true)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@unique([orgId, sku])
+  @@index([orgId, nome])
+  @@index([orgId, codigoBarras])
+}
+
+model ErpTabelaPreco {
+  id        String   @id @default(cuid())
+  orgId     String
+  nome      String
+  uf        String?  // tabela regional (opcional)
+  ativa     Boolean  @default(true)
+  createdAt DateTime @default(now())
+  itens     ErpTabelaPrecoItem[]
+
+  @@index([orgId])
+}
+
+model ErpTabelaPrecoItem {
+  id         String         @id @default(cuid())
+  tabelaId   String
+  tabela     ErpTabelaPreco @relation(fields: [tabelaId], references: [id], onDelete: Cascade)
+  produtoId  String
+  qtdMinimaMil Int          @default(0) // preço por volume: vale a partir desta quantidade
+  precoCents Int
+
+  @@unique([tabelaId, produtoId, qtdMinimaMil])
+}
+
+model ErpCondicaoPagamento {
+  id        String   @id @default(cuid())
+  orgId     String
+  nome      String   // "30/60/90", "À vista"
+  prazos    String   @default("[0]") // JSON: dias de cada parcela
+  ativa     Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  @@index([orgId])
+}
+
+model ErpDeposito {
+  id        String   @id @default(cuid())
+  orgId     String
+  filialId  String?
+  nome      String
+  ativo     Boolean  @default(true)
+  createdAt DateTime @default(now())
+  enderecos ErpEnderecoEstoque[]
+
+  @@index([orgId])
+}
+
+model ErpEnderecoEstoque {
+  id         String      @id @default(cuid())
+  orgId      String
+  depositoId String
+  deposito   ErpDeposito @relation(fields: [depositoId], references: [id], onDelete: Cascade)
+  codigo     String      // rua-prateleira-posição, ex.: A-01-03 (vai na etiqueta QR)
+  ativo      Boolean     @default(true)
+
+  @@unique([depositoId, codigo])
+  @@index([orgId])
+}
+
+model ErpLote {
+  id         String    @id @default(cuid())
+  orgId      String
+  produtoId  String
+  numero     String
+  fabricacao DateTime?
+  validade   DateTime?
+  status     String    @default("LIBERADO") // LIBERADO | QUARENTENA | BLOQUEADO
+  origemTipo String?   // compra | op | ajuste | inicial
+  origemId   String?
+  createdAt  DateTime  @default(now())
+
+  @@unique([orgId, produtoId, numero])
+  @@index([orgId, produtoId, validade])
+}
+
+/** Saldo por produto + lote + endereço. Disponível = físico − reservado − quarentena (nunca negativo). */
+model ErpSaldo {
+  id            String   @id @default(cuid())
+  orgId         String
+  produtoId     String
+  loteId        String
+  enderecoId    String
+  fisicoMil     Int      @default(0)
+  reservadoMil  Int      @default(0)
+  quarentenaMil Int      @default(0)
+  createdAt     DateTime @default(now())
+
+  @@unique([produtoId, loteId, enderecoId])
+  @@index([orgId, produtoId])
+}
+
+/** Razão de estoque: só inserção. Toda mudança de saldo físico tem um movimento na mesma transação. */
+model ErpMovimento {
+  id             String   @id @default(cuid())
+  orgId          String
+  produtoId      String
+  loteId         String
+  enderecoId     String
+  tipo           String   // ENTRADA | SAIDA | AJUSTE | TRANSFERENCIA_SAIDA | TRANSFERENCIA_ENTRADA | QUARENTENA | LIBERACAO
+  qtdMil         Int      // com sinal: + entra, − sai
+  custoUnitCents Int      @default(0)
+  saldoAposMil   Int
+  docTipo        String?  // pedido_venda | ajuste | compra | op | inventario
+  docId          String?
+  motivo         String?
+  userId         String?
+  correlationId  String?
+  createdAt      DateTime @default(now())
+
+  @@index([orgId, produtoId, createdAt])
+  @@index([orgId, docTipo, docId])
+}
+
+model ErpReserva {
+  id            String   @id @default(cuid())
+  orgId         String
+  pedidoItemId  String
+  saldoId       String
+  produtoId     String
+  loteId        String
+  enderecoId    String
+  qtdMil        Int
+  separadoMil   Int      @default(0)
+  status        String   @default("ATIVA") // ATIVA | BAIXADA | LIBERADA
+  createdAt     DateTime @default(now())
+
+  @@index([orgId, pedidoItemId])
+  @@index([saldoId, status])
+}
+
+model ErpPedidoVenda {
+  id                  String   @id @default(cuid())
+  orgId               String
+  numero              Int
+  filialId            String?
+  centroCustoId       String?
+  depositoId          String?
+  parceiroId          String
+  oportunidadeId      String?
+  vendedorId          String?
+  tabelaPrecoId       String?
+  condicaoPagamentoId String?
+  statusOperacional   String   @default("RASCUNHO")
+  statusFinanceiro    String   @default("SEM_TITULO")
+  subtotalCents       Int      @default(0)
+  descontoCents       Int      @default(0)
+  freteCents          Int      @default(0)
+  totalCents          Int      @default(0)
+  descontoMaxItemBp   Int      @default(0)
+  motivoBloqueio      String?
+  aprovadoPorId       String?
+  aprovadoEm          DateTime?
+  validadeOrcamento   DateTime?
+  nfNumero            String?  // nota emitida (externa até a Etapa 4)
+  transportadora      String?
+  rastreio            String?
+  entregueEm          DateTime?
+  previsaoEntrega     DateTime?
+  motivoCancelamento  String?
+  observacoes         String?
+  correlationId       String
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+  itens               ErpPedidoItem[]
+
+  @@unique([orgId, numero])
+  @@index([orgId, statusOperacional])
+  @@index([orgId, parceiroId])
+}
+
+model ErpPedidoItem {
+  id             String         @id @default(cuid())
+  pedidoId       String
+  pedido         ErpPedidoVenda @relation(fields: [pedidoId], references: [id], onDelete: Cascade)
+  produtoId      String
+  descricao      String
+  qtdMil         Int
+  precoUnitCents Int            // por unidade
+  descontoBp     Int            @default(0)
+  totalCents     Int
+  reservadoMil   Int            @default(0)
+  separadoMil    Int            @default(0)
+  posicao        Int            @default(0)
+
+  @@index([pedidoId])
+  @@index([produtoId])
+}
