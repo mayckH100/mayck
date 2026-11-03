@@ -19,6 +19,7 @@
     "typecheck": "tsc -p tsconfig.server.json --noEmit && tsc -p web/tsconfig.json --noEmit",
     "test": "npm run db:sqlite && vitest run",
     "test:e2e": "npm run db:sqlite && npm run build:local && NO_PROXY=127.0.0.1,localhost no_proxy=127.0.0.1,localhost playwright test",
+    "test:e2e:ci": "npm run db:sqlite && npm run build:local && NO_PROXY=127.0.0.1,localhost no_proxy=127.0.0.1,localhost playwright test tests/e2e/qualidade.spec.ts",
     "build:local": "vite build --config web/vite.config.ts && tsc -p tsconfig.server.json",
     "db:migration:sql": "prisma migrate diff --from-empty --to-schema-datamodel prisma/schema.prisma --script",
     "test:pg": "npm run db:pg && TEST_DB=postgres vitest run tests/integration; npm run db:sqlite",

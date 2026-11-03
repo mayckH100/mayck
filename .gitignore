@@ -5,3 +5,4 @@ dist/
 *.db-journal
 prisma/sqlite/
 tests/e2e/.resultados/
+tests/e2e/.relatorio/

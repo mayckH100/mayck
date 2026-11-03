@@ -1,17 +1,16 @@
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect, type Page, type APIRequestContext } from '@playwright/test';
+import { signup } from './helpers';
 
-const email = `e2e${Date.now()}@teste.dev`;
+// ATENÇÃO (2026-11-02): roteiro antigo. O cadastro foi atualizado (código por e-mail), mas a partir do teste
+// "canal WhatsApp novo…" a tela de Canais mudou (modo QR) e o roteiro ainda não foi revisto. O CI roda só
+// tests/e2e/qualidade.spec.ts (npm run test:e2e:ci); este arquivo roda com npm run test:e2e.
+let email = '';
 const password = 'senhaE2E12345';
 const errors: string[] = [];
 
-async function register(page: Page) {
-  await page.goto('/cadastro');
-  await page.getByLabel('Seu nome').fill('Carlos Teste');
-  await page.getByLabel('E-mail').fill(email);
-  await page.getByLabel('Senha').fill(password);
-  await page.getByLabel('Nome da empresa').fill('Loja E2E');
-  await page.getByRole('button', { name: 'Criar conta' }).click();
-  await expect(page.getByRole('heading', { name: 'Visão geral' })).toBeVisible();
+/** Cadastro com código por e-mail (gancho de teste) — ver ./helpers.ts. */
+async function register(page: Page, request: APIRequestContext) {
+  email = (await signup(page, request, { password })).email;
 }
 
 test.describe.serial('MCKBOT — fluxo completo no navegador', () => {
@@ -22,8 +21,8 @@ test.describe.serial('MCKBOT — fluxo completo no navegador', () => {
     page.on('console', (m) => { if (m.type() === 'error' && !/Failed to load resource/.test(m.text())) errors.push(m.text()); });
   });
 
-  test('cadastro leva ao painel com indicadores zerados e aviso de WhatsApp não conectado', async () => {
-    await register(page);
+  test('cadastro leva ao painel com indicadores zerados e aviso de WhatsApp não conectado', async ({ request }) => {
+    await register(page, request);
     await expect(page.getByText('Conversas abertas')).toBeVisible();
     await expect(page.getByText(/WhatsApp\s+não conectado/).first()).toBeVisible();
     await expect(page.getByText('Nenhuma falha registrada')).toBeVisible();

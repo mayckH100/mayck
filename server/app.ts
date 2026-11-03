@@ -31,6 +31,8 @@ import { integrationsRouter } from './routes/integrations.js';
 import { dashboardRouter } from './routes/dashboard.js';
 import { profileRouter, orgRouter, auditRouter } from './routes/misc.js';
 import { agendaRouter, publicAgendaRouter, googleCallbackRouter } from './agenda/routes.js';
+import { e2eHooksEnabled, e2eRouter } from './lib/testHooks.js';
+import { outbox } from './lib/mailer.js';
 
 export function createApp() {
   const app = express();
@@ -91,6 +93,12 @@ export function createApp() {
       clearTimeout(timer);
     }
   });
+
+  // Ganchos dos testes de tela (Playwright): só com E2E_TEST_HOOKS=1 e nunca em produção.
+  if (e2eHooksEnabled()) {
+    console.warn('[e2e] ganchos de teste LIGADOS (E2E_TEST_HOOKS=1): e-mails ficam em memória. Nunca use em produção.');
+    app.use('/api/__e2e__', e2eRouter(outbox));
+  }
 
   app.use(express.json({ limit: '1mb' }));
   app.use(cookieParser());

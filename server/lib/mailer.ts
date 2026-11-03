@@ -1,7 +1,7 @@
 import nodemailer, { type Transporter } from 'nodemailer';
 import type { Request } from 'express';
-import { isTest } from '../config.js';
 import { httpFetch } from './fetcher.js';
+import { mailStubbed, e2eHooksEnabled } from './testHooks.js';
 
 /**
  * E-mails transacionais: API HTTP do Brevo (BREVO_API_KEY, recomendada no Render Free, que bloqueia SMTP)
@@ -13,7 +13,7 @@ import { httpFetch } from './fetcher.js';
 export interface MailAttachment { filename: string; content: Buffer; contentType?: string }
 export interface MailMessage { to: string; subject: string; html: string; text: string; kind: string; attachments?: MailAttachment[] }
 
-/** Caixa de saída em memória — usada só nos testes automatizados. */
+/** Caixa de saída em memória — usada só nos testes automatizados (vitest e ganchos E2E_TEST_HOOKS fora de produção). */
 export const outbox: MailMessage[] = [];
 
 let transporter: Transporter | null = null;
@@ -77,7 +77,7 @@ function getTransporter(): Transporter | null {
 
 /** Envia sem lançar erro: falha de SMTP nunca derruba cadastro, recuperação ou troca de senha. */
 export async function sendMail(msg: MailMessage): Promise<boolean> {
-  if (isTest) { outbox.push(msg); return true; }
+  if (mailStubbed()) { outbox.push(msg); if (outbox.length > 1000 && e2eHooksEnabled()) outbox.splice(0, outbox.length - 500); return true; }
   if (brevoConfigured()) {
     try {
       await sendViaBrevo(msg);
@@ -108,7 +108,7 @@ export async function sendMail(msg: MailMessage): Promise<boolean> {
  * Usa o mesmo transporte SMTP configurado; sem SMTP, falha com motivo explícito (nunca simula envio).
  */
 export async function sendMailResult(msg: { to: string; subject: string; text: string; html?: string; attachments?: MailAttachment[] }): Promise<{ ok: boolean; messageId?: string; error?: string }> {
-  if (isTest) { outbox.push({ ...msg, html: msg.html ?? msg.text, kind: 'automacao' }); return { ok: true, messageId: `test-${outbox.length}` }; }
+  if (mailStubbed()) { outbox.push({ ...msg, html: msg.html ?? msg.text, kind: 'automacao' }); return { ok: true, messageId: `test-${outbox.length}` }; }
   if (brevoConfigured()) {
     try { return { ok: true, messageId: await sendViaBrevo(msg) }; } catch (e) { return { ok: false, error: ((e as Error).message || 'Falha na API do Brevo').slice(0, 500) }; }
   }
