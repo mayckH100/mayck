@@ -1,0 +1,50 @@
+# PARA ATIVAR: copie este arquivo para .github/workflows/e2e.yml (pelo site do GitHub: Add file > Create new file).
+# O token de automação do Hark não tem a permissão 'workflow', por isso ele fica aqui.
+# Testes de tela (Playwright, só Chromium) a cada push na master. Plano gratuito do GitHub Actions.
+# Cobre: cadastro com código por e-mail, pop-up de renovação e Master › Avisos (tests/e2e/qualidade.spec.ts).
+# O servidor sobe com E2E_TEST_HOOKS=1 (e-mail em memória); isso nunca liga em produção.
+name: Teste de tela
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Versão do Playwright
+        id: pw
+        run: echo "v=$(node -p "require('@playwright/test/package.json').version")" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: pw-chromium-${{ runner.os }}-${{ steps.pw.outputs.v }}
+      - run: npx playwright install --with-deps chromium
+      - run: npm run typecheck
+      - run: npm run test:e2e:ci
+        env:
+          CI: 'true'
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-falhas
+          path: |
+            tests/e2e/.resultados/
+            tests/e2e/.relatorio/
+          retention-days: 7
