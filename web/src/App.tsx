@@ -13,6 +13,7 @@ import Contacts from './pages/Contacts';
 import Flows from './pages/Flows';
 import FlowEditor from './pages/FlowEditor';
 import Ai from './pages/Ai';
+import Products from './pages/Products';
 import Channels from './pages/Channels';
 import Integrations from './pages/Integrations';
 import Reports from './pages/Reports';
@@ -36,6 +37,7 @@ const NAV: { to: string; label: string; icon: string; roles?: Role[]; sep?: stri
   { to: '/contatos', module: 'contatos', label: 'Contatos', icon: '☺' },
   { to: '/fluxos', module: 'fluxos', label: 'Fluxos', icon: '⇄', sep: 'Automação' },
   { to: '/ia', module: 'ia', label: 'Inteligência artificial', icon: '✦' },
+  { to: '/produtos', module: 'ia', label: 'Produtos', icon: '▣' },
   { to: '/canais', module: 'canais', label: 'Canais WhatsApp', icon: '☏' },
   { to: '/integracoes', module: 'integracoes', label: 'Integrações', icon: '⚙', roles: ['OWNER', 'ADMIN'] },
   { to: '/relatorios', module: 'relatorios', label: 'Relatórios', icon: '▤', sep: 'Gestão' },
@@ -240,6 +242,7 @@ export default function App() {
             <Route path="/fluxos" element={<Flows />} />
             <Route path="/fluxos/:id" element={<FlowEditor />} />
             <Route path="/ia" element={<Ai />} />
+            <Route path="/produtos" element={<Products />} />
             <Route path="/canais" element={<Channels />} />
             <Route path="/integracoes" element={<Integrations />} />
             <Route path="/relatorios" element={<Reports />} />
