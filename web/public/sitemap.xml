@@ -1,12 +1,12 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-  <url><loc>https://mckbot.onrender.com/empresa/</loc></url>
-  <url><loc>https://mckbot.onrender.com/empresa/mckbot.html</loc></url>
-  <url><loc>https://mckbot.onrender.com/empresa/mck-mensagens.html</loc></url>
-  <url><loc>https://mckbot.onrender.com/empresa/planos.html</loc></url>
-  <url><loc>https://mckbot.onrender.com/empresa/novidades</loc></url>
-  <url><loc>https://mckbot.onrender.com/empresa/ajuda.html</loc></url>
-  <url><loc>https://mckbot.onrender.com/empresa/contato.html</loc></url>
-  <url><loc>https://mckbot.onrender.com/privacidade.html</loc></url>
-  <url><loc>https://mckbot.onrender.com/termos.html</loc></url>
+  <url><loc>https://mckbot.onrender.com/empresa/</loc><lastmod>2026-11-03</lastmod><changefreq>weekly</changefreq><priority>1.0</priority></url>
+  <url><loc>https://mckbot.onrender.com/empresa/mckbot.html</loc><lastmod>2026-11-03</lastmod><changefreq>monthly</changefreq><priority>0.9</priority></url>
+  <url><loc>https://mckbot.onrender.com/empresa/mck-mensagens.html</loc><lastmod>2026-11-03</lastmod><changefreq>monthly</changefreq><priority>0.9</priority></url>
+  <url><loc>https://mckbot.onrender.com/empresa/planos.html</loc><lastmod>2026-11-03</lastmod><changefreq>monthly</changefreq><priority>0.9</priority></url>
+  <url><loc>https://mckbot.onrender.com/empresa/novidades</loc><lastmod>2026-11-03</lastmod><changefreq>weekly</changefreq><priority>0.7</priority></url>
+  <url><loc>https://mckbot.onrender.com/empresa/ajuda.html</loc><lastmod>2026-11-03</lastmod><changefreq>monthly</changefreq><priority>0.7</priority></url>
+  <url><loc>https://mckbot.onrender.com/empresa/contato.html</loc><lastmod>2026-11-03</lastmod><changefreq>yearly</changefreq><priority>0.6</priority></url>
+  <url><loc>https://mckbot.onrender.com/privacidade.html</loc><lastmod>2026-10-29</lastmod><changefreq>yearly</changefreq><priority>0.3</priority></url>
+  <url><loc>https://mckbot.onrender.com/termos.html</loc><lastmod>2026-10-29</lastmod><changefreq>yearly</changefreq><priority>0.3</priority></url>
 </urlset>

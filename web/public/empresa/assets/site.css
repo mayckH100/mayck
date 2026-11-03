@@ -108,3 +108,12 @@ section.novidade{padding:56px 0 8px}
 .card.news{padding:0;overflow:hidden}.news-img{display:block;width:100%;max-height:460px;object-fit:cover}
 .news-body{padding:24px 26px}.news-body h2{font-size:24px;margin:8px 0 10px}.news-links{font-weight:700;margin:12px 0 0}
 .news-empty{text-align:center;color:var(--muted)}
+
+/* redes sociais no rodapé */
+footer.site .social{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+footer.site .social .sn{display:inline-flex;align-items:center;padding:9px 16px;border-radius:999px;font-weight:700;background:#24242b;color:#fff;margin:14px 0 0}
+/* botão flutuante de WhatsApp (só aparece com número configurado) */
+.wa-float{position:fixed;right:20px;bottom:20px;z-index:60;display:inline-flex;align-items:center;gap:8px;background:#25d366;color:#fff!important;padding:12px 18px 12px 14px;border-radius:999px;font-weight:700;font-size:15px;box-shadow:0 8px 24px rgba(0,0,0,.25);text-decoration:none!important;transition:transform .15s}
+.wa-float:hover{transform:translateY(-2px)}.wa-float:focus-visible{outline:3px solid #111;outline-offset:3px}
+@media (max-width:640px){.wa-float{padding:14px;right:16px;bottom:16px}.wa-float span{display:none}}
+@media print{.wa-float{display:none}}

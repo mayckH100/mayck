@@ -1,3 +1,27 @@
+// ---------- Botão flutuante de WhatsApp (todas as páginas /empresa) ----------
+// CONFIGURAÇÃO: número comercial da MCK DESENVOLVIMENTO, só dígitos com DDI 55 + DDD (ex.: '5511999999999').
+// Vazio = botão desligado. Se o número for cadastrado no Painel Master (Configurações > Site oficial > WhatsApp),
+// ele tem prioridade e o botão aparece sozinho, sem precisar editar este arquivo.
+var MCK_WHATSAPP_NUMERO = '';
+var MCK_WHATSAPP_TEXTO = 'Olá! Vim pelo site da MCK DESENVOLVIMENTO e quero saber mais sobre o MCKBOT e o MCK Mensagens.';
+window.MCK_WA_BUTTON = function (url) {
+  if (!/^https:\/\/wa\.me\/\d{10,15}$/.test(url || '')) return;
+  var href = url + '?text=' + encodeURIComponent(MCK_WHATSAPP_TEXTO);
+  var a = document.querySelector('a.wa-float');
+  if (!a) {
+    a = document.createElement('a');
+    a.className = 'wa-float';
+    a.target = '_blank';
+    a.rel = 'noopener';
+    a.setAttribute('aria-label', 'Falar com a MCK DESENVOLVIMENTO no WhatsApp');
+    a.title = 'Falar no WhatsApp';
+    a.innerHTML = '<svg viewBox="0 0 32 32" width="30" height="30" aria-hidden="true" focusable="false"><path fill="currentColor" d="M16 3C8.8 3 3 8.7 3 15.8c0 2.5.7 4.9 2 7L3 29l6.4-2c2 1.1 4.3 1.7 6.6 1.7 7.2 0 13-5.7 13-12.8S23.2 3 16 3zm0 23.4c-2.1 0-4.1-.6-5.9-1.7l-.4-.3-3.8 1.2 1.2-3.7-.3-.4a10.4 10.4 0 0 1-1.7-5.7C5.1 10 10 5.3 16 5.3S26.9 10 26.9 15.8 22 26.4 16 26.4zm6-7.8c-.3-.2-1.9-.9-2.2-1s-.5-.2-.7.2-.8 1-1 1.2-.4.2-.7.1a8.9 8.9 0 0 1-4.4-3.8c-.3-.6.3-.5.9-1.7.1-.2 0-.4 0-.5l-1-2.4c-.3-.6-.5-.5-.7-.5h-.6a1.2 1.2 0 0 0-.9.4 3.6 3.6 0 0 0-1.1 2.7c0 1.6 1.2 3.1 1.3 3.3s2.3 3.5 5.6 4.9c2.1.9 2.9 1 4 .8.6-.1 1.9-.8 2.2-1.5s.3-1.4.2-1.5-.3-.2-.6-.3z"/></svg><span>WhatsApp</span>';
+    document.body.appendChild(a);
+  }
+  a.href = href;
+};
+if (/^\d{12,13}$/.test(MCK_WHATSAPP_NUMERO)) window.MCK_WA_BUTTON('https://wa.me/' + MCK_WHATSAPP_NUMERO);
+
 (function () {
   var h = document.querySelector('header.site'), b = document.querySelector('.menu-btn');
   if (h && b) b.addEventListener('click', function () { h.classList.toggle('open'); });
@@ -56,6 +80,7 @@
     var fb = typeof s.facebookUrl === 'string' && /^https:\/\/(www\.|m\.)?(facebook|fb)\.com\//i.test(s.facebookUrl) ? s.facebookUrl : '';
     if (fb && fb !== DEF_FB) document.querySelectorAll('a[href^="https://www.facebook.com/profile.php"]').forEach(function (a) { a.setAttribute('href', fb); });
     if (s.whatsappUrl && /^https:\/\/wa\.me\/\d{10,15}$/.test(s.whatsappUrl)) {
+      if (window.MCK_WA_BUTTON) window.MCK_WA_BUTTON(s.whatsappUrl);
       var strip = document.querySelector('.strip .wrap > span:last-child');
       if (strip && !strip.querySelector('.wa')) strip.insertAdjacentHTML('beforeend', ' <span class="hide-sm">·</span> <a class="wa" href="' + esc(s.whatsappUrl) + '" target="_blank" rel="noopener">WhatsApp</a>');
       var cc = document.querySelector('.contact-card');

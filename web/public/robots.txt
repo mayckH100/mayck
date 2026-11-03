@@ -1,5 +1,8 @@
 User-agent: *
 Allow: /
+# APIs privadas fora do índice; as públicas ficam liberadas para o Google renderizar preços e novidades do site /empresa.
+Allow: /api/public/
+Allow: /api/novidades
 Disallow: /api/
 
 Sitemap: https://mckbot.onrender.com/sitemap.xml
