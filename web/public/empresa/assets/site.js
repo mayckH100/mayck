@@ -2,7 +2,7 @@
 // CONFIGURAÇÃO: número comercial da MCK DESENVOLVIMENTO, só dígitos com DDI 55 + DDD (ex.: '5511999999999').
 // Vazio = botão desligado. Se o número for cadastrado no Painel Master (Configurações > Site oficial > WhatsApp),
 // ele tem prioridade e o botão aparece sozinho, sem precisar editar este arquivo.
-var MCK_WHATSAPP_NUMERO = '';
+var MCK_WHATSAPP_NUMERO = '5511993195300';
 var MCK_WHATSAPP_TEXTO = 'Olá! Vim pelo site da MCK DESENVOLVIMENTO e quero saber mais sobre o MCKBOT e o MCK Mensagens.';
 window.MCK_WA_BUTTON = function (url) {
   if (!/^https:\/\/wa\.me\/\d{10,15}$/.test(url || '')) return;
