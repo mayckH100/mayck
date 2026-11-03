@@ -1239,3 +1239,27 @@ model SocialPost {
 
   @@index([status, publishedAt])
 }
+
+/// Produtos (catálogo do cliente): a IA usa para responder preço, disponibilidade e detalhes.
+/// Preços em centavos (R$). stock: disponivel | sob_encomenda | esgotado.
+model Product {
+  id          String   @id @default(cuid())
+  orgId       String
+  name        String
+  category    String?
+  priceCents  Int?
+  promoCents  Int?
+  description String   @default("")
+  /// Detalhes livres: cor, tamanho, ano, km, garantia...
+  details     String   @default("")
+  stock       String   @default("disponivel")
+  quantity    Int?
+  link        String?
+  imageUrl    String?
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([orgId, active])
+  @@index([orgId, name])
+}
