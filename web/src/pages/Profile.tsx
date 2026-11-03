@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { patch } from '../api';
 import { useAuth } from '../auth';
 import { useAction, Field } from '../ui';
-import { SecuritySection, PasswordCard } from './Security';
+import { SecuritySection, PasswordCard, RenewalRemindersCard } from './Security';
 
 export default function Profile() {
   const { me, refresh, can } = useAuth();
@@ -22,6 +22,7 @@ export default function Profile() {
           <button className="btn primary" disabled={busy}>Salvar dados</button>
         </form>
         <PasswordCard app="mckbot" />
+        <RenewalRemindersCard />
         {can('OWNER', 'ADMIN') && (
           <form className="card stack" onSubmit={async (e) => { e.preventDefault(); if (await run(() => patch('/org', org), 'Organização atualizada')) refresh(); }}>
             <h2>Organização</h2>

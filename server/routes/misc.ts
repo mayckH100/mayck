@@ -35,6 +35,14 @@ profileRouter.patch('/', ah(async (req, res) => {
   res.json({ id: u.id, name: u.name, email: u.email, phone: u.phone });
 }));
 
+// Lembrete de vencimento por e-mail (titular): ligado por padrão; aqui o usuário liga/desliga.
+profileRouter.put('/reminders', ah(async (req, res) => {
+  const { enabled } = z.object({ enabled: z.boolean() }).parse(req.body);
+  await prisma.user.update({ where: { id: req.auth!.userId }, data: { renewalReminders: enabled } });
+  await audit(req, 'profile.renewal_reminders', { meta: { enabled } });
+  res.json({ renewalReminders: enabled });
+}));
+
 profileRouter.post('/password', passwordLimiter, ah(async (req, res) => {
   const body = z.object({ current: z.string().min(1).max(200), next: z.string().min(8, 'A nova senha precisa ter pelo menos 8 caracteres').max(200) }).parse(req.body);
   const u = await prisma.user.findUniqueOrThrow({ where: { id: req.auth!.userId } });

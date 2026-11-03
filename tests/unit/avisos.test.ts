@@ -86,8 +86,8 @@ describe('avisos: regras do navegador', () => {
 describe('avisos: migração', () => {
   const dirs = readdirSync('prisma/migrations').filter((d) => /^\d{4}_/.test(d)).sort();
   const sql = readFileSync('prisma/migrations/0030_avisos/migration.sql', 'utf8');
-  it('é a mais nova e só aditiva', () => {
-    expect(dirs[dirs.length - 1]).toBe('0030_avisos');
+  it('existe e é só aditiva', () => {
+    expect(dirs).toContain('0030_avisos');
     const code = sql.split('\n').filter((l) => !l.trim().startsWith('--')).join('\n');
     expect(code).not.toMatch(/\b(DROP|DELETE|UPDATE|TRUNCATE|RENAME)\b/i);
     expect(code).not.toMatch(/ALTER\s+TABLE/i);

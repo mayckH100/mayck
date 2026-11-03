@@ -36,7 +36,7 @@ interface Settings {
 }
 
 const TABS = [
-  ['geral', 'Visão geral'], ['clientes', 'Clientes'], ['pagamentos', 'Pagamentos'], ['atividades', 'Atividades'], ['avisos', 'Avisos'], ['configuracoes', 'Configurações'],
+  ['geral', 'Visão geral'], ['clientes', 'Clientes'], ['vencimentos', 'Vencimentos'], ['pagamentos', 'Pagamentos'], ['atividades', 'Atividades'], ['avisos', 'Avisos'], ['configuracoes', 'Configurações'],
 ] as const;
 type Tab = (typeof TABS)[number][0];
 
@@ -54,6 +54,8 @@ const ACTION_LABEL: Record<string, string> = {
   'auth.login_locked': 'Tentativa com conta bloqueada', 'auth.session_revoked': 'Sessão encerrada', 'auth.sessions_revoked': 'Sessões encerradas',
   'master.announcement.create': 'Master: aviso criado', 'master.announcement.update': 'Master: aviso editado', 'master.announcement.image': 'Master: imagem do aviso enviada',
   'master.announcement.activate': 'Master: aviso ativado', 'master.announcement.deactivate': 'Master: aviso desativado', 'master.announcement.delete': 'Master: aviso excluído',
+  'billing.renewal_reminder.sent': 'Lembrete de vencimento enviado (e-mail)', 'billing.renewal_reminder.failed': 'Lembrete de vencimento falhou',
+  'profile.renewal_reminders': 'Lembretes de vencimento alterados',
   'backup.success': 'Backup do banco concluído', 'backup.failed': 'Backup do banco falhou', 'backup.download': 'Backup baixado pelo Master',
 };
 const actionLabel = (a: string) => ACTION_LABEL[a] ?? a;
@@ -900,6 +902,68 @@ function AnnouncementsSection() {
   );
 }
 
+interface RenewalItem { orgId: string; orgName: string | null; ownerName: string | null; ownerEmail: string | null; phone: string | null; product: string; status: SubStatus; validUntil: string; whatsappUrl: string | null }
+interface RenewalCounts { ativas: number; emTeste: number; vencendo7d: number; vencidas: number; bloqueadas: number }
+interface RenewalsData { generatedAt: string; counts: Record<string, RenewalCounts>; expiringThisWeek: RenewalItem[]; expiredLast7Days: RenewalItem[] }
+const PRODUCT_NAME: Record<string, string> = { MCKBOT: 'MCKBOT', MCKMENSAGEM: 'MCK Mensagens' };
+
+function RenewalTable({ items, empty }: { items: RenewalItem[]; empty: string }) {
+  if (!items.length) return <p className="muted small">{empty}</p>;
+  return (
+    <div className="table-wrap">
+      <table>
+        <thead><tr><th>Organização</th><th>E-mail do titular</th><th>Telefone</th><th>Produto</th><th>Status</th><th>Data</th><th>Contato</th></tr></thead>
+        <tbody>{items.map((r) => (
+          <tr key={`${r.orgId}-${r.product}`}>
+            <td><Link to={`/master/clientes/${r.orgId}`}>{r.orgName ?? r.orgId}</Link></td>
+            <td>{r.ownerEmail ?? '—'}</td>
+            <td>{r.phone ?? '—'}</td>
+            <td>{PRODUCT_NAME[r.product] ?? r.product}</td>
+            <td><SubBadge status={r.status} /></td>
+            <td>{fmtDay(r.validUntil)} <span className="small muted">({(() => { const n = daysLeft(r.validUntil); return n > 0 ? `em ${n} d` : n === 0 ? 'hoje' : `há ${-n} d`; })()})</span></td>
+            <td>{r.whatsappUrl ? <a className="btn sm" href={r.whatsappUrl} target="_blank" rel="noopener noreferrer">WhatsApp</a> : <span className="small muted">sem telefone</span>}</td>
+          </tr>
+        ))}</tbody>
+      </table>
+    </div>
+  );
+}
+
+function Renewals() {
+  const state = useApi<RenewalsData>('/master/renewals');
+  return (
+    <Async state={state}>{(d) => (
+      <div className="stack">
+        <div className="grid g2">
+          {PRODUCTS.map((p) => {
+            const c = d.counts[p] ?? { ativas: 0, emTeste: 0, vencendo7d: 0, vencidas: 0, bloqueadas: 0 };
+            return (
+              <div key={p} className="card">
+                <h2>{PRODUCT_NAME[p] ?? p}</h2>
+                <div className="grid g4" style={{ gap: 8 }}>
+                  <Stat label="Ativas" value={fmtNum(c.ativas)} />
+                  <Stat label="Em teste" value={fmtNum(c.emTeste)} />
+                  <Stat label="Vencendo em 7 dias" value={fmtNum(c.vencendo7d)} />
+                  <Stat label="Vencidas" value={fmtNum(c.vencidas)} />
+                  <Stat label="Bloqueadas" value={fmtNum(c.bloqueadas)} />
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        <div className="card">
+          <div className="row between"><h2 style={{ margin: 0 }}>Vencendo esta semana (próximos 7 dias)</h2><button className="btn sm" onClick={state.reload}>Atualizar</button></div>
+          <RenewalTable items={d.expiringThisWeek} empty="Nenhuma assinatura vence nos próximos 7 dias." />
+        </div>
+        <div className="card">
+          <h2>Venceram nos últimos 7 dias</h2>
+          <RenewalTable items={d.expiredLast7Days} empty="Nenhuma assinatura venceu nos últimos 7 dias." />
+        </div>
+      </div>
+    )}</Async>
+  );
+}
+
 function SettingsTab() {
   return (
     <div className="stack">
@@ -949,6 +1013,7 @@ export default function Master() {
           </div>
           {tab === 'geral' && <Overview />}
           {tab === 'clientes' && <Clients />}
+          {tab === 'vencimentos' && <Renewals />}
           {tab === 'pagamentos' && <Payments />}
           {tab === 'atividades' && <Activity />}
           {tab === 'avisos' && <AnnouncementsSection />}

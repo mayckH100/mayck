@@ -34,6 +34,8 @@ model User {
   /// Bloqueio temporário após senhas/códigos errados seguidos.
   failedLogins    Int           @default(0)
   lockedUntil     DateTime?
+  /// Lembrete por e-mail 3 dias e 1 dia antes de vencer o teste/plano (titular pode desligar no Perfil).
+  renewalReminders Boolean      @default(true)
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
   memberships     Membership[]
@@ -595,6 +597,26 @@ model BillingEvent {
   createdAt      DateTime  @default(now())
 
   @@index([orgId, createdAt])
+}
+
+/// Lembrete "seu plano vence em X dias": uma linha por (organização, produto, aviso D3/D1, vencimento).
+/// A chave única impede enviar o mesmo lembrete duas vezes; renovar muda o vencimento e libera novos avisos.
+model RenewalReminder {
+  id         String    @id @default(cuid())
+  orgId      String
+  product    String // MCKBOT | MCKMENSAGEM
+  kind       String // D3 | D1
+  validUntil DateTime
+  status     String    @default("ENVIANDO") // ENVIANDO | ENVIADO | FALHOU
+  channel    String    @default("EMAIL")
+  attempts   Int       @default(0)
+  lastError  String?
+  sentAt     DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@unique([orgId, product, kind, validUntil])
+  @@index([status, updatedAt])
 }
 
 model PlatformSettings {

@@ -11,6 +11,7 @@ import { syncSuperAdmins } from './auth/superadmin.js';
 import { maybeDailyBackup, backupAutoEnabled } from './lib/backup.js';
 import { tickAgendaReminders } from './agenda/service.js';
 import { tickHandoffAlerts } from './whatsapp/handoffAlerts.js';
+import { tickRenewalReminders } from './billing/reminders.js';
 
 const app = createApp();
 const server = app.listen(config.PORT, () => {
@@ -41,6 +42,15 @@ if (config.ENABLE_SCHEDULER === 'true') {
     handoffRunning = true;
     tickHandoffAlerts().catch((e) => console.error('[aguardando]', e)).finally(() => { handoffRunning = false; });
   }, 60_000).unref();
+  // Lembrete de vencimento (teste/plano) por e-mail ao titular, N dias antes; fora do horário 21h–8h (a cada 15 min).
+  let reminderRunning = false;
+  const reminderTick = () => {
+    if (reminderRunning) return;
+    reminderRunning = true;
+    tickRenewalReminders().catch((e) => console.error('[lembrete-vencimento]', e)).finally(() => { reminderRunning = false; });
+  };
+  setTimeout(reminderTick, 3 * 60_000).unref();
+  setInterval(reminderTick, 15 * 60_000).unref();
   setInterval(() => {
     prisma.session.deleteMany({ where: { expiresAt: { lt: new Date() } } }).catch(() => undefined);
   }, 3600e3).unref();

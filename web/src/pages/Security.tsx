@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react';
-import { del, post } from '../api';
+import { del, post, put } from '../api';
 import { useAuth, type Me } from '../auth';
 import { Field, useApi, Async, fmtDate, useToast, useAction } from '../ui';
 
@@ -227,11 +227,29 @@ export function SecuritySection() {
 }
 
 /** Página "Segurança" (MCK Mensagens). */
+/** Lembrete por e-mail antes de vencer o teste/plano (vale para MCKBOT e MCK Mensagens). Padrão: ligado. */
+export function RenewalRemindersCard() {
+  const { me, refresh } = useAuth();
+  const { busy, run } = useAction();
+  const on = me?.user.renewalReminders !== false;
+  const toggle = async () => { if (await run(() => put('/profile/reminders', { enabled: !on }), on ? 'Lembretes desligados' : 'Lembretes ligados')) await refresh(); };
+  return (
+    <div className="card stack">
+      <h2>Lembretes de vencimento</h2>
+      <p className="small muted" style={{ margin: 0 }}>Se você é o titular, recebe um e-mail alguns dias antes de terminar o teste grátis ou o plano do MCKBOT e do MCK Mensagens, com o link para renovar. Nunca enviamos entre 21h e 8h.</p>
+      <label className="row" style={{ gap: 8, alignItems: 'center' }}>
+        <input type="checkbox" checked={on} disabled={busy} onChange={toggle} aria-label="Receber lembretes de vencimento" />
+        <span>{on ? 'Ligado: quero receber os lembretes' : 'Desligado: não quero receber'}</span>
+      </label>
+    </div>
+  );
+}
+
 export default function SecurityPage() {
   return (
     <>
       <div className="page-head"><div><h1>Segurança da conta</h1><p className="muted">Senha, verificação em duas etapas e sessões abertas. Vale para MCKBOT e MCK Mensagens (mesma conta).</p></div></div>
-      <div className="grid g2"><PasswordCard app="mensagem" /></div>
+      <div className="grid g2"><PasswordCard app="mensagem" /><RenewalRemindersCard /></div>
       <SecuritySection />
     </>
   );

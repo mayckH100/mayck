@@ -19,6 +19,8 @@ const schema = z.object({
   ENABLE_WHATSAPP_QR: z.enum(['true', 'false']).default('true'),
   ENABLE_MCKMENSAGEM_CRON: z.enum(['true', 'false']).default('true'),
   FLOW_MAX_STEPS: z.coerce.number().default(50),
+  /** Lembrete de vencimento: quantos dias antes do fim do teste/plano o titular recebe o aviso (1 a 30). */
+  RENEWAL_REMINDER_DAYS: z.coerce.number().int().min(1).max(30).default(5),
 });
 
 export type Config = z.infer<typeof schema>;

@@ -109,6 +109,69 @@ masterRouter.get('/dashboard', ah(async (_req, res) => {
   });
 }));
 
+// ---------- Vencimentos (números por produto + listas para contato rápido) ----------
+const WEEK = 7 * 24 * 60 * 60 * 1000;
+const PRODUCT_NAME: Record<Product, string> = { MCKBOT: 'MCKBOT', MCKMENSAGEM: 'MCK Mensagens' };
+/** Link wa.me com mensagem pronta; telefone BR sem DDI recebe 55. */
+export function waLink(phone: string | null | undefined, text: string): string | null {
+  let d = String(phone ?? '').replace(/\D/g, '');
+  if (!d) return null;
+  if (d.length === 10 || d.length === 11) d = `55${d}`;
+  if (d.length < 12 || d.length > 13) return null;
+  return `https://wa.me/${d}?text=${encodeURIComponent(text)}`;
+}
+const dayBR = (d: Date) => new Intl.DateTimeFormat('pt-BR', { timeZone: TZ, day: '2-digit', month: '2-digit', year: 'numeric' }).format(d);
+
+masterRouter.get('/renewals', ah(async (_req, res) => {
+  const now = new Date();
+  await ensureSubs((await prisma.organization.findMany({ select: { id: true } })).map((o) => o.id));
+  const subs = await prisma.subscription.findMany({ where: { product: { in: [...PRODUCTS] } } });
+  const empty = () => ({ ativas: 0, emTeste: 0, vencendo7d: 0, vencidas: 0, bloqueadas: 0 });
+  const counts = Object.fromEntries(PRODUCTS.map((p) => [p, empty()])) as Record<Product, ReturnType<typeof empty>>;
+  const soon: typeof subs = [];
+  const recent: typeof subs = [];
+  for (const s of subs) {
+    const st = effectiveStatus(s, now);
+    const c = counts[s.product as Product];
+    if (st === 'ATIVA') c.ativas++;
+    else if (st === 'TRIAL') c.emTeste++;
+    else if (st === 'VENCIDA') c.vencidas++;
+    else c.bloqueadas++;
+    const t = s.validUntil.getTime();
+    if ((st === 'ATIVA' || st === 'TRIAL') && t <= now.getTime() + WEEK) { c.vencendo7d++; soon.push(s); }
+    if (t <= now.getTime() && t >= now.getTime() - WEEK) recent.push(s);
+  }
+  soon.sort((a, b) => a.validUntil.getTime() - b.validUntil.getTime());
+  recent.sort((a, b) => b.validUntil.getTime() - a.validUntil.getTime());
+  const orgIds = [...new Set([...soon, ...recent].map((s) => s.orgId))];
+  const [orgs, owners] = await Promise.all([
+    prisma.organization.findMany({ where: { id: { in: orgIds } }, select: { id: true, name: true } }),
+    prisma.membership.findMany({ where: { orgId: { in: orgIds }, role: 'OWNER' }, orderBy: { createdAt: 'asc' }, include: { user: { select: { name: true, email: true, celular: true, phone: true } } } }),
+  ]);
+  const orgName = new Map(orgs.map((o) => [o.id, o.name]));
+  const ownerOfOrg = new Map<string, (typeof owners)[number]['user']>();
+  for (const m of owners) if (!ownerOfOrg.has(m.orgId)) ownerOfOrg.set(m.orgId, m.user);
+  const item = (s: (typeof subs)[number], past: boolean) => {
+    const o = ownerOfOrg.get(s.orgId);
+    const phone = o?.celular ?? o?.phone ?? null;
+    const prod = PRODUCT_NAME[s.product as Product];
+    const status = effectiveStatus(s, now);
+    const text = past
+      ? `Olá${o?.name ? `, ${o.name.split(' ')[0]}` : ''}! Aqui é da MCK Desenvolvimento. Vimos que o ${prod} da ${orgName.get(s.orgId) ?? 'sua empresa'} venceu em ${dayBR(s.validUntil)}. Podemos ajudar a renovar?`
+      : `Olá${o?.name ? `, ${o.name.split(' ')[0]}` : ''}! Aqui é da MCK Desenvolvimento. O ${status === 'TRIAL' ? 'teste grátis' : 'plano'} do ${prod} da ${orgName.get(s.orgId) ?? 'sua empresa'} vence em ${dayBR(s.validUntil)}. Podemos ajudar a renovar?`;
+    return {
+      orgId: s.orgId, orgName: orgName.get(s.orgId) ?? null, ownerName: o?.name ?? null, ownerEmail: o?.email ?? null, phone,
+      product: s.product, status, validUntil: s.validUntil.toISOString(), whatsappUrl: waLink(phone, text),
+    };
+  };
+  res.json({
+    generatedAt: now.toISOString(),
+    counts,
+    expiringThisWeek: soon.slice(0, 200).map((s) => item(s, false)),
+    expiredLast7Days: recent.slice(0, 200).map((s) => item(s, true)),
+  });
+}));
+
 // ---------- Clientes ----------
 async function ownerOf(orgId: string) {
   const m = await prisma.membership.findFirst({ where: { orgId, role: 'OWNER' }, orderBy: { createdAt: 'asc' }, include: { user: true } });

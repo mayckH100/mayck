@@ -274,3 +274,23 @@ export function accountExistsMail(o: { to: string; name: string; app: AppBrand; 
   'Se não foi você, pode ignorar esta mensagem: nenhuma conta nova foi criada e sua senha continua a mesma.');
   return { to: o.to, subject: `Você já tem uma conta no ${b.name}`, html, text, kind: 'signup_account_exists' };
 }
+
+/**
+ * Lembrete "seu teste/plano vence em X dias" (sem dados pessoais além do nome do titular e da organização,
+ * que vão só no corpo do e-mail, nunca em log).
+ */
+export function renewalReminderMail(o: {
+  to: string; name: string; orgName: string; app: AppBrand; trial: boolean; whenLabel: string; dateLabel: string; renewUrl: string; profileUrl: string;
+}): MailMessage {
+  const b = BRANDS[o.app];
+  const what = o.trial ? 'O período de teste grátis' : 'O plano';
+  const title = o.trial ? `Seu teste grátis do ${b.name} termina ${o.whenLabel}` : `Seu plano do ${b.name} vence ${o.whenLabel}`;
+  const impact = o.app === 'mensagem' ? 'as campanhas e automações' : 'os robôs, fluxos e o atendimento automático';
+  const { html, text } = layout(o.app, undefined, title, [
+    `Olá, ${esc(o.name)}!`,
+    `${what} do <strong>${b.name}</strong> da organização <strong>${esc(o.orgName)}</strong> vale até <strong>${esc(o.dateLabel)}</strong> (horário de Brasília).`,
+    `Depois dessa data o acesso é cortado na hora e ${impact} param. Para não ficar sem, renove pelo botão abaixo.`,
+  ], { label: 'Renovar agora', url: o.renewUrl },
+  `Não quer mais receber estes lembretes? Desligue em Perfil → Lembretes de vencimento: ${esc(o.profileUrl)}`);
+  return { to: o.to, subject: title, html, text, kind: 'renewal_reminder' };
+}
