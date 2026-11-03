@@ -23,6 +23,8 @@ Formato de cada atualização: data, quem fez, o que foi feito, o que foi passad
 - Canais gratuitos criados: Instagram @mckdesenvolvimento, YouTube @mckdesenvolvimento, LinkedIn /company/mckdesenvolvimento, Perfil da Empresa no Google (aguardando verificação por vídeo), Bing Places (aguardando carta).
 - Plano de marketing orgânico de 90 dias.
 
+- 2026-11-02 (Hark): conta grátis da Brevo criada no e-mail da empresa; BREVO_API_KEY, MAIL_FROM e BACKUP_EMAIL configurados no Render. Backup por e-mail funcionando (commit 980de4f: o .bkp vai dentro de .zip, porque a API do Brevo recusa a extensão .bkp). Primeiro backup OK em 2026-11-02 22:12.
+
 ### Dificuldades
 - Verificação do Google só por vídeo gravado ao vivo no app.
 - TikTok só pode ser concluído no app do celular.
@@ -30,12 +32,12 @@ Formato de cada atualização: data, quem fez, o que foi feito, o que foi passad
 - Conector do GitHub no Hark bloqueado (chamado aberto).
 
 ### Falta fazer
-- Configurar no Render: BREVO_API_KEY, MAIL_FROM (remetente verificado) e BACKUP_EMAIL; depois rodar backup em Painel Master > Backups.
 - Verificar o Perfil do Google (vídeo) e concluir o TikTok.
 - Instagram: link do site e categoria.
 - Alerta quando o WhatsApp desconectar; avaliar tornar o repositório privado.
 - Posts: nenhum publicado; todos precisam de aprovação.
 
 ### O que melhorar
+- E-mails da Brevo saem com remetente Gmail (IP compartilhado, DKIM padrão): podem cair em Promoções/spam. Um domínio próprio resolveria.
 - Repositório público: considerar torná-lo privado.
 - Manter esta ATA curta e atual (estado, não histórico).
