@@ -121,15 +121,16 @@ describe('Novidades — Meta/Instagram', () => {
   it('imagem: cria o contêiner com image_url + legenda e publica', async () => {
     handlers.push((url, init) => {
       if (url.endsWith('/media') && init.method === 'POST') return json({ id: 'CONT1' });
+      if (url.includes('/CONT1?')) return json({ status_code: 'FINISHED' });
       if (url.endsWith('/media_publish')) return json({ id: 'MEDIA1' });
       if (url.includes('/MEDIA1?')) return json({ permalink: 'https://www.instagram.com/p/abc/' });
       return undefined;
     });
-    const r = await publishInstagram(igAcc, { title: 'Título', body: 'Texto', mediaUrl: 'https://cdn.exemplo.dev/a.jpg', mediaType: 'image' });
+    const r = await publishInstagram(igAcc, { title: 'Título', body: 'Texto', mediaUrl: 'https://cdn.exemplo.dev/a.jpg', mediaType: 'image' }, { pollIntervalMs: 0 });
     expect(r).toEqual({ id: 'MEDIA1', url: 'https://www.instagram.com/p/abc/' });
     expect(calls[0].url).toBe('https://graph.facebook.com/v21.0/17841400000000000/media');
     expect(calls[0].body).toMatchObject({ image_url: 'https://cdn.exemplo.dev/a.jpg', caption: 'Título\n\nTexto', access_token: 'PAGE_TOKEN' });
-    expect(calls[1].body).toMatchObject({ creation_id: 'CONT1' });
+    expect(calls[2].body).toMatchObject({ creation_id: 'CONT1' }); // calls[1] = espera do contêiner (FINISHED)
   });
 
   it('vídeo: publica como REELS e espera o processamento (status FINISHED)', async () => {
