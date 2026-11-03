@@ -279,3 +279,20 @@ describe('Agendador econômico', () => {
     expect(sentTexts()).toEqual(['Voltei!']);
   });
 });
+
+describe('Gatilho "Primeira mensagem" sem palavra-chave', () => {
+  it('dispara com qualquer texto mesmo se o gatilho guardou "oi" de quando era palavra-chave', async () => {
+    installGraphMock();
+    const owner = await registerClient();
+    const ctx = await createTestChannel(owner.me.org.id);
+    const f = await owner.post('/api/flows', { name: 'Boas-vindas oi', graph: {
+      nodes: [N('s', 'start', { triggers: [{ type: 'first_message', value: 'oi', match: 'equals' }] }), N('m', 'menu', { text: 'Escolha:', options: [{ id: 'a', label: 'Suporte' }] })],
+      edges: [E('s', 'm')],
+    } });
+    const a = await owner.post(`/api/flows/${f.body.id}/status`, { status: 'ACTIVE' });
+    expect(a.status, JSON.stringify(a.body)).toBe(200);
+    graph.reset();
+    await sendInbound(ctx, '5511955553333', 'bom dia, quero informações');
+    expect(sentTexts().join('\n')).toContain('Escolha:');
+  });
+});

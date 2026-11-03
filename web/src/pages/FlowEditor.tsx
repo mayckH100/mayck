@@ -1,12 +1,13 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
-  ReactFlow, Background, Controls, Handle, Position, applyNodeChanges, applyEdgeChanges, useUpdateNodeInternals,
+  ReactFlow, Background, Controls, ControlButton, Handle, Position, applyNodeChanges, applyEdgeChanges, useUpdateNodeInternals,
   type Node, type Edge, type ReactFlowInstance, type NodeChange, type EdgeChange, type Connection, type NodeProps,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { get, post, put } from '../api';
 import { menuOutputs, handleLayout, edgeTarget, setOutputEdge, newOptionId, menuHandleId, INVALID_HANDLE } from '../../../server/flows/handles';
+import { TRIGGER_LABEL, panelInsets, fitOptions, INITIAL_FIT_OPTIONS, centerTarget, panByKey, findStartId, gotoTargets, changeTriggerType, triggersSummary, MIN_ZOOM, type Insets } from '../lib/flowCamera';
 import { useAuth } from '../auth';
 import { useAction, Loading, ErrorBox, StatusBadge, Modal, fmtDate, Field, useApi, useToast, copy } from '../ui';
 
@@ -27,11 +28,9 @@ const META: Record<NodeType, { label: string; color: string; outs: (d: any) => {
   end: { label: 'Encerrar', color: '#334155', outs: () => [], defaults: () => ({ message: '', closeConversation: false }) },
 };
 
-const TRIGGER_LABEL: Record<string, string> = { message: 'Mensagem recebida', keyword: 'Palavra-chave', first_message: 'Primeira mensagem', schedule: 'Horário' };
-
 function summary(type: NodeType, d: any): string {
   switch (type) {
-    case 'start': return (d.triggers ?? []).map((t: any) => `${TRIGGER_LABEL[t.type]}${t.value ? `: ${t.value}` : ''}${t.type === 'schedule' ? ` ${t.start ?? ''}–${t.end ?? ''}` : ''}`).join(' · ') || 'Sem gatilho';
+    case 'start': return triggersSummary(d.triggers);
     case 'send_text': return d.text;
     case 'send_media': return `${d.mediaType}: ${d.url || '(sem URL)'}`;
     case 'menu': return `${d.text} (${(d.options ?? []).map((o: any) => o.label).join(', ')})`;
@@ -98,6 +97,9 @@ export default function FlowEditor() {
   const [modal, setModal] = useState<'versions' | 'runs' | null>(null);
   const { busy, run } = useAction();
   const [rf, setRf] = useState<ReactFlowInstance | null>(null);
+  const canvasRef = useRef<HTMLDivElement>(null);
+  const paletteRef = useRef<HTMLDivElement>(null);
+  const propsRef = useRef<HTMLDivElement>(null);
 
   const load = useCallback(async () => {
     try {
@@ -134,16 +136,57 @@ export default function FlowEditor() {
     setDirty(true);
   }, []);
 
+  /** Área do canvas coberta por painéis (paleta/propriedades), medida na hora. */
+  const insets = useCallback((): Insets => {
+    const c = canvasRef.current?.getBoundingClientRect();
+    if (!c) return { left: 0, right: 0, top: 0, bottom: 0 };
+    return panelInsets(c, paletteRef.current?.getBoundingClientRect(), propsRef.current?.getBoundingClientRect());
+  }, []);
+  /** Enquadra todos os blocos sem deixar nenhum atrás de painel. Só roda quando chamado (botão ⤢ ou abertura). */
+  const fitAll = useCallback((duration = 200) => { rf?.fitView(fitOptions(insets(), duration)); }, [rf, insets]);
+  /** Centraliza a câmera num bloco mantendo o zoom atual (mínimo 0,6 para o bloco ficar legível). */
+  const focusNode = useCallback((nid: string, position?: { x: number; y: number }) => {
+    if (!rf) return;
+    const internal = rf.getInternalNode(nid);
+    const n = nodes.find((x) => x.id === nid);
+    const pos = position ?? internal?.internals.positionAbsolute ?? n?.position;
+    if (!pos) return;
+    const zoom = Math.max(rf.getZoom(), 0.6);
+    const c = centerTarget({ position: pos, width: internal?.measured.width, height: internal?.measured.height }, insets(), zoom);
+    rf.setCenter(c.x, c.y, { zoom, duration: 250 });
+  }, [rf, nodes, insets]);
+  /** Botão "Início / Gatilho": seleciona o Início, centraliza nele e abre as propriedades. */
+  const goToStart = () => {
+    const sid = findStartId(nodes);
+    if (!sid) { if (!readOnly) addNode('start'); else toast('Este fluxo não tem bloco Início', 'err'); return; }
+    setNodes((ns) => ns.map((n) => ({ ...n, selected: n.id === sid })));
+    setSelected(sid);
+    focusNode(sid);
+  };
   const addNode = (type: NodeType) => {
-    if (type === 'start' && nodes.some((n) => n.type === 'start')) { toast('O fluxo já tem um bloco Início', 'err'); return; }
+    if (type === 'start') {
+      const sid = findStartId(nodes);
+      // Já existe um Início (o editor aceita só um): seleciona e centraliza o existente.
+      if (sid) { setNodes((ns) => ns.map((n) => ({ ...n, selected: n.id === sid }))); setSelected(sid); focusNode(sid); return; }
+    }
     const nid = `${type}-${uid()}`;
-    // Posiciona ao lado do bloco selecionado (ou do último) e enquadra a visão para o novo bloco ficar visível.
+    // Posiciona ao lado do bloco selecionado (ou do último) e leva a câmera até ele, sem mudar o zoom
+    // (antes um fitView a cada bloco novo puxava a visão de volta para o zoom mínimo).
     const ref = nodes.find((n) => n.id === selected) ?? nodes[nodes.length - 1];
     const position = ref ? { x: ref.position.x + 280, y: ref.position.y + 40 } : { x: 40, y: 80 };
     setNodes((ns) => [...ns.map((n) => ({ ...n, selected: false })), { id: nid, type, position, selected: true, data: META[type].defaults() }]);
     setSelected(nid);
     setDirty(true);
-    setTimeout(() => rf?.fitView({ padding: 0.2, duration: 200, maxZoom: 1 }), 30);
+    focusNode(nid, position);
+  };
+  /** Setas do teclado movem a câmera (quando o foco não está num campo nem num bloco). */
+  const onCanvasKey = (e: React.KeyboardEvent) => {
+    const el = e.target as HTMLElement;
+    if (!rf || el.closest('input, textarea, select, [contenteditable="true"], .react-flow__node')) return;
+    const next = panByKey(e.key, rf.getViewport(), e.shiftKey ? 240 : 80);
+    if (!next) return;
+    e.preventDefault();
+    rf.setViewport(next, { duration: 120 });
   };
   const updateData = (nid: string, patchData: any) => {
     setNodes((ns) => ns.map((n) => (n.id === nid ? { ...n, data: { ...n.data, ...patchData } } : n)));
@@ -161,7 +204,12 @@ export default function FlowEditor() {
     setDirty(true);
   };
   const graphPayload = () => ({
-    nodes: nodes.map((n) => ({ id: n.id, type: n.type, position: n.position, data: Object.fromEntries(Object.entries(n.data).filter(([k]) => !k.startsWith('__'))) })),
+    nodes: nodes.map((n) => {
+      const data: any = Object.fromEntries(Object.entries(n.data).filter(([k]) => !k.startsWith('__')));
+      // Gatilhos guardam só os campos do próprio tipo (ex.: "primeira mensagem" não leva palavra).
+      if (n.type === 'start' && Array.isArray(data.triggers)) data.triggers = data.triggers.map((t: any) => changeTriggerType(t, t.type));
+      return { id: n.id, type: n.type, position: n.position, data };
+    }),
     edges: edges.map((e) => ({ id: e.id, source: e.source, target: e.target, sourceHandle: e.sourceHandle ?? 'next' })),
   });
   const save = async () => {
@@ -187,6 +235,7 @@ export default function FlowEditor() {
           {dirty && <span className="badge amber">Alterações não salvas</span>}
         </div>
         <div className="row">
+          <button className="btn sm" data-testid="goto-start" title="Selecionar o bloco Início, centralizar e abrir o gatilho" onClick={goToStart}>Início / Gatilho</button>
           <button className="btn sm" onClick={() => setModal('runs')}>Execuções</button>
           <button className="btn sm" onClick={() => setModal('versions')}>Versões</button>
           {!readOnly && <>
@@ -197,20 +246,26 @@ export default function FlowEditor() {
       </div>
       {problems.length > 0 && <div className="alert warn" style={{ marginBottom: 10 }}><strong>Corrija antes de ativar:</strong> {problems.join(' · ')}</div>}
       <div className="editor">
-        <div className="palette">
+        <div className="palette" ref={paletteRef}>
           <div className="small muted" style={{ fontWeight: 700 }}>Blocos</div>
           {(Object.keys(META) as NodeType[]).map((t) => (
             <button key={t} className="btn sm" disabled={readOnly} onClick={() => addNode(t)} style={{ borderLeft: `4px solid ${META[t].color}`, justifyContent: 'flex-start' }}>{META[t].label}</button>
           ))}
           <p className="small muted" style={{ marginTop: 8 }}>Conecte as saídas (bolinhas) à entrada do próximo bloco. Condição: azul = sim, vermelho = não.</p>
         </div>
-        <div className="canvas" style={{ minHeight: 0 }}>
+        {/* tabIndex: o canvas recebe foco ao clicar e as setas movem a câmera. */}
+        <div className="canvas" ref={canvasRef} tabIndex={0} onKeyDown={onCanvasKey} aria-label="Área do fluxo (arraste o fundo ou use as setas para mover)">
           <ReactFlow nodes={viewNodes} edges={edges} nodeTypes={nodeTypes} onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} onConnect={onConnect}
-            onInit={setRf} onNodeClick={(_, n) => setSelected(n.id)} onPaneClick={() => setSelected(null)} fitView fitViewOptions={{ maxZoom: 1 }} nodesDraggable={!readOnly} nodesConnectable={!readOnly} elementsSelectable deleteKeyCode={readOnly ? null : ['Delete']}>
-            <Background /><Controls />
+            onInit={setRf} onNodeClick={(_, n) => setSelected(n.id)} onPaneClick={() => setSelected(null)}
+            fitView fitViewOptions={INITIAL_FIT_OPTIONS} minZoom={MIN_ZOOM} maxZoom={2} panOnDrag panOnScroll={false} zoomOnScroll
+            nodesDraggable={!readOnly} nodesConnectable={!readOnly} elementsSelectable deleteKeyCode={readOnly ? null : ['Delete']}>
+            <Background />
+            <Controls showFitView={false}>
+              <ControlButton onClick={() => fitAll()} title="Enquadrar todos os blocos" aria-label="Enquadrar todos os blocos">⤢</ControlButton>
+            </Controls>
           </ReactFlow>
         </div>
-        <div className="props">
+        <div className="props" ref={propsRef}>
           {!sel ? (
             <div className="stack">
               <h3>Propriedades</h3>
@@ -240,7 +295,7 @@ function nodeTitle(n: Node): string {
 /** "Ir para o bloco…": escolhe o destino de uma saída sem precisar arrastar. */
 function GoTo({ node, handle, nodes, edges, onSetOutput, label }: { node: Node; handle: string; nodes: Node[]; edges: Edge[]; onSetOutput: (h: string, target: string | null) => void; label?: string }) {
   const current = edgeTarget(edges, node.id, handle) ?? '';
-  const others = nodes.filter((n) => n.id !== node.id && n.type !== 'start');
+  const others = gotoTargets(nodes, node.id);
   return (
     <select aria-label={label ? `Ir para o bloco (${label})` : 'Ir para o bloco'} data-testid={`goto-${handle}`} value={current} onChange={(e) => onSetOutput(handle, e.target.value || null)} style={{ flex: 1, minWidth: 0 }}>
       <option value="">Ir para o bloco… (sem conexão)</option>
@@ -268,7 +323,7 @@ function NodeEditor({ node, nodes, edges, onSetOutput, onChange, onRemove, readO
         <>
           {list('triggers').map((tr, i) => (
             <div key={i} className="card stack" style={{ padding: 10 }}>
-              <select value={tr.type} onChange={(e) => setList('triggers', list('triggers').map((x, j) => (j === i ? { ...x, type: e.target.value } : x)))}>
+              <select aria-label={`Tipo do gatilho ${i + 1}`} value={tr.type} onChange={(e) => setList('triggers', list('triggers').map((x, j) => (j === i ? changeTriggerType(x, e.target.value) : x)))}>
                 {Object.entries(TRIGGER_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
               </select>
               {tr.type === 'keyword' && <>
@@ -283,11 +338,16 @@ function NodeEditor({ node, nodes, edges, onSetOutput, onChange, onRemove, readO
                   <label key={di} className="row"><input type="checkbox" checked={(tr.days ?? []).includes(di)} onChange={(e) => setList('triggers', list('triggers').map((x, j) => (j === i ? { ...x, days: e.target.checked ? [...(x.days ?? []), di] : (x.days ?? []).filter((y: number) => y !== di) } : x)))} />{n}</label>
                 ))}</div>
                 <p className="small muted">Dispara para mensagens recebidas dentro da janela (fuso da organização). Sem dias marcados = todos os dias.</p></>}
+              {tr.type === 'first_message' && <p className="small muted" data-testid="first-message-hint">Dispara na primeira mensagem do contato, seja qual for o texto (não precisa de palavra-chave).</p>}
+              {tr.type === 'message' && <p className="small muted">Dispara em qualquer mensagem recebida.</p>}
               <button className="btn sm danger" onClick={() => setList('triggers', list('triggers').filter((_, j) => j !== i))}>Remover gatilho</button>
             </div>
           ))}
           <button className="btn sm" onClick={() => setList('triggers', [...list('triggers'), { type: 'keyword', value: '', match: 'contains' }])}>+ Adicionar gatilho</button>
           <p className="small muted">Força dos gatilhos: palavra-chave &gt; primeira mensagem &gt; horário &gt; qualquer mensagem.</p>
+          <Field label="Depois do gatilho, ir para">
+            <div className="row"><GoTo node={node} handle="next" nodes={nodes} edges={edges} onSetOutput={onSetOutput} label="Início" /></div>
+          </Field>
         </>
       )}
       {t === 'send_text' && <><Field label="Texto">{area('text', { rows: 6 })}</Field><label className="row small"><input type="checkbox" checked={!!d.previewUrl} onChange={(e) => onChange({ previewUrl: e.target.checked })} /> Pré-visualização de link</label></>}
@@ -369,7 +429,7 @@ function NodeEditor({ node, nodes, edges, onSetOutput, onChange, onRemove, readO
       </>}
       {t === 'handoff' && <Field label="Mensagem ao contato (opcional)">{area('message')}</Field>}
       {t === 'end' && <><Field label="Mensagem final (opcional)">{area('message')}</Field><label className="row small"><input type="checkbox" checked={!!d.closeConversation} onChange={(e) => onChange({ closeConversation: e.target.checked })} /> Encerrar a conversa</label></>}
-      {t !== 'menu' && META[t].outs(d).length > 0 && <>
+      {t !== 'menu' && t !== 'start' && META[t].outs(d).length > 0 && <>
         <div className="small muted" style={{ fontWeight: 700 }}>Saídas</div>
         {META[t].outs(d).map((o) => (
           <div key={o.id} className="row"><span className="small" style={{ color: o.color, fontWeight: 700, minWidth: 34 }}>{o.label || '→'}</span>
