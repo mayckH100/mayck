@@ -7,6 +7,7 @@ import { HANDOFF_TOKEN } from './guard.js';
 import { normalize } from '../flows/logic.js';
 import { aiNotesPromptSection, contactIdOfConversation } from './contactNotes.js';
 import { agendaPromptSection, applyAgendaTag, cleanAiText, stripJsonMarkers, stripSystemLinks } from '../agenda/ai.js';
+import { productsPromptSection } from './products.js';
 import { applyOrderTag, intentFromText, ordersPromptSection, tagConversation } from '../agenda/orders.js';
 
 export interface AiReply {
@@ -77,7 +78,10 @@ export async function generateAiReply(args: { orgId: string; conversationId: str
   }
 
   const hits = await retrieve(orgId, text, 3);
-  const context = hits.map((h) => `[${h.item.title}]\n${h.item.text}`).join('\n\n');
+  // Produtos do catálogo que combinam com a mensagem (até 5, texto curto). Falha aqui nunca derruba a resposta.
+  const prod = await productsPromptSection(orgId, text).catch(() => ({ context: '', rules: '', count: 0 }));
+  const context = [hits.map((h) => `[${h.item.title}]\n${h.item.text}`).join('\n\n'), prod.context].filter(Boolean).join('\n\n');
+  const usedContext = hits.length > 0 || prod.count > 0;
 
 
   const history = await prisma.message.findMany({
@@ -91,7 +95,7 @@ export async function generateAiReply(args: { orgId: string; conversationId: str
   // Notas para a IA deixadas pelos vendedores neste contato (escopo da organização).
   const contactNotes = await contactIdOfConversation(orgId, conversationId).then((cid) => aiNotesPromptSection(orgId, cid)).catch(() => '');
   const messages: ChatMessage[] = [
-    { role: 'system', content: buildSystemPrompt({ instructions: [s.instructions, args.extraInstructions, agenda, pedidos].filter(Boolean).join('\n'), tone: s.tone }, context, contactNotes) },
+    { role: 'system', content: buildSystemPrompt({ instructions: [s.instructions, args.extraInstructions, agenda, pedidos, prod.rules].filter(Boolean).join('\n'), tone: s.tone }, context, contactNotes) },
     // Links da agenda/Meet já enviados saem do histórico: a IA não deve copiá-los numa nova resposta.
     ...history.reverse().slice(0, -1).map((m) => ({ role: (m.direction === 'IN' ? 'user' : 'assistant') as 'user' | 'assistant', content: m.direction === 'IN' ? m.body ?? '' : stripSystemLinks(m.body ?? '') })),
     { role: 'user', content: text },
@@ -106,7 +110,7 @@ export async function generateAiReply(args: { orgId: string; conversationId: str
       const base = { orgId, conversationId, provider: s.provider, model: s.model, promptTokens: r.promptTokens, completionTokens: r.completionTokens, latencyMs: Date.now() - started };
       if (!r.text || r.text.includes(HANDOFF_TOKEN)) {
         await prisma.aiUsage.create({ data: { ...base, success: true, handoff: true } });
-        return { text: s.fallbackMessage, handoff: true, reason: 'IA não soube responder', usedContext: !!hits.length };
+        return { text: s.fallbackMessage, handoff: true, reason: 'IA não soube responder', usedContext };
       }
       await prisma.aiUsage.create({ data: { ...base, success: true } });
       // Classificação da conversa (reunião / pedido / os dois) pelo marcador [TIPO:...].
@@ -129,9 +133,9 @@ export async function generateAiReply(args: { orgId: string; conversationId: str
       }
       const out = booked.text || cleanAiText(r.text);
       if (!out) {
-        return { text: s.fallbackMessage, handoff: true, reason: 'IA não soube responder', usedContext: !!hits.length };
+        return { text: s.fallbackMessage, handoff: true, reason: 'IA não soube responder', usedContext };
       }
-      return { text: out, handoff: false, usedContext: !!hits.length };
+      return { text: out, handoff: false, usedContext };
     } catch (e) {
       lastError = (e as Error).message;
       if (/não configurada|desconhecido|não pode ser usado/.test(lastError)) break; // erro de configuração: não adianta repetir
