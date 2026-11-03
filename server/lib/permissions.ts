@@ -24,6 +24,7 @@ export const MODULES = [
   { id: 'auditoria', label: 'Auditoria', app: 'MCKBOT' },
   { id: 'mensagens', label: 'MCK Mensagens: leads, campanhas/disparos e IA', app: 'MCKMENSAGEM' },
   { id: 'automacoes', label: 'MCK Mensagens: automações e cobranças', app: 'MCKMENSAGEM' },
+  { id: 'erp_crm', label: 'MCK ERP: CRM (clientes, funil, linha do tempo)', app: 'MCKBOT' },
 ] as const;
 export type ModuleId = (typeof MODULES)[number]['id'];
 export const MODULE_IDS = MODULES.map((m) => m.id) as ModuleId[];
@@ -34,7 +35,7 @@ export const moduleLabel = (id: string) => MODULES.find((m) => m.id === id)?.lab
 export const ROLE_MODULES: Record<Role, ModuleId[]> = {
   OWNER: MODULE_IDS,
   ADMIN: MODULE_IDS,
-  AGENT: ['inbox', 'kanban', 'agenda', 'contatos', 'fluxos', 'ia', 'canais', 'relatorios', 'equipe', 'plano', 'automacoes'],
+  AGENT: ['inbox', 'kanban', 'agenda', 'contatos', 'fluxos', 'ia', 'canais', 'relatorios', 'equipe', 'plano', 'automacoes', 'erp_crm'],
 };
 /** Pré-seleção do formulário de convite. */
 export const DEFAULT_MODULES: Record<'ADMIN' | 'AGENT', ModuleId[]> = {

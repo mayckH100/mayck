@@ -35,6 +35,7 @@ import { agendaRouter, publicAgendaRouter, googleCallbackRouter } from './agenda
 import { e2eHooksEnabled, e2eRouter } from './lib/testHooks.js';
 import { outbox } from './lib/mailer.js';
 import { socialRouter, socialCallbackRouter, publicNovidadesRouter } from './social/routes.js';
+import { erpRouter } from './erp/routes.js';
 import { CADASTRO_META, loadHtml, rootWantsApp, withPageMeta } from './lib/siteHtml.js';
 
 export function createApp() {
@@ -138,6 +139,8 @@ export function createApp() {
   // Automações e Cobranças (MCK Mensagens): OWNER/ADMIN alteram; AGENT só lê (checado dentro do router).
   app.use('/api/mckmensagem/automacoes', requireOrg, requireModule('automacoes'), automacoesRouter);
   app.use('/api/mckmensagem', requireOrg, requireRole('OWNER', 'ADMIN'), requireModule('mensagens'), mckmensagemRouter);
+  // MCK ERP (etapa 1: core + CRM). Módulo próprio nas permissões da equipe.
+  app.use('/api/erp', requireOrg, requireModule('erp_crm'), erpRouter);
   app.use('/api/reports', requireOrg, requireModule('relatorios'));
   app.use('/api', requireOrg, dashboardRouter);
   app.use('/api', (_req, res) => res.status(404).json({ error: 'Rota não encontrada' }));

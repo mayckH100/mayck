@@ -1,4 +1,5 @@
 import { createApp } from './app.js';
+import { iniciarErp } from './erp/routes.js';
 import { config } from './config.js';
 import { prisma } from './db.js';
 import { scheduledTick } from './flows/engine.js';
@@ -26,6 +27,8 @@ syncSuperAdmins()
 
 // Agendador: retoma blocos "Aguardar" vencidos (só consulta o banco quando há espera pendente) e limpa sessões expiradas.
 if (config.ENABLE_SCHEDULER === 'true') {
+  // MCK ERP: despachante de eventos (outbox). Também roda logo após cada ação; o intervalo só cobre retentativas.
+  iniciarErp();
   setInterval(() => {
     scheduledTick().catch((e) => console.error('[agendador]', e));
   }, 5000).unref();

@@ -1282,3 +1282,217 @@ model Product {
   @@index([orgId, active])
   @@index([orgId, name])
 }
+
+// ============================================================================
+// MCK ERP — Etapa 1: Fundação + CRM. Tabelas com prefixo Erp, isoladas do MCKBOT.
+// Convenções: orgId = empresa (tenant); valores em centavos (Int); JSON em String.
+// Nada é excluído fisicamente em documentos: cancelamento é estado + auditoria.
+// ============================================================================
+
+/// Filial da empresa (filtro de dashboards e documentos).
+model ErpFilial {
+  id        String   @id @default(cuid())
+  orgId     String
+  nome      String
+  cnpj      String?
+  uf        String?
+  ativa     Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  @@index([orgId])
+}
+
+/// Centro de custo (rateio e filtros).
+model ErpCentroCusto {
+  id        String   @id @default(cuid())
+  orgId     String
+  codigo    String
+  nome      String
+  ativo     Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  @@unique([orgId, codigo])
+}
+
+/// Parceiro de negócio: cliente e/ou fornecedor (cadastro 360º).
+model ErpParceiro {
+  id                String    @id @default(cuid())
+  orgId             String
+  filialId          String?
+  tipoPessoa        String    // PF | PJ
+  documento         String    // CPF/CNPJ só dígitos
+  nome              String    // razão social / nome
+  fantasia          String?
+  ehCliente         Boolean   @default(true)
+  ehFornecedor      Boolean   @default(false)
+  inscricaoEstadual String?
+  regimeTributario  String?   // SIMPLES | MEI | NORMAL
+  cnae              String?
+  cnaeDescricao     String?
+  situacaoCadastral String?   // ATIVA, BAIXADA... (Receita)
+  situacaoConsultaEm DateTime?
+  email             String?
+  telefone          String?   // E.164
+  cep               String?
+  logradouro        String?
+  numero            String?
+  complemento       String?
+  bairro            String?
+  municipio         String?
+  codigoMunicipio   String?   // IBGE
+  uf                String?
+  limiteCreditoCents Int      @default(0)
+  score             Int       @default(500) // 0..1000, adimplência interna
+  status            String    @default("ATIVO") // ATIVO | INATIVO | BLOQUEADO
+  origem            String?   // indicação, site, WhatsApp...
+  contactId         String?   // vínculo com o contato do MCKBOT (WhatsApp)
+  tags              String    @default("[]")
+  observacoes       String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  contatos          ErpParceiroContato[]
+  oportunidades     ErpOportunidade[]
+  interacoes        ErpInteracao[]
+
+  @@unique([orgId, documento])
+  @@index([orgId, status])
+  @@index([orgId, nome])
+}
+
+model ErpParceiroContato {
+  id         String      @id @default(cuid())
+  parceiroId String
+  parceiro   ErpParceiro @relation(fields: [parceiroId], references: [id], onDelete: Cascade)
+  nome       String
+  cargo      String?
+  email      String?
+  telefone   String?
+  principal  Boolean     @default(false)
+  createdAt  DateTime    @default(now())
+
+  @@index([parceiroId])
+}
+
+/// Etapas do funil de vendas (Kanban), configuráveis por empresa.
+model ErpEtapaFunil {
+  id            String  @id @default(cuid())
+  orgId         String
+  nome          String
+  posicao       Int
+  cor           String  @default("#64748b")
+  probabilidade Int     @default(10) // % padrão de fechamento
+  tipo          String  @default("ABERTA") // ABERTA | GANHA | PERDIDA
+
+  @@index([orgId, posicao])
+}
+
+/// Oportunidade (card do funil). Gera orçamento/pedido na etapa 2.
+model ErpOportunidade {
+  id                 String      @id @default(cuid())
+  orgId              String
+  filialId           String?
+  centroCustoId      String?
+  parceiroId         String
+  parceiro           ErpParceiro @relation(fields: [parceiroId], references: [id], onDelete: Restrict)
+  titulo             String
+  etapaId            String
+  status             String      @default("ABERTA") // ABERTA | GANHA | PERDIDA | CANCELADA
+  valorCents         Int         @default(0)
+  probabilidade      Int         @default(10)
+  custoAquisicaoCents Int        @default(0) // base do CAC
+  origem             String?
+  responsavelId      String?     // userId
+  previsaoFechamento DateTime?
+  motivoPerda        String?
+  fechadaEm          DateTime?
+  correlationId      String      // rastreio ponta a ponta (lead → pedido → NF → título)
+  posicao            Int         @default(0)
+  createdAt          DateTime    @default(now())
+  updatedAt          DateTime    @updatedAt
+
+  @@index([orgId, etapaId, posicao])
+  @@index([orgId, status])
+  @@index([parceiroId])
+}
+
+/// Linha do tempo unificada do cliente: WhatsApp, e-mail, ligação, nota, chamado, eventos do sistema.
+model ErpInteracao {
+  id             String      @id @default(cuid())
+  orgId          String
+  parceiroId     String
+  parceiro       ErpParceiro @relation(fields: [parceiroId], references: [id], onDelete: Cascade)
+  oportunidadeId String?
+  tipo           String      // WHATSAPP | EMAIL | LIGACAO | NOTA | CHAMADO | SISTEMA
+  direcao        String?     // ENTRADA | SAIDA
+  assunto        String?
+  conteudo       String      @default("")
+  status         String?     // ENVIADO | FALHOU | LIDO | ABERTO (chamado) | RESOLVIDO
+  canalRef       String?     // id externo (mensagem WhatsApp, e-mail)
+  userId         String?
+  createdAt      DateTime    @default(now())
+
+  @@index([orgId, parceiroId, createdAt])
+}
+
+/// Outbox de eventos de domínio: gravado na MESMA transação da mudança.
+model ErpEvento {
+  id            String    @id @default(cuid())
+  orgId         String
+  tipo          String    // ex.: crm.oportunidade.ganha
+  agregado      String    // ex.: oportunidade
+  agregadoId    String
+  correlationId String?
+  payload       String    @default("{}")
+  status        String    @default("PENDENTE") // PENDENTE | PROCESSADO | FALHOU (DLQ)
+  tentativas    Int       @default(0)
+  proximaTentativa DateTime @default(now())
+  ultimoErro    String?
+  processadoEm  DateTime?
+  createdAt     DateTime  @default(now())
+
+  @@index([status, proximaTentativa])
+  @@index([orgId, agregado, agregadoId])
+}
+
+/// Idempotência: cada consumidor processa cada evento uma única vez.
+model ErpEventoConsumo {
+  id         String   @id @default(cuid())
+  eventoId   String
+  consumidor String
+  createdAt  DateTime @default(now())
+
+  @@unique([eventoId, consumidor])
+}
+
+/// Grafo de rastreabilidade entre documentos (oportunidade → pedido → OP → NF → título → baixa → lote).
+model ErpTraceLink {
+  id          String   @id @default(cuid())
+  orgId       String
+  origemTipo  String
+  origemId    String
+  destinoTipo String
+  destinoId   String
+  vinculo     String   // gerou, consumiu, faturou, liquidou...
+  createdAt   DateTime @default(now())
+
+  @@unique([origemTipo, origemId, destinoTipo, destinoId, vinculo])
+  @@index([orgId, destinoTipo, destinoId])
+}
+
+/// Fila do hub de integrações (SEFAZ, bancos, transportadoras, WhatsApp, e-mail) com retry.
+model ErpIntegracaoJob {
+  id               String    @id @default(cuid())
+  orgId            String
+  provedor         String    // brasilapi | sefaz | banco | frete | whatsapp | email
+  operacao         String
+  payload          String    @default("{}")
+  status           String    @default("PENDENTE") // PENDENTE | OK | FALHOU
+  tentativas       Int       @default(0)
+  proximaTentativa DateTime  @default(now())
+  ultimoErro       String?
+  resultado        String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@index([status, proximaTentativa])
+}

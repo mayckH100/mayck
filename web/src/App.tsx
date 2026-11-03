@@ -23,6 +23,10 @@ import Audit from './pages/Audit';
 import Profile from './pages/Profile';
 import Guide from './pages/Guide';
 import Master from './pages/Master';
+import ErpPainel from './erp/crm/Painel';
+import ErpFunil from './erp/crm/Funil';
+import ErpClientes from './erp/crm/Clientes';
+import ErpCliente360 from './erp/crm/Cliente360';
 import Tutorials from './Tutorials';
 import SubscriptionGate from './SubscriptionGate';
 import Announcements from './Announcements';
@@ -41,6 +45,7 @@ const NAV: { to: string; label: string; icon: string; roles?: Role[]; sep?: stri
   { to: '/produtos', module: 'ia', label: 'Produtos', icon: '▣' },
   { to: '/canais', module: 'canais', label: 'Canais WhatsApp', icon: '☏' },
   { to: '/integracoes', module: 'integracoes', label: 'Integrações', icon: '⚙', roles: ['OWNER', 'ADMIN'] },
+  { to: '/erp', module: 'erp_crm', label: 'MCK ERP · CRM', icon: '◆', sep: 'ERP' },
   { to: '/relatorios', module: 'relatorios', label: 'Relatórios', icon: '▤', sep: 'Gestão' },
   { to: '/equipe', module: 'equipe', label: 'Equipe', icon: '♟' },
   { to: '/plano', module: 'plano', label: 'Plano', icon: '◈' },
@@ -249,6 +254,10 @@ export default function App() {
             <Route path="/produtos" element={<Products />} />
             <Route path="/canais" element={<Channels />} />
             <Route path="/integracoes" element={<Integrations />} />
+            <Route path="/erp" element={<ErpPainel />} />
+            <Route path="/erp/funil" element={<ErpFunil />} />
+            <Route path="/erp/clientes" element={<ErpClientes />} />
+            <Route path="/erp/clientes/:id" element={<ErpCliente360 />} />
             <Route path="/relatorios" element={<Reports />} />
             <Route path="/equipe" element={<Team />} />
             <Route path="/plano" element={<Plan />} />

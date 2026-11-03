@@ -53,3 +53,19 @@ Formato de cada atualização: data, quem fez, o que foi feito, o que foi passad
 - E-mails da Brevo saem com remetente Gmail (IP compartilhado, DKIM padrão): podem cair em Promoções/spam. Um domínio próprio resolveria.
 - Repositório público: considerar torná-lo privado.
 - Manter esta ATA curta e atual (estado, não histórico).
+
+
+## Estado em 2026-11-03 (Hark) — MCK ERP
+### Feito
+ - Arquitetura do ERP (DER, máquina de estados do pedido, plano em 5 etapas) em docs/ERP.md.
+ - Etapa 1 (Fundação + CRM) codificada: server/erp, web/src/erp, migração 0038_erp_crm (só aditiva), módulo de permissão erp_crm, menu "MCK ERP · CRM".
+ - Decisão do Mayck: fiscal e cobrança são configurados pelo próprio cliente (certificado A1 dele, assistente "Conectar SEFAZ"; credenciais do banco dele). A MCK não contrata provedor.
+### Passado
+ - Testes enxutos a pedido do Mayck (economizar crédito): typecheck do servidor e da web ok; tests/unit/erp-crm.test.ts e permissoes.test.ts passaram. Suíte completa não rodada nesta entrega.
+### Dificuldades
+ - Conector do GitHub no Hark segue bloqueado; o push foi feito com token de acesso restrito ao repositório.
+### Falta fazer
+ - Testar no deploy: abrir /erp, cadastrar cliente pelo CNPJ, criar e mover oportunidade.
+ - Etapa 2: Produtos, Estoque/WMS e Vendas/OMS (aguarda aprovação do Mayck).
+### O que melhorar
+ - Rodar a suíte completa (npm test) antes de liberar para clientes.
