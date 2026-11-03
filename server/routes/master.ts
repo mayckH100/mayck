@@ -13,11 +13,15 @@ import {
 import { COUPON_CYCLES, COUPON_PRODUCTS, CODE_RE, MIN_FINAL_CENTS, normalizeCode } from '../billing/coupons.js';
 import { DEFAULT_SITE, getSiteSettings, updateSiteSettings } from '../lib/site-settings.js';
 import { backupDestinations, backupFileName, createBackupFile, runBackup } from '../lib/backup.js';
+import { masterAnnouncementsRouter } from './announcements.js';
 
 /**
  * Painel Master (superadmin da plataforma). Montado em /api/master com requireSuperAdmin.
  */
 export const masterRouter = Router();
+
+// Avisos com imagem (pop-up para os clientes): CRUD + upload da imagem.
+masterRouter.use('/announcements', masterAnnouncementsRouter);
 
 const TZ = 'America/Sao_Paulo';
 const monthKey = (d: Date) => {

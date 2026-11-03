@@ -1111,3 +1111,46 @@ model OrderStatusHistory {
 
   @@index([orgId, orderId, createdAt])
 }
+
+// ---------- Avisos (pop-up com imagem para todos os clientes, criado no Painel Master) ----------
+
+/// Aviso com imagem mostrado no centro da tela. A imagem fica no banco (o disco do Render Free é efêmero).
+model Announcement {
+  id          String   @id @default(cuid())
+  title       String?
+  body        String?
+  linkUrl     String?
+  linkLabel   String?
+  /// MCKBOT | MCKMENSAGEM | AMBOS
+  app         String   @default("AMBOS")
+  /// TODOS | TRIAL | ATIVOS | VENCIDOS
+  audience    String   @default("TODOS")
+  startsAt    DateTime
+  endsAt      DateTime
+  active      Boolean  @default(true)
+  imageData   Bytes?
+  /// image/png | image/jpeg | image/webp (detectado pelos bytes, nunca pela extensão)
+  imageMime   String?
+  imageSize   Int      @default(0)
+  imageSha256 String?
+  createdBy   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([active, startsAt, endsAt])
+}
+
+/// Visualização/fechamento de um aviso por usuário e por dia (America/Sao_Paulo): mostra no máximo 1x por dia.
+model AnnouncementView {
+  id             String    @id @default(cuid())
+  announcementId String
+  userId         String
+  orgId          String?
+  /// AAAA-MM-DD no fuso America/Sao_Paulo
+  day            String
+  viewedAt       DateTime  @default(now())
+  dismissedAt    DateTime?
+
+  @@unique([announcementId, userId, day])
+  @@index([announcementId])
+}

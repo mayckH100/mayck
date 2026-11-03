@@ -24,6 +24,7 @@ import Guide from './pages/Guide';
 import Master from './pages/Master';
 import Tutorials from './Tutorials';
 import SubscriptionGate from './SubscriptionGate';
+import Announcements from './Announcements';
 import { STATUS_LABEL, fmtDay } from './billing';
 
 const NAV: { to: string; label: string; icon: string; roles?: Role[]; sep?: string; superAdmin?: boolean }[] = [
@@ -183,6 +184,7 @@ function Shell({ children }: { children: ReactNode }) {
         <BillingReturnRedirect />
         <WaitingAlerts />
         <SubscriptionGate app="mckbot" />
+        <Announcements app="mckbot" />
         <main className="content">{children}</main>
       </div>
     </div>

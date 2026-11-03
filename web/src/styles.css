@@ -176,4 +176,17 @@ tr:hover td { background: #fafcfb; }
 .sub-gate-actions { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; margin-top: 14px; }
 .sub-gate-actions .btn { min-width: 140px; min-height: 42px; }
 .sub-gate-mensagem .sub-gate { border-top-color: #0a0a0b; }
+/* Avisos do Painel Master (pop-up com imagem no centro da tela) */
+.aviso-bg { position: fixed; inset: 0; background: rgba(10,10,11,.62); display: grid; place-items: center; z-index: 190; padding: 16px; }
+.aviso { background: #fff; border-radius: 16px; width: min(560px, 100%); max-height: calc(100vh - 32px); overflow: auto; padding: 14px; text-align: center; box-shadow: 0 20px 60px rgba(0,0,0,.35); display: flex; flex-direction: column; gap: 10px; }
+.aviso-img { display: block; width: 100%; height: auto; max-height: 80vh; object-fit: contain; border-radius: 10px; background: #f4f4f5; }
+.aviso-text h2 { margin: 4px 0 6px; font-size: 20px; color: #111; }
+.aviso-text p { margin: 0; line-height: 1.5; color: #333; white-space: pre-line; }
+.aviso-actions { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+.aviso-actions .btn { min-width: 130px; min-height: 42px; }
+.aviso-count { margin: 0; }
+.aviso-preview { border: 1px dashed var(--line, #ddd); border-radius: 12px; padding: 12px; background: rgba(10,10,11,.04); }
+.aviso-preview .aviso { box-shadow: none; margin: 0 auto; max-height: none; }
+.aviso-preview .aviso-img { max-height: 320px; }
+@media (max-width: 480px) { .aviso-actions { flex-direction: column-reverse; } .aviso-actions .btn { width: 100%; } }
 @media (max-width: 480px) { .sub-gate { padding: 20px 16px 16px; } .sub-gate-actions { flex-direction: column-reverse; } .sub-gate-actions .btn { width: 100%; } }

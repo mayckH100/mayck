@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { del, post, put } from '../api';
+import { del, post, put, upload } from '../api';
 import { useAuth, type SubscriptionView, type SubStatus } from '../auth';
 import { useApi, Async, Empty, Field, Loading, Modal, fmtDate, fmtNum, useAction } from '../ui';
 import { TwoFactorCard } from './Security';
@@ -36,7 +36,7 @@ interface Settings {
 }
 
 const TABS = [
-  ['geral', 'Visão geral'], ['clientes', 'Clientes'], ['pagamentos', 'Pagamentos'], ['atividades', 'Atividades'], ['configuracoes', 'Configurações'],
+  ['geral', 'Visão geral'], ['clientes', 'Clientes'], ['pagamentos', 'Pagamentos'], ['atividades', 'Atividades'], ['avisos', 'Avisos'], ['configuracoes', 'Configurações'],
 ] as const;
 type Tab = (typeof TABS)[number][0];
 
@@ -52,6 +52,8 @@ const ACTION_LABEL: Record<string, string> = {
   'auth.mfa_enabled': '2FA ativada', 'auth.mfa_disabled': '2FA desativada', 'auth.mfa_failed': '2FA: código errado', 'auth.mfa_recovery_used': '2FA: código de recuperação usado',
   'auth.mfa_recovery_regenerated': '2FA: novos códigos de recuperação', 'auth.login_new_device': 'Login em aparelho novo', 'auth.account_locked': 'Conta bloqueada (senhas erradas)',
   'auth.login_locked': 'Tentativa com conta bloqueada', 'auth.session_revoked': 'Sessão encerrada', 'auth.sessions_revoked': 'Sessões encerradas',
+  'master.announcement.create': 'Master: aviso criado', 'master.announcement.update': 'Master: aviso editado', 'master.announcement.image': 'Master: imagem do aviso enviada',
+  'master.announcement.activate': 'Master: aviso ativado', 'master.announcement.deactivate': 'Master: aviso desativado', 'master.announcement.delete': 'Master: aviso excluído',
   'backup.success': 'Backup do banco concluído', 'backup.failed': 'Backup do banco falhou', 'backup.download': 'Backup baixado pelo Master',
 };
 const actionLabel = (a: string) => ACTION_LABEL[a] ?? a;
@@ -746,6 +748,158 @@ function BackupSection() {
   );
 }
 
+// ---------- Avisos (pop-up com imagem para os clientes) ----------
+interface Announcement {
+  id: string; title: string | null; body: string | null; linkUrl: string | null; linkLabel: string | null;
+  app: 'MCKBOT' | 'MCKMENSAGEM' | 'AMBOS'; audience: 'TODOS' | 'TRIAL' | 'ATIVOS' | 'VENCIDOS';
+  startsAt: string; endsAt: string; startsAtLocal: string; endsAtLocal: string; active: boolean;
+  state: 'NO_AR' | 'AGENDADO' | 'ENCERRADO' | 'INATIVO' | 'SEM_IMAGEM'; imageUrl: string | null; imageMime: string | null; imageSize: number;
+  stats: { views: number; viewers: number; dismissals: number };
+}
+const ANN_APP_LABEL: Record<Announcement['app'], string> = { AMBOS: 'MCKBOT e MCK Mensagens', MCKBOT: 'Só MCKBOT', MCKMENSAGEM: 'Só MCK Mensagens' };
+const ANN_AUD_LABEL: Record<Announcement['audience'], string> = { TODOS: 'Todos os clientes', TRIAL: 'Só em teste grátis', ATIVOS: 'Só assinantes ativos', VENCIDOS: 'Só vencidos/bloqueados' };
+const ANN_STATE_LABEL: Record<Announcement['state'], string> = { NO_AR: 'No ar', AGENDADO: 'Agendado', ENCERRADO: 'Encerrado', INATIVO: 'Inativo', SEM_IMAGEM: 'Sem imagem' };
+const ANN_STATE_CLS: Record<Announcement['state'], string> = { NO_AR: 'green', AGENDADO: 'amber', ENCERRADO: '', INATIVO: '', SEM_IMAGEM: 'red' };
+const ANN_MAX = 2 * 1024 * 1024;
+const ANN_TYPES = ['image/png', 'image/jpeg', 'image/webp'];
+/** "AAAA-MM-DDTHH:mm" no horário de Brasília (para o campo datetime-local). */
+function spLocal(d: Date) {
+  const p = Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone: 'America/Sao_Paulo', hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }).formatToParts(d).map((x) => [x.type, x.value]));
+  return `${p.year}-${p.month}-${p.day}T${String(+p.hour % 24).padStart(2, '0')}:${p.minute}`;
+}
+const fmtSp = (iso: string) => new Date(iso).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', dateStyle: 'short', timeStyle: 'short' });
+
+function AnnouncementPreview({ img, title, body, linkUrl, linkLabel }: { img: string | null; title: string; body: string; linkUrl: string; linkLabel: string }) {
+  return (
+    <div className="aviso-preview" aria-label="Pré-visualização do aviso">
+      <div className="aviso">
+        {img ? <img className="aviso-img" src={img} alt={title || 'Aviso'} /> : <div className="muted small" style={{ padding: 30 }}>Escolha uma imagem para ver a prévia.</div>}
+        {(title || body) && <div className="aviso-text">{title && <h2>{title}</h2>}{body && <p>{body}</p>}</div>}
+        <div className="aviso-actions">
+          {linkUrl && <span className="btn primary">{linkLabel || 'Saiba mais'}</span>}
+          <span className="btn">Fechar</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AnnouncementModal({ ann, onClose, onSaved }: { ann: Announcement | null; onClose: () => void; onSaved: () => void }) {
+  const now = new Date();
+  const [f, setF] = useState({
+    title: ann?.title ?? '', body: ann?.body ?? '', linkUrl: ann?.linkUrl ?? '', linkLabel: ann?.linkLabel ?? 'Saiba mais',
+    app: ann?.app ?? 'AMBOS', audience: ann?.audience ?? 'TODOS',
+    startsAt: ann?.startsAtLocal ?? spLocal(now), endsAt: ann?.endsAtLocal ?? spLocal(new Date(now.getTime() + 7 * 86400000)), active: ann?.active ?? true,
+  });
+  const [file, setFile] = useState<File | null>(null);
+  const [preview, setPreview] = useState<string | null>(ann?.imageUrl ?? null);
+  const [err, setErr] = useState('');
+  const { busy, run } = useAction();
+  useEffect(() => {
+    if (!file) return;
+    const u = URL.createObjectURL(file);
+    setPreview(u);
+    return () => URL.revokeObjectURL(u);
+  }, [file]);
+  const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => setF({ ...f, [k]: e.target.value });
+  const pick = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setErr('');
+    const fl = e.target.files?.[0] ?? null;
+    if (!fl) return;
+    if (!ANN_TYPES.includes(fl.type)) { e.target.value = ''; return setErr('Use uma imagem PNG, JPG ou WEBP (SVG não é aceito).'); }
+    if (fl.size > ANN_MAX) { e.target.value = ''; return setErr('Imagem maior que 2 MB. Reduza o tamanho e tente de novo.'); }
+    setFile(fl);
+  };
+  const submit = async (e: FormEvent) => {
+    e.preventDefault(); setErr('');
+    if (!ann?.imageUrl && !file) return setErr('Escolha a imagem do aviso.');
+    if (!f.startsAt || !f.endsAt || f.endsAt <= f.startsAt) return setErr('O fim precisa ser depois do início.');
+    const body = { title: f.title.trim() || null, body: f.body.trim() || null, linkUrl: f.linkUrl.trim() || null, linkLabel: f.linkUrl.trim() ? (f.linkLabel.trim() || 'Saiba mais') : null, app: f.app, audience: f.audience, startsAt: f.startsAt, endsAt: f.endsAt, active: f.active };
+    const r = await run(async () => {
+      const saved = ann ? await put<Announcement>(`/master/announcements/${ann.id}`, body) : await post<Announcement>('/master/announcements', body);
+      if (file) await upload(`/master/announcements/${saved.id}/image`, file);
+      return saved;
+    }, ann ? 'Aviso salvo' : 'Aviso criado');
+    if (r) { onSaved(); onClose(); } else onSaved();
+  };
+  return (
+    <Modal title={ann ? 'Editar aviso' : 'Novo aviso'} onClose={onClose}>
+      <form className="stack" onSubmit={submit}>
+        {err && <div className="alert err small" role="alert">{err}</div>}
+        <Field label="Imagem (PNG, JPG ou WEBP, até 2 MB)" hint={ann?.imageUrl ? 'Deixe em branco para manter a imagem atual.' : undefined}>
+          <input type="file" accept="image/png,image/jpeg,image/webp" onChange={pick} />
+        </Field>
+        <div className="grid g2">
+          <Field label="Título (opcional)"><input value={f.title} maxLength={120} onChange={set('title')} /></Field>
+          <Field label="Texto do botão" hint="Aparece só com link."><input value={f.linkLabel} maxLength={40} onChange={set('linkLabel')} /></Field>
+        </div>
+        <Field label="Texto (opcional)"><textarea rows={3} value={f.body} maxLength={1000} onChange={set('body')} /></Field>
+        <Field label="Link (opcional)" hint="https://… ou um caminho do app, ex.: /plano"><input value={f.linkUrl} maxLength={500} onChange={set('linkUrl')} placeholder="https://" /></Field>
+        <div className="grid g2">
+          <Field label="Onde aparece"><select value={f.app} onChange={set('app')}>{Object.entries(ANN_APP_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></Field>
+          <Field label="Para quem"><select value={f.audience} onChange={set('audience')}>{Object.entries(ANN_AUD_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></Field>
+        </div>
+        <div className="grid g2">
+          <Field label="Início (horário de Brasília)"><input type="datetime-local" required value={f.startsAt} onChange={set('startsAt')} /></Field>
+          <Field label="Fim (horário de Brasília)"><input type="datetime-local" required value={f.endsAt} onChange={set('endsAt')} /></Field>
+        </div>
+        <label className="row small"><input type="checkbox" checked={f.active} onChange={(e) => setF({ ...f, active: e.target.checked })} /> Aviso ativo</label>
+        <AnnouncementPreview img={preview} title={f.title.trim()} body={f.body.trim()} linkUrl={f.linkUrl.trim()} linkLabel={f.linkLabel.trim()} />
+        <div className="row" style={{ justifyContent: 'flex-end' }}>
+          <button type="button" className="btn" onClick={onClose}>Cancelar</button>
+          <button className="btn primary" disabled={busy}>{busy ? 'Salvando…' : ann ? 'Salvar aviso' : 'Criar aviso'}</button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+function AnnouncementsSection() {
+  const state = useApi<{ items: Announcement[] }>('/master/announcements');
+  const [editing, setEditing] = useState<Announcement | null | 'new'>(null);
+  const { run } = useAction();
+  const toggle = async (a: Announcement) => { if (await run(() => post(`/master/announcements/${a.id}/active`, { active: !a.active }), a.active ? 'Aviso desativado' : 'Aviso ativado')) state.reload(); };
+  const remove = async (a: Announcement) => {
+    if (!confirm(`Excluir o aviso${a.title ? ` "${a.title}"` : ''}? Esta ação não pode ser desfeita.`)) return;
+    if (await run(() => del(`/master/announcements/${a.id}`), 'Aviso excluído')) state.reload();
+  };
+  return (
+    <div className="card stack">
+      <div className="row between" style={{ flexWrap: 'wrap', gap: 8 }}>
+        <div><h2 style={{ margin: 0 }}>Avisos</h2><p className="small muted" style={{ margin: 0 }}>Imagem que aparece no centro da tela dos clientes, no máximo uma vez por dia por pessoa. O pop-up de renovação da assinatura tem prioridade.</p></div>
+        <button type="button" className="btn primary" onClick={() => setEditing('new')}>Novo aviso</button>
+      </div>
+      <Async state={state}>{(d) => d.items.length === 0 ? <Empty title="Nenhum aviso ainda">Crie o primeiro em “Novo aviso”.</Empty> : (
+        <div className="table-wrap">
+          <table>
+            <thead><tr><th>Imagem</th><th>Aviso</th><th>Onde / para quem</th><th>Período (Brasília)</th><th>Visto por</th><th>Fechado</th><th>Situação</th><th></th></tr></thead>
+            <tbody>{d.items.map((a) => (
+              <tr key={a.id}>
+                <td>{a.imageUrl ? <img src={a.imageUrl} alt="" style={{ width: 64, height: 40, objectFit: 'cover', borderRadius: 6 }} /> : <span className="muted">—</span>}</td>
+                <td className="small"><strong>{a.title ?? <span className="muted">(sem título)</span>}</strong>{a.linkUrl && <><br /><span className="muted">{a.linkLabel}: {a.linkUrl}</span></>}</td>
+                <td className="small">{ANN_APP_LABEL[a.app]}<br /><span className="muted">{ANN_AUD_LABEL[a.audience]}</span></td>
+                <td className="small" style={{ whiteSpace: 'nowrap' }}>{fmtSp(a.startsAt)}<br />{fmtSp(a.endsAt)}</td>
+                <td title={`${fmtNum(a.stats.views)} exibições (pessoa/dia)`}>{fmtNum(a.stats.viewers)}</td>
+                <td>{fmtNum(a.stats.dismissals)}</td>
+                <td><span className={`badge ${ANN_STATE_CLS[a.state]}`}>{ANN_STATE_LABEL[a.state]}</span></td>
+                <td>
+                  <div className="row" style={{ gap: 4, flexWrap: 'nowrap' }}>
+                    <button type="button" className="btn sm" onClick={() => setEditing(a)}>Editar</button>
+                    <button type="button" className="btn sm" onClick={() => toggle(a)}>{a.active ? 'Desativar' : 'Ativar'}</button>
+                    <button type="button" className="btn sm danger" onClick={() => remove(a)}>Excluir</button>
+                  </div>
+                </td>
+              </tr>
+            ))}</tbody>
+          </table>
+        </div>
+      )}</Async>
+      <p className="small muted">“Visto por” conta pessoas diferentes que viram o aviso; “Fechado” conta fechamentos (no máximo um por pessoa por dia).</p>
+      {editing && <AnnouncementModal ann={editing === 'new' ? null : editing} onClose={() => setEditing(null)} onSaved={state.reload} />}
+    </div>
+  );
+}
+
 function SettingsTab() {
   return (
     <div className="stack">
@@ -797,6 +951,7 @@ export default function Master() {
           {tab === 'clientes' && <Clients />}
           {tab === 'pagamentos' && <Payments />}
           {tab === 'atividades' && <Activity />}
+          {tab === 'avisos' && <AnnouncementsSection />}
           {tab === 'configuracoes' && <SettingsTab />}
         </>
       )}

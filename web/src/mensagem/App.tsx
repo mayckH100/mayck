@@ -16,6 +16,7 @@ import AutomacoesModulo from './pages/automacoes/Index';
 import Tutorials from '../Tutorials';
 import SecurityPage from '../pages/Security';
 import SubscriptionGate from '../SubscriptionGate';
+import Announcements from '../Announcements';
 
 const NAV = [
   { to: '/', label: 'Painel', icon: '◔' },
@@ -114,6 +115,7 @@ function Shell({ children, nav: navItems = NAV }: { children: ReactNode; nav?: t
       <MmSubscriptionBanner />
       <BillingReturnRedirect />
       <SubscriptionGate app="mensagem" />
+      <Announcements app="mensagem" />
       <main className="mm-content">{children}</main>
     </div>
   );

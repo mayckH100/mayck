@@ -10,6 +10,7 @@ import { prisma } from './db.js';
 import { errorHandler } from './lib/http.js';
 import { loadSession, csrfProtection, requireOrg, requireRole, requireSuperAdmin, requireCadastroCompleto } from './auth/session.js';
 import { masterRouter } from './routes/master.js';
+import { announcementsRouter } from './routes/announcements.js';
 import { mckmensagemRouter } from './mckmensagem/routes.js';
 import { automacoesRouter } from './mckmensagem/automacoes/routes.js';
 import { billingRouter, billingWebhookRouter } from './billing/routes.js';
@@ -87,6 +88,7 @@ export function createApp() {
   app.use('/api', requireCadastroCompleto);
   app.use('/api/profile', profileRouter);
   app.use('/api/master', requireSuperAdmin, masterRouter);
+  app.use('/api/announcements', announcementsRouter); // avisos do Master para os clientes (pop-up com imagem)
   app.use('/api/org', requireOrg, orgRouter);
   app.use('/api/channels', requireOrg, channelsRouter);
   app.use('/api/flows', requireOrg, requireMckbotForWrites, flowsRouter);

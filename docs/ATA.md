@@ -25,6 +25,7 @@ Formato de cada atualização: data, quem fez, o que foi feito, o que foi passad
 
 - 2026-11-02 (Hark): conta grátis da Brevo criada no e-mail da empresa; BREVO_API_KEY, MAIL_FROM e BACKUP_EMAIL configurados no Render. Backup por e-mail funcionando (commit 980de4f: o .bkp vai dentro de .zip, porque a API do Brevo recusa a extensão .bkp). Primeiro backup OK em 2026-11-02 22:12.
 - 2026-11-02 (Hark): pop-up central "renove sua assinatura" no MCKBOT e no MCK Mensagens quando o produto está VENCIDA/BLOQUEADA ou a API responde 402; reabre a cada clique (exceto pagamento, perfil/segurança e Sair). Commit 1b9ff8f; ainda sem deploy.
+- 2026-11-02 (Hark): Painel Master → aba "Avisos": pop-up central com imagem (PNG/JPG/WEBP ≤ 2 MB, imagem no banco) para os clientes, por app/público/período, 1x por dia por usuário; renovação tem prioridade. Migração 0030_avisos (só aditiva); ainda sem deploy.
 
 ### Dificuldades
 - Verificação do Google só por vídeo gravado ao vivo no app.
