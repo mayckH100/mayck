@@ -162,14 +162,17 @@ export function createApp() {
       },
     }));
     // MCK Mensagens: app separado (entrada própria) servido em /mensagem e /mensagem/*.
+    // SEO: telas do app (login, cadastro, painel) não entram no Google, mas os links delas são seguidos.
+    // A raiz "/" continua indexável (index.html traz description e canonical para /empresa/).
+    const appNoindex = (res: express.Response) => res.setHeader('X-Robots-Tag', 'noindex, follow');
     const mensagemHtml = path.join(webDir, 'mensagem.html');
-    if (existsSync(mensagemHtml)) app.get(['/mensagem', '/mensagem/*'], (_req, res) => res.sendFile(mensagemHtml));
+    if (existsSync(mensagemHtml)) app.get(['/mensagem', '/mensagem/*'], (_req, res) => { appNoindex(res); res.sendFile(mensagemHtml); });
     // Site institucional MCK DESENVOLVIMENTO (páginas estáticas em web/public/empresa).
     const empresaHtml = path.join(webDir, 'empresa', 'index.html');
     if (existsSync(empresaHtml)) app.get(['/empresa', '/empresa/'], (_req, res) => res.sendFile(empresaHtml));
     const novidadesHtml = path.join(webDir, 'empresa', 'novidades.html');
     if (existsSync(novidadesHtml)) app.get(['/empresa/novidades', '/empresa/novidades/'], (_req, res) => res.sendFile(novidadesHtml));
-    app.get('*', (_req, res) => res.sendFile(path.join(webDir, 'index.html')));
+    app.get('*', (req, res) => { if (req.path !== '/') appNoindex(res); res.sendFile(path.join(webDir, 'index.html')); });
   }
 
   app.use(errorHandler);
