@@ -23,6 +23,7 @@ import Profile from './pages/Profile';
 import Guide from './pages/Guide';
 import Master from './pages/Master';
 import Tutorials from './Tutorials';
+import SubscriptionGate from './SubscriptionGate';
 import { STATUS_LABEL, fmtDay } from './billing';
 
 const NAV: { to: string; label: string; icon: string; roles?: Role[]; sep?: string; superAdmin?: boolean }[] = [
@@ -158,13 +159,13 @@ function Shell({ children }: { children: ReactNode }) {
             {me?.orgs.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
           </select>
           <InstallButton appName="MCKBOT" />
-          <button className="btn sm" onClick={async () => { await logout(); nav('/login'); }}>Sair</button>
+          <button className="btn sm" data-sub-exempt onClick={async () => { await logout(); nav('/login'); }}>Sair</button>
         </div>
       </aside>
       <div className="main">
         <header className="topbar">
           <div className="row">
-            <button className="btn sm menu-btn" onClick={() => setOpen(true)} aria-label="Abrir menu">☰</button>
+            <button className="btn sm menu-btn" data-sub-exempt onClick={() => setOpen(true)} aria-label="Abrir menu">☰</button>
             <strong>{me?.org?.name}</strong>
             <span className="badge">{me?.role ? ROLE_LABEL[me.role] : ''}</span>
           </div>
@@ -181,6 +182,7 @@ function Shell({ children }: { children: ReactNode }) {
         <SubscriptionBanner />
         <BillingReturnRedirect />
         <WaitingAlerts />
+        <SubscriptionGate app="mckbot" />
         <main className="content">{children}</main>
       </div>
     </div>

@@ -165,3 +165,15 @@ tr:hover td { background: #fafcfb; }
   .bubble { max-width: 90%; }
 }
 @media (max-width: 860px) { .tut-grid { grid-template-columns: 1fr !important; } }
+
+/* Pop-up central "renove sua assinatura" (SubscriptionGate). */
+.sub-gate-bg { position: fixed; inset: 0; background: rgba(10,10,11,.62); display: grid; place-items: center; z-index: 200; padding: 16px; }
+.sub-gate { background: #fff; border-radius: 16px; width: min(440px, 100%); max-height: calc(100vh - 32px); overflow: auto; padding: 24px 22px 20px; text-align: center; border-top: 5px solid var(--brand); box-shadow: 0 20px 60px rgba(0,0,0,.35); }
+.sub-gate h2 { margin: 6px 0 8px; color: var(--brand); font-size: 22px; }
+.sub-gate p { margin: 0 0 10px; line-height: 1.5; color: #333; }
+.sub-gate-icon { width: 54px; height: 54px; margin: 0 auto; border-radius: 50%; background: var(--brand-soft); display: grid; place-items: center; font-size: 26px; }
+.sub-gate-ask { background: var(--brand-soft); border-radius: 10px; padding: 10px; }
+.sub-gate-actions { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; margin-top: 14px; }
+.sub-gate-actions .btn { min-width: 140px; min-height: 42px; }
+.sub-gate-mensagem .sub-gate { border-top-color: #0a0a0b; }
+@media (max-width: 480px) { .sub-gate { padding: 20px 16px 16px; } .sub-gate-actions { flex-direction: column-reverse; } .sub-gate-actions .btn { width: 100%; } }

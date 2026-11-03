@@ -15,6 +15,7 @@ import MmSubscription from './pages/Subscription';
 import AutomacoesModulo from './pages/automacoes/Index';
 import Tutorials from '../Tutorials';
 import SecurityPage from '../pages/Security';
+import SubscriptionGate from '../SubscriptionGate';
 
 const NAV = [
   { to: '/', label: 'Painel', icon: '◔' },
@@ -98,8 +99,8 @@ function Shell({ children, nav: navItems = NAV }: { children: ReactNode; nav?: t
             <span className="hide-sm">{orgSelect('mm-org')}</span>
             <span className="mm-user hide-sm" title={me?.user.email}>{me?.user.name}{me?.role ? ` · ${ROLE_LABEL[me.role]}` : ''}</span>
             <span className="hide-sm"><InstallButton appName="MCK Mensagens" /></span>
-            <button className="btn sm hide-sm" onClick={async () => { await logout(); nav('/login'); }}>Sair</button>
-            <button className="btn sm mm-burger" onClick={() => setOpen((o) => !o)} aria-expanded={open} aria-label="Abrir menu">☰</button>
+            <button className="btn sm hide-sm" data-sub-exempt onClick={async () => { await logout(); nav('/login'); }}>Sair</button>
+            <button className="btn sm mm-burger" data-sub-exempt onClick={() => setOpen((o) => !o)} aria-expanded={open} aria-label="Abrir menu">☰</button>
           </div>
         </div>
         <nav className={`mm-mobile ${open ? 'open' : ''}`} aria-label="Menu">
@@ -107,11 +108,12 @@ function Shell({ children, nav: navItems = NAV }: { children: ReactNode; nav?: t
           {orgSelect('mm-org-m')}
           <a href={MCKBOT_URL} className="mm-switch">Ir para MCKBOT ↗</a>
           <InstallButton appName="MCK Mensagens" />
-          <button className="btn sm" onClick={async () => { await logout(); nav('/login'); }}>Sair ({me?.user.name})</button>
+          <button className="btn sm" data-sub-exempt onClick={async () => { await logout(); nav('/login'); }}>Sair ({me?.user.name})</button>
         </nav>
       </header>
       <MmSubscriptionBanner />
       <BillingReturnRedirect />
+      <SubscriptionGate app="mensagem" />
       <main className="mm-content">{children}</main>
     </div>
   );
