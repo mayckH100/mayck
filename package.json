@@ -23,6 +23,7 @@
     "build:local": "vite build --config web/vite.config.ts && tsc -p tsconfig.server.json",
     "db:migration:sql": "prisma migrate diff --from-empty --to-schema-datamodel prisma/schema.prisma --script",
     "test:pg": "npm run db:pg && TEST_DB=postgres vitest run tests/integration; npm run db:sqlite",
+    "indexnow": "node scripts/indexnow.mjs",
     "dev:setup": "npm run db:sqlite && SQLITE_URL=file:./dev.db prisma db push --schema prisma/sqlite/schema.prisma --skip-generate"
   },
   "dependencies": {

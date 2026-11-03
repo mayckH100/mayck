@@ -35,6 +35,7 @@ import { agendaRouter, publicAgendaRouter, googleCallbackRouter } from './agenda
 import { e2eHooksEnabled, e2eRouter } from './lib/testHooks.js';
 import { outbox } from './lib/mailer.js';
 import { socialRouter, socialCallbackRouter, publicNovidadesRouter } from './social/routes.js';
+import { loadHtml, rootWantsApp } from './lib/siteHtml.js';
 
 export function createApp() {
   const app = express();
@@ -152,6 +153,33 @@ export function createApp() {
     try { res.type('application/json').send(JSON.stringify(JSON.parse(raw))); } catch { res.status(500).json([]); }
   });
   if (webDir) {
+    // SEO: telas do app (login, cadastro, painel) não entram no Google, mas os links delas são seguidos.
+    const appNoindex = (res: express.Response) => res.setHeader('X-Robots-Tag', 'noindex, follow');
+    // HTML lido uma vez, com a verificação do Search Console (fixa no arquivo + GOOGLE_SITE_VERIFICATION opcional).
+    const spaHtml = loadHtml(path.join(webDir, 'index.html'));
+    // Produção: dist/web/empresa; testes/dev sem build: web/public/empresa.
+    const empresaFile = [path.join(webDir, 'empresa', 'index.html'), path.join(webDir, 'public', 'empresa', 'index.html')].find((f) => existsSync(f)) ?? '';
+    const landingHtml = empresaFile ? loadHtml(empresaFile) : null;
+    // X-MCK-Shell: o service worker só guarda como "casca" offline a resposta que é o app (nunca a landing).
+    const sendSpa = (res: express.Response, noindex = true) => {
+      if (noindex) appNoindex(res);
+      res.setHeader('X-MCK-Shell', 'app');
+      res.setHeader('Cache-Control', 'no-cache');
+      res.type('html').send(spaHtml);
+    };
+    const sendLanding = (res: express.Response) => {
+      res.setHeader('Cache-Control', 'no-cache');
+      res.type('html').send(landingHtml);
+    };
+    // Raiz "/": visitante e buscador recebem o site da MCK DESENVOLVIMENTO (conteúdo real, indexável);
+    // logado (cookie de sessão) ou PWA (/?source=pwa) recebe o app, como antes. Login continua em /login (e /entrar).
+    app.get('/', (req, res) => {
+      res.setHeader('Vary', 'Cookie');
+      if (!landingHtml || rootWantsApp(req.cookies, req.query as Record<string, unknown>)) return sendSpa(res, false);
+      sendLanding(res);
+    });
+    if (landingHtml) app.get(['/empresa', '/empresa/', '/empresa/index.html'], (_req, res) => sendLanding(res));
+    app.get('/index.html', (_req, res) => res.redirect(301, '/'));
     app.use(express.static(webDir, {
       index: false, maxAge: '1h',
       setHeaders: (res, file) => {
@@ -162,17 +190,12 @@ export function createApp() {
       },
     }));
     // MCK Mensagens: app separado (entrada própria) servido em /mensagem e /mensagem/*.
-    // SEO: telas do app (login, cadastro, painel) não entram no Google, mas os links delas são seguidos.
-    // A raiz "/" continua indexável (index.html traz description e canonical para /empresa/).
-    const appNoindex = (res: express.Response) => res.setHeader('X-Robots-Tag', 'noindex, follow');
     const mensagemHtml = path.join(webDir, 'mensagem.html');
     if (existsSync(mensagemHtml)) app.get(['/mensagem', '/mensagem/*'], (_req, res) => { appNoindex(res); res.sendFile(mensagemHtml); });
-    // Site institucional MCK DESENVOLVIMENTO (páginas estáticas em web/public/empresa).
-    const empresaHtml = path.join(webDir, 'empresa', 'index.html');
-    if (existsSync(empresaHtml)) app.get(['/empresa', '/empresa/'], (_req, res) => res.sendFile(empresaHtml));
+    // Site institucional MCK DESENVOLVIMENTO (páginas estáticas em web/public/empresa; a home dele é a raiz "/").
     const novidadesHtml = path.join(webDir, 'empresa', 'novidades.html');
     if (existsSync(novidadesHtml)) app.get(['/empresa/novidades', '/empresa/novidades/'], (_req, res) => res.sendFile(novidadesHtml));
-    app.get('*', (req, res) => { if (req.path !== '/') appNoindex(res); res.sendFile(path.join(webDir, 'index.html')); });
+    app.get('*', (_req, res) => sendSpa(res));
   }
 
   app.use(errorHandler);

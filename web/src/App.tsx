@@ -202,6 +202,7 @@ export default function App() {
     return (
       <Routes>
         <Route path="/login" element={<Login />} />
+        <Route path="/entrar" element={<Login />} />
         <Route path="/cadastro" element={<Register />} />
         <Route path="/esqueci-senha" element={<Forgot />} />
         <Route path="/redefinir-senha" element={<Reset />} />
@@ -229,6 +230,7 @@ export default function App() {
       <Route path="/verificar-email" element={<Verify />} />
       <Route path="/esqueci-senha" element={<Navigate to="/perfil" replace />} />
       <Route path="/login" element={<Navigate to="/" replace />} />
+      <Route path="/entrar" element={<Navigate to="/" replace />} />
       <Route path="/cadastro" element={<Navigate to="/" replace />} />
       <Route path="*" element={
         <Shell>

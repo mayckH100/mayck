@@ -20,9 +20,9 @@ describe('site /empresa: SEO', () => {
   for (const f of pages) {
     it(`${f}: title, description, canonical e JSON-LD válido com Organization e WebSite`, () => {
       const html = readFileSync(path.join(EMPRESA, f), 'utf8');
-      expect(html).toMatch(/<title>[^<]*MCK Desenvolvimento[^<]*<\/title>/);
+      expect(html).toMatch(/<title>MCK DESENVOLVIMENTO[^<]*<\/title>/);
       expect(html).toMatch(/<meta name="description" content="[^"]{50,}">/);
-      expect(html).toMatch(/<link rel="canonical" href="https:\/\/mckbot\.onrender\.com\/(empresa|privacidade|termos)/);
+      expect(html).toMatch(/<link rel="canonical" href="https:\/\/mckbot\.onrender\.com\/(empresa|privacidade|termos|")/);
       const t = types(html);
       expect(t).toContain('Organization');
       expect(t).toContain('WebSite');
@@ -52,9 +52,11 @@ describe('site /empresa: SEO', () => {
 });
 
 describe('raiz do app: SEO sem quebrar o React', () => {
-  it('index.html tem description, canonical para /empresa/ e o #root com conteúdo estático', () => {
+  it('index.html tem description, canonical para a raiz, verificação do Search Console e o #root com conteúdo estático', () => {
     const html = readFileSync(path.join(WEB, 'index.html'), 'utf8');
-    expect(html).toContain('<link rel="canonical" href="https://mckbot.onrender.com/empresa/" />');
+    expect(html).toContain('<link rel="canonical" href="https://mckbot.onrender.com/" />');
+    expect(html).toContain('<meta name="google-site-verification" content="rdaXqM9TD2Du7cMhAdreVM4lB35CmbSZdb8ZNeJQ12M" />');
+    expect(html).toMatch(/<title>MCK DESENVOLVIMENTO/);
     expect(html).toMatch(/<meta name="description" content="[^"]+MCK Desenvolvimento/);
     expect(html).toMatch(/<div id="root">[\s\S]*href="\/empresa\/"[\s\S]*<\/div>/);
     expect(html).toContain('<script type="module" src="/src/main.tsx"></script>');
@@ -66,5 +68,30 @@ describe('raiz do app: SEO sem quebrar o React', () => {
     const xml = readFileSync(path.join(WEB, 'public/sitemap.xml'), 'utf8');
     expect((xml.match(/<url>/g) ?? []).length).toBe((xml.match(/<lastmod>\d{4}-\d{2}-\d{2}<\/lastmod>/g) ?? []).length);
     expect(readFileSync(path.join(WEB, 'public/robots.txt'), 'utf8')).toContain('Sitemap: https://mckbot.onrender.com/sitemap.xml');
+  });
+});
+
+describe('raiz "/" = landing da empresa (etapa 2)', () => {
+  const landing = readFileSync(path.join(EMPRESA, 'index.html'), 'utf8');
+  it('home do site tem canonical na raiz, title e verificação do Search Console', () => {
+    expect(landing).toContain('<link rel="canonical" href="https://mckbot.onrender.com/">');
+    expect(landing).toContain('<meta name="google-site-verification" content="rdaXqM9TD2Du7cMhAdreVM4lB35CmbSZdb8ZNeJQ12M">');
+    expect(landing).toMatch(/<title>MCK DESENVOLVIMENTO · /);
+    expect(landing).not.toMatch(/noindex/);
+    expect(landing).toContain('href="/login"');
+    expect(landing).toContain('58.460.367/0001-78');
+  });
+  it('sitemap tem a raiz, não tem /empresa/ (canônica é a raiz) e todas as URLs com lastmod', () => {
+    const xml = readFileSync(path.join(WEB, 'public/sitemap.xml'), 'utf8');
+    expect(xml).toContain('<loc>https://mckbot.onrender.com/</loc>');
+    expect(xml).not.toContain('<loc>https://mckbot.onrender.com/empresa/</loc>');
+  });
+  it('arquivo de chave do IndexNow publicado na raiz', () => {
+    const keys = readdirSync(path.join(WEB, 'public')).filter((f) => /^[a-f0-9]{32}\.txt$/.test(f));
+    expect(keys.length).toBe(1);
+    expect(readFileSync(path.join(WEB, 'public', keys[0]), 'utf8').trim()).toBe(keys[0].slice(0, 32));
+  });
+  it('service worker não guarda a landing como casca do app', () => {
+    expect(readFileSync(path.join(WEB, 'public/sw.js'), 'utf8')).toContain("res.headers.get('X-MCK-Shell') === 'app'");
   });
 });

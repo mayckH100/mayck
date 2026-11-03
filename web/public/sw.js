@@ -3,7 +3,7 @@
  * - Navegação (páginas): rede primeiro; sem conexão, abre a última versão salva do app.
  * - /api e qualquer requisição que não seja GET: nunca passam pelo cache.
  */
-const VERSION = 'mck-v1';
+const VERSION = 'mck-v2';
 const STATIC = `${VERSION}-static`;
 const PAGES = `${VERSION}-pages`;
 const PRECACHE = ['/logo-192.png', '/logo-512.png', '/mensagem-logo-192.png', '/mensagem-logo-512.png', '/logo.svg', '/mensagem-logo.svg'];
@@ -34,7 +34,8 @@ self.addEventListener('fetch', (event) => {
     event.respondWith(
       fetch(req)
         .then((res) => {
-          if (res.ok) { const copy = res.clone(); caches.open(PAGES).then((c) => c.put(shell, copy)); }
+          // Só guarda a casca do app (a raiz "/" serve a landing da empresa para quem não está logado).
+          if (res.ok && (shell !== '/' || res.headers.get('X-MCK-Shell') === 'app')) { const copy = res.clone(); caches.open(PAGES).then((c) => c.put(shell, copy)); }
           return res;
         })
         .catch(() => caches.match(shell, { cacheName: PAGES }).then((r) => r || new Response('<h1>Sem conexão</h1><p>Conecte-se à internet para usar o app.</p>', { status: 503, headers: { 'content-type': 'text/html; charset=utf-8' } }))),
