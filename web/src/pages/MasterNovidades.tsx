@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { del, post } from '../api';
-import { useApi, Async, Empty, Field, fmtDate, useAction } from '../ui';
+import { useApi, Async, Empty, Field, Modal, fmtDate, useAction } from '../ui';
 
 // ---------- Tipos ----------
 type Provider = 'instagram' | 'youtube' | 'linkedin' | 'tiktok';
@@ -136,16 +136,29 @@ function History({ state }: { state: ReturnType<typeof useApi<{ items: SocialPos
     const t = setInterval(() => state.reload(), 4000);
     return () => clearInterval(t);
   }, [publishing, state.reload]);
-  const publish = async (p: SocialPost) => {
-    const retry = p.status !== 'draft';
-    const msg = retry
-      ? `Tentar publicar de novo "${p.title}" nos destinos que falharam?`
-      : `Aprovar e publicar "${p.title}" em: ${p.targets.map((t) => SHORT[t]).join(', ')}?\n\nIsso publica de verdade nas redes da empresa.`;
-    if (!confirm(msg)) return;
+  // Confirmação em janela própria (sem window.confirm, que trava navegadores automatizados e alguns celulares).
+  const [pending, setPending] = useState<SocialPost | null>(null);
+  const publishMsg = (p: SocialPost) => p.status !== 'draft'
+    ? `Tentar publicar de novo "${p.title}" nos destinos que falharam?`
+    : `Aprovar e publicar "${p.title}" em: ${p.targets.map((t) => SHORT[t]).join(', ')}? Isso publica de verdade nas redes da empresa.`;
+  const publish = (p: SocialPost) => setPending(p);
+  const confirmPublish = async () => {
+    const p = pending;
+    if (!p) return;
+    setPending(null);
     if (await run(() => post(`/social/posts/${p.id}/publish`, { confirm: true }), 'Publicação aprovada. Publicando…')) state.reload();
   };
   return (
     <div className="card stack">
+      {pending && (
+        <Modal title="Confirmar publicação" onClose={() => setPending(null)}>
+          <p>{publishMsg(pending)}</p>
+          <div className="row" style={{ gap: 8, justifyContent: 'flex-end' }}>
+            <button className="btn" onClick={() => setPending(null)}>Cancelar</button>
+            <button className="btn primary" disabled={busy} onClick={confirmPublish}>Confirmar e publicar</button>
+          </div>
+        </Modal>
+      )}
       <div className="row between"><h2 style={{ margin: 0 }}>Publicações</h2><button className="btn sm" onClick={state.reload}>Atualizar</button></div>
       <Async state={state}>{(d) => d.items.length === 0 ? <Empty title="Nenhuma publicação ainda"><p>Crie a primeira acima.</p></Empty> : (
         <div className="table-wrap"><table>
