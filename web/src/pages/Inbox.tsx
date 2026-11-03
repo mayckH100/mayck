@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
+import { useAuth } from '../auth';
 import { post, patch } from '../api';
 import { AiNotesPanel } from '../AiNotes';
 import { useApi, Async, Empty, Loading, ErrorBox, fmtDate, initials, StatusBadge, useAction, Modal, Field } from '../ui';
@@ -10,6 +11,8 @@ const SENDER: Record<string, string> = { contact: '', bot: 'Automação', ai: 'I
 export default function Inbox() {
   const { id } = useParams();
   const nav = useNavigate();
+  const { me, can } = useAuth();
+  const noNotify = !!me?.org && !(me.org.handoffNotifyPhones?.length);
   const [tab, setTab] = useState<string>('open');
   const [q, setQ] = useState('');
   const [query, setQuery] = useState('');
@@ -24,6 +27,12 @@ export default function Inbox() {
   return (
     <>
       <div className="page-head"><div><h1>Inbox</h1><p className="muted">Atendimento compartilhado. Atualiza automaticamente a cada 8 segundos.</p></div></div>
+      {noNotify && (
+        <div className="alert warn" role="alert" style={{ marginBottom: 12 }}>
+          Ninguém recebe aviso no WhatsApp quando um contato é transferido para atendimento humano: nenhum número de aviso configurado.{' '}
+          {can('OWNER', 'ADMIN') ? <Link to="/perfil#avisos-atendimento" style={{ fontWeight: 600 }}>Configurar números de aviso</Link> : 'Peça ao Proprietário ou Administrador para configurar em Perfil.'}
+        </div>
+      )}
       <div className="inbox">
         <div className="list">
           <form className="row" style={{ padding: 10 }} onSubmit={(e) => { e.preventDefault(); setQuery(q); }}>

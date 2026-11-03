@@ -223,12 +223,15 @@ export async function qualifyLeadInbound(conv: Conversation, contact: Contact, t
     await prisma.contact.update({ where: { id: contact.id }, data: { tags: JSON.stringify([...tags]) } });
   };
 
-  const runAction = async (action: string, flowId: string | null, reason: string) => {
-    if (action === 'HANDOFF') return handoffToHuman(conv, reason);
-    if (action === 'FLOW' && flowId) {
+  /** Executa a ação configurada; devolve false quando nada aconteceu (fluxo sem id, apagado ou que falhou). */
+  const runAction = async (action: string, flowId: string | null, reason: string): Promise<boolean> => {
+    if (action === 'HANDOFF') { await handoffToHuman(conv, reason); return true; }
+    if (action === 'FLOW') {
+      if (!flowId) { await note(conv, `Ação "Fluxo" sem fluxo escolhido (${reason}).`); return false; }
       const { startFlow } = await import('../flows/engine.js');
-      try { await startFlow(flowId, conv, contact, { lastMessage: text }); } catch (e) { await note(conv, `Não foi possível iniciar o fluxo (${reason}): ${(e as Error).message}`); }
+      try { await startFlow(flowId, conv, contact, { lastMessage: text }); return true; } catch (e) { await note(conv, `Não foi possível iniciar o fluxo (${reason}): ${(e as Error).message}`); return false; }
     }
+    return true;
   };
   const allTags = [s.tagPositive, s.tagWaiting, s.tagDiscarded].filter(Boolean);
 
@@ -270,7 +273,8 @@ export async function qualifyLeadInbound(conv: Conversation, contact: Contact, t
     default: {
       await prisma.lead.update({ where: { id: lead.id }, data: { status: 'RESPONDEU', lastIntent: 'DUVIDA', aiSummary: r.summary || lead.aiSummary, contactId: contact.id } });
       if (s.doubtAction === 'AI') { await send(r.reply); return true; }
-      await runAction(s.doubtAction, s.doubtFlowId, 'Lead com dúvida');
+      // Fluxo da dúvida sem id, apagado ou com erro: a IA responde (antes o lead ficava sem resposta nenhuma).
+      if (!(await runAction(s.doubtAction, s.doubtFlowId, 'Lead com dúvida'))) await send(r.reply);
       return true;
     }
   }

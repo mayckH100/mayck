@@ -354,6 +354,14 @@ export function waDownMail(o: { to: string; name: string; app: AppBrand; channel
   return { to: o.to, subject: o.reminder ? `Lembrete: ${o.channel} continua desconectado` : `WhatsApp desconectado: ${o.channel}`, html, text, kind: o.reminder ? 'wa_down_reminder' : 'wa_down' };
 }
 
+/** Aviso de atendimento humano por e-mail (reserva quando o WhatsApp para os números de aviso falhou). */
+export function handoffMail(o: { to: string; name: string; subject: string; title: string; lines: string[]; url?: string }): MailMessage {
+  const { html, text } = layout('mckbot', undefined, o.title, [`Olá, ${esc(o.name)}.`, ...o.lines.map(esc)],
+    o.url ? { label: 'Abrir a conversa', url: o.url } : undefined,
+    'Configure os números que recebem este aviso por WhatsApp em Perfil › Organização › Números de aviso de atendimento.');
+  return { to: o.to, subject: o.subject, html, text, kind: 'handoff_alert' };
+}
+
 /** Resumo diário para o superadmin: canais fora do ar há mais de 1 hora. */
 export function waDownDigestMail(o: { to: string; items: { orgName: string; channel: string; since: Date }[]; now: Date }): MailMessage {
   const rows = o.items.map((i) => `• ${esc(i.orgName)} — ${esc(i.channel)} — desde ${fmtBr(i.since)}`);

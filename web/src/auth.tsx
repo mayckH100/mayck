@@ -10,7 +10,7 @@ export interface Me {
   cadastroPendente?: { documento: boolean; celular: boolean } | null;
   isSuperAdmin?: boolean;
   subscriptions?: SubscriptionView[];
-  org: { id: string; name: string; plan: string; timezone: string; backupPhone?: string | null; handoffAlertMinutes?: number } | null;
+  org: { id: string; name: string; plan: string; timezone: string; backupPhone?: string | null; handoffAlertMinutes?: number; handoffNotifyPhones?: string[] } | null;
   role: Role | null;
   /** Módulos e canais WhatsApp liberados para este membro na organização atual (o proprietário tem tudo). */
   access?: { modules: string[]; channelIds: string[] | null } | null;

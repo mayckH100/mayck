@@ -676,6 +676,28 @@ class QrSessionManager {
   private sendChains = new Map<string, Promise<unknown>>();
   private lastSendAt = new Map<string, number>();
 
+  /**
+   * Número (só dígitos) → número com WhatsApp, conferido no servidor do WhatsApp. No Brasil tenta com e sem o 9
+   * (contas antigas são registradas sem ele). Devolve null se nenhuma variante tem WhatsApp; se a consulta
+   * não estiver disponível (sessão sem sock, erro), devolve o próprio número para tentar enviar mesmo assim.
+   */
+  async resolveNumber(channelId: string, digits: string): Promise<string | null> {
+    const d = digits.replace(/\D/g, '');
+    const sock = this.sessions.get(channelId)?.sock as any;
+    if (!sock?.onWhatsApp) return d;
+    const variants = [d];
+    if (d.startsWith('55') && d.length === 13 && d[4] === '9') variants.push(d.slice(0, 4) + d.slice(5));
+    if (d.startsWith('55') && d.length === 12) variants.push(d.slice(0, 4) + '9' + d.slice(4));
+    try {
+      const r: { jid: string; exists: boolean }[] = (await sock.onWhatsApp(...variants)) ?? [];
+      const hit = r.find((x) => x?.exists && x.jid);
+      if (hit) return hit.jid.split('@')[0].split(':')[0];
+      return r.length ? null : d;
+    } catch {
+      return d;
+    }
+  }
+
   async send(channelId: string, waId: string, payload: OutboundPayload): Promise<{ waMessageId: string }> {
     const content = buildQrContent(payload);
     const jid = waIdToJid(waId);

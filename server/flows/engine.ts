@@ -69,26 +69,30 @@ function sendWaiting(run: FlowRun, conv: Conversation, contact: Contact, payload
 }
 
 /**
- * Resposta automática da IA no WhatsApp (modo "Só IA" e IA depois dos fluxos). Nunca falha em silêncio:
- * a IA já devolve o fallback quando o provedor trava, bloqueia ou responde vazio; aqui o envio que falha
- * e qualquer erro inesperado ficam no log e a conversa vai para um humano em vez de ficar sem resposta.
+ * Resposta automática da IA no WhatsApp (modo "Só IA" e IA depois dos fluxos). Nunca falha em silêncio,
+ * e NUNCA transfere para humano por conta própria: só quando o cliente pediu explicitamente (r.handoff).
+ * Falha da IA ou do envio: texto de falha (quando possível), motivo no log e nota interna; a IA continua.
  */
 export async function replyWithAi(conv: Conversation, contact: Contact, text: string): Promise<void> {
+  const internalNote = (body: string) => prisma.message.create({ data: { orgId: conv.orgId, conversationId: conv.id, direction: 'INTERNAL', sender: 'system', type: 'note', body: body.slice(0, 1000), status: 'NOTE' } }).catch(() => undefined);
   try {
     const r = await generateAiReply({ orgId: conv.orgId, conversationId: conv.id, text });
-    if (r.error || (r.handoff && r.reason)) console.warn('[ia-whatsapp] resposta com transferência', { orgId: conv.orgId, conversationId: conv.id, reason: r.reason, error: r.error });
+    if (r.failed || r.error) {
+      console.warn('[ia-whatsapp] IA sem resposta útil: texto de falha enviado, sem transferir', { orgId: conv.orgId, conversationId: conv.id, reason: r.reason, error: r.error });
+      await internalNote(`IA não conseguiu responder (${r.reason ?? 'motivo desconhecido'}). Enviado o texto de falha; a conversa continua com a IA (só transfere se o cliente pedir um atendente).`);
+    }
     if (r.text) {
       const m = await sendOutbound({ conversation: conv, contact, payload: { type: 'text', text: r.text }, sender: 'ai' });
       if (m?.status === 'FAILED') {
         console.error('[ia-whatsapp] falha ao enviar a resposta da IA', { orgId: conv.orgId, conversationId: conv.id, error: m.error });
-        await handoffToHuman(conv, `Falha ao enviar a resposta da IA: ${m.error ?? 'erro desconhecido'}`);
-        return;
+        await internalNote(`Falha ao enviar a resposta da IA: ${m.error ?? 'erro desconhecido'}. A conversa continua com a IA.`);
+        if (!r.handoff) return;
       }
     }
-    if (r.handoff) await handoffToHuman(conv, r.reason ?? 'IA');
+    if (r.handoff) await handoffToHuman(conv, r.reason ?? 'Contato pediu atendimento humano');
   } catch (e) {
     console.error('[ia-whatsapp] erro inesperado na resposta automática', { orgId: conv.orgId, conversationId: conv.id, error: (e as Error).message });
-    await handoffToHuman(conv, 'Erro na resposta automática da IA').catch(() => undefined);
+    await internalNote(`Erro inesperado na resposta automática da IA: ${(e as Error).message}. Sem transferência automática.`);
   }
 }
 
@@ -242,7 +246,7 @@ async function executeNode(node: FlowNode, run: FlowRun, runVars: Record<string,
       }
       if (r.handoff) {
         if (nextNodeId({ nodes: [], edges: (run as any).__edges }, node.id, 'handoff')) return { kind: 'next', handle: 'handoff', status: 'warn', detail: r.reason };
-        await handoffToHuman(conv, r.reason ?? 'IA');
+        await handoffToHuman(conv, r.reason ?? 'Contato pediu atendimento humano');
         return { kind: 'stop', status: 'HANDOFF', detail: r.reason };
       }
       if (d.continueConversation) return { kind: 'wait', waitType: 'reply', detail: 'IA aguardando próxima mensagem' };

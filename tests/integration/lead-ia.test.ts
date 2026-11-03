@@ -124,6 +124,29 @@ describe('MCK Mensagens — IA de qualificação de leads', () => {
     await owner.put('/api/mckmensagem/ia-leads', { negativeAction: 'RETRY', positiveMessage: '', positiveAction: 'HANDOFF' });
   });
 
+  it('dúvida com ação "Fluxo" cujo fluxo foi apagado: a IA responde a dúvida em vez de deixar o lead sem resposta', async () => {
+    await prisma.leadAiSettings.update({ where: { orgId: orgId() }, data: { doubtAction: 'FLOW', doubtFlowId: 'fluxo-apagado' } });
+    const id = await leadContatado('5511933330099', 'Duda');
+    await sendInbound(ctx, '5511933330099', 'como funciona o pagamento?');
+    expect((await prisma.lead.findUniqueOrThrow({ where: { id } })).lastIntent).toBe('DUVIDA');
+    expect(sentTexts()).toContain('Resposta duvida da IA');
+    await prisma.leadAiSettings.update({ where: { orgId: orgId() }, data: { doubtAction: 'AI', doubtFlowId: null } });
+  });
+
+  it('positivo aplica a etiqueta e remove as outras; negativo no limite troca para a de descartado', async () => {
+    const id = await leadContatado('5511933330098', 'Edu');
+    const lead0 = await prisma.lead.findUniqueOrThrow({ where: { id } });
+    await sendInbound(ctx, '5511933330098', 'quero sim');
+    const lead = await prisma.lead.findUniqueOrThrow({ where: { id } });
+    expect(lead.status).toBe('QUALIFICADO');
+    const s = await prisma.leadAiSettings.findUniqueOrThrow({ where: { orgId: orgId() } });
+    const c = await prisma.contact.findUniqueOrThrow({ where: { id: lead.contactId! } });
+    const tags = JSON.parse(c.tags);
+    expect(tags).toContain(s.tagPositive);
+    expect(tags).not.toContain(s.tagWaiting);
+    expect(lead0.status).toBe('CONTATADO');
+  });
+
   it('testar: classifica sem enviar nada', async () => {
     const r = await owner.post('/api/mckmensagem/ia-leads/testar', { texto: 'pode mandar o teste' });
     expect(r.status).toBe(200);

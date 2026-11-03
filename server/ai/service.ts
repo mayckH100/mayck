@@ -4,6 +4,9 @@ import { parseJson } from '../lib/json.js';
 import { createProvider, aiTimeoutMs, AiProviderError, type ChatMessage, type ChatResult } from './providers.js';
 import { rank, chunkText } from './rag.js';
 import { HANDOFF_TOKEN } from './guard.js';
+import { failureText, isExplicitHumanRequest, DEFAULT_FAILURE_TEXT } from './humanRequest.js';
+import { knowledgePromptSection } from './siteKnowledge.js';
+import { kanbanPromptSection, applyKanbanTag } from './kanbanAuto.js';
 import { normalize } from '../flows/logic.js';
 import { aiNotesPromptSection, contactIdOfConversation } from './contactNotes.js';
 import { agendaPromptSection, applyAgendaTag, cleanAiText, stripJsonMarkers, stripSystemLinks } from '../agenda/ai.js';
@@ -12,7 +15,10 @@ import { applyOrderTag, intentFromText, ordersPromptSection, tagConversation } f
 
 export interface AiReply {
   text: string | null; // texto a enviar ao contato (null = nada)
+  /** true SOMENTE quando o cliente pediu explicitamente um humano (regra do dono; trava em código). */
   handoff: boolean;
+  /** A IA não conseguiu responder (texto de falha enviado, sem transferir). */
+  failed?: boolean;
   reason?: string;
   error?: string;
   usedContext: boolean;
@@ -29,7 +35,8 @@ export async function retrieve(orgId: string, query: string, k = 3) {
   const chunks = await prisma.knowledgeChunk.findMany({ where: { orgId }, take: 2000 });
   const docs = await prisma.knowledgeDoc.findMany({ where: { orgId }, select: { id: true, title: true } });
   const titles = new Map(docs.map((d) => [d.id, d.title]));
-  return rank(query, chunks.map((c) => ({ ...c, text: c.text, title: titles.get(c.docId) ?? '' })), k);
+  // Título do documento entra na pontuação (2x), além do trecho.
+  return rank(query, chunks.map((c) => { const title = titles.get(c.docId) ?? ''; return { ...c, text: c.text, title, scoreText: `${title}\n${title}\n${c.text}` }; }), k);
 }
 
 export function buildSystemPrompt(s: { instructions: string; tone: string }, context: string, contactNotes = ''): string {
@@ -40,7 +47,9 @@ export function buildSystemPrompt(s: { instructions: string; tone: string }, con
     'COMO ATENDER:',
     '- Você pode e deve informar preços, valores, planos, prazos, políticas e passo a passo, dar instruções e tirar dúvidas, usando as Instruções da empresa e o CONTEXTO abaixo.',
     '- Use os valores exatamente como aparecem nas Instruções ou no CONTEXTO. Se um valor ou regra não aparecer em nenhum dos dois, diga que vai confirmar com a equipe em vez de inventar.',
-    `- Se não souber responder, se o cliente pedir um humano ou se o assunto exigir uma pessoa, responda exatamente ${HANDOFF_TOKEN}.`,
+    `- TRANSFERÊNCIA PARA HUMANO É PROIBIDA, exceto quando o cliente pedir explicitamente para falar com um atendente, humano ou pessoa; só nesse caso responda exatamente ${HANDOFF_TOKEN}.`,
+    '- Se não souber algo, NÃO transfira: diga com naturalidade que vai confirmar com a equipe, ofereça o que você sabe e continue ajudando. Se o cliente quiser falar com uma pessoa, ele pode escrever "atendente".',
+    '- Reagendar ou cancelar um horário já marcado: peça o novo dia e horário preferidos (ou o motivo do cancelamento), confirme que registrou o pedido e que a equipe confirma em seguida. Não transfira por isso.',
     '### CONTEXTO',
     context || '(nenhuma informação relevante encontrada na base de conhecimento)',
     '### FIM',
@@ -49,7 +58,7 @@ export function buildSystemPrompt(s: { instructions: string; tone: string }, con
   ].filter(Boolean).join('\n');
 }
 
-const DEFAULT_FALLBACK = 'Vou transferir você para um atendente humano. Aguarde um momento, por favor.';
+const DEFAULT_FALLBACK = DEFAULT_FAILURE_TEXT;
 
 /** Rejeita se a promessa não terminar em `ms` (garante que nada fica esperando para sempre). */
 export function withTimeout<T>(p: Promise<T>, ms: number, onTimeout: () => Error): Promise<T> {
@@ -73,6 +82,14 @@ function failureReason(e: unknown): string {
   return 'Falha no provedor de IA';
 }
 
+/** Modelos do Gemini com pesquisa Google grátis na camada gratuita (2.5 Flash/Flash-Lite: 500 pedidos/dia). */
+export const freeSearchModel = (model: string) => /^gemini-2\.5-flash(-lite)?(\b|-)/.test(model);
+/** O cliente está comparando com concorrentes / outra empresa? */
+export function mentionsCompetitor(text: string): boolean {
+  const t = normalize(text);
+  return /\b(concorr\w*|outras? empresas?|outros? sistemas?|outras? plataformas?|outros? apps?|outros? aplicativos?|melhor(es)? que|pior(es)? que|mais barat\w* que|compar\w*|diferenca|diferencial|diferenciais|versus|vs|ja uso o|ja uso a|ja tenho o)\b/.test(t);
+}
+
 const startOfDay = (d = new Date()) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
 const startOfMonth = (d = new Date()) => new Date(d.getFullYear(), d.getMonth(), 1);
 
@@ -90,20 +107,23 @@ export async function generateAiReply(args: { orgId: string; conversationId: str
   } catch (e) {
     const msg = (e as Error).message;
     console.error('[ia] falha inesperada ao gerar resposta', { orgId: args.orgId, conversationId: args.conversationId || null, error: msg });
-    await prisma.aiUsage.create({ data: { orgId: args.orgId, conversationId: args.conversationId || null, provider: '-', model: '-', success: false, handoff: true, error: msg.slice(0, 500) } }).catch(() => undefined);
-    return { text: fallback, handoff: true, reason: 'Falha ao gerar a resposta da IA', error: msg, usedContext: false };
+    await prisma.aiUsage.create({ data: { orgId: args.orgId, conversationId: args.conversationId || null, provider: '-', model: '-', success: false, handoff: false, error: msg.slice(0, 500) } }).catch(() => undefined);
+    return { text: fallback, handoff: false, failed: true, reason: 'Falha ao gerar a resposta da IA', error: msg, usedContext: false };
   }
 }
 
 async function generateAiReplyInner(args: { orgId: string; conversationId: string; text: string; extraInstructions?: string }, setFallback: (f: string) => void): Promise<AiReply> {
   const { orgId, conversationId, text } = args;
   const s = await prisma.aiSettings.findUnique({ where: { orgId } });
-  if (s?.fallbackMessage) setFallback(s.fallbackMessage);
-  if (!s || !s.enabled) return { text: null, handoff: true, reason: 'IA desativada', usedContext: false };
+  if (s) setFallback(failureText(s));
+  // IA desligada: não responde e não transfere (quem decide o que fazer é o fluxo/atendente).
+  if (!s || !s.enabled) return { text: null, handoff: false, failed: true, reason: 'IA desativada', usedContext: false };
+  const fail = failureText(s);
 
-  const handoffWords = parseJson<string[]>(s.handoffKeywords, []).map(normalize).filter(Boolean);
-  const nt = normalize(text);
-  if (handoffWords.some((w) => nt.includes(w))) {
+  // Única transferência permitida: pedido explícito do cliente (detector em código + palavras da empresa).
+  const handoffWords = parseJson<string[]>(s.handoffKeywords, []).filter(Boolean);
+  const askedHuman = isExplicitHumanRequest(text, handoffWords);
+  if (askedHuman) {
     return { text: s.fallbackMessage, handoff: true, reason: 'Contato pediu atendimento humano', usedContext: false };
   }
 
@@ -113,8 +133,9 @@ async function generateAiReplyInner(args: { orgId: string; conversationId: strin
   ]);
   const monthTokens = (monthAgg._sum.promptTokens ?? 0) + (monthAgg._sum.completionTokens ?? 0);
   if (today >= s.dailyLimit || monthTokens >= s.monthlyTokenLimit) {
-    await prisma.aiUsage.create({ data: { orgId, conversationId, provider: s.provider, model: s.model, success: false, handoff: true, error: 'Limite de uso da IA atingido' } });
-    return { text: s.fallbackMessage, handoff: true, reason: 'Limite de uso da IA atingido', usedContext: false };
+    await prisma.aiUsage.create({ data: { orgId, conversationId, provider: s.provider, model: s.model, success: false, handoff: false, error: 'Limite de uso da IA atingido' } });
+    console.warn('[ia] limite de uso atingido: texto de falha enviado, sem transferir', { orgId, conversationId: conversationId || null });
+    return { text: fail, handoff: false, failed: true, reason: 'Limite de uso da IA atingido', usedContext: false };
   }
 
   const hits = await retrieve(orgId, text, 3);
@@ -134,8 +155,12 @@ async function generateAiReplyInner(args: { orgId: string; conversationId: strin
   const pedidos = await ordersPromptSection(orgId).catch(() => '');
   // Notas para a IA deixadas pelos vendedores neste contato (escopo da organização).
   const contactNotes = await contactIdOfConversation(orgId, conversationId).then((cid) => aiNotesPromptSection(orgId, cid)).catch(() => '');
+  // Site da empresa + preços atuais (só organizações que ligaram) e diferenciais frente a concorrentes.
+  const site = await knowledgePromptSection(s, text).catch(() => '');
+  // Kanban automático (desligado por padrão): etapas e o marcador [ETAPA:nome].
+  const kanban = s.kanbanAuto ? await kanbanPromptSection(orgId, conversationId).catch(() => '') : '';
   const messages: ChatMessage[] = [
-    { role: 'system', content: buildSystemPrompt({ instructions: [s.instructions, args.extraInstructions, agenda, pedidos, prod.rules].filter(Boolean).join('\n'), tone: s.tone }, context, contactNotes) },
+    { role: 'system', content: buildSystemPrompt({ instructions: [s.instructions, args.extraInstructions, agenda, pedidos, prod.rules, site, kanban].filter(Boolean).join('\n'), tone: s.tone }, context, contactNotes) },
     // Links da agenda/Meet já enviados saem do histórico: a IA não deve copiá-los numa nova resposta.
     ...history.reverse().slice(0, -1).map((m) => ({ role: (m.direction === 'IN' ? 'user' : 'assistant') as 'user' | 'assistant', content: m.direction === 'IN' ? m.body ?? '' : stripSystemLinks(m.body ?? '') })),
     { role: 'user', content: text },
@@ -152,13 +177,18 @@ async function generateAiReplyInner(args: { orgId: string; conversationId: strin
       if (remaining < 1000) throw new AiProviderError('timeout', `Provedor de IA não respondeu em ${Math.round(budget / 1000)} s`, false);
       const timeoutMs = Math.min(aiTimeoutMs(), remaining);
       // Timeout próprio além do do fetch: cobre qualquer provedor que não respeite o sinal.
-      const r: ChatResult = await withTimeout(provider.chat(messages, { model: s.model, temperature: s.temperature, maxTokens: s.maxTokens, timeoutMs }), timeoutMs + 500,
+      // Pesquisa no Google (grounding) só quando ligada, em modelo com cota grátis, e quando o cliente compara com concorrentes.
+      const search = s.webSearch && s.provider === 'gemini' && freeSearchModel(s.model) && mentionsCompetitor(text) && attempt === 1;
+      const r: ChatResult = await withTimeout(provider.chat(messages, { model: s.model, temperature: s.temperature, maxTokens: s.maxTokens, timeoutMs, googleSearch: search }), timeoutMs + 500,
         () => new AiProviderError('timeout', `Provedor de IA não respondeu em ${Math.round(timeoutMs / 1000)} s`, true));
       const base = { orgId, conversationId, provider: s.provider, model: s.model, promptTokens: r.promptTokens, completionTokens: r.completionTokens, latencyMs: Date.now() - started };
       if (!r.text?.trim()) throw new AiProviderError('empty', 'Provedor de IA devolveu resposta vazia', true);
       if (r.text.includes(HANDOFF_TOKEN)) {
-        await prisma.aiUsage.create({ data: { ...base, success: true, handoff: true } });
-        return { text: s.fallbackMessage, handoff: true, reason: 'IA não soube responder', usedContext };
+        // A IA pediu transferência sem o cliente pedir: proibido. Manda o resto do texto (ou o texto de falha) e segue com a IA.
+        await prisma.aiUsage.create({ data: { ...base, success: true, handoff: false } });
+        const rest = cleanAiText(r.text.split(HANDOFF_TOKEN).join(' ')).trim();
+        console.warn('[ia] IA pediu transferência sem pedido do cliente: bloqueada, segue com a IA', { orgId, conversationId: conversationId || null });
+        return { text: rest.length >= 8 ? rest : fail, handoff: false, failed: rest.length < 8, reason: 'IA não soube responder (transferência bloqueada: o cliente não pediu humano)', usedContext };
       }
       await prisma.aiUsage.create({ data: { ...base, success: true } });
       // Classificação da conversa (reunião / pedido / os dois) pelo marcador [TIPO:...].
@@ -179,9 +209,12 @@ async function generateAiReplyInner(args: { orgId: string; conversationId: strin
           return { text: booked.text };
         });
       }
+      // Kanban automático: marcador [ETAPA:nome] move o contato (sempre retirado do texto).
+      if (s.kanbanAuto || /\[ETAPA:/i.test(booked.text)) booked = { ...booked, text: await applyKanbanTag(orgId, conversationId, booked.text, s.kanbanAuto).catch(() => booked.text.replace(/\[ETAPA:[^\]]*\]/gi, '').trim()) };
       const out = booked.text || cleanAiText(r.text);
       if (!out) {
-        return { text: s.fallbackMessage, handoff: true, reason: 'IA não soube responder', usedContext };
+        console.warn('[ia] resposta sem texto útil: texto de falha enviado, sem transferir', { orgId, conversationId: conversationId || null });
+        return { text: fail, handoff: false, failed: true, reason: 'IA não soube responder', usedContext };
       }
       return { text: out, handoff: false, usedContext };
     } catch (e) {
@@ -195,6 +228,6 @@ async function generateAiReplyInner(args: { orgId: string; conversationId: strin
   }
   const reason = failureReason(lastErr);
   console.warn('[ia] sem resposta da IA, enviando fallback', { orgId, conversationId: conversationId || null, reason, error: lastError });
-  await prisma.aiUsage.create({ data: { orgId, conversationId: conversationId || null, provider: s.provider, model: s.model, success: false, handoff: true, error: lastError.slice(0, 500), latencyMs: Date.now() - started } }).catch(() => undefined);
-  return { text: s.fallbackMessage, handoff: true, reason, error: lastError, usedContext: false };
+  await prisma.aiUsage.create({ data: { orgId, conversationId: conversationId || null, provider: s.provider, model: s.model, success: false, handoff: false, error: lastError.slice(0, 500), latencyMs: Date.now() - started } }).catch(() => undefined);
+  return { text: fail, handoff: false, failed: true, reason, error: lastError, usedContext: false };
 }

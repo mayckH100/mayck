@@ -10,6 +10,21 @@ import { config } from '../config.js';
 import { sendResetLink } from '../auth/routes.js';
 import { brandOf } from '../lib/mailer.js';
 import { normalizeBrPhone } from '../lib/waiting.js';
+import { deliverStaffAlert, MAX_NOTIFY_PHONES, orgNotifyPhones, samePhone, conversationUrl } from '../whatsapp/handoffNotify.js';
+import { channelLabels } from '../whatsapp/channelLabel.js';
+import { parseJson } from '../lib/json.js';
+
+/** Lista de números de aviso: valida cada um (+55 DDD número), tira repetidos; máx. MAX_NOTIFY_PHONES. */
+const notifyPhonesSchema = z.array(z.string().max(30)).max(MAX_NOTIFY_PHONES, `No máximo ${MAX_NOTIFY_PHONES} números de aviso`).transform((list, ctx) => {
+  const out: string[] = [];
+  for (const raw of list) {
+    if (!raw.trim()) continue;
+    const n = normalizeBrPhone(raw);
+    if (!n) { ctx.addIssue({ code: z.ZodIssueCode.custom, message: `Número de aviso inválido: ${raw.slice(0, 30)} (use +55 DDD número, ex.: +5511999998888)` }); return z.NEVER; }
+    if (!out.some((x) => samePhone(x, n))) out.push(n);
+  }
+  return out;
+});
 
 // Por usuário logado: impede que uma sessão roubada teste senhas atuais em série ou dispare e-mails sem parar.
 const passwordLimiter = rateLimit({
@@ -85,10 +100,58 @@ orgRouter.patch('/', requireRole('OWNER', 'ADMIN'), ah(async (req, res) => {
       return n;
     }),
     handoffAlertMinutes: z.number({ invalid_type_error: 'Minutos do aviso inválidos' }).int('Minutos do aviso devem ser um número inteiro').min(1, 'Minutos do aviso: mínimo 1').max(120, 'Minutos do aviso: máximo 120').optional(),
+    handoffNotifyPhones: notifyPhonesSchema.optional(),
   }).parse(req.body);
-  const o = await prisma.organization.update({ where: { id: orgOf(req) }, data: body });
+  const { handoffNotifyPhones, ...rest } = body;
+  const data: Record<string, unknown> = { ...rest };
+  // Lista nova manda; backupPhone (antigo) fica igual ao 1º número para compatibilidade.
+  if (handoffNotifyPhones !== undefined) {
+    data.handoffNotifyPhones = JSON.stringify(handoffNotifyPhones);
+    data.backupPhone = handoffNotifyPhones[0] ?? null;
+  } else if (rest.backupPhone !== undefined) {
+    data.handoffNotifyPhones = rest.backupPhone ? JSON.stringify([rest.backupPhone]) : JSON.stringify([]);
+  }
+  const o = await prisma.organization.update({ where: { id: orgOf(req) }, data });
   await audit(req, 'org.update', { meta: body });
   res.json(o);
+}));
+
+/** Números de aviso de atendimento: lista, último resultado e números dos WhatsApps conectados (para avisar "é o próprio número"). */
+orgRouter.get('/handoff-notify', requireRole('OWNER', 'ADMIN'), ah(async (req, res) => {
+  const orgId = orgOf(req);
+  const org = await prisma.organization.findUniqueOrThrow({ where: { id: orgId } });
+  const chans = await prisma.channel.findMany({ where: { orgId }, orderBy: { createdAt: 'asc' }, select: { id: true, displayPhone: true, status: true } });
+  const labels = await channelLabels(orgId);
+  const me = await prisma.user.findUnique({ where: { id: req.auth!.userId }, select: { phone: true } });
+  res.json({
+    phones: orgNotifyPhones(org),
+    handoffAlertMinutes: org.handoffAlertMinutes,
+    status: parseJson(org.handoffNotifyStatus, null),
+    channels: chans.map((c) => ({ id: c.id, label: labels.get(c.id)?.label ?? 'WhatsApp', phone: c.displayPhone, connected: c.status === 'CONNECTED' })),
+    suggestion: me?.phone ? normalizeBrPhone(me.phone) : null,
+  });
+}));
+
+const testLimiter = rateLimit({
+  windowMs: 10 * 60 * 1000, limit: 10, standardHeaders: 'draft-7', legacyHeaders: false,
+  keyGenerator: (req) => `hn:${req.auth?.orgId ?? req.ip}`,
+  message: { error: 'Muitos testes seguidos. Aguarde alguns minutos.' },
+});
+
+/** "Enviar teste": manda uma mensagem de teste para os números (os da tela, ainda não salvos, ou os salvos). */
+orgRouter.post('/handoff-notify/test', requireRole('OWNER', 'ADMIN'), testLimiter, ah(async (req, res) => {
+  const orgId = orgOf(req);
+  const body = z.object({ phones: notifyPhonesSchema.optional() }).parse(req.body ?? {});
+  const org = await prisma.organization.findUniqueOrThrow({ where: { id: orgId } });
+  const phones = body.phones ?? orgNotifyPhones(org);
+  if (!phones.length) throw new HttpError(400, 'Informe pelo menos um número de aviso (+55 DDD número).');
+  const text = ['✅ Teste do aviso de atendimento', `Organização: ${org.name}`, 'Quando um contato for transferido para atendimento humano, você recebe uma mensagem como esta, com nome, telefone, motivo e o link da conversa.', `App: ${conversationUrl('').replace(/\/inbox\/$/, '/inbox')}`].join('\n');
+  const r = await deliverStaffAlert({
+    orgId, kind: 'test', phones, text,
+    email: { subject: 'Teste do aviso de atendimento (WhatsApp não entregue)', title: 'Teste do aviso de atendimento', lines: ['Este é o e-mail de reserva: o teste por WhatsApp não foi entregue.'] },
+  });
+  await audit(req, 'org.handoff_notify_test', { meta: { phones: phones.length, ok: r.ok } });
+  res.json(r);
 }));
 
 export const auditRouter = Router();

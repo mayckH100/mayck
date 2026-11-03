@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
 import { registerClient, Client, createTestChannel, installGraphMock, graph, sendInbound, prisma, uniq } from '../helpers.js';
 import { tickHandoffAlerts } from '../../server/whatsapp/handoffAlerts.js';
+import { flushHandoffNotifies } from '../../server/whatsapp/handoffNotify.js';
 
 const N = (id: string, type: string, data: any = {}) => ({ id, type, position: { x: 0, y: 0 }, data });
 const E = (source: string, target: string, sourceHandle = 'next') => ({ id: `${source}-${sourceHandle}-${target}`, source, target, sourceHandle });
@@ -122,7 +123,7 @@ describe('"Aguardando atendente": transferência para humano, Kanban, aviso e co
     const sent = graph.calls.filter((c) => c.body);
     expect(sent).toHaveLength(1);
     expect(sent[0].body.to).toBe('5511988887777');
-    expect(sent[0].body.text.body).toMatch(/^⚠️ Atendimento aguardando: Maria Teste \(.+\) espera um atendente há 10 min\.\n📲 Via: WhatsApp 1 · Teste$/);
+    expect(sent[0].body.text.body).toMatch(/^⚠️ Atendimento aguardando há 10 min\nContato: Maria Teste \(.+\)\nMotivo: sem resposta do atendente\nWhatsApp: WhatsApp 1 · Teste\nAbrir conversa: .+\/inbox\/\S+$/);
     expect((await prisma.conversation.findUniqueOrThrow({ where: { id: conv.id } })).handoffAlertSentAt).toBeInstanceOf(Date);
 
     // Ciclos seguintes não repetem.
@@ -131,17 +132,30 @@ describe('"Aguardando atendente": transferência para humano, Kanban, aviso e co
     expect(graph.calls.filter((c) => c.body)).toHaveLength(1);
   });
 
-  it('falha no envio do aviso é registrada sem derrubar o ciclo (e não repete)', async () => {
+  it('falha no envio do lembrete: nota na conversa, nova tentativa (antes nunca repetia), no máximo 3', async () => {
     const orgId = owner.me.org.id;
     await prisma.conversation.updateMany({ where: { orgId, waitingSince: { not: null } }, data: { waitingSince: null } });
     const p = nextPhone();
     await sendInbound(ctx, p, 'humano');
+    await flushHandoffNotifies();
     const { conv } = await convOf(p);
-    await prisma.conversation.update({ where: { id: conv.id }, data: { waitingSince: new Date(Date.now() - 6 * 60_000) } });
+    await prisma.conversation.update({ where: { id: conv.id }, data: { waitingSince: new Date(Date.now() - 6 * 60_000), handoffNotifyAt: new Date() } });
     graph.reset();
     graph.failNext = [400];
     await expect(tickHandoffAlerts()).resolves.toBe(0);
-    expect((await prisma.conversation.findUniqueOrThrow({ where: { id: conv.id } })).handoffAlertSentAt).toBeInstanceOf(Date);
+    let c = await prisma.conversation.findUniqueOrThrow({ where: { id: conv.id } });
+    expect(c.handoffAlertSentAt).toBeNull(); // liberado para nova tentativa
+    expect(c.handoffAlertTries).toBe(1);
+    const n = await prisma.message.findFirst({ where: { conversationId: conv.id, direction: 'INTERNAL', body: { contains: 'NÃO entregue' } } });
+    expect(n).toBeTruthy();
+    const st = JSON.parse((await prisma.organization.findUniqueOrThrow({ where: { id: orgId } })).handoffNotifyStatus!);
+    expect(st.ok).toBe(false);
+    // 2 min depois: tenta de novo e entrega.
+    graph.reset();
+    expect(await tickHandoffAlerts(new Date(Date.now() + 3 * 60_000))).toBe(1);
+    c = await prisma.conversation.findUniqueOrThrow({ where: { id: conv.id } });
+    expect(c.handoffAlertSentAt).toBeInstanceOf(Date);
+    expect(c.handoffAlertTries).toBe(2);
   });
 
   it('configurações: só OWNER/ADMIN alteram (AGENT 403), validação de telefone e minutos, auditado', async () => {

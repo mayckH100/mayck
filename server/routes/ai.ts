@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { assertPublicUrl } from '../lib/ssrf.js';
 import { z } from 'zod';
 import { prisma } from '../db.js';
-import { ah, notFound, badRequest } from '../lib/http.js';
+import { HttpError, ah, notFound, badRequest } from '../lib/http.js';
 import { orgOf, requireRole } from '../auth/session.js';
 import { encrypt, decryptOrNull, maskSecret } from '../lib/crypto.js';
 import { audit } from '../lib/audit.js';
@@ -38,8 +38,15 @@ aiRouter.put('/settings', admins, ah(async (req, res) => {
     dailyLimit: z.number().int().min(0).max(100000).optional(), monthlyTokenLimit: z.number().int().min(0).max(100000000).optional(),
     handoffKeywords: z.array(z.string().trim().min(1).max(50)).max(30).optional(),
     fallbackMessage: z.string().trim().min(1).max(1000).optional(),
+    failureMessage: z.string().trim().max(1000).optional(),
+    competitorNotes: z.string().max(3000).optional(),
+    useMckSite: z.boolean().optional(),
+    webSearch: z.boolean().optional(),
+    kanbanAuto: z.boolean().optional(),
   }).parse(req.body);
   const orgId = orgOf(req);
+  // O site da MCK DESENVOLVIMENTO como conhecimento é só da organização da MCK: quem liga é o superadmin.
+  if (body.useMckSite !== undefined && !req.auth!.isSuperAdmin) throw new HttpError(403, 'Só o administrador da plataforma pode ligar o conhecimento do site da MCK.');
   const { apiKey, clearApiKey, handoffKeywords, baseUrl, ...rest } = body;
   if (baseUrl) {
     try { await assertPublicUrl(baseUrl); } catch (e) { throw badRequest(`URL da IA recusada: ${(e as Error).message}`); }

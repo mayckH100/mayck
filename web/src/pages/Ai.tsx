@@ -24,7 +24,8 @@ export default function Ai() {
 
 function Config() {
   const state = useApi<any>('/ai/settings');
-  const { can } = useAuth();
+  const { can, me } = useAuth();
+  const superAdmin = !!me?.user.isSuperAdmin;
   const [f, setF] = useState<any>(null);
   const [apiKey, setApiKey] = useState('');
   const { busy, run } = useAction();
@@ -38,6 +39,8 @@ function Config() {
           enabled: f.enabled, autoReply: f.autoReply, provider: f.provider, model: f.model, baseUrl: f.provider === 'openai' ? f.baseUrl : '',
           instructions: f.instructions, tone: f.tone, temperature: Number(f.temperature), maxTokens: Number(f.maxTokens), dailyLimit: Number(f.dailyLimit), monthlyTokenLimit: Number(f.monthlyTokenLimit),
           handoffKeywords: f.handoffKeywords.split(',').map((x: string) => x.trim()).filter(Boolean), fallbackMessage: f.fallbackMessage,
+          failureMessage: f.failureMessage ?? '', competitorNotes: f.competitorNotes ?? '', webSearch: !!f.webSearch, kanbanAuto: !!f.kanbanAuto,
+          ...(superAdmin ? { useMckSite: !!f.useMckSite } : {}),
         };
         if (apiKey) body.apiKey = apiKey;
         const r = await run(() => put('/ai/settings', body), 'Configurações da IA salvas');
@@ -64,8 +67,15 @@ function Config() {
           <label className="row"><input type="checkbox" checked={f.autoReply} onChange={(e) => setF({ ...f, autoReply: e.target.checked })} /> Responder automaticamente quando nenhum fluxo for acionado</label>
           <Field label="Instruções" hint="Quem é a empresa, o que vende, preços e como atender. A IA também usa a base de conhecimento."><textarea rows={6} value={f.instructions} onChange={(e) => setF({ ...f, instructions: e.target.value })} /></Field>
           <Field label="Tom de voz"><input value={f.tone} onChange={(e) => setF({ ...f, tone: e.target.value })} /></Field>
-          <Field label="Palavras que pedem humano" hint="Separadas por vírgula"><input value={f.handoffKeywords} onChange={(e) => setF({ ...f, handoffKeywords: e.target.value })} /></Field>
-          <Field label="Mensagem de transferência/fallback"><textarea rows={2} required value={f.fallbackMessage} onChange={(e) => setF({ ...f, fallbackMessage: e.target.value })} /></Field>
+          <div className="alert info small">A IA só transfere para um atendente quando o <strong>cliente pede</strong> (ex.: "quero falar com um atendente", "humano", "pessoa"). Se ela não souber responder ou falhar, manda o texto de falha abaixo e continua atendendo. Transferências que você colocou nos fluxos (bloco "Transferir para humano") continuam valendo.</div>
+          <Field label="Palavras que pedem humano" hint="Separadas por vírgula. Valem em mensagens curtas ou em pedidos (ex.: 'quero atendente'); 'pessoa jurídica' não transfere."><input value={f.handoffKeywords} onChange={(e) => setF({ ...f, handoffKeywords: e.target.value })} /></Field>
+          <Field label="Mensagem de transferência (quando o cliente pede um atendente)"><textarea rows={2} required value={f.fallbackMessage} onChange={(e) => setF({ ...f, fallbackMessage: e.target.value })} /></Field>
+          <Field label="Mensagem quando a IA não consegue responder (sem transferir)" hint="Vazio = 'Desculpe, não consegui responder agora. Pode me explicar de outro jeito? Se preferir falar com uma pessoa da equipe, é só escrever atendente.'"><textarea rows={2} value={f.failureMessage ?? ''} onChange={(e) => setF({ ...f, failureMessage: e.target.value })} /></Field>
+          <h3 style={{ margin: '8px 0 0' }}>Concorrentes e funil</h3>
+          <Field label="Diferenciais vs concorrentes" hint="Quando o cliente comparar com outra empresa, a IA responde com respeito, destaca estes pontos e não inventa nada sobre o concorrente."><textarea rows={4} value={f.competitorNotes ?? ''} onChange={(e) => setF({ ...f, competitorNotes: e.target.value })} placeholder="Ex.: atendimento 24h, entrega no mesmo dia, garantia de 1 ano…" /></Field>
+          <label className="row"><input type="checkbox" checked={!!f.webSearch} onChange={(e) => setF({ ...f, webSearch: e.target.checked })} /> Pesquisar na web (Google) quando o cliente citar um concorrente — grátis só no Gemini 2.5 Flash/Flash-Lite (500 pesquisas/dia); em outros modelos fica desligado</label>
+          <label className="row"><input type="checkbox" checked={!!f.kanbanAuto} onChange={(e) => setF({ ...f, kanbanAuto: e.target.checked })} /> A IA move o contato para a etapa seguinte do Kanban quando a conversa mostrar que ele avançou (nunca volta etapa nem marca Ganho/Perdido; cada mudança fica anotada na conversa)</label>
+          {superAdmin && <label className="row"><input type="checkbox" checked={!!f.useMckSite} onChange={(e) => setF({ ...f, useMckSite: e.target.checked })} /> Usar o site da MCK DESENVOLVIMENTO (MCKBOT, MCK Mensagens, Planos, Ajuda, Contato) e os preços atuais como conhecimento — só para a organização da MCK (opção do administrador da plataforma)</label>}
           <div className="alert info small">A IA informa valores, planos, prazos e passo a passo usando as Instruções acima e a base de conhecimento. Mantenha os preços atualizados nesses lugares.</div>
           {!ro && <button className="btn primary" disabled={busy}>{busy ? 'Salvando…' : 'Salvar configurações'}</button>}
         </fieldset>
@@ -98,7 +108,7 @@ function Knowledge() {
         <p className="muted" style={{ margin: 0 }}>Cole FAQ, tabela de preços, políticas e horários. O texto é dividido em trechos e os mais relevantes vão para a IA a cada pergunta. Produtos com preço e estoque ficam em <a href="/produtos">Produtos</a>.</p>
         {!ro && <button className="btn primary" onClick={() => setEdit({ title: '', content: '' })}>+ Documento</button>}
       </div>
-      <Async state={state}>{(docs) => docs.length === 0 ? <div className="card"><Empty title="Base de conhecimento vazia">Sem documentos, a IA não responde perguntas sobre preços e políticas — transfere para um humano.</Empty></div> : (
+      <Async state={state}>{(docs) => docs.length === 0 ? <div className="card"><Empty title="Base de conhecimento vazia">Sem documentos, a IA não sabe responder perguntas sobre preços e políticas (ela avisa que vai confirmar com a equipe).</Empty></div> : (
         <div className="grid g2">
           {docs.map((d) => (
             <div key={d.id} className="card stack">

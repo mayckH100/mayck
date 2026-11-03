@@ -155,6 +155,6 @@ describe('Nome do WhatsApp: "WhatsApp 1 · Carla" nos canais e nos avisos intern
     const alert = sentTo(RESERVA);
     expect(alert).toHaveLength(1);
     expect(alert[0].text).toContain('⚠️ Atendimento aguardando');
-    expect(alert[0].text).toContain(VIA);
+    expect(alert[0].text).toContain('WhatsApp: WhatsApp 1 · Carla (11 98765-4321)');
   });
 });

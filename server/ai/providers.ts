@@ -3,7 +3,7 @@ import { safeFetch } from '../lib/ssrf.js';
 
 export interface ChatMessage { role: 'system' | 'user' | 'assistant'; content: string }
 export interface ChatResult { text: string; promptTokens: number; completionTokens: number }
-export interface ChatOptions { model: string; temperature: number; maxTokens: number; timeoutMs?: number }
+export interface ChatOptions { model: string; temperature: number; maxTokens: number; timeoutMs?: number; /** Gemini: pesquisa Google (grounding). Se o provedor recusar, repete sem a pesquisa. */ googleSearch?: boolean }
 
 /**
  * Falha classificada do provedor de IA. `retryable`: vale tentar de novo uma vez (timeout, resposta
@@ -111,17 +111,25 @@ export class GeminiProvider implements AiProvider {
     const contents = messages.filter((m) => m.role !== 'system').map((m) => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.content }] }));
     const timeoutMs = opts.timeoutMs ?? aiTimeoutMs();
     try {
-    const res = await httpFetch(`${this.baseUrl}/models/${encodeURIComponent(opts.model)}:generateContent`, {
+    const call = (withSearch: boolean) => httpFetch(`${this.baseUrl}/models/${encodeURIComponent(opts.model)}:generateContent`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-goog-api-key': this.apiKey },
       body: JSON.stringify({
         systemInstruction: { parts: [{ text: system }] },
         contents,
         generationConfig: { temperature: opts.temperature, maxOutputTokens: opts.maxTokens },
+        ...(withSearch ? { tools: [{ google_search: {} }] } : {}),
       }),
       signal: AbortSignal.timeout(timeoutMs),
     });
-    const json = await readJson(res, 'Gemini');
+    let res = await call(!!opts.googleSearch);
+    let json = await readJson(res, 'Gemini');
+    // Pesquisa recusada (modelo/camada sem a ferramenta, cota da pesquisa esgotada): responde sem pesquisar.
+    if (!res.ok && opts.googleSearch && res.status >= 400 && res.status < 500) {
+      console.warn('[ia] pesquisa Google recusada pelo Gemini; respondendo sem pesquisa', { status: res.status });
+      res = await call(false);
+      json = await readJson(res, 'Gemini');
+    }
     if (!res.ok) throw httpError('Gemini', res.status, json?.error?.message);
     return parseGeminiResponse(json);
     } catch (e) {

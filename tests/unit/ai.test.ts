@@ -6,7 +6,7 @@ import { buildSystemPrompt } from '../../server/ai/service.js';
 
 describe('RAG', () => {
   it('tokeniza sem acentos e sem stopwords', () => {
-    expect(tokenize('Qual é o horário de atendimento?')).toEqual(['horario', 'atendimento']);
+    expect(tokenize('Qual é o horário de atendimento?')).toEqual(['horari', 'atend']); // radical leve (2026-11-03)
   });
   it('fragmenta textos longos', () => {
     const chunks = chunkText(('Parágrafo de teste. '.repeat(30) + '\n\n').repeat(5), 500, 50);

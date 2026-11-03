@@ -126,20 +126,22 @@ describe('IA (provedor fake determinístico)', () => {
     expect(note!.body).toMatch(/Transferido para atendimento humano/);
   });
 
-  it('falha do provedor → nova tentativa, fallback e handoff, com erro registrado', async () => {
+  it('falha do provedor → nova tentativa e texto de falha, SEM transferir, com erro registrado', async () => {
     const p = nextPhone();
     await sendInbound(ctx, p, 'por favor falhar agora sobre horário');
-    expect(sentTexts()[0]).toMatch(/atendente humano/);
+    expect(sentTexts()[0]).toMatch(/não consegui responder agora/);
+    const c = await prisma.contact.findFirstOrThrow({ where: { orgId: owner.me.org.id, waId: p } });
+    expect((await prisma.conversation.findFirstOrThrow({ where: { contactId: c.id } })).mode).toBe('BOT');
     const u = await prisma.aiUsage.findFirst({ where: { orgId: owner.me.org.id, success: false }, orderBy: { createdAt: 'desc' } });
     expect(u!.error).toMatch(/Falha simulada/);
   });
 
-  it('limite diário de uso: ao atingir, não chama o provedor e transfere', async () => {
+  it('limite diário de uso: ao atingir, não chama o provedor e manda o texto de falha (sem transferir)', async () => {
     const used = await prisma.aiUsage.count({ where: { orgId: owner.me.org.id } });
     await owner.put('/api/ai/settings', { dailyLimit: used });
     const p = nextPhone();
     await sendInbound(ctx, p, 'qual o horário de atendimento?');
-    expect(sentTexts()[0]).toMatch(/atendente humano/);
+    expect(sentTexts()[0]).toMatch(/não consegui responder agora/);
     const last = await prisma.aiUsage.findFirst({ where: { orgId: owner.me.org.id }, orderBy: { createdAt: 'desc' } });
     expect(last!.error).toBe('Limite de uso da IA atingido');
     await owner.put('/api/ai/settings', { dailyLimit: 1000 });
@@ -161,9 +163,16 @@ describe('IA (provedor fake determinístico)', () => {
     await sendInbound(ctx, p, 'tenho uma duvida sobre o horário de atendimento');
     expect(sentTexts()[0]).toContain('9h às 18h');
     expect(sentTexts()[1]).toBe('Posso ajudar em algo mais?');
+    // IA sem resposta (sem contexto → [TRANSFERIR]): proibido transferir; o fluxo segue pela saída normal.
     graph.reset();
     const p2 = nextPhone();
     await sendInbound(ctx, p2, 'duvida: xyz abc');
+    expect(sentTexts()).not.toContain('Um especialista vai te atender.');
+    expect(sentTexts()).toContain('Posso ajudar em algo mais?');
+    // Cliente pede atendente dentro do fluxo: a saída "transferência" do bloco IA vale.
+    graph.reset();
+    const p3 = nextPhone();
+    await sendInbound(ctx, p3, 'duvida: quero falar com um atendente');
     expect(sentTexts()).toContain('Um especialista vai te atender.');
   });
 
@@ -183,6 +192,6 @@ describe('IA (provedor fake determinístico)', () => {
     expect(r.body.text).toContain('sábados');
     const usage = await owner.get('/api/ai/usage');
     expect(usage.body.total).toBeGreaterThan(5);
-    expect(usage.body.handoffs).toBeGreaterThan(0);
+    expect(usage.body.handoffs).toBe(0); // falhas não contam mais como transferência
   });
 });

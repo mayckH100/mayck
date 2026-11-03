@@ -15,6 +15,7 @@ import { sha256 } from '../lib/crypto.js';
 import { config } from '../config.js';
 import { PRODUCTS, getSubscriptionView } from '../billing/service.js';
 import { ensureSuperAdmin } from './superadmin.js';
+import { orgNotifyPhones } from '../whatsapp/handoffNotify.js';
 import { randomToken } from '../lib/crypto.js';
 import { sendMailLater, welcomeMail, resetMail, passwordChangedMail, signupCodeMail, accountExistsMail, brandOf, appPath, type AppBrand } from '../lib/mailer.js';
 import { needsCadastro } from './session.js';
@@ -76,7 +77,7 @@ export async function meResponse(userId: string, orgId: string | null, csrfToken
     cadastroPendente: needsCadastro(user, (current?.role ?? null) as never) ? { documento: !user.documento, celular: !user.celular } : null,
     isSuperAdmin: user.isSuperAdmin,
     subscriptions,
-    org: current ? { id: current.org.id, name: current.org.name, plan: current.org.plan, timezone: current.org.timezone, backupPhone: current.org.backupPhone, handoffAlertMinutes: current.org.handoffAlertMinutes } : null,
+    org: current ? { id: current.org.id, name: current.org.name, plan: current.org.plan, timezone: current.org.timezone, backupPhone: current.org.backupPhone, handoffAlertMinutes: current.org.handoffAlertMinutes, handoffNotifyPhones: orgNotifyPhones(current.org) } : null,
     role: current?.role ?? null,
     // Módulos e canais que o membro pode usar (o menu esconde o resto; o servidor bloqueia de verdade).
     access: current ? (() => { const a = accessOf(current.role as Role, current); return { modules: effectiveModules(current.role as Role, a), channelIds: a.channelIds }; })() : null,

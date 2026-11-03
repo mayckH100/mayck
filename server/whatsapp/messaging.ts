@@ -8,6 +8,7 @@ import { isProductActive, type Product } from '../billing/service.js';
 import type { Channel, Conversation, Contact, Message } from '@prisma/client';
 import { markWaiting } from '../lib/waiting.js';
 import { viaLine } from './channelLabel.js';
+import { notifyHandoffInBackground } from './handoffNotify.js';
 
 export const PROVIDER_CLOUD = 'whatsapp_cloud';
 export const PROVIDER_QR = 'whatsapp_qr';
@@ -174,4 +175,6 @@ export async function handoffToHuman(conversation: Conversation, reason: string)
   } catch (e) {
     console.error('[aguardando] falha ao marcar conversa', (e as Error).message);
   }
+  // Aviso imediato para os números de aviso da organização (não segura a resposta ao cliente).
+  notifyHandoffInBackground(conversation, reason);
 }

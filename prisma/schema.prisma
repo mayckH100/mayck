@@ -124,6 +124,10 @@ model Organization {
   // Aviso "Aguardando atendente": número de WhatsApp reserva (E.164 BR) e minutos de espera até o aviso.
   backupPhone         String?
   handoffAlertMinutes Int          @default(5)
+  /// Números que recebem o aviso no momento da transferência para humano (JSON: ["+55..."]). Nulo = usa backupPhone.
+  handoffNotifyPhones String?
+  /// Resultado do último aviso de atendimento (JSON: { at, ok, detail }), mostrado no Perfil.
+  handoffNotifyStatus String?
   createdAt   DateTime     @default(now())
   memberships Membership[]
 }
@@ -333,6 +337,11 @@ model Conversation {
   // "Aguardando atendente": quando a IA/fluxo transferiu para humano (limpo quando o atendente responde).
   waitingSince       DateTime?
   handoffAlertSentAt DateTime?
+  /// Aviso imediato da transferência (números de atendimento): quando saiu e quantas tentativas.
+  handoffNotifyAt    DateTime?
+  handoffNotifyTries Int       @default(0)
+  /// Tentativas do lembrete "aguardando há N min" (repete até 3 vezes se o envio falhar).
+  handoffAlertTries  Int       @default(0)
   /// Classificação da IA: do que trata a conversa — REUNIAO | PEDIDO | AMBOS (nulo = ainda não classificada).
   aiIntent        String?
   createdAt       DateTime  @default(now())
@@ -446,6 +455,16 @@ model AiSettings {
   monthlyTokenLimit Int      @default(500000)
   handoffKeywords   String   @default("[\"atendente\",\"humano\",\"pessoa\"]")
   fallbackMessage   String   @default("Vou transferir você para um atendente humano. Aguarde um momento, por favor.")
+  /// Texto enviado quando a IA falha (sem transferir). Vazio = texto padrão.
+  failureMessage    String   @default("")
+  /// Diferenciais da empresa frente aos concorrentes (a IA usa ao comparar). Qualquer organização.
+  competitorNotes   String   @default("")
+  /// Usa as páginas do site da MCK DESENVOLVIMENTO e os preços atuais como conhecimento (só o superadmin liga).
+  useMckSite        Boolean  @default(false)
+  /// Pesquisa no Google (Gemini grounding) quando o cliente compara com concorrentes; só em modelos com cota grátis.
+  webSearch         Boolean  @default(false)
+  /// A IA pode mover o contato entre as etapas do Kanban pela análise da conversa (padrão desligado).
+  kanbanAuto        Boolean  @default(false)
   updatedAt         DateTime @updatedAt
 }
 

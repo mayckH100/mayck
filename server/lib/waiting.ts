@@ -19,9 +19,12 @@ export async function markWaiting(conversation: Conversation) {
   const now = new Date();
   // Já aguardando: mantém o horário original (o aviso conta desde a primeira transferência).
   if (!conversation.waitingSince) {
-    await prisma.conversation.update({ where: { id: conversation.id }, data: { waitingSince: now, handoffAlertSentAt: null } });
+    await prisma.conversation.update({ where: { id: conversation.id }, data: { waitingSince: now, handoffAlertSentAt: null, handoffAlertTries: 0, handoffNotifyAt: null, handoffNotifyTries: 0 } });
     conversation.waitingSince = now;
     conversation.handoffAlertSentAt = null;
+    conversation.handoffAlertTries = 0;
+    conversation.handoffNotifyAt = null;
+    conversation.handoffNotifyTries = 0;
   }
   try {
     const st = await ensureStage(conversation.orgId, WAITING_STAGE);
