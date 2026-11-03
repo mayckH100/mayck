@@ -203,7 +203,7 @@ Toda transição passa pelo motor de estados (função pura `transition(estado, 
 - Contas (banco, caixa, cartão) com saldo inicial e chave Pix; saldo = inicial + lançamentos.
 - Plano de contas gerencial por grupo da DRE (receita bruta, deduções, custos, operacionais, financeiras, impostos), criado com um padrão editável.
 - Títulos a receber e a pagar com parcelas. Gerados por evento: `vendas.pedido.faturado` → a receber pela condição de pagamento; `estoque.nfe_entrada.lancada` → a pagar pelas duplicatas da nota (sem duplicata: uma parcela na emissão). Pedido cancelado/devolvido cancela os títulos sem baixa.
-- Baixa total ou parcial com juros/multa e desconto (multa até 2% e juros de mora pro rata, configuráveis), estorno (só gestor), cancelamento (só gestor, sem baixa). Status financeiro do pedido acompanha (EM_ABERTO, PARCIAL, PAGO).
+- Baixa total ou parcial com juros/multa e desconto (multa até 2% e juros de mora pro rata, configuráveis), estorno (só gestor), cancelamento (só gestor, sem baixa). Status financeiro do pedido acompanha (EM_ABERTO, PARCIAL, LIQUIDADO).
 - Pix copia-e-cola (BR Code estático com CRC16) na chave do cliente, sem provedor.
 - Transferência entre contas, lançamento avulso, importação de extrato OFX e conciliação (mesmo valor, até 3 dias; cria lançamento para tarifa).
 - Painel: saldo, aging a receber e a pagar, fluxo de caixa projetado. DRE por competência ou caixa.
@@ -218,3 +218,10 @@ Toda transição passa pelo motor de estados (função pura `transition(estado, 
 **Migração** `0042_erp_financeiro_fiscal`: só aditiva. Não aplicada em Postgres de produção.
 
 **Limitações conhecidas**: transmissão nunca testada contra a SEFAZ real (precisa do certificado do cliente; começar em homologação); sem ST, DIFAL, FCP, NFC-e, NFS-e, inutilização de numeração, carta de correção e download de DF-e; boleto registrado depende do banco do cliente (hoje: Pix copia-e-cola).
+
+## Etapa 5 — BI (2026-11-03)
+- `/api/erp/bi/resumo?de&ate` (tela `/erp/bi`): receita, CMV, margem bruta, ticket médio, receita por dia, maiores clientes, curva ABC com margem por produto; valor do estoque, cobertura em dias, itens abaixo do mínimo, lotes vencendo em 30 dias; compras por fornecedor; OPs encerradas, refugo e custo; inadimplência e a pagar em 7 dias; pipeline e conversão do CRM.
+- Venda conta na data da baixa de estoque do faturamento; margem pelo custo médio dessa baixa. Pedidos cancelados ou devolvidos ficam fora.
+- `/api/erp/bi/exportar?tipo=pedidos|produtos` em CSV (separador `;`, abre direto no Excel).
+- Migração `0043_erp_bi` (coluna `encerradaEm` na OP). Não aplicada em produção.
+- Limitação: cálculo na hora, sem cubo/pré-agregação; períodos até 400 dias.

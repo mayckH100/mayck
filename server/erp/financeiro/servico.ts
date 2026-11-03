@@ -60,7 +60,7 @@ export async function recalcularTitulo(tx: Tx, tituloId: string) {
   const novo = await tx.erpTitulo.update({ where: { id: t.id }, data: { pagoCents: pago, jurosCents: val.reduce((a, b) => a + b.jurosCents, 0), descontoCents: val.reduce((a, b) => a + b.descontoCents, 0), status: t.status === 'CANCELADO' ? 'CANCELADO' : statusTitulo(t.valorCents, pago) } });
   if (t.docTipo === 'pedido_venda' && t.docId) {
     const ts = await tx.erpTitulo.findMany({ where: { docTipo: 'pedido_venda', docId: t.docId, orgId: t.orgId, status: { not: 'CANCELADO' } } });
-    const st = ts.every((x) => x.status === 'PAGO') ? 'PAGO' : ts.some((x) => x.pagoCents > 0) ? 'PARCIAL' : 'EM_ABERTO';
+    const st = ts.every((x) => x.status === 'PAGO') ? 'LIQUIDADO' : ts.some((x) => x.pagoCents > 0) ? 'PARCIAL' : 'EM_ABERTO';
     await tx.erpPedidoVenda.updateMany({ where: { id: t.docId, orgId: t.orgId }, data: { statusFinanceiro: st } });
   }
   return novo;

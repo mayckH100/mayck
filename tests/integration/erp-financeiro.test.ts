@@ -31,7 +31,7 @@ describe('ERP · financeiro', () => {
     expect(b1).toMatchObject({ status: 'PARCIAL', pagoCents: 1000 });
     await owner.post(`/api/erp/financeiro/titulos/${ts[0].id}/baixar`, { contaId: conta.id, valorCents: 1500, jurosCents: 30 });
     await owner.post(`/api/erp/financeiro/titulos/${ts[1].id}/baixar`, { contaId: conta.id, valorCents: 2501 });
-    expect((await owner.get(`/api/erp/vendas/pedidos/${ped.id}`)).body.statusFinanceiro).toBe('PAGO');
+    expect((await owner.get(`/api/erp/vendas/pedidos/${ped.id}`)).body.statusFinanceiro).toBe('LIQUIDADO');
     const contas = (await owner.get('/api/erp/financeiro/contas')).body;
     expect(contas[0].saldoCents).toBe(100_000 + 5001 + 30);
     // estorno volta o título e o saldo

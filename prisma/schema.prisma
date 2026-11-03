@@ -2000,6 +2000,7 @@ model ErpOrdemProducao {
   depositoId         String?
   inicioPrevisto     DateTime?
   fimPrevisto        DateTime?
+  encerradaEm        DateTime?
   custoMaterialCents Int                @default(0)
   custoOperacaoCents Int                @default(0)
   motivo             String?

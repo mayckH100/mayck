@@ -197,7 +197,7 @@ producaoRouter.post('/ops/:id/apontar', ah(async (req, res) => {
       const prod = op.qtdProduzidaMil + b.qtdBoaMil;
       const r = transicionar(maquinaOp, 'EM_PRODUCAO', 'ENCERRAR', { componentes: comps.length, faltas: 0, produzidoMil: prod });
       if (!r.ok) throw badRequest(r.erro);
-      await tx.erpOrdemProducao.update({ where: { id: op.id }, data: { status: 'ENCERRADA' } });
+      await tx.erpOrdemProducao.update({ where: { id: op.id }, data: { status: 'ENCERRADA', encerradaEm: new Date() } });
       await emitir(tx, { orgId, tipo: 'producao.op.encerrada', agregado: 'op', agregadoId: op.id, payload: { numero: op.numero, produtoId: op.produtoId, produzidoMil: prod } });
     }
   });

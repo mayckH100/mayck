@@ -35,6 +35,7 @@ import ErpCompras from './erp/compras/Compras';
 import ErpProducao from './erp/producao/Producao';
 import ErpFinanceiro from './erp/financeiro/Financeiro';
 import ErpFiscal from './erp/fiscal/Fiscal';
+import ErpBi from './erp/bi/Bi';
 import Tutorials from './Tutorials';
 import SubscriptionGate from './SubscriptionGate';
 import Announcements from './Announcements';
@@ -274,6 +275,7 @@ export default function App() {
             <Route path="/erp/producao" element={<ErpProducao />} />
             <Route path="/erp/financeiro" element={<ErpFinanceiro />} />
             <Route path="/erp/fiscal" element={<ErpFiscal />} />
+            <Route path="/erp/bi" element={<ErpBi />} />
             <Route path="/relatorios" element={<Reports />} />
             <Route path="/equipe" element={<Team />} />
             <Route path="/plano" element={<Plan />} />

@@ -89,4 +89,5 @@ Formato de cada atualização: data, quem fez, o que foi feito, o que foi passad
 ## Atualização 2026-11-03 (noite, 4) — Hark
 - **Combinado com o Mayck:** seguir todas as etapas sem pedir permissão a cada uma; correções com o app no ar.
 - **Feito:** Etapa 4: Financeiro (contas, plano de contas, a receber/a pagar gerados por evento, baixa parcial com juros, estorno, Pix copia-e-cola, OFX e conciliação, aging, fluxo, DRE) e Fiscal (emitente, certificado A1 cifrado, regras, NF-e 4.00 assinada a partir do pedido, transmissão, cancelamento, DANFE). Migração `0042` (aditiva). Detalhes em `docs/ERP.md`.
-- **Falta:** testar NF-e em homologação com o certificado real; aplicar 0038–0042 no Postgres; SEFAZ próprias (MG, PR, RS...), ST/DIFAL, NFC-e/NFS-e; Etapa 5 (BI).
+- **Etapa 5 (BI) também entregue:** painel único e CSV (ver `docs/ERP.md`). Migração `0043` (aditiva).
+- **Falta:** testar NF-e em homologação com o certificado real; aplicar 0038–0043 no Postgres e conferir o deploy no Render; SEFAZ próprias (MG, PR, RS...), ST/DIFAL, NFC-e/NFS-e; impressão Zebra em hardware.
