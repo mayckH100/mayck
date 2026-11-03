@@ -203,3 +203,11 @@ tr:hover td { background: #fafcfb; }
 .aviso-preview .aviso-img { max-height: 320px; }
 @media (max-width: 480px) { .aviso-actions { flex-direction: column-reverse; } .aviso-actions .btn { width: 100%; } }
 @media (max-width: 480px) { .sub-gate { padding: 20px 16px 16px; } .sub-gate-actions { flex-direction: column-reverse; } .sub-gate-actions .btn { width: 100%; } }
+
+/* Banner de atualização (novidade mais recente do site; o usuário fecha) */
+.novidade-banner { display: flex; align-items: center; gap: 10px; margin: 12px 24px 0; padding: 7px 10px 7px 14px; border-radius: 10px; border: 1px solid var(--line, #e4e4e7); background: var(--panel, #fff); font-size: 13px; color: inherit; }
+.novidade-banner .nb-txt { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.novidade-banner a { flex: none; font-weight: 600; }
+.novidade-banner .nb-close { flex: none; border: 0; background: transparent; font-size: 18px; line-height: 1; padding: 2px 6px; cursor: pointer; color: inherit; opacity: .6; }
+.novidade-banner .nb-close:hover { opacity: 1; }
+@media (max-width: 640px) { .novidade-banner { margin: 8px 12px 0; } .novidade-banner .nb-txt { white-space: normal; } }

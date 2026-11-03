@@ -35,7 +35,7 @@ import { agendaRouter, publicAgendaRouter, googleCallbackRouter } from './agenda
 import { e2eHooksEnabled, e2eRouter } from './lib/testHooks.js';
 import { outbox } from './lib/mailer.js';
 import { socialRouter, socialCallbackRouter, publicNovidadesRouter } from './social/routes.js';
-import { loadHtml, rootWantsApp } from './lib/siteHtml.js';
+import { CADASTRO_META, loadHtml, rootWantsApp, withPageMeta } from './lib/siteHtml.js';
 
 export function createApp() {
   const app = express();
@@ -180,6 +180,14 @@ export function createApp() {
     });
     if (landingHtml) app.get(['/empresa', '/empresa/', '/empresa/index.html'], (_req, res) => sendLanding(res));
     app.get('/index.html', (_req, res) => res.redirect(301, '/'));
+    // /cadastro: mesmo app, com o cartão de prévia próprio (og:url/título/descrição) para quem compartilha o link.
+    const cadastroHtml = withPageMeta(spaHtml, CADASTRO_META);
+    app.get(['/cadastro', '/cadastro/'], (_req, res) => {
+      appNoindex(res);
+      res.setHeader('X-MCK-Shell', 'app');
+      res.setHeader('Cache-Control', 'no-cache');
+      res.type('html').send(cadastroHtml);
+    });
     app.use(express.static(webDir, {
       index: false, maxAge: '1h',
       setHeaders: (res, file) => {

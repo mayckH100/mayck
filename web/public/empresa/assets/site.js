@@ -160,6 +160,8 @@ if (/^\d{12,13}$/.test(MCK_WHATSAPP_NUMERO)) window.MCK_WA_BUTTON('https://wa.me
   var esc = function (t) { return String(t == null ? '' : t).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); };
   var safe = function (u) { return typeof u === 'string' && /^https:\/\//i.test(u) ? u : ''; };
   var NOMES = { instagram: 'Instagram', youtube: 'YouTube', linkedin: 'LinkedIn', tiktok: 'TikTok' };
+  // Só links do próprio site viram clicáveis (texto já escapado).
+  var linkify = function (t) { return t.replace(/https:\/\/mckbot\.onrender\.com(\/[A-Za-z0-9\-_\/.]*[A-Za-z0-9\-_\/])?/g, function (u) { return '<a href="' + u + '">' + u.replace(/^https:\/\//, '') + '</a>'; }); };
   var data = function (d) { try { return new Date(d).toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' }); } catch (e) { return ''; } };
   fetch('/api/novidades').then(function (r) { if (!r.ok) throw 0; return r.json(); }).then(function (j) {
     var items = (j && j.items) || [];
@@ -169,8 +171,38 @@ if (/^\d{12,13}$/.test(MCK_WHATSAPP_NUMERO)) window.MCK_WA_BUTTON('https://wa.me
       if (media && p.mediaType === 'image') m = '<img class="news-img" src="' + esc(media) + '" alt="' + esc(p.title) + '" loading="lazy">';
       var links = Object.keys(p.links || {}).map(function (k) { var u = safe(p.links[k]); return u ? '<a href="' + esc(u) + '" target="_blank" rel="noopener">Ver no ' + esc(NOMES[k] || k) + '</a>' : ''; }).filter(Boolean);
       if (media && p.mediaType === 'video' && !(p.links || {}).youtube) links.unshift('<a href="' + esc(media) + '" target="_blank" rel="noopener">Assistir ao vídeo</a>');
-      return '<article class="card news">' + m + '<div class="news-body"><span class="eyebrow">' + esc(data(p.publishedAt)) + '</span><h2>' + esc(p.title) + '</h2>' +
-        (p.body ? '<p>' + esc(p.body).replace(/\n/g, '<br>') + '</p>' : '') + (links.length ? '<p class="news-links">' + links.join(' · ') + '</p>' : '') + '</div></article>';
+      return '<article class="card news" id="novidade-' + esc(p.id) + '">' + m + '<div class="news-body"><span class="eyebrow">' + esc(data(p.publishedAt)) + '</span><h2>' + esc(p.title) + '</h2>' +
+        (p.body ? '<p>' + linkify(esc(p.body)).replace(/\n/g, '<br>') + '</p>' : '') + (links.length ? '<p class="news-links">' + links.join(' · ') + '</p>' : '') + '</div></article>';
     }).join('');
+    // Link do banner (/empresa/novidades#novidade-<id>): a lista chega depois do carregamento, então rola até o item.
+    var alvo = location.hash && document.getElementById(decodeURIComponent(location.hash.slice(1)));
+    if (alvo && alvo.scrollIntoView) alvo.scrollIntoView({ block: 'start' });
   }).catch(function () { box.innerHTML = '<p class="news-empty">Não foi possível carregar as novidades agora. Tente de novo em instantes.</p>'; });
+})();
+
+// ---------- Banner de atualização: novidade mais recente, por 14 dias ou até o visitante fechar ----------
+// Regra igual à do app (web/src/novidadeBanner.ts). Só acrescenta uma faixa; o conteúdo da página continua no HTML.
+(function () {
+  if (!window.fetch || !document.body) return;
+  var DIAS = 14, DIA = 864e5;
+  var chave = function (id) { return 'mck:novidade:fechada:' + id; };
+  var fechada = function (id) { try { return localStorage.getItem(chave(id)) === '1'; } catch (e) { return false; } };
+  fetch('/api/novidades?limit=1').then(function (r) { if (!r.ok) throw 0; return r.json(); }).then(function (j) {
+    var n = j && j.items && j.items[0];
+    if (!n || !n.id || !n.title || !n.publishedAt) return;
+    var idade = Date.now() - Date.parse(n.publishedAt);
+    if (!(idade <= DIAS * DIA && idade >= -DIA) || fechada(n.id)) return;
+    var bar = document.createElement('div');
+    bar.className = 'updbar'; bar.setAttribute('role', 'region'); bar.setAttribute('aria-label', 'Novidade');
+    var w = document.createElement('div'); w.className = 'wrap';
+    var t = document.createElement('span'); t.className = 'ub-txt';
+    var b = document.createElement('strong'); b.textContent = 'Novidade: ';
+    t.appendChild(b); t.appendChild(document.createTextNode(n.title));
+    var a = document.createElement('a'); a.className = 'ub-go'; a.textContent = 'Ver →';
+    a.href = '/empresa/novidades#novidade-' + encodeURIComponent(n.id);
+    var x = document.createElement('button'); x.type = 'button'; x.className = 'ub-x'; x.setAttribute('aria-label', 'Fechar aviso de novidade'); x.textContent = '×';
+    x.addEventListener('click', function () { try { localStorage.setItem(chave(n.id), '1'); } catch (e) { /* sem localStorage: some só agora */ } bar.remove(); });
+    w.appendChild(t); w.appendChild(a); w.appendChild(x); bar.appendChild(w);
+    document.body.insertBefore(bar, document.body.firstChild);
+  }).catch(function () { /* sem novidade, sem banner */ });
 })();

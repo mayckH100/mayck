@@ -117,3 +117,12 @@ footer.site .social .sn{display:inline-flex;align-items:center;padding:9px 16px;
 .wa-float:hover{transform:translateY(-2px)}.wa-float:focus-visible{outline:3px solid #111;outline-offset:3px}
 @media (max-width:640px){.wa-float{padding:14px;right:16px;bottom:16px}.wa-float span{display:none}}
 @media print{.wa-float{display:none}}
+
+/* Banner de atualização (novidade mais recente; inserido pelo site.js, o visitante fecha) */
+.updbar{background:#fff;border-bottom:1px solid #eee;color:#222;font-size:13px;line-height:1.4}
+.updbar .wrap{display:flex;align-items:center;justify-content:center;gap:10px;padding-top:6px;padding-bottom:6px}
+.updbar .ub-txt{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.updbar .ub-go{flex:none;font-weight:700;color:var(--red)}
+.updbar .ub-x{flex:none;border:0;background:transparent;color:#666;font-size:18px;line-height:1;padding:2px 6px;cursor:pointer}
+.updbar .ub-x:hover{color:#000}
+@media (max-width:560px){.updbar .ub-txt{white-space:normal}}

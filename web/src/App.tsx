@@ -27,6 +27,7 @@ import Tutorials from './Tutorials';
 import SubscriptionGate from './SubscriptionGate';
 import Announcements from './Announcements';
 import WaDownBanner from './WaDownBanner';
+import NovidadeBanner from './NovidadeBanner';
 import { STATUS_LABEL, fmtDay } from './billing';
 
 const NAV: { to: string; label: string; icon: string; roles?: Role[]; sep?: string; superAdmin?: boolean; module?: string }[] = [
@@ -189,6 +190,7 @@ function Shell({ children }: { children: ReactNode }) {
         <WaitingAlerts />
         <SubscriptionGate app="mckbot" />
         <Announcements app="mckbot" />
+        <NovidadeBanner />
         <main className="content">{children}</main>
       </div>
     </div>

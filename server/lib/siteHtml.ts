@@ -39,3 +39,22 @@ export function rootWantsApp(cookies: Record<string, unknown> | undefined, query
   if (query && ('billing' in query || 'google' in query)) return true;
   return false;
 }
+
+const attr = (s: string) => s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+/**
+ * Cartão de prévia (Facebook, WhatsApp, LinkedIn) de uma tela do app que é compartilhada como link, ex.: /cadastro.
+ * Troca og:url, og:title e og:description no HTML do app, que já traz og:image 1200x630 e twitter:card.
+ * O robô do Facebook não roda JavaScript: as metas precisam vir no HTML servido.
+ */
+export function withPageMeta(html: string, m: { url: string; title: string; description: string }): string {
+  const set = (h: string, prop: string, v: string) =>
+    h.replace(new RegExp(`(<meta property="${prop}" content=")[^"]*(")`), (_x, a: string, b: string) => `${a}${attr(v)}${b}`);
+  return set(set(set(html, 'og:url', m.url), 'og:title', m.title), 'og:description', m.description);
+}
+
+export const CADASTRO_META = {
+  url: 'https://mckbot.onrender.com/cadastro',
+  title: 'Crie sua conta grátis | MCK DESENVOLVIMENTO',
+  description: 'Teste o MCKBOT e o MCK Mensagens por 7 dias, sem cartão: atendimento, campanhas e vendas no WhatsApp com inteligência artificial.',
+};

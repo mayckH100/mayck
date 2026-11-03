@@ -159,6 +159,10 @@ describe('Novidades (redes sociais do Painel Master)', () => {
     const item = pub.body.items.find((x: any) => x.id === id);
     expect(item).toMatchObject({ title: 'Nova função!', mediaType: 'image', links: { instagram: 'https://www.instagram.com/p/m1/' } });
     expect(JSON.stringify(pub.body)).not.toMatch(/results|createdById/);
+    // banner de atualização: ?limit=1 devolve só a mais recente
+    const one = await new Client().get('/api/novidades?limit=1');
+    expect(one.body.items).toHaveLength(1);
+    expect(one.body.items[0].id).toBe(pub.body.items[0].id);
 
     // tentar de novo: só o que falhou (Instagram não é publicado duas vezes)
     const again = await admin.post(`/api/social/posts/${id}/publish`, { confirm: true });

@@ -18,6 +18,7 @@ import SecurityPage from '../pages/Security';
 import SubscriptionGate from '../SubscriptionGate';
 import Announcements from '../Announcements';
 import WaDownBanner from '../WaDownBanner';
+import NovidadeBanner from '../NovidadeBanner';
 
 // module: permissão da equipe exigida para ver o item (o servidor também bloqueia com 403).
 const NAV: { to: string; label: string; icon: string; module?: string }[] = [
@@ -119,6 +120,7 @@ function Shell({ children, nav: navItems = NAV }: { children: ReactNode; nav?: t
       <BillingReturnRedirect />
       <SubscriptionGate app="mensagem" />
       <Announcements app="mensagem" />
+      <NovidadeBanner base={MCKBOT_URL} />
       <main className="mm-content">{children}</main>
     </div>
   );

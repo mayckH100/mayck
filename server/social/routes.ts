@@ -150,7 +150,9 @@ socialCallbackRouter.get('/:slug/callback', ah(async (req, res) => {
 
 // ---------- Público: site /empresa/novidades ----------
 export const publicNovidadesRouter = Router();
-publicNovidadesRouter.get('/', ah(async (_req, res) => {
+publicNovidadesRouter.get('/', ah(async (req, res) => {
   res.set('Cache-Control', 'public, max-age=60');
-  res.json({ items: await publicNovidades(50) });
+  // ?limit=1 serve o banner de atualização (site e app); padrão e máximo: 50.
+  const n = Math.trunc(Number(req.query.limit));
+  res.json({ items: await publicNovidades(Number.isFinite(n) && n >= 1 ? Math.min(n, 50) : 50) });
 }));

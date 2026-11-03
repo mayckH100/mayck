@@ -30,6 +30,12 @@ describe.skipIf(!built)('SPA: MCKBOT na raiz e MCK Mensagens em /mensagem', () =
       expect(r.text, url).toMatch(/<title>MCK DESENVOLVIMENTO · MCKBOT/);
       expect(r.headers['x-mck-shell'], url).toBe('app');
     }
+    // Cartão de prévia (Facebook não roda JS): /cadastro tem og próprio e imagem 1200x630.
+    const cad = await request(app).get('/cadastro').set('User-Agent', 'facebookexternalhit/1.1');
+    expect(cad.text).toContain('<meta property="og:url" content="https://mckbot.onrender.com/cadastro" />');
+    expect(cad.text).toContain('<meta property="og:title" content="Crie sua conta grátis | MCK DESENVOLVIMENTO" />');
+    expect(cad.text).toContain('<meta property="og:image:width" content="1200" />');
+    expect(cad.text).toContain('<meta name="twitter:card" content="summary_large_image" />');
     // /api nunca cai no SPA (responde JSON).
     const api = await request(app).get('/api/nao-existe');
     expect([401, 404]).toContain(api.status);
