@@ -104,7 +104,8 @@ produtosRouter.put('/condicoes/:id', admins, ah(async (req, res) => {
 export const configDa = (orgId: string, db: Pick<typeof prisma, 'erpConfig'> = prisma) => db.erpConfig.upsert({ where: { orgId }, create: { orgId }, update: {} });
 produtosRouter.get('/config', ah(async (req, res) => res.json(await configDa(orgOf(req)))));
 produtosRouter.put('/config', admins, ah(async (req, res) => {
-  const b = z.object({ descontoMaxBp: z.number().int().min(0).max(10_000), bloquearSemCredito: z.boolean(), validadeOrcamentoDias: z.number().int().min(1).max(365) }).parse(req.body);
+  const b = z.object({ descontoMaxBp: z.number().int().min(0).max(10_000), bloquearSemCredito: z.boolean(), validadeOrcamentoDias: z.number().int().min(1).max(365),
+    formatoLote: z.string().trim().min(3).max(40).regex(/\{SEQ\}/, 'O formato precisa ter {SEQ}').optional(), etiquetaLarguraMm: z.number().int().min(20).max(200).optional(), etiquetaAlturaMm: z.number().int().min(10).max(200).optional(), etiquetaDpi: z.union([z.literal(203), z.literal(300)]).optional() }).partial({ descontoMaxBp: true, bloquearSemCredito: true, validadeOrcamentoDias: true }).parse(req.body);
   const orgId = orgOf(req);
   const antes = await configDa(orgId);
   const c = await prisma.erpConfig.update({ where: { orgId }, data: b });

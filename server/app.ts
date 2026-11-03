@@ -47,7 +47,8 @@ export function createApp() {
       useDefaults: true,
       directives: {
         defaultSrc: ["'self'"], imgSrc: ["'self'", 'data:', 'blob:', 'https:'], mediaSrc: ["'self'", 'blob:', 'data:'], styleSrc: ["'self'", "'unsafe-inline'"],
-        scriptSrc: ["'self'"], connectSrc: ["'self'"], frameAncestors: ["'none'"], objectSrc: ["'none'"], baseUri: ["'self'"],
+        scriptSrc: ["'self'"], connectSrc: ["'self'", 'http://localhost:9100'], // 9100: Zebra Browser Print local (etiquetas)
+        frameAncestors: ["'none'"], objectSrc: ["'none'"], baseUri: ["'self'"],
         formAction: ["'self'"], workerSrc: ["'self'"], manifestSrc: ["'self'"],
       },
     },

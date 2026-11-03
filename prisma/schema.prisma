@@ -1506,6 +1506,11 @@ model ErpConfig {
   bloquearSemCredito   Boolean  @default(true)
   validadeOrcamentoDias Int     @default(15)
   proximoPedido        Int      @default(1)
+  proximoLoteInterno   Int      @default(1)
+  formatoLote          String   @default("{AA}{MM}{DD}-{SEQ}") // {AAAA} {AA} {MM} {DD} {SKU} {SEQ}
+  etiquetaLarguraMm    Int      @default(100)
+  etiquetaAlturaMm     Int      @default(50)
+  etiquetaDpi          Int      @default(203) // 203 ou 300 (Zebra)
   updatedAt            DateTime @updatedAt
 }
 
@@ -1604,7 +1609,9 @@ model ErpLote {
   fabricacao DateTime?
   validade   DateTime?
   status     String    @default("LIBERADO") // LIBERADO | QUARENTENA | BLOQUEADO
-  origemTipo String?   // compra | op | ajuste | inicial
+  loteFornecedor String? // lote impresso pelo fornecedor (rastro da NF-e)
+  fornecedorId   String? // ErpParceiro
+  origemTipo String?   // nfe_entrada | op | ajuste | inicial
   origemId   String?
   createdAt  DateTime  @default(now())
 
@@ -1723,4 +1730,94 @@ model ErpPedidoItem {
 
   @@index([pedidoId])
   @@index([produtoId])
+}
+
+/** De-para: código do produto no fornecedor → produto interno, com fator (ex.: 1 CX do fornecedor = 12 UN = 12000). */
+model ErpProdutoFornecedor {
+  id               String   @id @default(cuid())
+  orgId            String
+  parceiroId       String
+  codigoFornecedor String
+  produtoId        String
+  fatorMil         Int      @default(1000)
+  createdAt        DateTime @default(now())
+
+  @@unique([orgId, parceiroId, codigoFornecedor])
+  @@index([orgId, produtoId])
+}
+
+/** NF-e de entrada importada pelo XML: confere, vincula produtos e lança no estoque com lote. */
+model ErpNfeEntrada {
+  id              String    @id @default(cuid())
+  orgId           String
+  chave           String
+  numero          String
+  serie           String
+  dataEmissao     DateTime?
+  parceiroId      String
+  emitenteCnpj    String
+  emitenteNome    String
+  valorTotalCents Int
+  autorizada      Boolean   @default(false) // tem protNFe com cStat 100
+  status          String    @default("PENDENTE") // PENDENTE | LANCADA | CANCELADA
+  xml             String
+  lancadaEm       DateTime?
+  lancadaPorId    String?
+  createdAt       DateTime  @default(now())
+  itens           ErpNfeEntradaItem[]
+
+  @@unique([orgId, chave])
+  @@index([orgId, status])
+}
+
+model ErpNfeEntradaItem {
+  id              String        @id @default(cuid())
+  nfeId           String
+  nfe             ErpNfeEntrada @relation(fields: [nfeId], references: [id], onDelete: Cascade)
+  nItem           Int
+  codigo          String
+  descricao       String
+  ean             String?
+  ncm             String?
+  cfop            String?
+  unidade         String
+  qtdMil          Int           // na unidade do fornecedor
+  valorUnitCents  Int
+  custoTotalCents Int           // produto + IPI + ST + frete + seguro + outras − desconto
+  lotes           String        @default("[]") // JSON do rastro: [{numero, qtdMil, fabricacao, validade}]
+  produtoId       String?
+  fatorMil        Int           @default(1000)
+  lotesGerados    String        @default("[]") // ids dos lotes internos criados no lançamento
+}
+
+/** Inventário (geral ou cíclico): foto do saldo, contagem (cega opcional), aprovação das divergências e ajuste. */
+model ErpInventario {
+  id           String    @id @default(cuid())
+  orgId        String
+  descricao    String
+  depositoId   String?
+  cego         Boolean   @default(true)
+  status       String    @default("CONTANDO") // CONTANDO | EM_APROVACAO | CONCLUIDO | CANCELADO
+  criadoPorId  String?
+  aprovadoPorId String?
+  concluidoEm  DateTime?
+  createdAt    DateTime  @default(now())
+  contagens    ErpInventarioContagem[]
+
+  @@index([orgId, status])
+}
+
+model ErpInventarioContagem {
+  id           String        @id @default(cuid())
+  inventarioId String
+  inventario   ErpInventario @relation(fields: [inventarioId], references: [id], onDelete: Cascade)
+  produtoId    String
+  loteId       String
+  enderecoId   String
+  sistemaMil   Int           // saldo físico na abertura
+  contadoMil   Int?
+  contadoPorId String?
+  contadoEm    DateTime?
+
+  @@unique([inventarioId, produtoId, loteId, enderecoId])
 }

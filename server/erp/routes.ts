@@ -12,6 +12,8 @@ import { registrarConsumidoresCrm } from './crm/consumidores.js';
 import { iniciarDespachante } from './shared/events.js';
 import { produtosRouter } from './produtos/produtos.routes.js';
 import { estoqueRouter } from './estoque/estoque.routes.js';
+import { nfeRouter } from './estoque/nfe.routes.js';
+import { inventarioRouter } from './estoque/inventario.routes.js';
 import { pedidosRouter } from './vendas/pedidos.routes.js';
 import { registrarConsumidoresVendas } from './vendas/consumidores.js';
 
@@ -25,6 +27,8 @@ erpRouter.use('/crm/funil', funilRouter);
 erpRouter.use('/crm/interacoes', interacoesRouter);
 erpRouter.use('/crm/kpis', kpisRouter);
 erpRouter.use('/produtos', produtosRouter);
+erpRouter.use('/estoque/nfe', nfeRouter);
+erpRouter.use('/estoque/inventarios', inventarioRouter);
 erpRouter.use('/estoque', estoqueRouter);
 erpRouter.use('/vendas/pedidos', pedidosRouter);
 

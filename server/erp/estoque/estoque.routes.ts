@@ -8,6 +8,8 @@ import { orgOf, requireRole } from '../../auth/session.js';
 import { auditar } from '../shared/auditoria.js';
 import { entrada, saidaDoSaldo, transferir, mudarStatusLote } from './servico.js';
 import { disponivel } from './saldo.js';
+import { zpl, type DadosEtiqueta } from './etiquetas.js';
+import { configDa } from '../produtos/produtos.routes.js';
 
 export const estoqueRouter = Router();
 const admins = requireRole('OWNER', 'ADMIN');
@@ -116,4 +118,51 @@ estoqueRouter.get('/etiqueta/:tipo/:id', ah(async (req, res) => {
     texto = l.numero === 'UNICO' ? p.sku : l.numero; titulo = `${p.sku} · ${p.nome}${l.numero !== 'UNICO' ? ` · lote ${l.numero}` : ''}${l.validade ? ` · val. ${l.validade.toLocaleDateString('pt-BR')}` : ''}`;
   } else throw badRequest('Tipo de etiqueta inválido');
   res.json({ texto, titulo, png: await QRCode.toDataURL(texto, { margin: 1, width: 240 }) });
+}));
+
+// ---- Etiquetas de produto (lote): ZPL para Zebra e dados para impressora comum ----
+const dataBR = (d: Date | null) => (d ? d.toISOString().slice(0, 10).split('-').reverse().join('/') : null);
+async function dadosEtiquetas(orgId: string, loteIds: string[]) {
+  const lotes = await prisma.erpLote.findMany({ where: { orgId, id: { in: loteIds } } });
+  const [prods, forns] = await Promise.all([
+    prisma.erpProduto.findMany({ where: { id: { in: lotes.map((l) => l.produtoId) } } }),
+    prisma.erpParceiro.findMany({ where: { id: { in: lotes.map((l) => l.fornecedorId).filter(Boolean) as string[] } }, select: { id: true, nome: true, fantasia: true } }),
+  ]);
+  const P = new Map(prods.map((p) => [p.id, p])); const F = new Map(forns.map((f) => [f.id, f.fantasia || f.nome]));
+  return loteIds.map((id) => lotes.find((l) => l.id === id)).filter(Boolean).map((l): DadosEtiqueta & { loteId: string } => {
+    const p = P.get(l!.produtoId)!; const unico = l!.numero === 'UNICO';
+    return { loteId: l!.id, qr: unico ? p.sku : l!.numero, sku: p.sku, nome: p.nome, unidade: p.unidade, lote: unico ? null : l!.numero, loteFornecedor: l!.loteFornecedor, validade: dataBR(l!.validade), fabricacao: dataBR(l!.fabricacao), fornecedor: l!.fornecedorId ? F.get(l!.fornecedorId) ?? null : null };
+  });
+}
+const etqSchema = z.object({ itens: z.array(z.object({ loteId: z.string(), copias: z.number().int().min(1).max(999).default(1) })).min(1).max(500) });
+
+/** Dados + QR em PNG para imprimir em impressora comum (folha A4 ou rolo). */
+estoqueRouter.post('/etiquetas', ah(async (req, res) => {
+  const orgId = orgOf(req);
+  const b = etqSchema.parse(req.body);
+  const cfg = await configDa(orgId);
+  const dados = await dadosEtiquetas(orgId, b.itens.map((i) => i.loteId));
+  const out: unknown[] = [];
+  for (const d of dados) out.push({ ...d, copias: b.itens.find((i) => i.loteId === d.loteId)?.copias ?? 1, png: await QRCode.toDataURL(d.qr, { margin: 1, width: 200 }) });
+  res.json({ larguraMm: cfg.etiquetaLarguraMm, alturaMm: cfg.etiquetaAlturaMm, etiquetas: out });
+}));
+
+/** ZPL II para impressora Zebra (enviado pelo Zebra Browser Print no computador do usuário, ou baixado como .zpl). */
+estoqueRouter.post('/etiquetas/zpl', ah(async (req, res) => {
+  const orgId = orgOf(req);
+  const b = etqSchema.parse(req.body);
+  const cfg = await configDa(orgId);
+  const dados = await dadosEtiquetas(orgId, b.itens.map((i) => i.loteId));
+  const texto = dados.map((d) => zpl(d, { larguraMm: cfg.etiquetaLarguraMm, alturaMm: cfg.etiquetaAlturaMm, dpi: cfg.etiquetaDpi, copias: b.itens.find((i) => i.loteId === d.loteId)?.copias })).join('\n');
+  res.json({ zpl: texto });
+}));
+
+/** Lotes (com fornecedor) para reimpressão de etiquetas e rastreio. */
+estoqueRouter.get('/lotes', ah(async (req, res) => {
+  const orgId = orgOf(req);
+  const q = typeof req.query.q === 'string' ? req.query.q.trim().toUpperCase().slice(0, 40) : '';
+  const lotes = await prisma.erpLote.findMany({ where: { orgId, numero: { not: 'UNICO' }, ...(q ? { OR: [{ numero: { contains: q } }, { loteFornecedor: { contains: q } }] } : {}) }, orderBy: { createdAt: 'desc' }, take: 200 });
+  const prods = await prisma.erpProduto.findMany({ where: { id: { in: lotes.map((l) => l.produtoId) } }, select: { id: true, sku: true, nome: true } });
+  const P = new Map(prods.map((p) => [p.id, p]));
+  res.json(lotes.map((l) => ({ ...l, produto: P.get(l.produtoId) })));
 }));

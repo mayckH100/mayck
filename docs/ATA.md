@@ -74,3 +74,8 @@ Formato de cada atualização: data, quem fez, o que foi feito, o que foi passad
  - Feito: Produtos, Estoque/WMS e Vendas/OMS (ver docs/ERP.md). Migração 0039_erp_estoque_vendas, só aditiva. Menu renomeado para "MCK ERP".
  - Testes: typecheck servidor/web e build da web ok; 19 testes do ERP e permissões passaram. Suíte completa não rodada (economia de crédito, pedido do Mayck).
  - Falta: testar no deploy (cadastrar produto, dar entrada, criar orçamento, enviar, separar com QR, faturar). Próxima: Etapa 3, Compras + Produção/MRP (aguarda aprovação).
+
+### Atualização 2026-11-03 (noite, 2) — ERP estoque completo
+ - Pedido do Mayck: estoque completo antes da Etapa 3 e ERP no nível de empresa grande. Feito: entrada por XML de NF-e com de-para por fornecedor e fator, lote interno ligado ao lote do fornecedor, etiquetas QR (Zebra ZPL via Zebra Browser Print e impressora comum), inventário cego com aprovação. Migração 0040, só aditiva.
+ - Testes: 26 testes do ERP/permissões/healthz passaram; typecheck e build ok; suíte completa não rodada.
+ - Próxima: Etapa 3 (Compras com recebimento cego + Produção/MRP).

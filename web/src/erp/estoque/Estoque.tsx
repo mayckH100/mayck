@@ -5,9 +5,12 @@ import { useAuth } from '../../auth';
 import { useApi, Async, Empty, Modal, Field, useAction, fmtDate } from '../../ui';
 import ErpNav from '../ErpNav';
 import { qtd, toMil, toCents } from '../format';
+import EntradaXml from './EntradaXml';
+import Etiquetas from './Etiquetas';
+import Inventarios from './Inventarios';
 
 export default function Estoque() {
-  const [aba, setAba] = useState<'saldos' | 'movimentos' | 'depositos'>('saldos');
+  const [aba, setAba] = useState<'saldos' | 'xml' | 'etiquetas' | 'inventarios' | 'movimentos' | 'depositos'>('saldos');
   const [depositoId, setDepositoId] = useState('');
   const deps = useApi<any[]>('/erp/estoque/depositos');
   const saldos = useApi<any[]>(`/erp/estoque/saldos${depositoId ? `?depositoId=${depositoId}` : ''}`, [depositoId]);
@@ -28,8 +31,8 @@ export default function Estoque() {
         </div>
       </div>
       <ErpNav />
-      <div className="row" style={{ marginBottom: 10 }}>
-        {(['saldos', 'movimentos', 'depositos'] as const).map((a) => <button key={a} className={`btn sm ${aba === a ? 'primary' : ''}`} onClick={() => setAba(a)}>{{ saldos: 'Saldos', movimentos: 'Movimentações', depositos: 'Depósitos e endereços' }[a]}</button>)}
+      <div className="row" style={{ marginBottom: 10, flexWrap: 'wrap' }}>
+        {(['saldos', 'xml', 'etiquetas', 'inventarios', 'movimentos', 'depositos'] as const).map((a) => <button key={a} className={`btn sm ${aba === a ? 'primary' : ''}`} onClick={() => setAba(a)}>{{ saldos: 'Saldos', xml: 'Entrada por XML', etiquetas: 'Lotes e etiquetas', inventarios: 'Inventário', movimentos: 'Movimentações', depositos: 'Depósitos e endereços' }[a]}</button>)}
       </div>
 
       {aba === 'saldos' && <Async state={saldos}>{(d) => d.length === 0 ? <div className="card"><Empty title={deps.data?.length ? 'Sem saldo em estoque' : 'Crie um depósito primeiro'}>{deps.data?.length ? 'Lance o saldo inicial pelo botão Entrada.' : 'Na aba Depósitos e endereços.'}</Empty></div> : (
@@ -53,6 +56,9 @@ export default function Estoque() {
         </table></div>
       )}</Async>}
 
+      {aba === 'xml' && <EntradaXml depositos={deps.data ?? []} onLancada={recarregar} />}
+      {aba === 'etiquetas' && <Etiquetas />}
+      {aba === 'inventarios' && <Inventarios depositos={deps.data ?? []} onAjustado={recarregar} />}
       {aba === 'movimentos' && <Async state={movs}>{(d) => (
         <div className="card table-wrap"><table>
           <thead><tr><th>Quando</th><th>Produto</th><th>Tipo</th><th>Qtd</th><th>Saldo após</th><th>Lote · Endereço</th><th>Motivo</th></tr></thead>
@@ -76,7 +82,7 @@ export default function Estoque() {
       {etiqueta && (
         <Modal title="Etiqueta QR" onClose={() => setEtiqueta(null)}>
           <div id="etiqueta-qr" style={{ textAlign: 'center' }}><img src={etiqueta.png} alt={etiqueta.texto} width={200} height={200} /><div><strong>{etiqueta.texto}</strong></div><div className="small">{etiqueta.titulo}</div></div>
-          <div className="row" style={{ justifyContent: 'center', marginTop: 10 }}><button className="btn primary" onClick={() => { const w = window.open('', '_blank', 'width=400,height=500'); if (w) { w.document.write(`<body style="font-family:sans-serif;text-align:center">${document.getElementById('etiqueta-qr')!.innerHTML}<script>onload=()=>print()</script></body>`); w.document.close(); } }}>Imprimir</button></div>
+          <div className="row" style={{ justifyContent: 'center', marginTop: 10 }}><button className="btn primary" onClick={() => { const w = window.open('', '_blank', 'width=400,height=500'); if (w) { w.document.write(`<body style="font-family:sans-serif;text-align:center">${document.getElementById('etiqueta-qr')!.innerHTML}</body>`); w.document.close(); setTimeout(() => { w.focus(); w.print(); }, 500); } }}>Imprimir</button></div>
         </Modal>
       )}
     </>

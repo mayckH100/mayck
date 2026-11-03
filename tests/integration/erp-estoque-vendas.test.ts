@@ -66,3 +66,48 @@ describe('ERP · estoque e pedido de venda', () => {
     expect((await owner.post(`/api/erp/vendas/pedidos/${ped.id}/acao`, { evento: 'APROVAR' })).body.statusOperacional).toBe('RESERVADO');
   });
 });
+
+import { nfeXml } from '../fixtures/nfe-exemplo.js';
+describe('ERP · entrada por XML e inventário', () => {
+  let owner: Client; let end: string;
+  beforeAll(async () => {
+    owner = await registerClient();
+    end = (await owner.post('/api/erp/estoque/depositos', { nome: 'CD', enderecos: ['R-01-01'] })).body.enderecos[0].id;
+  });
+  it('importa, vincula CX→12 UN, gera lote interno ligado ao lote do fornecedor e não importa duas vezes', async () => {
+    const cnpj = fakeCnpj();
+    const imp = await owner.post('/api/erp/estoque/nfe/importar', { xml: nfeXml(cnpj) });
+    expect(imp.status).toBe(201);
+    expect((await owner.post('/api/erp/estoque/nfe/importar', { xml: nfeXml(cnpj) })).status).toBe(400);
+    const nfe = (await owner.get(`/api/erp/estoque/nfe/${imp.body.id}`)).body;
+    expect(nfe.itens[0].produtoId).toBeNull();
+    expect((await owner.post(`/api/erp/estoque/nfe/${nfe.id}/lancar`, { enderecoId: end })).status).toBe(400);
+    const v = await owner.put(`/api/erp/estoque/nfe/${nfe.id}/itens/${nfe.itens[0].id}`, { criarProduto: { sku: 'LEITE-UN', controlaValidade: true }, fatorMil: 12_000 });
+    expect(v.status).toBe(200);
+    const l = await owner.post(`/api/erp/estoque/nfe/${nfe.id}/lancar`, { enderecoId: end });
+    expect(l.body.loteIds).toHaveLength(2);
+    const saldos = (await owner.get('/api/erp/estoque/saldos')).body;
+    expect(saldos.map((s: any) => s.fisicoMil)).toEqual([12_000, 12_000]);
+    const lotes = (await owner.get('/api/erp/estoque/lotes')).body;
+    expect(lotes.map((x: any) => x.loteFornecedor).sort()).toEqual(['ABC123', 'ABC124']);
+    expect(lotes[0].numero).toMatch(/^\d{6}-\d{5}$/);
+    const prod = (await owner.get('/api/erp/produtos?q=LEITE-UN')).body.items[0];
+    expect(prod.custoMedioCents).toBe(550); // 132,00 ÷ 24 un
+    const z = await owner.post('/api/erp/estoque/etiquetas/zpl', { itens: [{ loteId: lotes[0].id, copias: 2 }] });
+    expect(z.body.zpl).toContain('^PQ2');
+    // a próxima nota do mesmo fornecedor já vem vinculada
+    const imp2 = await owner.post('/api/erp/estoque/nfe/importar', { xml: nfeXml(cnpj, '35261100000000000000550010000012351000012346') });
+    expect((await owner.get(`/api/erp/estoque/nfe/${imp2.body.id}`)).body.itens[0]).toMatchObject({ produtoId: prod.id, fatorMil: 12_000 });
+  });
+  it('inventário cego: conta, aprova e ajusta a diferença', async () => {
+    const inv = (await owner.post('/api/erp/estoque/inventarios', { descricao: 'Geral novembro' })).body;
+    const lote = (await owner.get('/api/erp/estoque/lotes')).body[0];
+    expect((await owner.post(`/api/erp/estoque/inventarios/${inv.id}/contar`, { endereco: 'r-01-01', codigo: lote.numero, qtdMil: 10_000 })).status).toBe(200);
+    await owner.post(`/api/erp/estoque/inventarios/${inv.id}/acao`, { acao: 'ENVIAR' });
+    const det = (await owner.get(`/api/erp/estoque/inventarios/${inv.id}`)).body;
+    expect(det.contagens.find((c: any) => c.lote === lote.numero).diferencaMil).toBe(-2_000);
+    expect((await owner.post(`/api/erp/estoque/inventarios/${inv.id}/acao`, { acao: 'APROVAR' })).body.status).toBe('CONCLUIDO');
+    const total = (await owner.get('/api/erp/estoque/saldos')).body.reduce((a: number, s: any) => a + s.fisicoMil, 0);
+    expect(total).toBe(10_000); // 10 contadas no lote lido; o outro lote não contado zerou
+  });
+});

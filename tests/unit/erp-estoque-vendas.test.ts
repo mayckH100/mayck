@@ -50,3 +50,26 @@ describe('ERP · cálculo e máquina do pedido', () => {
     expect(financeiroApos('FATURADO', 'PROVISIONADO')).toBe('EM_ABERTO');
   });
 });
+
+import { lerNfe, numeroLoteInterno, repartirLotes } from '../../server/erp/estoque/nfe-xml.js';
+import { zpl } from '../../server/erp/estoque/etiquetas.js';
+import { nfeXml } from '../fixtures/nfe-exemplo.js';
+
+describe('ERP · XML de NF-e, lote interno e etiqueta', () => {
+  it('lê emitente, item com custo completo e rastro de lotes', () => {
+    const n = lerNfe(nfeXml('12345678000195'));
+    expect(n).toMatchObject({ numero: '1234', serie: '1', autorizada: true, valorTotalCents: 13200, emitente: { cnpj: '12345678000195', nome: 'Laticínios Exemplo & Cia LTDA', uf: 'SP' } });
+    expect(n.itens[0]).toMatchObject({ codigo: 'LT-CX12', ean: null, unidade: 'CX', qtdMil: 2000, custoTotalCents: 13200 });
+    expect(n.itens[0].lotes.map((l) => l.numero)).toEqual(['ABC123', 'ABC124']);
+    expect(() => lerNfe('<xml>nada</xml>'.padEnd(200))).toThrow(/não é um XML de NF-e/);
+  });
+  it('gera lote interno pelo formato e reparte quantidade pelo rastro', () => {
+    expect(numeroLoteInterno('{AA}{MM}{DD}-{SEQ}', 7, 'X', new Date(2026, 10, 3))).toBe('261103-00007');
+    expect(numeroLoteInterno('{SKU}-{SEQ}', 1, 'leite1')).toBe('LEITE1-00001');
+    expect(repartirLotes(30_000, [{ numero: 'A', qtdMil: 12_000, fabricacao: null, validade: null }]).map((p) => [p.numero, p.qtdMil])).toEqual([['A', 12_000], [null, 18_000]]);
+  });
+  it('ZPL com QR, tamanho e cópias', () => {
+    const z = zpl({ qr: '261103-00001', sku: 'LEITE1', nome: 'Leite Ação', unidade: 'UN', lote: '261103-00001', loteFornecedor: 'ABC123', validade: '20/01/2027', fabricacao: null, fornecedor: null }, { larguraMm: 100, alturaMm: 50, dpi: 203, copias: 3 });
+    expect(z).toMatch(/^\^XA/); expect(z).toContain('^PW800'); expect(z).toContain('^FDLA,261103-00001'); expect(z).toContain('LOTE FORN. ABC123'); expect(z).toContain('Leite Acao'); expect(z).toContain('^PQ3');
+  });
+});
