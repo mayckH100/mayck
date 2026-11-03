@@ -2,6 +2,8 @@
 import { useState } from 'react';
 import { get, post, put } from '../../api';
 import { useApi, Async, Empty, Modal, Field, useAction, useToast, fmtDate } from '../../ui';
+import { useAuth } from '../../auth';
+import { ApiError } from '../../api';
 import { brl, qtd, toMil } from '../format';
 import { imprimirZebra, imprimirComum } from './impressao';
 
@@ -40,14 +42,27 @@ function NfeDetalhe({ id, depositos, onClose, onLancada }: { id: string; deposit
   const [vinc, setVinc] = useState<any>(null);
   const [f, setF] = useState({ enderecoId: '', quarentena: false, usarLoteFornecedor: false });
   const [manuais, setManuais] = useState<Record<string, { numero: string; qtd: string; validade: string }>>({});
+  const [conf, setConf] = useState<Record<string, string>>({});
+  const [div, setDiv] = useState<string[]>([]);
   const { busy, run } = useAction();
-  const toast = useToast();
+  const toast = useToast(); const { can } = useAuth();
   const enderecos = depositos.flatMap((d) => d.enderecos.map((e: any) => ({ id: e.id, label: `${d.nome} · ${e.codigo}` })));
   async function lancar(n: any) {
     const lotesManuais: Record<string, any[]> = {};
     for (const i of n.itens) { const m = manuais[i.id]; if (m?.numero || m?.validade) lotesManuais[i.id] = [{ numero: m.numero || 'S/N', qtdMil: Math.round((i.qtdMil * i.fatorMil) / 1000), validade: m.validade || null }]; }
-    const r = await run(() => post<any>(`/erp/estoque/nfe/${id}/lancar`, { ...f, lotesManuais }), 'NF-e lançada no estoque');
-    if (r) { st.reload(); onLancada(); }
+    try {
+      await post<any>(`/erp/estoque/nfe/${id}/lancar`, { ...f, lotesManuais, aceitarDivergencias: div.length > 0 });
+      toast('NF-e lançada no estoque'); setDiv([]); st.reload(); onLancada();
+    } catch (e) {
+      const d = (e instanceof ApiError ? (e.details as any)?.divergencias : null) as string[] | null;
+      if (d?.length) setDiv(d); else toast((e as Error).message, 'err');
+    }
+  }
+  async function salvarConferencia(n: any) {
+    const itens = n.itens.filter((i: any) => conf[i.id] !== undefined && conf[i.id] !== '').map((i: any) => ({ itemId: i.id, qtdMil: toMil(conf[i.id]) }));
+    if (!itens.length) return;
+    const r = await run(() => put<any>(`/erp/estoque/nfe/${id}/conferencia`, { itens }), 'Conferência salva');
+    if (r) { if (r.divergentes) toast(`${r.divergentes} item(ns) com quantidade diferente da nota`, 'err'); setConf({}); st.reload(); }
   }
   async function etiquetas(n: any, zebra: boolean) {
     const itens = n.itens.flatMap((i: any) => i.lotesGerados.map((l: any) => ({ loteId: l.id, copias: 1 })));
@@ -59,12 +74,20 @@ function NfeDetalhe({ id, depositos, onClose, onLancada }: { id: string; deposit
       <Async state={st}>{(n) => (
         <>
           <p className="small"><strong>{n.emitenteNome}</strong> · NF {n.numero}/{n.serie} · {brl(n.valorTotalCents)} · chave <code style={{ fontSize: 10 }}>{n.chave}</code></p>
-          <table><thead><tr><th>#</th><th>Item do fornecedor</th><th>Qtd</th><th>Produto interno</th><th>Lotes</th></tr></thead>
+          {n.status === 'PENDENTE' && <div className="row small" style={{ flexWrap: 'wrap', gap: 6 }}>
+            <span>Pedido de compra:</span>
+            <select value={n.pedidoCompraId ?? ''} aria-label="Pedido de compra" onChange={async (e) => { if (await run(() => put(`/erp/estoque/nfe/${id}/pedido`, { pedidoCompraId: e.target.value || null }), 'Pedido vinculado')) st.reload(); }}>
+              <option value="">Sem pedido</option>{n.pedidosAbertos.map((p: any) => <option key={p.id} value={p.id}>Nº {p.numero} · {brl(p.totalCents)}</option>)}
+            </select>
+            {n.cego && <span className="badge">recebimento cego</span>}
+          </div>}
+          <table><thead><tr><th>#</th><th>Item do fornecedor</th><th>Qtd</th>{n.status === 'PENDENTE' && <th>Conferido</th>}<th>Produto interno</th><th>Lotes</th></tr></thead>
             <tbody>{n.itens.map((i: any) => (
               <tr key={i.id}>
                 <td>{i.nItem}</td>
                 <td><div className="small">{i.codigo} · {i.descricao}</div><div className="small muted">custo {brl(i.custoTotalCents)}</div></td>
-                <td>{qtd(i.qtdMil)} {i.unidade}{i.fatorMil !== 1000 && i.produto && <div className="small muted">= {qtd(Math.round((i.qtdMil * i.fatorMil) / 1000))} {i.produto.unidade}</div>}</td>
+                <td>{i.qtdMil == null ? <span className="muted">oculto</span> : <>{qtd(i.qtdMil)} {i.unidade}{i.fatorMil !== 1000 && i.produto && <div className="small muted">= {qtd(Math.round((i.qtdMil * i.fatorMil) / 1000))} {i.produto.unidade}</div>}</>}</td>
+                {n.status === 'PENDENTE' && <td><input style={{ width: 70 }} inputMode="decimal" aria-label="Quantidade conferida" placeholder={i.conferidoMil != null ? qtd(i.conferidoMil) : i.unidade} value={conf[i.id] ?? ''} onChange={(e) => setConf({ ...conf, [i.id]: e.target.value })} />{i.conferidoMil != null && i.qtdMil != null && i.conferidoMil !== i.qtdMil && <div className="small" style={{ color: '#dc2626' }}>diverge</div>}</td>}
                 <td>{i.produto ? <span className="small">{i.produto.sku} · {i.produto.nome}</span> : <span className="badge red">sem vínculo</span>}{n.status === 'PENDENTE' && <button className="btn ghost sm" onClick={() => setVinc(i)}>{i.produto ? 'Trocar' : 'Vincular'}</button>}</td>
                 <td className="small">
                   {i.lotesGerados.length ? i.lotesGerados.map((l: any) => <div key={l.id}><b>{l.numero}</b>{l.loteFornecedor ? ` ← ${l.loteFornecedor}` : ''}</div>)
@@ -82,7 +105,15 @@ function NfeDetalhe({ id, depositos, onClose, onLancada }: { id: string; deposit
             </div>
             <label className="row small"><input type="checkbox" checked={f.quarentena} onChange={(e) => setF({ ...f, quarentena: e.target.checked })} /> Entrar em quarentena (inspeção de qualidade)</label>
             <label className="row small"><input type="checkbox" checked={f.usarLoteFornecedor} onChange={(e) => setF({ ...f, usarLoteFornecedor: e.target.checked })} /> Usar o lote do fornecedor como lote interno (sem gerar novo)</label>
-            <div className="row" style={{ justifyContent: 'flex-end' }}><button className="btn primary" disabled={busy || !f.enderecoId} onClick={() => lancar(n)}>Lançar no estoque</button></div>
+            {div.length > 0 && <div className="card" style={{ borderColor: '#dc2626', marginTop: 8 }}>
+              <strong className="small">Divergências no recebimento</strong>
+              <ul className="small">{div.map((d) => <li key={d}>{d}</li>)}</ul>
+              {!can('OWNER', 'ADMIN') && <p className="small muted">Só proprietário ou administrador aceita divergências. Corrija a conferência ou peça aprovação.</p>}
+            </div>}
+            <div className="row" style={{ justifyContent: 'flex-end' }}>
+              <button className="btn" disabled={busy || !Object.keys(conf).length} onClick={() => salvarConferencia(n)}>Salvar conferência</button>
+              <button className="btn primary" disabled={busy || !f.enderecoId || (div.length > 0 && !can('OWNER', 'ADMIN'))} onClick={() => lancar(n)}>{div.length ? 'Aceitar divergências e lançar' : 'Lançar no estoque'}</button>
+            </div>
           </> : (
             <div className="row" style={{ justifyContent: 'flex-end', marginTop: 10 }}>
               <span className="small muted">Lançada {fmtDate(n.lancadaEm)}</span>

@@ -88,7 +88,7 @@ export async function mudarStatusLote(tx: Tx, orgId: string, loteId: string, sta
   return tx.erpLote.update({ where: { id: loteId }, data: { status } });
 }
 
-async function saldosParaSaida(tx: Tx, orgId: string, produtoId: string, depositoId?: string | null): Promise<SaldoLinha[]> {
+export async function saldosParaSaida(tx: Tx, orgId: string, produtoId: string, depositoId?: string | null): Promise<SaldoLinha[]> {
   const rows = await tx.erpSaldo.findMany({ where: { orgId, produtoId, fisicoMil: { gt: 0 } } });
   if (!rows.length) return [];
   const [lotes, ends] = await Promise.all([

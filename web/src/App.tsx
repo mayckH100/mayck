@@ -31,6 +31,8 @@ import ErpProdutos from './erp/produtos/Produtos';
 import ErpEstoque from './erp/estoque/Estoque';
 import ErpPedidos from './erp/vendas/Pedidos';
 import ErpPedido from './erp/vendas/Pedido';
+import ErpCompras from './erp/compras/Compras';
+import ErpProducao from './erp/producao/Producao';
 import Tutorials from './Tutorials';
 import SubscriptionGate from './SubscriptionGate';
 import Announcements from './Announcements';
@@ -266,6 +268,8 @@ export default function App() {
             <Route path="/erp/estoque" element={<ErpEstoque />} />
             <Route path="/erp/pedidos" element={<ErpPedidos />} />
             <Route path="/erp/pedidos/:id" element={<ErpPedido />} />
+            <Route path="/erp/compras" element={<ErpCompras />} />
+            <Route path="/erp/producao" element={<ErpProducao />} />
             <Route path="/relatorios" element={<Reports />} />
             <Route path="/equipe" element={<Team />} />
             <Route path="/plano" element={<Plan />} />

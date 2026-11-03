@@ -1,6 +1,6 @@
 /**
  * MCK ERP — roteador raiz (/api/erp). Cada módulo tem a própria pasta e o próprio sub-roteador.
- * Etapa 1: core + CRM. Etapa 2: produtos/, estoque/, vendas/. Próximas: producao/, compras/, fiscal/, financeiro/, bi/.
+ * Etapa 1: core + CRM. Etapa 2: produtos/, estoque/, vendas/. Etapa 3: compras/, producao/. Próximas: fiscal/, financeiro/, bi/.
  */
 import { Router } from 'express';
 import { coreRouter } from './core/core.routes.js';
@@ -15,6 +15,8 @@ import { estoqueRouter } from './estoque/estoque.routes.js';
 import { nfeRouter } from './estoque/nfe.routes.js';
 import { inventarioRouter } from './estoque/inventario.routes.js';
 import { pedidosRouter } from './vendas/pedidos.routes.js';
+import { comprasRouter } from './compras/compras.routes.js';
+import { producaoRouter } from './producao/producao.routes.js';
 import { registrarConsumidoresVendas } from './vendas/consumidores.js';
 
 registrarConsumidoresCrm();
@@ -31,6 +33,8 @@ erpRouter.use('/estoque/nfe', nfeRouter);
 erpRouter.use('/estoque/inventarios', inventarioRouter);
 erpRouter.use('/estoque', estoqueRouter);
 erpRouter.use('/vendas/pedidos', pedidosRouter);
+erpRouter.use('/compras', comprasRouter);
+erpRouter.use('/producao', producaoRouter);
 
 /** Chamado na subida do servidor (fora dos testes). */
 export function iniciarErp() { iniciarDespachante(); }

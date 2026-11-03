@@ -49,14 +49,14 @@ function ProdutoForm({ inicial, onClose, onSaved }: { inicial: any; onClose: () 
   const [f, setF] = useState<any>({
     sku: inicial.sku ?? '', nome: inicial.nome ?? '', unidade: inicial.unidade ?? 'UN', codigoBarras: inicial.codigoBarras ?? '', ncm: inicial.ncm ?? '', cest: inicial.cest ?? '',
     origem: inicial.origem ?? 0, tipo: inicial.tipo ?? 'REVENDA', controlaLote: !!inicial.controlaLote, controlaValidade: !!inicial.controlaValidade, regraSaida: inicial.regraSaida ?? 'FIFO',
-    preco: fromCents(inicial.precoBaseCents), minimo: qtd(inicial.estoqueMinimoMil).replace(/\./g, ''), ponto: qtd(inicial.pontoPedidoMil).replace(/\./g, ''), ativo: inicial.ativo ?? true,
+    preco: fromCents(inicial.precoBaseCents), minimo: qtd(inicial.estoqueMinimoMil).replace(/\./g, ''), ponto: qtd(inicial.pontoPedidoMil).replace(/\./g, ''), lead: String(inicial.leadTimeDias ?? 0), loteMin: qtd(inicial.loteMinimoMil ?? 0).replace(/\./g, ''), ativo: inicial.ativo ?? true,
   });
   const { busy, run } = useAction();
   const set = (k: string) => (e: any) => setF({ ...f, [k]: e.target.type === 'checkbox' ? e.target.checked : e.target.value });
   async function salvar() {
     const body = { sku: f.sku, nome: f.nome, unidade: f.unidade, codigoBarras: f.codigoBarras || null, ncm: f.ncm || null, cest: f.cest || null, origem: Number(f.origem), tipo: f.tipo,
       controlaLote: f.controlaLote || f.controlaValidade, controlaValidade: f.controlaValidade, regraSaida: f.controlaValidade ? 'FEFO' : f.regraSaida,
-      precoBaseCents: toCents(f.preco), estoqueMinimoMil: toMil(f.minimo), pontoPedidoMil: toMil(f.ponto), ativo: f.ativo };
+      precoBaseCents: toCents(f.preco), estoqueMinimoMil: toMil(f.minimo), pontoPedidoMil: toMil(f.ponto), leadTimeDias: Number(f.lead) || 0, loteMinimoMil: toMil(f.loteMin || '0'), fornecedorPadraoId: inicial.fornecedorPadraoId ?? null, ativo: f.ativo };
     if (await run(() => (inicial.id ? put(`/erp/produtos/${inicial.id}`, body) : post('/erp/produtos', body)), 'Produto salvo')) onSaved();
   }
   return (
@@ -83,6 +83,8 @@ function ProdutoForm({ inicial, onClose, onSaved }: { inicial: any; onClose: () 
         <div className="grid g2">
           <Field label="Estoque mínimo"><input value={f.minimo} onChange={set('minimo')} inputMode="decimal" /></Field>
           <Field label="Ponto de pedido"><input value={f.ponto} onChange={set('ponto')} inputMode="decimal" /></Field>
+          <Field label="Prazo de compra/fabricação (dias)"><input value={f.lead} onChange={set('lead')} inputMode="numeric" /></Field>
+          <Field label="Lote mínimo de compra/produção"><input value={f.loteMin} onChange={set('loteMin')} inputMode="decimal" /></Field>
         </div>
       </>}
       <label className="row small"><input type="checkbox" checked={f.ativo} onChange={set('ativo')} /> Ativo</label>
@@ -95,15 +97,19 @@ function RegrasComerciais({ onClose }: { onClose: () => void }) {
   const state = useApi<any>('/erp/produtos/config');
   const { busy, run } = useAction();
   const [f, setF] = useState<any>(null);
-  const v = f ?? (state.data && { desconto: String(state.data.descontoMaxBp / 100).replace('.', ','), credito: state.data.bloquearSemCredito, validade: String(state.data.validadeOrcamentoDias) });
+  const v = f ?? (state.data && { desconto: String(state.data.descontoMaxBp / 100).replace('.', ','), credito: state.data.bloquearSemCredito, validade: String(state.data.validadeOrcamentoDias), alcada: String(state.data.alcadaCompraCents / 100), tol: String(state.data.toleranciaPrecoBp / 100).replace('.', ','), cego: state.data.recebimentoCego });
   return (
-    <Modal title="Regras comerciais" onClose={onClose}>
+    <Modal title="Regras comerciais e de compras" onClose={onClose}>
       {!v ? null : <>
         <Field label="Desconto máximo sem aprovação (%)" hint="Acima disso o pedido espera o proprietário ou um administrador"><input value={v.desconto} onChange={(e) => setF({ ...v, desconto: e.target.value })} inputMode="decimal" /></Field>
         <label className="row small"><input type="checkbox" checked={v.credito} onChange={(e) => setF({ ...v, credito: e.target.checked })} /> Bloquear pedido que passa do limite de crédito do cliente</label>
         <Field label="Validade do orçamento (dias)"><input value={v.validade} onChange={(e) => setF({ ...v, validade: e.target.value })} inputMode="numeric" /></Field>
+        <h4 style={{ margin: '12px 0 4px' }}>Compras</h4>
+        <Field label="Alçada do pedido de compra (R$)" hint="Até este valor o pedido é aprovado ao enviar; acima, só proprietário ou administrador aprova"><input value={v.alcada} onChange={(e) => setF({ ...v, alcada: e.target.value })} inputMode="decimal" /></Field>
+        <Field label="Tolerância de preço no recebimento (%)" hint="Diferença entre a nota e o pedido de compra aceita sem aprovação"><input value={v.tol} onChange={(e) => setF({ ...v, tol: e.target.value })} inputMode="decimal" /></Field>
+        <label className="row small"><input type="checkbox" checked={v.cego} onChange={(e) => setF({ ...v, cego: e.target.checked })} /> Recebimento cego (o conferente não vê a quantidade da nota)</label>
         <div className="row" style={{ justifyContent: 'flex-end', marginTop: 10 }}>
-          <button className="btn primary" disabled={busy} onClick={async () => { if (await run(() => put('/erp/produtos/config', { descontoMaxBp: Math.round(Number(v.desconto.replace(',', '.')) * 100) || 0, bloquearSemCredito: v.credito, validadeOrcamentoDias: Number(v.validade) || 15 }), 'Regras salvas')) onClose(); }}>Salvar</button>
+          <button className="btn primary" disabled={busy} onClick={async () => { if (await run(() => put('/erp/produtos/config', { descontoMaxBp: Math.round(Number(v.desconto.replace(',', '.')) * 100) || 0, bloquearSemCredito: v.credito, validadeOrcamentoDias: Number(v.validade) || 15, alcadaCompraCents: toCents(v.alcada), toleranciaPrecoBp: Math.round(Number(String(v.tol).replace(',', '.')) * 100) || 0, recebimentoCego: !!v.cego }), 'Regras salvas')) onClose(); }}>Salvar</button>
         </div>
       </>}
     </Modal>

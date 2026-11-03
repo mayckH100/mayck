@@ -13,6 +13,9 @@ import { vincular } from '../shared/trace.js';
 import { lerNfe, NfeXmlErro, numeroLoteInterno, repartirLotes, type LoteXml } from './nfe-xml.js';
 import { entrada } from './servico.js';
 import { configDa } from '../produtos/produtos.routes.js';
+import { divergenciasRecebimento, maquinaCompra, type StatusCompra } from '../compras/compra.machine.js';
+import { transicionar } from '../shared/statemachine.js';
+import { forbidden } from '../../lib/http.js';
 
 export const nfeRouter = Router();
 const js = <T>(s: string, d: T): T => { try { return JSON.parse(s) as T; } catch { return d; } };
@@ -32,7 +35,11 @@ nfeRouter.get('/:id', ah(async (req, res) => {
   const lotesIds = n.itens.flatMap((i) => js<string[]>(i.lotesGerados, []));
   const lotes = lotesIds.length ? await prisma.erpLote.findMany({ where: { id: { in: lotesIds } } }) : [];
   const L = new Map(lotes.map((l) => [l.id, l]));
-  res.json({ ...n, itens: n.itens.map((i) => ({ ...i, lotes: js<LoteXml[]>(i.lotes, []), produto: i.produtoId ? P.get(i.produtoId) : null, lotesGerados: js<string[]>(i.lotesGerados, []).map((id) => L.get(id)).filter(Boolean) })) });
+  const cfg = await configDa(orgId);
+  const gestor = req.auth?.role === 'OWNER' || req.auth?.role === 'ADMIN';
+  const cego = cfg.recebimentoCego && n.status === 'PENDENTE' && !gestor;
+  const pedidosAbertos = await prisma.erpPedidoCompra.findMany({ where: { orgId, parceiroId: n.parceiroId, status: { in: ['APROVADO', 'ENVIADO', 'RECEBIDO_PARCIAL'] } }, select: { id: true, numero: true, totalCents: true, status: true, previsaoEntrega: true }, orderBy: { numero: 'desc' } });
+  res.json({ ...n, cego, pedidosAbertos, itens: n.itens.map((i) => ({ ...i, qtdMil: cego ? null : i.qtdMil, lotes: js<LoteXml[]>(i.lotes, []).map((l) => (cego ? { ...l, qtdMil: null } : l)), produto: i.produtoId ? P.get(i.produtoId) : null, lotesGerados: js<string[]>(i.lotesGerados, []).map((id) => L.get(id)).filter(Boolean) })) });
 }));
 
 nfeRouter.post('/importar', ah(async (req, res) => {
@@ -91,6 +98,36 @@ nfeRouter.put('/:id/itens/:itemId', ah(async (req, res) => {
   res.json(r);
 }));
 
+/** Vincula a NF-e a um pedido de compra aberto do mesmo fornecedor (para o confronto no lançamento). */
+nfeRouter.put('/:id/pedido', ah(async (req, res) => {
+  const orgId = orgOf(req);
+  const { pedidoCompraId } = z.object({ pedidoCompraId: z.string().nullable() }).parse(req.body);
+  const n = await prisma.erpNfeEntrada.findFirst({ where: { id: req.params.id, orgId } });
+  if (!n) throw notFound('NF-e');
+  if (n.status !== 'PENDENTE') throw badRequest('NF-e já lançada');
+  if (pedidoCompraId) {
+    const pc = await prisma.erpPedidoCompra.findFirst({ where: { id: pedidoCompraId, orgId } });
+    if (!pc || pc.parceiroId !== n.parceiroId) throw badRequest('Pedido de compra não é deste fornecedor');
+    if (!['APROVADO', 'ENVIADO', 'RECEBIDO_PARCIAL'].includes(pc.status)) throw badRequest('Pedido de compra não está aberto para recebimento');
+  }
+  res.json(await prisma.erpNfeEntrada.update({ where: { id: n.id }, data: { pedidoCompraId }, select: { id: true, pedidoCompraId: true } }));
+}));
+
+/** Conferência física do recebimento (na unidade do fornecedor). Com recebimento cego, o conferente não vê a quantidade da nota. */
+nfeRouter.put('/:id/conferencia', ah(async (req, res) => {
+  const orgId = orgOf(req);
+  const b = z.object({ itens: z.array(z.object({ itemId: z.string(), qtdMil: z.number().int().min(0).max(2_000_000_000) })).min(1) }).parse(req.body);
+  const n = await prisma.erpNfeEntrada.findFirst({ where: { id: req.params.id, orgId }, include: { itens: true } });
+  if (!n) throw notFound('NF-e');
+  if (n.status !== 'PENDENTE') throw badRequest('NF-e já lançada');
+  const ids = new Set(n.itens.map((i) => i.id));
+  await prisma.$transaction(b.itens.filter((i) => ids.has(i.itemId)).map((i) => prisma.erpNfeEntradaItem.update({ where: { id: i.itemId }, data: { conferidoMil: i.qtdMil } })));
+  const atual = await prisma.erpNfeEntradaItem.findMany({ where: { nfeId: n.id } });
+  const div = atual.filter((i) => i.conferidoMil != null && i.conferidoMil !== i.qtdMil).length;
+  await auditar(req, 'nfe_entrada.conferir', 'erp_nfe_entrada', n.id, null, { itens: b.itens.length, divergentes: div });
+  res.json({ ok: true, conferidos: atual.filter((i) => i.conferidoMil != null).length, total: atual.length, divergentes: div });
+}));
+
 /**
  * Lança a NF-e no estoque. Para cada item × lote do rastro:
  *  - produto com lote: gera lote interno (formato configurado) guardando o lote do fornecedor e o fornecedor;
@@ -101,6 +138,7 @@ nfeRouter.post('/:id/lancar', ah(async (req, res) => {
   const orgId = orgOf(req);
   const b = z.object({
     enderecoId: z.string(), quarentena: z.boolean().default(false), usarLoteFornecedor: z.boolean().default(false),
+    aceitarDivergencias: z.boolean().default(false),
     lotesManuais: z.record(z.array(z.object({ numero: z.string().trim().max(40), qtdMil: z.number().int().min(1), validade: z.string().nullish(), fabricacao: z.string().nullish() }))).default({}),
   }).parse(req.body);
   const n = await prisma.erpNfeEntrada.findFirst({ where: { id: req.params.id, orgId }, include: { itens: true } });
@@ -109,6 +147,17 @@ nfeRouter.post('/:id/lancar', ah(async (req, res) => {
   const semVinculo = n.itens.filter((i) => !i.produtoId);
   if (semVinculo.length) throw badRequest(`Vincule os itens ${semVinculo.map((i) => i.nItem).join(', ')} a produtos antes de lançar`);
   const cfg = await configDa(orgId);
+  // Confronto: conferência física × nota e nota × pedido de compra (quantidade pendente e preço na tolerância).
+  if (cfg.recebimentoCego && n.itens.some((i) => i.conferidoMil == null)) throw badRequest('Recebimento cego: confira todos os itens antes de lançar');
+  const divergencias: string[] = n.itens.filter((i) => i.conferidoMil != null && i.conferidoMil !== i.qtdMil).map((i) => `Item ${i.nItem}: conferido ${i.conferidoMil! / 1000}, nota ${i.qtdMil / 1000} ${i.unidade}`);
+  const pc = n.pedidoCompraId ? await prisma.erpPedidoCompra.findFirst({ where: { id: n.pedidoCompraId, orgId }, include: { itens: true } }) : null;
+  if (pc) {
+    const prods = await prisma.erpProduto.findMany({ where: { id: { in: n.itens.map((i) => i.produtoId!) } }, select: { id: true, sku: true } });
+    const S = new Map(prods.map((p) => [p.id, p.sku]));
+    divergencias.push(...divergenciasRecebimento(n.itens.map((i) => ({ produtoId: i.produtoId!, sku: S.get(i.produtoId!) ?? '', qtdMil: Math.round((i.qtdMil * i.fatorMil) / 1000), custoUnitCents: Math.round((i.valorUnitCents * 1000) / i.fatorMil) })), pc.itens, cfg.toleranciaPrecoBp));
+  }
+  if (divergencias.length && !b.aceitarDivergencias) throw badRequest('Divergências no recebimento', { divergencias });
+  if (divergencias.length && !(req.auth?.role === 'OWNER' || req.auth?.role === 'ADMIN')) throw forbidden('Só proprietário ou administrador aceita divergência de recebimento');
   const gerados: string[] = [];
   await prisma.$transaction(async (tx) => {
     let seq = (await tx.erpConfig.findUniqueOrThrow({ where: { orgId } })).proximoLoteInterno;
@@ -139,11 +188,35 @@ nfeRouter.post('/:id/lancar', ah(async (req, res) => {
       await tx.erpNfeEntradaItem.update({ where: { id: item.id }, data: { lotesGerados: JSON.stringify([...new Set(idsItem)]) } });
     }
     await tx.erpConfig.update({ where: { orgId }, data: { proximoLoteInterno: seq } });
+    if (pc) {
+      // baixa o pendente do pedido de compra, por produto, na ordem dos itens
+      const recebido = new Map<string, number>();
+      for (const i of n.itens) recebido.set(i.produtoId!, (recebido.get(i.produtoId!) ?? 0) + Math.round((i.qtdMil * i.fatorMil) / 1000));
+      const somar = new Map<string, number>();
+      for (const it of pc.itens) {
+        const r = recebido.get(it.produtoId) ?? 0;
+        const q = Math.min(r, Math.max(0, it.qtdMil - it.recebidoMil));
+        somar.set(it.id, q); recebido.set(it.produtoId, r - q);
+      }
+      for (const [produtoId, sobra] of recebido) { // excesso aceito fica no último item do produto
+        const ult = [...pc.itens].reverse().find((i) => i.produtoId === produtoId);
+        if (ult && sobra > 0) somar.set(ult.id, (somar.get(ult.id) ?? 0) + sobra);
+      }
+      for (const [id, q] of somar) if (q > 0) await tx.erpPedidoCompraItem.update({ where: { id }, data: { recebidoMil: { increment: q } } });
+      const itens = await tx.erpPedidoCompraItem.findMany({ where: { pedidoId: pc.id } });
+      const ev = itens.every((i) => i.recebidoMil >= i.qtdMil) ? 'RECEBER' : 'RECEBER_PARCIAL';
+      const t = transicionar(maquinaCompra, pc.status as StatusCompra, ev, { itens: itens.length, totalCents: pc.totalCents, gestor: true, alcadaCents: 0 });
+      if (t.ok) {
+        await tx.erpPedidoCompra.update({ where: { id: pc.id }, data: { status: t.para } });
+        for (const tipo of t.emite) await emitir(tx, { orgId, tipo, agregado: 'pedido_compra', agregadoId: pc.id, payload: { numero: pc.numero, nfeId: n.id } });
+      }
+      await vincular(tx, orgId, { tipo: 'pedido_compra', id: pc.id }, { tipo: 'nfe_entrada', id: n.id }, 'recebido_por');
+    }
     await tx.erpNfeEntrada.update({ where: { id: n.id }, data: { status: 'LANCADA', lancadaEm: new Date(), lancadaPorId: req.auth?.userId ?? null } });
     await vincular(tx, orgId, { tipo: 'parceiro', id: n.parceiroId }, { tipo: 'nfe_entrada', id: n.id }, 'forneceu');
     await emitir(tx, { orgId, tipo: 'estoque.nfe_entrada.lancada', agregado: 'nfe_entrada', agregadoId: n.id, payload: { numero: n.numero, parceiroId: n.parceiroId, valorTotalCents: n.valorTotalCents, lotes: gerados.length } });
   });
   despacharEmBreve();
   await auditar(req, 'nfe_entrada.lancar', 'erp_nfe_entrada', n.id, null, { lotes: gerados.length });
-  res.json({ ok: true, loteIds: [...new Set(gerados)] });
+  res.json({ ok: true, loteIds: [...new Set(gerados)], divergenciasAceitas: divergencias });
 }));

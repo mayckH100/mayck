@@ -12,38 +12,38 @@ datasource db {
 }
 
 model User {
-  id              String        @id @default(cuid())
-  email           String        @unique
-  name            String
-  phone           String?
-  passwordHash    String
-  isSuperAdmin    Boolean       @default(false)
-  disabledAt      DateTime?
-  emailVerifiedAt DateTime?
+  id               String        @id @default(cuid())
+  email            String        @unique
+  name             String
+  phone            String?
+  passwordHash     String
+  isSuperAdmin     Boolean       @default(false)
+  disabledAt       DateTime?
+  emailVerifiedAt  DateTime?
   /// CPF (11) ou CNPJ (14) do titular, só dígitos. Dado pessoal: nunca em log/auditoria; mascarado na interface.
-  documento       String?       @unique
+  documento        String?       @unique
   /// Celular do titular em E.164 (+5511912345678); também serve de identificador no login.
-  celular         String?       @unique
+  celular          String?       @unique
   /// Verificação em duas etapas (TOTP): segredo cifrado (AES-GCM com MASTER_KEY); pendente = em configuração.
-  totpSecretEnc   String?
-  totpPendingEnc  String?
-  totpEnabledAt   DateTime?
-  totpLastStep    Int?
+  totpSecretEnc    String?
+  totpPendingEnc   String?
+  totpEnabledAt    DateTime?
+  totpLastStep     Int?
   /// Hashes SHA-256 dos códigos de recuperação ainda não usados (JSON).
-  recoveryCodes   String        @default("[]")
+  recoveryCodes    String        @default("[]")
   /// Bloqueio temporário após senhas/códigos errados seguidos.
-  failedLogins    Int           @default(0)
-  lockedUntil     DateTime?
+  failedLogins     Int           @default(0)
+  lockedUntil      DateTime?
   /// Lembrete por e-mail 3 dias e 1 dia antes de vencer o teste/plano (titular pode desligar no Perfil).
-  renewalReminders Boolean      @default(true)
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
-  memberships     Membership[]
-  sessions        Session[]
-  authTokens      AuthToken[]
-  knownDevices    KnownDevice[]
+  renewalReminders Boolean       @default(true)
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+  memberships      Membership[]
+  sessions         Session[]
+  authTokens       AuthToken[]
+  knownDevices     KnownDevice[]
   /// Receber por e-mail o alerta de WhatsApp desconectado (Proprietário/Administrador). Padrão: sim.
-  waDownEmail     Boolean       @default(true)
+  waDownEmail      Boolean       @default(true)
 }
 
 /// Aparelhos (navegadores) já usados para entrar; login de aparelho novo gera alerta por e-mail.
@@ -117,10 +117,10 @@ model PendingSignup {
 }
 
 model Organization {
-  id          String       @id @default(cuid())
-  name        String
-  timezone    String       @default("America/Sao_Paulo")
-  plan        String       @default("gratis")
+  id                  String       @id @default(cuid())
+  name                String
+  timezone            String       @default("America/Sao_Paulo")
+  plan                String       @default("gratis")
   // Aviso "Aguardando atendente": número de WhatsApp reserva (E.164 BR) e minutos de espera até o aviso.
   backupPhone         String?
   handoffAlertMinutes Int          @default(5)
@@ -128,22 +128,22 @@ model Organization {
   handoffNotifyPhones String?
   /// Resultado do último aviso de atendimento (JSON: { at, ok, detail }), mostrado no Perfil.
   handoffNotifyStatus String?
-  createdAt   DateTime     @default(now())
-  memberships Membership[]
+  createdAt           DateTime     @default(now())
+  memberships         Membership[]
 }
 
 model Membership {
-  id        String       @id @default(cuid())
-  userId    String
-  orgId     String
-  role      String // OWNER | ADMIN | AGENT
+  id         String       @id @default(cuid())
+  userId     String
+  orgId      String
+  role       String // OWNER | ADMIN | AGENT
   /// Módulos que o membro pode acessar (JSON: ["inbox","kanban",...]). Nulo = tudo o que o papel permite (comportamento antigo).
   modules    String?
   /// Canais WhatsApp que o membro pode atender (JSON: [channelId,...]). Nulo = todos os canais.
   channelIds String?
-  createdAt DateTime     @default(now())
-  user      User         @relation(fields: [userId], references: [id], onDelete: Cascade)
-  org       Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  createdAt  DateTime     @default(now())
+  user       User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  org        Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
 
   @@unique([userId, orgId])
   @@index([orgId])
@@ -199,24 +199,24 @@ model AuditLog {
 }
 
 model Channel {
-  id             String    @id @default(cuid())
-  orgId          String
-  name           String
-  provider       String    @default("whatsapp_cloud") // whatsapp_cloud (API oficial) | whatsapp_qr (WhatsApp Web via QR code)
-  phoneNumberId  String?
-  wabaId         String?
-  displayPhone   String?
-  accessTokenEnc String?
-  appSecretEnc   String?
-  verifyToken    String
-  status         String    @default("NOT_CONNECTED") // NOT_CONNECTED | CONNECTING | QR_PENDING | CONNECTED | ERROR
-  waJid          String? // modo QR: JID do aparelho conectado
-  connectedAt    DateTime? // modo QR: quando a sessão foi aberta pela última vez
-  lastError      String?
-  lastWebhookAt  DateTime?
-  lastCheckedAt  DateTime?
-  qrLeaseOwner   String? // modo QR: instância do servidor que segura a sessão (evita 2 conexões no deploy)
-  qrLeaseUntil   DateTime? // modo QR: validade da trava; expira sozinha se a instância cair
+  id                  String    @id @default(cuid())
+  orgId               String
+  name                String
+  provider            String    @default("whatsapp_cloud") // whatsapp_cloud (API oficial) | whatsapp_qr (WhatsApp Web via QR code)
+  phoneNumberId       String?
+  wabaId              String?
+  displayPhone        String?
+  accessTokenEnc      String?
+  appSecretEnc        String?
+  verifyToken         String
+  status              String    @default("NOT_CONNECTED") // NOT_CONNECTED | CONNECTING | QR_PENDING | CONNECTED | ERROR
+  waJid               String? // modo QR: JID do aparelho conectado
+  connectedAt         DateTime? // modo QR: quando a sessão foi aberta pela última vez
+  lastError           String?
+  lastWebhookAt       DateTime?
+  lastCheckedAt       DateTime?
+  qrLeaseOwner        String? // modo QR: instância do servidor que segura a sessão (evita 2 conexões no deploy)
+  qrLeaseUntil        DateTime? // modo QR: validade da trava; expira sozinha se a instância cair
   replySavedContacts  Boolean   @default(false) // modo QR: responder automaticamente contatos salvos na agenda do celular (padrão: não)
   addressBookSyncedAt DateTime? // modo QR: quando a agenda do celular foi sincronizada por completo pela última vez
   autoReplyMode       String    @default("both") // quem responde automaticamente neste canal: flows (só fluxos) | ai (só IA) | both (fluxos + IA, padrão)
@@ -229,8 +229,8 @@ model Channel {
   waDownReminderAt    DateTime?
   /// Voltou a conectar depois de um alerta (aviso "voltou a conectar" no app por 24 h).
   waBackAt            DateTime?
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
 
   @@index([orgId])
 }
@@ -322,18 +322,18 @@ model ContactAiNote {
 }
 
 model Conversation {
-  id              String    @id @default(cuid())
-  orgId           String
-  contactId       String
-  channelId       String?
-  status          String    @default("OPEN") // OPEN | PENDING | CLOSED
-  mode            String    @default("BOT") // BOT | HUMAN
-  assignedUserId  String?
-  unreadCount     Int       @default(0)
-  lastInboundAt   DateTime?
-  lastMessageAt   DateTime?
-  firstResponseAt DateTime?
-  closedAt        DateTime?
+  id                 String    @id @default(cuid())
+  orgId              String
+  contactId          String
+  channelId          String?
+  status             String    @default("OPEN") // OPEN | PENDING | CLOSED
+  mode               String    @default("BOT") // BOT | HUMAN
+  assignedUserId     String?
+  unreadCount        Int       @default(0)
+  lastInboundAt      DateTime?
+  lastMessageAt      DateTime?
+  firstResponseAt    DateTime?
+  closedAt           DateTime?
   // "Aguardando atendente": quando a IA/fluxo transferiu para humano (limpo quando o atendente responde).
   waitingSince       DateTime?
   handoffAlertSentAt DateTime?
@@ -343,8 +343,8 @@ model Conversation {
   /// Tentativas do lembrete "aguardando há N min" (repete até 3 vezes se o envio falhar).
   handoffAlertTries  Int       @default(0)
   /// Classificação da IA: do que trata a conversa — REUNIAO | PEDIDO | AMBOS (nulo = ainda não classificada).
-  aiIntent        String?
-  createdAt       DateTime  @default(now())
+  aiIntent           String?
+  createdAt          DateTime  @default(now())
 
   @@index([orgId, status])
   @@index([contactId])
@@ -1316,43 +1316,43 @@ model ErpCentroCusto {
 
 /// Parceiro de negócio: cliente e/ou fornecedor (cadastro 360º).
 model ErpParceiro {
-  id                String    @id @default(cuid())
-  orgId             String
-  filialId          String?
-  tipoPessoa        String    // PF | PJ
-  documento         String    // CPF/CNPJ só dígitos
-  nome              String    // razão social / nome
-  fantasia          String?
-  ehCliente         Boolean   @default(true)
-  ehFornecedor      Boolean   @default(false)
-  inscricaoEstadual String?
-  regimeTributario  String?   // SIMPLES | MEI | NORMAL
-  cnae              String?
-  cnaeDescricao     String?
-  situacaoCadastral String?   // ATIVA, BAIXADA... (Receita)
+  id                 String               @id @default(cuid())
+  orgId              String
+  filialId           String?
+  tipoPessoa         String // PF | PJ
+  documento          String // CPF/CNPJ só dígitos
+  nome               String // razão social / nome
+  fantasia           String?
+  ehCliente          Boolean              @default(true)
+  ehFornecedor       Boolean              @default(false)
+  inscricaoEstadual  String?
+  regimeTributario   String? // SIMPLES | MEI | NORMAL
+  cnae               String?
+  cnaeDescricao      String?
+  situacaoCadastral  String? // ATIVA, BAIXADA... (Receita)
   situacaoConsultaEm DateTime?
-  email             String?
-  telefone          String?   // E.164
-  cep               String?
-  logradouro        String?
-  numero            String?
-  complemento       String?
-  bairro            String?
-  municipio         String?
-  codigoMunicipio   String?   // IBGE
-  uf                String?
-  limiteCreditoCents Int      @default(0)
-  score             Int       @default(500) // 0..1000, adimplência interna
-  status            String    @default("ATIVO") // ATIVO | INATIVO | BLOQUEADO
-  origem            String?   // indicação, site, WhatsApp...
-  contactId         String?   // vínculo com o contato do MCKBOT (WhatsApp)
-  tags              String    @default("[]")
-  observacoes       String?
-  createdAt         DateTime  @default(now())
-  updatedAt         DateTime  @updatedAt
-  contatos          ErpParceiroContato[]
-  oportunidades     ErpOportunidade[]
-  interacoes        ErpInteracao[]
+  email              String?
+  telefone           String? // E.164
+  cep                String?
+  logradouro         String?
+  numero             String?
+  complemento        String?
+  bairro             String?
+  municipio          String?
+  codigoMunicipio    String? // IBGE
+  uf                 String?
+  limiteCreditoCents Int                  @default(0)
+  score              Int                  @default(500) // 0..1000, adimplência interna
+  status             String               @default("ATIVO") // ATIVO | INATIVO | BLOQUEADO
+  origem             String? // indicação, site, WhatsApp...
+  contactId          String? // vínculo com o contato do MCKBOT (WhatsApp)
+  tags               String               @default("[]")
+  observacoes        String?
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
+  contatos           ErpParceiroContato[]
+  oportunidades      ErpOportunidade[]
+  interacoes         ErpInteracao[]
 
   @@unique([orgId, documento])
   @@index([orgId, status])
@@ -1375,40 +1375,40 @@ model ErpParceiroContato {
 
 /// Etapas do funil de vendas (Kanban), configuráveis por empresa.
 model ErpEtapaFunil {
-  id            String  @id @default(cuid())
+  id            String @id @default(cuid())
   orgId         String
   nome          String
   posicao       Int
-  cor           String  @default("#64748b")
-  probabilidade Int     @default(10) // % padrão de fechamento
-  tipo          String  @default("ABERTA") // ABERTA | GANHA | PERDIDA
+  cor           String @default("#64748b")
+  probabilidade Int    @default(10) // % padrão de fechamento
+  tipo          String @default("ABERTA") // ABERTA | GANHA | PERDIDA
 
   @@index([orgId, posicao])
 }
 
 /// Oportunidade (card do funil). Gera orçamento/pedido na etapa 2.
 model ErpOportunidade {
-  id                 String      @id @default(cuid())
-  orgId              String
-  filialId           String?
-  centroCustoId      String?
-  parceiroId         String
-  parceiro           ErpParceiro @relation(fields: [parceiroId], references: [id], onDelete: Restrict)
-  titulo             String
-  etapaId            String
-  status             String      @default("ABERTA") // ABERTA | GANHA | PERDIDA | CANCELADA
-  valorCents         Int         @default(0)
-  probabilidade      Int         @default(10)
-  custoAquisicaoCents Int        @default(0) // base do CAC
-  origem             String?
-  responsavelId      String?     // userId
-  previsaoFechamento DateTime?
-  motivoPerda        String?
-  fechadaEm          DateTime?
-  correlationId      String      // rastreio ponta a ponta (lead → pedido → NF → título)
-  posicao            Int         @default(0)
-  createdAt          DateTime    @default(now())
-  updatedAt          DateTime    @updatedAt
+  id                  String      @id @default(cuid())
+  orgId               String
+  filialId            String?
+  centroCustoId       String?
+  parceiroId          String
+  parceiro            ErpParceiro @relation(fields: [parceiroId], references: [id], onDelete: Restrict)
+  titulo              String
+  etapaId             String
+  status              String      @default("ABERTA") // ABERTA | GANHA | PERDIDA | CANCELADA
+  valorCents          Int         @default(0)
+  probabilidade       Int         @default(10)
+  custoAquisicaoCents Int         @default(0) // base do CAC
+  origem              String?
+  responsavelId       String? // userId
+  previsaoFechamento  DateTime?
+  motivoPerda         String?
+  fechadaEm           DateTime?
+  correlationId       String // rastreio ponta a ponta (lead → pedido → NF → título)
+  posicao             Int         @default(0)
+  createdAt           DateTime    @default(now())
+  updatedAt           DateTime    @updatedAt
 
   @@index([orgId, etapaId, posicao])
   @@index([orgId, status])
@@ -1422,12 +1422,12 @@ model ErpInteracao {
   parceiroId     String
   parceiro       ErpParceiro @relation(fields: [parceiroId], references: [id], onDelete: Cascade)
   oportunidadeId String?
-  tipo           String      // WHATSAPP | EMAIL | LIGACAO | NOTA | CHAMADO | SISTEMA
-  direcao        String?     // ENTRADA | SAIDA
+  tipo           String // WHATSAPP | EMAIL | LIGACAO | NOTA | CHAMADO | SISTEMA
+  direcao        String? // ENTRADA | SAIDA
   assunto        String?
   conteudo       String      @default("")
-  status         String?     // ENVIADO | FALHOU | LIDO | ABERTO (chamado) | RESOLVIDO
-  canalRef       String?     // id externo (mensagem WhatsApp, e-mail)
+  status         String? // ENVIADO | FALHOU | LIDO | ABERTO (chamado) | RESOLVIDO
+  canalRef       String? // id externo (mensagem WhatsApp, e-mail)
   userId         String?
   createdAt      DateTime    @default(now())
 
@@ -1436,19 +1436,19 @@ model ErpInteracao {
 
 /// Outbox de eventos de domínio: gravado na MESMA transação da mudança.
 model ErpEvento {
-  id            String    @id @default(cuid())
-  orgId         String
-  tipo          String    // ex.: crm.oportunidade.ganha
-  agregado      String    // ex.: oportunidade
-  agregadoId    String
-  correlationId String?
-  payload       String    @default("{}")
-  status        String    @default("PENDENTE") // PENDENTE | PROCESSADO | FALHOU (DLQ)
-  tentativas    Int       @default(0)
-  proximaTentativa DateTime @default(now())
-  ultimoErro    String?
-  processadoEm  DateTime?
-  createdAt     DateTime  @default(now())
+  id               String    @id @default(cuid())
+  orgId            String
+  tipo             String // ex.: crm.oportunidade.ganha
+  agregado         String // ex.: oportunidade
+  agregadoId       String
+  correlationId    String?
+  payload          String    @default("{}")
+  status           String    @default("PENDENTE") // PENDENTE | PROCESSADO | FALHOU (DLQ)
+  tentativas       Int       @default(0)
+  proximaTentativa DateTime  @default(now())
+  ultimoErro       String?
+  processadoEm     DateTime?
+  createdAt        DateTime  @default(now())
 
   @@index([status, proximaTentativa])
   @@index([orgId, agregado, agregadoId])
@@ -1472,7 +1472,7 @@ model ErpTraceLink {
   origemId    String
   destinoTipo String
   destinoId   String
-  vinculo     String   // gerou, consumiu, faturou, liquidou...
+  vinculo     String // gerou, consumiu, faturou, liquidou...
   createdAt   DateTime @default(now())
 
   @@unique([origemTipo, origemId, destinoTipo, destinoId, vinculo])
@@ -1481,18 +1481,18 @@ model ErpTraceLink {
 
 /// Fila do hub de integrações (SEFAZ, bancos, transportadoras, WhatsApp, e-mail) com retry.
 model ErpIntegracaoJob {
-  id               String    @id @default(cuid())
+  id               String   @id @default(cuid())
   orgId            String
-  provedor         String    // brasilapi | sefaz | banco | frete | whatsapp | email
+  provedor         String // brasilapi | sefaz | banco | frete | whatsapp | email
   operacao         String
-  payload          String    @default("{}")
-  status           String    @default("PENDENTE") // PENDENTE | OK | FALHOU
-  tentativas       Int       @default(0)
-  proximaTentativa DateTime  @default(now())
+  payload          String   @default("{}")
+  status           String   @default("PENDENTE") // PENDENTE | OK | FALHOU
+  tentativas       Int      @default(0)
+  proximaTentativa DateTime @default(now())
   ultimoErro       String?
   resultado        String?
-  createdAt        DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
 
   @@index([status, proximaTentativa])
 }
@@ -1501,42 +1501,52 @@ model ErpIntegracaoJob {
 // Quantidades em milésimos (Int): 1 un = 1000; 0,250 kg = 250. Valores em centavos. Percentuais em pontos-base (1% = 100).
 
 model ErpConfig {
-  orgId                String   @id
-  descontoMaxBp        Int      @default(1000) // alçada do vendedor (10%); acima disso o pedido vai para aprovação
-  bloquearSemCredito   Boolean  @default(true)
-  validadeOrcamentoDias Int     @default(15)
-  proximoPedido        Int      @default(1)
-  proximoLoteInterno   Int      @default(1)
-  formatoLote          String   @default("{AA}{MM}{DD}-{SEQ}") // {AAAA} {AA} {MM} {DD} {SKU} {SEQ}
-  etiquetaLarguraMm    Int      @default(100)
-  etiquetaAlturaMm     Int      @default(50)
-  etiquetaDpi          Int      @default(203) // 203 ou 300 (Zebra)
-  updatedAt            DateTime @updatedAt
+  orgId                 String   @id
+  descontoMaxBp         Int      @default(1000) // alçada do vendedor (10%); acima disso o pedido vai para aprovação
+  bloquearSemCredito    Boolean  @default(true)
+  validadeOrcamentoDias Int      @default(15)
+  proximoPedido         Int      @default(1)
+  proximoLoteInterno    Int      @default(1)
+  proximaSolicitacao    Int      @default(1)
+  proximaCotacao        Int      @default(1)
+  proximoPedidoCompra   Int      @default(1)
+  proximaOp             Int      @default(1)
+  alcadaCompraCents     Int      @default(500000) // pedido de compra até este valor é aprovado ao enviar; acima, só OWNER/ADMIN aprova
+  toleranciaPrecoBp     Int      @default(200) // recebimento: diferença de preço NF × pedido aceita sem aprovação
+  recebimentoCego       Boolean  @default(false) // conferência da NF-e sem mostrar a quantidade da nota
+  formatoLote           String   @default("{AA}{MM}{DD}-{SEQ}") // {AAAA} {AA} {MM} {DD} {SKU} {SEQ}
+  etiquetaLarguraMm     Int      @default(100)
+  etiquetaAlturaMm      Int      @default(50)
+  etiquetaDpi           Int      @default(203) // 203 ou 300 (Zebra)
+  updatedAt             DateTime @updatedAt
 }
 
 model ErpProduto {
-  id               String   @id @default(cuid())
-  orgId            String
-  sku              String
-  nome             String
-  descricao        String?
-  codigoBarras     String?
-  unidade          String   @default("UN") // UN, KG, CX, M...
-  ncm              String?
-  cest             String?
-  origem           Int      @default(0)    // 0 nacional ... 8 (tabela SEFAZ)
-  pesoGramas       Int      @default(0)
-  controlaLote     Boolean  @default(false)
-  controlaValidade Boolean  @default(false)
-  regraSaida       String   @default("FIFO") // FIFO | FEFO
-  estoqueMinimoMil Int      @default(0)
-  pontoPedidoMil   Int      @default(0)
-  precoBaseCents   Int      @default(0)
-  custoMedioCents  Int      @default(0) // por unidade (1000 mil)
-  tipo             String   @default("REVENDA") // REVENDA | PRODUZIDO | INSUMO | SERVICO
-  ativo            Boolean  @default(true)
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  id                 String   @id @default(cuid())
+  orgId              String
+  sku                String
+  nome               String
+  descricao          String?
+  codigoBarras       String?
+  unidade            String   @default("UN") // UN, KG, CX, M...
+  ncm                String?
+  cest               String?
+  origem             Int      @default(0) // 0 nacional ... 8 (tabela SEFAZ)
+  pesoGramas         Int      @default(0)
+  controlaLote       Boolean  @default(false)
+  controlaValidade   Boolean  @default(false)
+  regraSaida         String   @default("FIFO") // FIFO | FEFO
+  estoqueMinimoMil   Int      @default(0)
+  pontoPedidoMil     Int      @default(0)
+  precoBaseCents     Int      @default(0)
+  custoMedioCents    Int      @default(0) // por unidade (1000 mil)
+  tipo               String   @default("REVENDA") // REVENDA | PRODUZIDO | INSUMO | SERVICO
+  leadTimeDias       Int      @default(0) // prazo de compra ou de fabricação (MRP)
+  loteMinimoMil      Int      @default(0) // lote mínimo de compra/produção (MRP)
+  fornecedorPadraoId String?
+  ativo              Boolean  @default(true)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
 
   @@unique([orgId, sku])
   @@index([orgId, nome])
@@ -1544,24 +1554,24 @@ model ErpProduto {
 }
 
 model ErpTabelaPreco {
-  id        String   @id @default(cuid())
+  id        String               @id @default(cuid())
   orgId     String
   nome      String
-  uf        String?  // tabela regional (opcional)
-  ativa     Boolean  @default(true)
-  createdAt DateTime @default(now())
+  uf        String? // tabela regional (opcional)
+  ativa     Boolean              @default(true)
+  createdAt DateTime             @default(now())
   itens     ErpTabelaPrecoItem[]
 
   @@index([orgId])
 }
 
 model ErpTabelaPrecoItem {
-  id         String         @id @default(cuid())
-  tabelaId   String
-  tabela     ErpTabelaPreco @relation(fields: [tabelaId], references: [id], onDelete: Cascade)
-  produtoId  String
-  qtdMinimaMil Int          @default(0) // preço por volume: vale a partir desta quantidade
-  precoCents Int
+  id           String         @id @default(cuid())
+  tabelaId     String
+  tabela       ErpTabelaPreco @relation(fields: [tabelaId], references: [id], onDelete: Cascade)
+  produtoId    String
+  qtdMinimaMil Int            @default(0) // preço por volume: vale a partir desta quantidade
+  precoCents   Int
 
   @@unique([tabelaId, produtoId, qtdMinimaMil])
 }
@@ -1569,7 +1579,7 @@ model ErpTabelaPrecoItem {
 model ErpCondicaoPagamento {
   id        String   @id @default(cuid())
   orgId     String
-  nome      String   // "30/60/90", "À vista"
+  nome      String // "30/60/90", "À vista"
   prazos    String   @default("[0]") // JSON: dias de cada parcela
   ativa     Boolean  @default(true)
   createdAt DateTime @default(now())
@@ -1578,12 +1588,12 @@ model ErpCondicaoPagamento {
 }
 
 model ErpDeposito {
-  id        String   @id @default(cuid())
+  id        String               @id @default(cuid())
   orgId     String
   filialId  String?
   nome      String
-  ativo     Boolean  @default(true)
-  createdAt DateTime @default(now())
+  ativo     Boolean              @default(true)
+  createdAt DateTime             @default(now())
   enderecos ErpEnderecoEstoque[]
 
   @@index([orgId])
@@ -1594,7 +1604,7 @@ model ErpEnderecoEstoque {
   orgId      String
   depositoId String
   deposito   ErpDeposito @relation(fields: [depositoId], references: [id], onDelete: Cascade)
-  codigo     String      // rua-prateleira-posição, ex.: A-01-03 (vai na etiqueta QR)
+  codigo     String // rua-prateleira-posição, ex.: A-01-03 (vai na etiqueta QR)
   ativo      Boolean     @default(true)
 
   @@unique([depositoId, codigo])
@@ -1602,24 +1612,26 @@ model ErpEnderecoEstoque {
 }
 
 model ErpLote {
-  id         String    @id @default(cuid())
-  orgId      String
-  produtoId  String
-  numero     String
-  fabricacao DateTime?
-  validade   DateTime?
-  status     String    @default("LIBERADO") // LIBERADO | QUARENTENA | BLOQUEADO
+  id             String    @id @default(cuid())
+  orgId          String
+  produtoId      String
+  numero         String
+  fabricacao     DateTime?
+  validade       DateTime?
+  status         String    @default("LIBERADO") // LIBERADO | QUARENTENA | BLOQUEADO
   loteFornecedor String? // lote impresso pelo fornecedor (rastro da NF-e)
   fornecedorId   String? // ErpParceiro
-  origemTipo String?   // nfe_entrada | op | ajuste | inicial
-  origemId   String?
-  createdAt  DateTime  @default(now())
+  origemTipo     String? // nfe_entrada | op | ajuste | inicial
+  origemId       String?
+  createdAt      DateTime  @default(now())
 
   @@unique([orgId, produtoId, numero])
   @@index([orgId, produtoId, validade])
 }
 
-/** Saldo por produto + lote + endereço. Disponível = físico − reservado − quarentena (nunca negativo). */
+/**
+ * Saldo por produto + lote + endereço. Disponível = físico − reservado − quarentena (nunca negativo).
+ */
 model ErpSaldo {
   id            String   @id @default(cuid())
   orgId         String
@@ -1635,18 +1647,20 @@ model ErpSaldo {
   @@index([orgId, produtoId])
 }
 
-/** Razão de estoque: só inserção. Toda mudança de saldo físico tem um movimento na mesma transação. */
+/**
+ * Razão de estoque: só inserção. Toda mudança de saldo físico tem um movimento na mesma transação.
+ */
 model ErpMovimento {
   id             String   @id @default(cuid())
   orgId          String
   produtoId      String
   loteId         String
   enderecoId     String
-  tipo           String   // ENTRADA | SAIDA | AJUSTE | TRANSFERENCIA_SAIDA | TRANSFERENCIA_ENTRADA | QUARENTENA | LIBERACAO
-  qtdMil         Int      // com sinal: + entra, − sai
+  tipo           String // ENTRADA | SAIDA | AJUSTE | TRANSFERENCIA_SAIDA | TRANSFERENCIA_ENTRADA | QUARENTENA | LIBERACAO
+  qtdMil         Int // com sinal: + entra, − sai
   custoUnitCents Int      @default(0)
   saldoAposMil   Int
-  docTipo        String?  // pedido_venda | ajuste | compra | op | inventario
+  docTipo        String? // pedido_venda | ajuste | compra | op | inventario
   docId          String?
   motivo         String?
   userId         String?
@@ -1658,24 +1672,25 @@ model ErpMovimento {
 }
 
 model ErpReserva {
-  id            String   @id @default(cuid())
-  orgId         String
-  pedidoItemId  String
-  saldoId       String
-  produtoId     String
-  loteId        String
-  enderecoId    String
-  qtdMil        Int
-  separadoMil   Int      @default(0)
-  status        String   @default("ATIVA") // ATIVA | BAIXADA | LIBERADA
-  createdAt     DateTime @default(now())
+  id           String   @id @default(cuid())
+  orgId        String
+  pedidoItemId String // id do item de origem: item do pedido de venda ou componente da OP (ver origemTipo)
+  origemTipo   String   @default("pedido_venda") // pedido_venda | op
+  saldoId      String
+  produtoId    String
+  loteId       String
+  enderecoId   String
+  qtdMil       Int
+  separadoMil  Int      @default(0)
+  status       String   @default("ATIVA") // ATIVA | BAIXADA | LIBERADA
+  createdAt    DateTime @default(now())
 
   @@index([orgId, pedidoItemId])
   @@index([saldoId, status])
 }
 
 model ErpPedidoVenda {
-  id                  String   @id @default(cuid())
+  id                  String          @id @default(cuid())
   orgId               String
   numero              Int
   filialId            String?
@@ -1686,18 +1701,18 @@ model ErpPedidoVenda {
   vendedorId          String?
   tabelaPrecoId       String?
   condicaoPagamentoId String?
-  statusOperacional   String   @default("RASCUNHO")
-  statusFinanceiro    String   @default("SEM_TITULO")
-  subtotalCents       Int      @default(0)
-  descontoCents       Int      @default(0)
-  freteCents          Int      @default(0)
-  totalCents          Int      @default(0)
-  descontoMaxItemBp   Int      @default(0)
+  statusOperacional   String          @default("RASCUNHO")
+  statusFinanceiro    String          @default("SEM_TITULO")
+  subtotalCents       Int             @default(0)
+  descontoCents       Int             @default(0)
+  freteCents          Int             @default(0)
+  totalCents          Int             @default(0)
+  descontoMaxItemBp   Int             @default(0)
   motivoBloqueio      String?
   aprovadoPorId       String?
   aprovadoEm          DateTime?
   validadeOrcamento   DateTime?
-  nfNumero            String?  // nota emitida (externa até a Etapa 4)
+  nfNumero            String? // nota emitida (externa até a Etapa 4)
   transportadora      String?
   rastreio            String?
   entregueEm          DateTime?
@@ -1705,8 +1720,8 @@ model ErpPedidoVenda {
   motivoCancelamento  String?
   observacoes         String?
   correlationId       String
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  createdAt           DateTime        @default(now())
+  updatedAt           DateTime        @updatedAt
   itens               ErpPedidoItem[]
 
   @@unique([orgId, numero])
@@ -1721,7 +1736,7 @@ model ErpPedidoItem {
   produtoId      String
   descricao      String
   qtdMil         Int
-  precoUnitCents Int            // por unidade
+  precoUnitCents Int // por unidade
   descontoBp     Int            @default(0)
   totalCents     Int
   reservadoMil   Int            @default(0)
@@ -1732,7 +1747,9 @@ model ErpPedidoItem {
   @@index([produtoId])
 }
 
-/** De-para: código do produto no fornecedor → produto interno, com fator (ex.: 1 CX do fornecedor = 12 UN = 12000). */
+/**
+ * De-para: código do produto no fornecedor → produto interno, com fator (ex.: 1 CX do fornecedor = 12 UN = 12000).
+ */
 model ErpProdutoFornecedor {
   id               String   @id @default(cuid())
   orgId            String
@@ -1746,9 +1763,11 @@ model ErpProdutoFornecedor {
   @@index([orgId, produtoId])
 }
 
-/** NF-e de entrada importada pelo XML: confere, vincula produtos e lança no estoque com lote. */
+/**
+ * NF-e de entrada importada pelo XML: confere, vincula produtos e lança no estoque com lote.
+ */
 model ErpNfeEntrada {
-  id              String    @id @default(cuid())
+  id              String              @id @default(cuid())
   orgId           String
   chave           String
   numero          String
@@ -1758,12 +1777,13 @@ model ErpNfeEntrada {
   emitenteCnpj    String
   emitenteNome    String
   valorTotalCents Int
-  autorizada      Boolean   @default(false) // tem protNFe com cStat 100
-  status          String    @default("PENDENTE") // PENDENTE | LANCADA | CANCELADA
+  autorizada      Boolean             @default(false) // tem protNFe com cStat 100
+  pedidoCompraId  String?
+  status          String              @default("PENDENTE") // PENDENTE | LANCADA | CANCELADA
   xml             String
   lancadaEm       DateTime?
   lancadaPorId    String?
-  createdAt       DateTime  @default(now())
+  createdAt       DateTime            @default(now())
   itens           ErpNfeEntradaItem[]
 
   @@unique([orgId, chave])
@@ -1781,28 +1801,31 @@ model ErpNfeEntradaItem {
   ncm             String?
   cfop            String?
   unidade         String
-  qtdMil          Int           // na unidade do fornecedor
+  qtdMil          Int // na unidade do fornecedor
   valorUnitCents  Int
-  custoTotalCents Int           // produto + IPI + ST + frete + seguro + outras − desconto
+  custoTotalCents Int // produto + IPI + ST + frete + seguro + outras − desconto
   lotes           String        @default("[]") // JSON do rastro: [{numero, qtdMil, fabricacao, validade}]
   produtoId       String?
   fatorMil        Int           @default(1000)
   lotesGerados    String        @default("[]") // ids dos lotes internos criados no lançamento
+  conferidoMil    Int? // conferência física (na unidade do fornecedor)
 }
 
-/** Inventário (geral ou cíclico): foto do saldo, contagem (cega opcional), aprovação das divergências e ajuste. */
+/**
+ * Inventário (geral ou cíclico): foto do saldo, contagem (cega opcional), aprovação das divergências e ajuste.
+ */
 model ErpInventario {
-  id           String    @id @default(cuid())
-  orgId        String
-  descricao    String
-  depositoId   String?
-  cego         Boolean   @default(true)
-  status       String    @default("CONTANDO") // CONTANDO | EM_APROVACAO | CONCLUIDO | CANCELADO
-  criadoPorId  String?
+  id            String                  @id @default(cuid())
+  orgId         String
+  descricao     String
+  depositoId    String?
+  cego          Boolean                 @default(true)
+  status        String                  @default("CONTANDO") // CONTANDO | EM_APROVACAO | CONCLUIDO | CANCELADO
+  criadoPorId   String?
   aprovadoPorId String?
-  concluidoEm  DateTime?
-  createdAt    DateTime  @default(now())
-  contagens    ErpInventarioContagem[]
+  concluidoEm   DateTime?
+  createdAt     DateTime                @default(now())
+  contagens     ErpInventarioContagem[]
 
   @@index([orgId, status])
 }
@@ -1814,10 +1837,196 @@ model ErpInventarioContagem {
   produtoId    String
   loteId       String
   enderecoId   String
-  sistemaMil   Int           // saldo físico na abertura
+  sistemaMil   Int // saldo físico na abertura
   contadoMil   Int?
   contadoPorId String?
   contadoEm    DateTime?
 
   @@unique([inventarioId, produtoId, loteId, enderecoId])
+}
+
+// ======================= Compras =======================
+model ErpSolicitacaoCompra {
+  id            String               @id @default(cuid())
+  orgId         String
+  numero        Int
+  solicitanteId String?
+  centroCustoId String?
+  justificativa String?
+  origem        String               @default("MANUAL") // MANUAL | MRP
+  necessidadeEm DateTime?
+  status        String               @default("RASCUNHO") // RASCUNHO | EM_APROVACAO | APROVADA | REPROVADA | ATENDIDA | CANCELADA
+  aprovadoPorId String?
+  motivo        String?
+  createdAt     DateTime             @default(now())
+  itens         ErpSolicitacaoItem[]
+
+  @@unique([orgId, numero])
+  @@index([orgId, status])
+}
+
+model ErpSolicitacaoItem {
+  id            String               @id @default(cuid())
+  solicitacaoId String
+  solicitacao   ErpSolicitacaoCompra @relation(fields: [solicitacaoId], references: [id], onDelete: Cascade)
+  produtoId     String
+  qtdMil        Int
+  atendidoMil   Int                  @default(0)
+}
+
+model ErpCotacao {
+  id            String               @id @default(cuid())
+  orgId         String
+  numero        Int
+  solicitacaoId String?
+  prazoResposta DateTime?
+  status        String               @default("ABERTA") // ABERTA | ENCERRADA | CANCELADA
+  fornecedores  String               @default("[]") // JSON ids de ErpParceiro convidados
+  createdAt     DateTime             @default(now())
+  itens         ErpCotacaoItem[]
+  respostas     ErpCotacaoResposta[]
+
+  @@unique([orgId, numero])
+  @@index([orgId, status])
+}
+
+model ErpCotacaoItem {
+  id                String     @id @default(cuid())
+  cotacaoId         String
+  cotacao           ErpCotacao @relation(fields: [cotacaoId], references: [id], onDelete: Cascade)
+  produtoId         String
+  qtdMil            Int
+  solicitacaoItemId String?
+}
+
+model ErpCotacaoResposta {
+  id               String     @id @default(cuid())
+  cotacaoId        String
+  cotacao          ErpCotacao @relation(fields: [cotacaoId], references: [id], onDelete: Cascade)
+  itemId           String
+  parceiroId       String
+  precoUnitCents   Int
+  prazoEntregaDias Int        @default(0)
+  condicao         String?
+  vencedora        Boolean    @default(false)
+
+  @@unique([itemId, parceiroId])
+}
+
+model ErpPedidoCompra {
+  id              String                @id @default(cuid())
+  orgId           String
+  numero          Int
+  parceiroId      String
+  status          String                @default("RASCUNHO") // RASCUNHO | EM_APROVACAO | APROVADO | ENVIADO | RECEBIDO_PARCIAL | RECEBIDO | CANCELADO
+  totalCents      Int                   @default(0)
+  freteCents      Int                   @default(0)
+  previsaoEntrega DateTime?
+  condicao        String?
+  observacoes     String?
+  cotacaoId       String?
+  centroCustoId   String?
+  aprovadoPorId   String?
+  motivo          String?
+  createdAt       DateTime              @default(now())
+  updatedAt       DateTime              @updatedAt
+  itens           ErpPedidoCompraItem[]
+
+  @@unique([orgId, numero])
+  @@index([orgId, status])
+  @@index([orgId, parceiroId])
+}
+
+model ErpPedidoCompraItem {
+  id                String          @id @default(cuid())
+  pedidoId          String
+  pedido            ErpPedidoCompra @relation(fields: [pedidoId], references: [id], onDelete: Cascade)
+  produtoId         String
+  descricao         String
+  qtdMil            Int
+  precoUnitCents    Int
+  totalCents        Int
+  recebidoMil       Int             @default(0)
+  solicitacaoItemId String?
+}
+
+// ======================= Produção =======================
+/**
+ * Estrutura do produto (BOM): componentes por 1 unidade do produto pai, com perda.
+ */
+model ErpEstruturaItem {
+  id           String @id @default(cuid())
+  orgId        String
+  produtoId    String
+  componenteId String
+  qtdMil       Int
+  perdaBp      Int    @default(0)
+  posicao      Int    @default(0)
+
+  @@unique([produtoId, componenteId])
+  @@index([orgId, componenteId])
+}
+
+/**
+ * Roteiro: operações por unidade, para custo padrão e carga dos centros de trabalho.
+ */
+model ErpOperacao {
+  id             String @id @default(cuid())
+  orgId          String
+  produtoId      String
+  sequencia      Int
+  descricao      String
+  centroTrabalho String
+  segundosPorUn  Int    @default(0)
+  setupMinutos   Int    @default(0)
+  custoHoraCents Int    @default(0)
+
+  @@index([orgId, produtoId])
+}
+
+model ErpOrdemProducao {
+  id                 String             @id @default(cuid())
+  orgId              String
+  numero             Int
+  produtoId          String
+  qtdPlanejadaMil    Int
+  qtdProduzidaMil    Int                @default(0)
+  qtdRefugoMil       Int                @default(0)
+  status             String             @default("PLANEJADA") // PLANEJADA | LIBERADA | EM_PRODUCAO | ENCERRADA | CANCELADA
+  origem             String             @default("MANUAL") // MANUAL | MRP | PEDIDO
+  pedidoVendaId      String?
+  depositoId         String?
+  inicioPrevisto     DateTime?
+  fimPrevisto        DateTime?
+  custoMaterialCents Int                @default(0)
+  custoOperacaoCents Int                @default(0)
+  motivo             String?
+  createdAt          DateTime           @default(now())
+  componentes        ErpOpComponente[]
+  apontamentos       ErpOpApontamento[]
+
+  @@unique([orgId, numero])
+  @@index([orgId, status])
+}
+
+model ErpOpComponente {
+  id              String           @id @default(cuid())
+  opId            String
+  op              ErpOrdemProducao @relation(fields: [opId], references: [id], onDelete: Cascade)
+  produtoId       String
+  qtdPrevistaMil  Int
+  qtdReservadaMil Int              @default(0)
+  qtdConsumidaMil Int              @default(0)
+}
+
+model ErpOpApontamento {
+  id             String           @id @default(cuid())
+  opId           String
+  op             ErpOrdemProducao @relation(fields: [opId], references: [id], onDelete: Cascade)
+  qtdBoaMil      Int
+  qtdRefugoMil   Int              @default(0)
+  loteId         String?
+  custoUnitCents Int              @default(0)
+  userId         String?
+  createdAt      DateTime         @default(now())
 }

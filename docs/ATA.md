@@ -79,3 +79,9 @@ Formato de cada atualização: data, quem fez, o que foi feito, o que foi passad
  - Pedido do Mayck: estoque completo antes da Etapa 3 e ERP no nível de empresa grande. Feito: entrada por XML de NF-e com de-para por fornecedor e fator, lote interno ligado ao lote do fornecedor, etiquetas QR (Zebra ZPL via Zebra Browser Print e impressora comum), inventário cego com aprovação. Migração 0040, só aditiva.
  - Testes: 26 testes do ERP/permissões/healthz passaram; typecheck e build ok; suíte completa não rodada.
  - Próxima: Etapa 3 (Compras com recebimento cego + Produção/MRP).
+
+## Atualização 2026-11-03 (noite, 3) — Hark
+- **Feito:** Etapa 3 do MCK ERP: Compras (solicitação com aprovação, cotação com mapa, pedido de compra com alçada, recebimento pela NF-e com confronto de quantidade/preço e recebimento cego) e Produção/MRP (estrutura multinível, roteiro, custo padrão, OP com reserva, apontamento com backflush, lote interno e genealogia, MRP que gera OPs e solicitação). Migração `0041` (aditiva). Detalhes em `docs/ERP.md`.
+- **Verificado:** suíte completa `npm test` (92 arquivos, 824 testes) passou antes do commit; typecheck servidor e web; build web.
+- **Falta:** aplicar 0038–0041 no Postgres (só com aprovação do Mayck); testar impressão Zebra em hardware; Etapa 4 (Fiscal + Financeiro).
+- **Melhorar:** MRP com baldes de tempo, capacidade finita e apontamento por operação.

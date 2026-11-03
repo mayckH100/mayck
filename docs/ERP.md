@@ -177,3 +177,22 @@ Toda transição passa pelo motor de estados (função pura `transition(estado, 
 - **Inventário** (`inventario.routes.ts`): foto do saldo, contagem por leitura de endereço + lote/SKU, contagem cega, item achado fora da foto, envio para aprovação, recontagem e ajuste (contado − foto) como movimento INVENTARIO.
 - Migração `0040_erp_nfe_entrada_lotes_inventario` (só aditiva).
 - Fica para a Etapa 4 (precisa do certificado A1 do cliente): baixar as NF-e destinadas direto da SEFAZ (Distribuição DF-e) e manifestar o destinatário.
+
+## Etapa 3 — Compras e Produção/MRP (2026-11-03)
+
+**Compras** (`/api/erp/compras`, tela `/erp/compras`)
+- Solicitação de compra com aprovação (só OWNER/ADMIN aprova). O MRP também cria solicitações (origem `MRP`).
+- Cotação com vários fornecedores convidados; propostas lançadas por item (preço, prazo, condição). Mapa escolhe a melhor por item (menor preço; empate → menor prazo), o comprador pode trocar. Encerrar gera um pedido de compra por fornecedor vencedor e baixa o atendido da solicitação.
+- Pedido de compra com máquina de estados (RASCUNHO → EM_APROVACAO → APROVADO → ENVIADO → RECEBIDO_PARCIAL/RECEBIDO; CANCELADO). Alçada (`ErpConfig.alcadaCompraCents`, padrão R$ 5.000): até ela, aprova ao enviar; acima, só OWNER/ADMIN. Impressão/PDF para o fornecedor.
+- Recebimento: a NF-e de entrada se liga a um pedido aberto do mesmo fornecedor. No lançamento há confronto de quantidade (pendente) e preço (`toleranciaPrecoBp`, padrão 2%) e da conferência física. Divergência trava; só OWNER/ADMIN aceita. Recebimento cego opcional (`recebimentoCego`): o conferente não vê a quantidade da nota.
+
+**Produção** (`/api/erp/producao`, tela `/erp/producao`)
+- Estrutura (BOM) multinível com perda %, sem ciclos; roteiro com centro de trabalho, segundos por unidade, setup e custo/hora. Custo padrão = materiais (custo médio, multinível) + operações.
+- Ordem de produção: PLANEJADA → LIBERADA (reserva FEFO/FIFO dos componentes; trava se faltar) → EM_PRODUCAO → ENCERRADA; CANCELADA. Reservas usam `ErpReserva` com `origemTipo = 'op'`.
+- Apontamento: consumo por backflush na proporção do produzido + refugo, entrada do produto com lote interno ao custo real (materiais + operações + setup no 1º apontamento) e genealogia no trace (`lote compoe lote`, `op produziu lote`).
+- MRP de período único (sem baldes de tempo): demanda dos pedidos de venda abertos + dependente das OPs + alvo (máx. de estoque mínimo e ponto de pedido) − disponível − a receber (pedidos de compra, OPs, solicitações). Processa por nível mais baixo, aplica lote mínimo, explode a estrutura. Aplicar gera OPs planejadas e uma solicitação de compra.
+- Produto ganhou `leadTimeDias`, `loteMinimoMil`, `fornecedorPadraoId`.
+
+**Migração** `0041_erp_compras_producao`: só aditiva. Não aplicada em Postgres de produção.
+
+**Limitações conhecidas**: MRP sem baldes de tempo (datas só informativas); sem apontamento por operação nem capacidade finita; envio do pedido de compra/cotação ao fornecedor é por texto/PDF (sem e-mail automático).
