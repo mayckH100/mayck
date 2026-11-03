@@ -1,0 +1,41 @@
+# ATA do projeto MCK (passagem de bastão entre agentes)
+
+Regra: todo agente (Hark, Daniel, Lucas) lê esta ATA na primeira mensagem de cada conversa, antes de agir, e atualiza ao terminar. Este repositório é PÚBLICO: nunca colocar senhas, tokens, chaves, códigos, cartões, endereço residencial ou dados de clientes aqui.
+
+Formato de cada atualização: data, quem fez, o que foi feito, o que foi passado, dificuldades, o que falta, o que melhorar.
+
+## Caminhos
+- Código: este repositório (mayckH100/mayck), branch única `master`.
+- Deploy: Render Free (mckbot.onrender.com). O Render Free bloqueia SMTP; e-mail sai pela API do Brevo.
+- Site da empresa: /empresa. MCK Mensagens: /mensagem.
+- Documentação: docs/DEPLOY.md, docs/REQUISITOS.md, docs/AGENDA.md, docs/RELATORIO_TESTES.md.
+
+## Regras
+- Corrigir sem mexer nos dados de produção, sem migração destrutiva e sem quebrar o que funciona. Rodar os testes antes de cada commit.
+- Nada é publicado em nome da empresa (posts, e-mails, mensagens) sem aprovação do Mayck.
+- Tudo gratuito por enquanto: não contratar serviço pago sem pedido do Mayck.
+- Diferenciar sempre da "MCK Desenvolvimento de Sistemas LTDA" (outra empresa, desde 2007) e do Grupo MCK Automação.
+
+## Estado em 2026-11-02 (Hark)
+### Feito
+- E-mail pela API do Brevo (backup nunca vai para login @smtp-brevo.com). Testes unitários 115/115.
+- Site /empresa: og:image, canonical, robots.txt e sitemap.xml.
+- Canais gratuitos criados: Instagram @mckdesenvolvimento, YouTube @mckdesenvolvimento, LinkedIn /company/mckdesenvolvimento, Perfil da Empresa no Google (aguardando verificação por vídeo), Bing Places (aguardando carta).
+- Plano de marketing orgânico de 90 dias.
+
+### Dificuldades
+- Verificação do Google só por vídeo gravado ao vivo no app.
+- TikTok só pode ser concluído no app do celular.
+- Bing Places só verifica por carta.
+- Conector do GitHub no Hark bloqueado (chamado aberto).
+
+### Falta fazer
+- Configurar no Render: BREVO_API_KEY, MAIL_FROM (remetente verificado) e BACKUP_EMAIL; depois rodar backup em Painel Master > Backups.
+- Verificar o Perfil do Google (vídeo) e concluir o TikTok.
+- Instagram: link do site e categoria.
+- Alerta quando o WhatsApp desconectar; avaliar tornar o repositório privado.
+- Posts: nenhum publicado; todos precisam de aprovação.
+
+### O que melhorar
+- Repositório público: considerar torná-lo privado.
+- Manter esta ATA curta e atual (estado, não histórico).
