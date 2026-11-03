@@ -127,3 +127,25 @@
     .then(function (j) { data = j; render(); if (window.MCK_TAG_LINKS) window.MCK_TAG_LINKS(); })
     .catch(function () { box.innerHTML = '<div class="card" style="grid-column:1/-1;text-align:center"><h3>Não foi possível carregar os valores agora</h3><p>Os preços aparecem ao criar sua conta, na tela Plano do app. Dúvidas: <a href="mailto:mckdevbr@gmail.com">mckdevbr@gmail.com</a></p><p style="margin-top:16px"><a class="btn red" href="/cadastro">Começar teste grátis</a></p></div>'; });
 })();
+
+// ---------- Novidades (/empresa/novidades): publicações aprovadas no Painel Master ----------
+(function () {
+  var box = document.getElementById('novidades-lista');
+  if (!box) return;
+  var esc = function (t) { return String(t == null ? '' : t).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); };
+  var safe = function (u) { return typeof u === 'string' && /^https:\/\//i.test(u) ? u : ''; };
+  var NOMES = { instagram: 'Instagram', youtube: 'YouTube', linkedin: 'LinkedIn', tiktok: 'TikTok' };
+  var data = function (d) { try { return new Date(d).toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' }); } catch (e) { return ''; } };
+  fetch('/api/novidades').then(function (r) { if (!r.ok) throw 0; return r.json(); }).then(function (j) {
+    var items = (j && j.items) || [];
+    if (!items.length) { box.innerHTML = '<p class="news-empty">Nenhuma novidade publicada ainda. Volte em breve!</p>'; return; }
+    box.innerHTML = items.map(function (p) {
+      var media = safe(p.mediaUrl), m = '';
+      if (media && p.mediaType === 'image') m = '<img class="news-img" src="' + esc(media) + '" alt="' + esc(p.title) + '" loading="lazy">';
+      var links = Object.keys(p.links || {}).map(function (k) { var u = safe(p.links[k]); return u ? '<a href="' + esc(u) + '" target="_blank" rel="noopener">Ver no ' + esc(NOMES[k] || k) + '</a>' : ''; }).filter(Boolean);
+      if (media && p.mediaType === 'video' && !(p.links || {}).youtube) links.unshift('<a href="' + esc(media) + '" target="_blank" rel="noopener">Assistir ao vídeo</a>');
+      return '<article class="card news">' + m + '<div class="news-body"><span class="eyebrow">' + esc(data(p.publishedAt)) + '</span><h2>' + esc(p.title) + '</h2>' +
+        (p.body ? '<p>' + esc(p.body).replace(/\n/g, '<br>') + '</p>' : '') + (links.length ? '<p class="news-links">' + links.join(' · ') + '</p>' : '') + '</div></article>';
+    }).join('');
+  }).catch(function () { box.innerHTML = '<p class="news-empty">Não foi possível carregar as novidades agora. Tente de novo em instantes.</p>'; });
+})();

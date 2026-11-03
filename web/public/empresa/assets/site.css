@@ -103,3 +103,8 @@ section.novidade{padding:56px 0 8px}
 .nov-cta{display:flex;gap:12px;justify-content:center;flex-wrap:wrap;margin:26px 0 0}
 @media (max-width:760px){.nov-box .g2{grid-template-columns:1fr}}
 @media (max-width:560px){.newsbar{font-size:13px}.newsbar .nb-go{font-size:12px;padding:3px 10px}.newsbar .wrap{flex-direction:column;gap:4px}.nov-box{padding:24px 18px}section.novidade{padding:36px 0 0}}
+/* Novidades (/empresa/novidades) */
+.news-list{display:grid;gap:22px;max-width:820px;margin:0 auto}
+.card.news{padding:0;overflow:hidden}.news-img{display:block;width:100%;max-height:460px;object-fit:cover}
+.news-body{padding:24px 26px}.news-body h2{font-size:24px;margin:8px 0 10px}.news-links{font-weight:700;margin:12px 0 0}
+.news-empty{text-align:center;color:var(--muted)}
