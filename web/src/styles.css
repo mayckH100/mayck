@@ -139,7 +139,16 @@ tr:hover td { background: #fafcfb; }
 .fnode .t { font-weight: 700; display: flex; justify-content: space-between; gap: 6px; }
 .fnode .d { color: var(--muted); margin-top: 3px; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 .fnode .stats { display: flex; gap: 6px; margin-top: 5px; font-size: 10.5px; }
-.fnode .handles-row { font-size: 10px; color: var(--muted); display: flex; justify-content: space-around; margin-top: 4px; }
+/* Saídas na base do bloco: rótulo e bolinha usam a mesma posição (handleLayout), 36 px entre centros. */
+.fnode.multi { padding-bottom: 12px; }
+.fnode .handles-row { position: relative; height: 14px; margin-top: 6px; font-size: 11px; font-weight: 700; color: var(--muted); }
+.fnode .handles-row span { position: absolute; top: 0; transform: translateX(-50%); line-height: 14px; pointer-events: none; }
+.fnode .react-flow__handle.fout { width: 14px; height: 14px; border: 2px solid #fff; box-shadow: 0 0 0 1px rgba(0,0,0,.25); }
+/* Área de toque maior que a bolinha, mas menor que o espaço entre elas (28 px < 36 px): não invade a vizinha. */
+.fnode .react-flow__handle.fout::after { content: ''; position: absolute; left: 50%; top: 50%; width: 28px; height: 28px; transform: translate(-50%, -50%); border-radius: 50%; }
+.fnode .react-flow__handle.fout:hover { transform: translate(-50%, 50%) scale(1.25); }
+.fnode .react-flow__handle-right.fout:hover { transform: translate(50%, -50%) scale(1.25); }
+@media (pointer: coarse) { .fnode .react-flow__handle.fout { width: 18px; height: 18px; } .fnode .react-flow__handle.fout::after { width: 32px; height: 32px; } }
 .chart { display: flex; align-items: flex-end; gap: 3px; height: 140px; padding-top: 8px; }
 .chart .c { flex: 1; display: flex; flex-direction: column-reverse; gap: 1px; min-width: 4px; }
 .chart .c span { display: block; border-radius: 2px 2px 0 0; }

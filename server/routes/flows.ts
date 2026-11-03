@@ -6,6 +6,7 @@ import { orgOf, requireRole } from '../auth/session.js';
 import { audit } from '../lib/audit.js';
 import { graphSchema, validateGraph, defaultGraph, type FlowGraph } from '../flows/logic.js';
 import { parseJson } from '../lib/json.js';
+import { normalizeGraph } from '../flows/handles.js';
 import { startFlow, withConversationLock } from '../flows/engine.js';
 import { getMenuSettings, parseWords } from '../flows/menuReturn.js';
 import { safeFetch } from '../lib/ssrf.js';
@@ -36,7 +37,7 @@ flowsRouter.post('/', editors, ah(async (req, res) => {
   const body = z.object({ name: z.string().trim().min(1).max(100), description: z.string().max(500).optional(), graph: graphSchema.optional() }).parse(req.body);
   const orgId = orgOf(req);
   const flow = await prisma.flow.create({
-    data: { orgId, name: body.name, description: body.description, versions: { create: { version: 1, graph: JSON.stringify(body.graph ?? defaultGraph()), createdById: req.auth!.userId } } },
+    data: { orgId, name: body.name, description: body.description, versions: { create: { version: 1, graph: JSON.stringify(normalizeGraph((body.graph ?? defaultGraph()) as FlowGraph)), createdById: req.auth!.userId } } },
   });
   await audit(req, 'flow.create', { entity: 'flow', entityId: flow.id });
   res.status(201).json(flow);
@@ -45,7 +46,7 @@ flowsRouter.post('/', editors, ah(async (req, res) => {
 flowsRouter.post('/import', editors, ah(async (req, res) => {
   const body = z.object({ name: z.string().trim().min(1).max(100), description: z.string().max(500).optional().nullable(), graph: graphSchema }).parse(req.body);
   const flow = await prisma.flow.create({
-    data: { orgId: orgOf(req), name: body.name, description: body.description ?? undefined, versions: { create: { version: 1, graph: JSON.stringify(body.graph), createdById: req.auth!.userId } } },
+    data: { orgId: orgOf(req), name: body.name, description: body.description ?? undefined, versions: { create: { version: 1, graph: JSON.stringify(normalizeGraph(body.graph as FlowGraph)), createdById: req.auth!.userId } } },
   });
   await audit(req, 'flow.import', { entity: 'flow', entityId: flow.id });
   res.status(201).json(flow);
@@ -78,7 +79,7 @@ flowsRouter.put('/menu-settings', editors, ah(async (req, res) => {
 flowsRouter.get('/:id', ah(async (req, res) => {
   const f = await getFlow(req);
   const v = await prisma.flowVersion.findUnique({ where: { flowId_version: { flowId: f.id, version: f.currentVersion } } });
-  const graph = parseJson<FlowGraph>(v?.graph, defaultGraph());
+  const graph = normalizeGraph(parseJson<FlowGraph>(v?.graph, defaultGraph()));
   const stats = await prisma.flowRunStep.groupBy({ by: ['nodeId', 'status'], where: { flowId: f.id, orgId: f.orgId }, _count: { _all: true } });
   const nodeStats: Record<string, { ok: number; warn: number; error: number }> = {};
   for (const s of stats) {
@@ -97,12 +98,13 @@ flowsRouter.get('/:id/export', ah(async (req, res) => {
 flowsRouter.put('/:id', editors, ah(async (req, res) => {
   const body = z.object({ name: z.string().trim().min(1).max(100).optional(), description: z.string().max(500).optional().nullable(), priority: z.number().int().min(-100).max(100).optional(), graph: graphSchema }).parse(req.body);
   const f = await getFlow(req);
-  const problems = validateGraph(body.graph as FlowGraph);
+  const graph = normalizeGraph(body.graph as FlowGraph);
+  const problems = validateGraph(graph);
   if (f.status === 'ACTIVE' && problems.length) throw badRequest('O fluxo está ativo e tem problemas. Corrija ou pause antes de salvar.', problems);
   const version = f.currentVersion + 1;
   const [updated] = await prisma.$transaction([
     prisma.flow.update({ where: { id: f.id }, data: { name: body.name ?? undefined, description: body.description ?? undefined, priority: body.priority ?? undefined, currentVersion: version } }),
-    prisma.flowVersion.create({ data: { flowId: f.id, version, graph: JSON.stringify(body.graph), createdById: req.auth!.userId } }),
+    prisma.flowVersion.create({ data: { flowId: f.id, version, graph: JSON.stringify(graph), createdById: req.auth!.userId } }),
   ]);
   await audit(req, 'flow.save', { entity: 'flow', entityId: f.id, meta: { version } });
   res.json({ flow: updated, problems });

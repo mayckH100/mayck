@@ -61,7 +61,8 @@ aiRouter.put('/settings', admins, ah(async (req, res) => {
 aiRouter.post('/test', admins, ah(async (req, res) => {
   const { message } = z.object({ message: z.string().trim().min(1).max(2000) }).parse(req.body);
   const orgId = orgOf(req);
-  const hits = await retrieve(orgId, message, 3);
+  const hits = await retrieve(orgId, message, 3).catch(() => []);
+  // generateAiReply nunca lança e tem tempo máximo: o simulador sempre recebe uma resposta (ou o motivo da falha).
   const r = await generateAiReply({ orgId, conversationId: '', text: message });
   res.json({ ...r, sources: hits.map((h) => ({ title: (h.item as { title: string }).title, score: Number(h.score.toFixed(2)), text: h.item.text.slice(0, 300) })) });
 }));

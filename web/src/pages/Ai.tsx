@@ -131,20 +131,33 @@ function TestAi() {
   const { can } = useAuth();
   const [msg, setMsg] = useState('');
   const [res, setRes] = useState<any>(null);
-  const { busy, run } = useAction();
+  const [fail, setFail] = useState('');
+  const [busy, setBusy] = useState(false);
   if (!can('OWNER', 'ADMIN')) return <div className="card"><Empty title="Somente administradores podem testar a IA" /></div>;
+  const ask = async () => {
+    setBusy(true); setFail(''); setRes(null);
+    try {
+      // O servidor tem tempo máximo próprio (≈ 45 s); 75 s aqui é a rede de segurança da tela.
+      setRes(await post('/ai/test', { message: msg }, { timeoutMs: 75000, timeoutMessage: 'A IA não respondeu a tempo (mais de 75 s). Tente de novo; se repetir, veja a aba Uso.' }));
+    } catch (e) {
+      setFail((e as Error).message || 'Não foi possível consultar a IA.');
+    } finally {
+      setBusy(false);
+    }
+  };
   return (
     <div className="card stack">
       <p className="muted">Simula uma pergunta de cliente usando sua configuração real (consome a sua cota do provedor). Nada é enviado no WhatsApp.</p>
-      <form className="row" onSubmit={async (e) => { e.preventDefault(); setRes(await run(() => post('/ai/test', { message: msg }))); }}>
+      <form className="row" onSubmit={(e) => { e.preventDefault(); if (!busy) ask(); }}>
         <input required value={msg} onChange={(e) => setMsg(e.target.value)} placeholder="Ex.: Qual o horário de atendimento?" style={{ flex: 1 }} />
         <button className="btn primary" disabled={busy}>{busy ? 'Consultando…' : 'Perguntar'}</button>
       </form>
+      {fail && <div className="alert err" role="alert"><strong>Não foi possível testar:</strong> {fail}</div>}
       {res && (
         <div className="stack">
           <div className={`alert ${res.handoff ? 'warn' : 'ok'}`}><strong>{res.handoff ? 'Transferiria para humano' : 'Resposta'}:</strong> {res.text ?? '(nenhum texto)'}{res.reason && <div className="small">Motivo: {res.reason}</div>}{res.error && <div className="small">Erro do provedor: {res.error}</div>}</div>
           <h3>Trechos usados da base</h3>
-          {res.sources.length === 0 ? <p className="small muted">Nenhum trecho relevante encontrado.</p> : res.sources.map((s: any, i: number) => <div key={i} className="small"><strong>{s.title}</strong> (relevância {s.score}) — {s.text}</div>)}
+          {!res.sources?.length ? <p className="small muted">Nenhum trecho relevante encontrado.</p> : res.sources.map((s: any, i: number) => <div key={i} className="small"><strong>{s.title}</strong> (relevância {s.score}) — {s.text}</div>)}
         </div>
       )}
     </div>

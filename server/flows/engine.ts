@@ -11,6 +11,7 @@ import { isProductActive } from '../billing/service.js';
 import {
   type FlowGraph, type FlowNode, type Trigger, matchTriggers, evaluateCondition, matchMenuOption, validateAnswer, nextNodeId,
 } from './logic.js';
+import { menuHandleId, normalizeGraph, normalizeMenuOptions } from './handles.js';
 import type { Conversation, Contact, FlowRun, Message } from '@prisma/client';
 import type { OutboundPayload } from '../whatsapp/cloudClient.js';
 import type { AutoReplyMode } from '../whatsapp/autoReplyMode.js';
@@ -36,7 +37,7 @@ type StepOutcome =
 
 async function loadGraph(flowId: string, version: number): Promise<FlowGraph> {
   const v = await prisma.flowVersion.findUnique({ where: { flowId_version: { flowId, version } } });
-  return parseJson<FlowGraph>(v?.graph, { nodes: [], edges: [] });
+  return normalizeGraph(parseJson<FlowGraph>(v?.graph, { nodes: [], edges: [] }));
 }
 
 function contextVars(conv: Conversation, contact: Contact, runVars: Record<string, unknown>, extra: Record<string, unknown> = {}) {
@@ -67,12 +68,36 @@ function sendWaiting(run: FlowRun, conv: Conversation, contact: Contact, payload
   return send(conv, contact, ctx ? withMenuReturn(payload, ctx.settings, ctx.qr) : payload);
 }
 
+/**
+ * Resposta automática da IA no WhatsApp (modo "Só IA" e IA depois dos fluxos). Nunca falha em silêncio:
+ * a IA já devolve o fallback quando o provedor trava, bloqueia ou responde vazio; aqui o envio que falha
+ * e qualquer erro inesperado ficam no log e a conversa vai para um humano em vez de ficar sem resposta.
+ */
+export async function replyWithAi(conv: Conversation, contact: Contact, text: string): Promise<void> {
+  try {
+    const r = await generateAiReply({ orgId: conv.orgId, conversationId: conv.id, text });
+    if (r.error || (r.handoff && r.reason)) console.warn('[ia-whatsapp] resposta com transferência', { orgId: conv.orgId, conversationId: conv.id, reason: r.reason, error: r.error });
+    if (r.text) {
+      const m = await sendOutbound({ conversation: conv, contact, payload: { type: 'text', text: r.text }, sender: 'ai' });
+      if (m?.status === 'FAILED') {
+        console.error('[ia-whatsapp] falha ao enviar a resposta da IA', { orgId: conv.orgId, conversationId: conv.id, error: m.error });
+        await handoffToHuman(conv, `Falha ao enviar a resposta da IA: ${m.error ?? 'erro desconhecido'}`);
+        return;
+      }
+    }
+    if (r.handoff) await handoffToHuman(conv, r.reason ?? 'IA');
+  } catch (e) {
+    console.error('[ia-whatsapp] erro inesperado na resposta automática', { orgId: conv.orgId, conversationId: conv.id, error: (e as Error).message });
+    await handoffToHuman(conv, 'Erro na resposta automática da IA').catch(() => undefined);
+  }
+}
+
 function failedSend(m: Message): StepOutcome | null {
   return m.status === 'FAILED' ? { kind: 'stop', status: 'FAILED', error: `Falha ao enviar mensagem: ${m.error}` } : null;
 }
 
 function menuPayload(node: FlowNode, vars: Record<string, unknown>): OutboundPayload {
-  const options: { id: string; label: string }[] = node.data.options ?? [];
+  const options: { id: string; label: string }[] = normalizeMenuOptions(node.data.options).options;
   const text = renderTemplate(node.data.text ?? 'Escolha uma opção:', vars);
   if (node.data.style === 'buttons' && options.length <= 3) {
     return { type: 'buttons', text, buttons: options.map((o) => ({ id: o.id, title: o.label })) };
@@ -106,7 +131,7 @@ async function executeNode(node: FlowNode, run: FlowRun, runVars: Record<string,
     }
 
     case 'menu': {
-      const options = d.options ?? [];
+      const options = normalizeMenuOptions(d.options).options;
       if (!input) {
         runVars.__retries = 0;
         const m = await sendWaiting(run, conv, contact, menuPayload(node, vars));
@@ -115,7 +140,7 @@ async function executeNode(node: FlowNode, run: FlowRun, runVars: Record<string,
       const opt = matchMenuOption(options, input.text, input.replyId);
       if (opt) {
         runVars[d.variable || 'menu_choice'] = opt.label;
-        return { kind: 'next', handle: `opt-${opt.id}`, detail: `Escolheu: ${opt.label}` };
+        return { kind: 'next', handle: menuHandleId(opt.id), detail: `Escolheu: ${opt.label}` };
       }
       const retries = Number(runVars.__retries ?? 0) + 1;
       runVars.__retries = retries;
@@ -450,9 +475,7 @@ export async function automateInbound(conv: Conversation, contact: Contact, mess
     }
     const aiSettings = await prisma.aiSettings.findUnique({ where: { orgId: conv.orgId } });
     if (!(aiSettings?.enabled && aiSettings.autoReply)) return 'none' as const;
-    const r = await generateAiReply({ orgId: conv.orgId, conversationId: conv.id, text });
-    if (r.text) await sendOutbound({ conversation: conv, contact, payload: { type: 'text', text: r.text }, sender: 'ai' });
-    if (r.handoff) await handoffToHuman(conv, r.reason ?? 'IA');
+    await replyWithAi(conv, contact, text);
     return 'ai' as const;
   }
   // "Voltar ao menu": vale em qualquer etapa (antes de retomar a espera atual).
@@ -492,9 +515,7 @@ export async function automateInbound(conv: Conversation, contact: Contact, mess
     return 'flow_started' as const;
   }
   if (aiOn) {
-    const r = await generateAiReply({ orgId: conv.orgId, conversationId: conv.id, text });
-    if (r.text) await sendOutbound({ conversation: conv, contact, payload: { type: 'text', text: r.text }, sender: 'ai' });
-    if (r.handoff) await handoffToHuman(conv, r.reason ?? 'IA');
+    await replyWithAi(conv, contact, text);
     return 'ai' as const;
   }
   return 'none' as const;

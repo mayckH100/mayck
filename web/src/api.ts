@@ -15,7 +15,7 @@ const FRIENDLY: Record<number, string> = {
   503: 'Serviço indisponível no momento.',
 };
 
-export async function api<T = any>(path: string, opts: { method?: string; body?: unknown } = {}): Promise<T> {
+export async function api<T = any>(path: string, opts: { method?: string; body?: unknown; timeoutMs?: number; timeoutMessage?: string } = {}): Promise<T> {
   const method = opts.method ?? 'GET';
   const headers: Record<string, string> = {};
   if (method !== 'GET') {
@@ -24,11 +24,17 @@ export async function api<T = any>(path: string, opts: { method?: string; body?:
   }
   if (opts.body !== undefined) headers['content-type'] = 'application/json';
   let res: Response;
+  // Tempo máximo opcional: a tela nunca fica presa em "Carregando…/Consultando…".
+  const ctrl = opts.timeoutMs ? new AbortController() : null;
+  const timer = ctrl ? setTimeout(() => ctrl.abort(), opts.timeoutMs) : null;
   try {
-    res = await fetch('/api' + path, { method, headers, credentials: 'same-origin', body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined });
+    res = await fetch('/api' + path, { method, headers, credentials: 'same-origin', body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined, signal: ctrl?.signal });
   } catch {
+    if (timer) clearTimeout(timer);
+    if (ctrl?.signal.aborted) throw new ApiError(opts.timeoutMessage ?? `O servidor demorou mais de ${Math.round((opts.timeoutMs ?? 0) / 1000)} s para responder. Tente de novo.`, 0);
     throw new ApiError('Sem conexão com o servidor. Verifique sua internet.', 0);
   }
+  if (timer) clearTimeout(timer);
   const data = await res.json().catch(() => null);
   if (!res.ok) {
     if (res.status === 401 && !path.startsWith('/auth/')) window.dispatchEvent(new Event('mck:unauthorized'));
@@ -47,7 +53,7 @@ export async function api<T = any>(path: string, opts: { method?: string; body?:
 }
 
 export const get = <T = any>(p: string) => api<T>(p);
-export const post = <T = any>(p: string, body?: unknown) => api<T>(p, { method: 'POST', body: body ?? {} });
+export const post = <T = any>(p: string, body?: unknown, o: { timeoutMs?: number; timeoutMessage?: string } = {}) => api<T>(p, { method: 'POST', body: body ?? {}, ...o });
 export const put = <T = any>(p: string, body?: unknown) => api<T>(p, { method: 'PUT', body });
 export const patch = <T = any>(p: string, body?: unknown) => api<T>(p, { method: 'PATCH', body });
 export const del = <T = any>(p: string) => api<T>(p, { method: 'DELETE' });

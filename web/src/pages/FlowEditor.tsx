@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
-  ReactFlow, Background, Controls, Handle, Position, addEdge, applyNodeChanges, applyEdgeChanges,
+  ReactFlow, Background, Controls, Handle, Position, applyNodeChanges, applyEdgeChanges, useUpdateNodeInternals,
   type Node, type Edge, type ReactFlowInstance, type NodeChange, type EdgeChange, type Connection, type NodeProps,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { get, post, put } from '../api';
+import { menuOutputs, handleLayout, edgeTarget, setOutputEdge, newOptionId, menuHandleId, INVALID_HANDLE } from '../../../server/flows/handles';
 import { useAuth } from '../auth';
 import { useAction, Loading, ErrorBox, StatusBadge, Modal, fmtDate, Field, useApi, useToast, copy } from '../ui';
 
@@ -15,7 +16,7 @@ const META: Record<NodeType, { label: string; color: string; outs: (d: any) => {
   start: { label: 'Início', color: '#d90429', outs: () => [{ id: 'next', label: '' }], defaults: () => ({ triggers: [{ type: 'keyword', value: '', match: 'contains' }] }) },
   send_text: { label: 'Enviar texto', color: '#2f6fde', outs: () => [{ id: 'next', label: '' }], defaults: () => ({ text: 'Olá, {{contact_name}}!' }) },
   send_media: { label: 'Enviar mídia', color: '#2f6fde', outs: () => [{ id: 'next', label: '' }], defaults: () => ({ mediaType: 'image', url: '', caption: '' }) },
-  menu: { label: 'Menu de opções', color: '#8b5cf6', outs: (d) => [...(d.options ?? []).map((o: any, i: number) => ({ id: `opt-${o.id}`, label: String(i + 1) })), { id: 'invalid', label: '✕', color: '#d64545' }], defaults: () => ({ text: 'Escolha uma opção:', options: [{ id: 'o1', label: 'Opção 1' }, { id: 'o2', label: 'Opção 2' }], style: 'text' }) },
+  menu: { label: 'Menu de opções', color: '#8b5cf6', outs: (d) => menuOutputs(d.options).map((o) => (o.id === INVALID_HANDLE ? { id: o.id, label: o.label, color: '#d64545' } : { id: o.id, label: o.label })), defaults: () => ({ text: 'Escolha uma opção:', options: [{ id: 'o1', label: 'Opção 1' }, { id: 'o2', label: 'Opção 2' }], style: 'text' }) },
   ask: { label: 'Perguntar e salvar', color: '#8b5cf6', outs: () => [{ id: 'next', label: 'ok' }, { id: 'invalid', label: '✕', color: '#d64545' }], defaults: () => ({ question: 'Qual é o seu nome?', variable: 'nome', validation: 'text' }) },
   condition: { label: 'Condição', color: '#b7791f', outs: () => [{ id: 'yes', label: 'sim', color: '#2f6fde' }, { id: 'no', label: 'não', color: '#d64545' }], defaults: () => ({ logic: 'all', rules: [{ variable: 'last_message', operator: 'contains', value: '' }] }) },
   ai: { label: 'Resposta com IA', color: '#0e9f6e', outs: () => [{ id: 'next', label: 'ok' }, { id: 'handoff', label: 'humano', color: '#d64545' }], defaults: () => ({ instructions: '', continueConversation: false }) },
@@ -45,21 +46,32 @@ function summary(type: NodeType, d: any): string {
   }
 }
 
-function FlowNode({ data, type, selected }: NodeProps) {
+/** Distância (px, centro a centro) entre as saídas na base do bloco. A área de toque de cada bolinha é menor que isso. */
+const HANDLE_SPACING = 36;
+
+function FlowNode({ id, data, type, selected }: NodeProps) {
   const t = type as NodeType;
   const m = META[t];
   const outs = m.outs(data);
   const st = (data as any).__stats as { ok: number; warn: number; error: number } | undefined;
+  const multi = outs.length > 1;
+  const { lefts, minWidth } = handleLayout(outs.length, HANDLE_SPACING);
+  // O React Flow mede a posição das bolinhas só quando o bloco muda de tamanho. Ao adicionar,
+  // remover ou reordenar opções sem mudar o tamanho, as medidas ficavam velhas: a conexão era
+  // desenhada (e "pegava") na bolinha vizinha. Remedimos sempre que a lista de saídas muda.
+  const updateInternals = useUpdateNodeInternals();
+  const sig = outs.map((o) => o.id).join('|');
+  useEffect(() => { updateInternals(id); }, [id, sig, minWidth, updateInternals]);
   return (
-    <div className={`fnode ${selected ? 'sel' : ''}`} style={{ borderTop: `4px solid ${m.color}` }}>
+    <div className={`fnode ${selected ? 'sel' : ''} ${multi ? 'multi' : ''}`} style={{ borderTop: `4px solid ${m.color}`, ...(multi ? { minWidth, maxWidth: Math.max(230, minWidth) } : {}) }}>
       {t !== 'start' && <Handle type="target" position={Position.Left} />}
       <div className="t"><span>{m.label}</span></div>
       <div className="d">{summary(t, data)}</div>
       {st && <div className="stats"><span style={{ color: '#2f6fde' }}>{st.ok} ok</span><span style={{ color: '#b7791f' }}>{st.warn} alerta</span><span style={{ color: '#d64545' }}>{st.error} erro</span></div>}
-      {outs.length > 1 && <div className="handles-row">{outs.map((o) => <span key={o.id}>{o.label}</span>)}</div>}
+      {multi && <div className="handles-row">{outs.map((o, i) => <span key={o.id} style={{ left: `${lefts[i]}%` }}>{o.label}</span>)}</div>}
       {outs.map((o, i) => (
-        <Handle key={o.id} id={o.id} type="source" position={outs.length > 1 ? Position.Bottom : Position.Right}
-          style={{ background: o.color ?? '#d90429', width: 10, height: 10, ...(outs.length > 1 ? { left: `${((i + 1) / (outs.length + 1)) * 100}%` } : {}) }} />
+        <Handle key={o.id} id={o.id} type="source" position={multi ? Position.Bottom : Position.Right} className="fout" data-testid={`out-${o.id}`}
+          title={o.label ? `Saída ${o.label}` : 'Saída'} style={{ background: o.color ?? '#d90429', ...(multi ? { left: `${lefts[i]}%` } : {}) }} />
       ))}
     </div>
   );
@@ -111,7 +123,14 @@ export default function FlowEditor() {
   const onNodesChange = useCallback((c: NodeChange[]) => { setNodes((ns) => applyNodeChanges(c, ns)); if (c.some((x) => x.type !== 'select' && x.type !== 'dimensions')) setDirty(true); }, []);
   const onEdgesChange = useCallback((c: EdgeChange[]) => { setEdges((es) => applyEdgeChanges(c, es)); if (c.some((x) => x.type !== 'select')) setDirty(true); }, []);
   const onConnect = useCallback((c: Connection) => {
-    setEdges((es) => addEdge({ ...c, id: `e-${uid()}` }, es.filter((e) => !(e.source === c.source && (e.sourceHandle ?? 'next') === (c.sourceHandle ?? 'next')))));
+    if (!c.source || !c.target) return;
+    // A saída é sempre a bolinha em que o arraste começou (c.sourceHandle); cada saída tem uma conexão só.
+    setEdges((es) => setOutputEdge(es, c.source, c.sourceHandle ?? 'next', c.target, `e-${uid()}`));
+    setDirty(true);
+  }, []);
+  /** Seletor "Ir para o bloco…" do painel: liga/troca/desliga a saída sem arrastar. */
+  const setOutput = useCallback((source: string, handle: string, target: string | null) => {
+    setEdges((es) => setOutputEdge(es, source, handle, target, `e-${uid()}`));
     setDirty(true);
   }, []);
 
@@ -128,6 +147,11 @@ export default function FlowEditor() {
   };
   const updateData = (nid: string, patchData: any) => {
     setNodes((ns) => ns.map((n) => (n.id === nid ? { ...n, data: { ...n.data, ...patchData } } : n)));
+    // Opção removida do menu: a conexão dela sai junto (não fica órfã nem passa para outra opção).
+    if (Array.isArray(patchData?.options)) {
+      const keep = new Set<string>([...patchData.options.map((o: any) => menuHandleId(o.id)), INVALID_HANDLE]);
+      setEdges((es) => es.filter((e) => e.source !== nid || keep.has(e.sourceHandle ?? 'next')));
+    }
     setDirty(true);
   };
   const removeNode = (nid: string) => {
@@ -197,7 +221,7 @@ export default function FlowEditor() {
                 <p className="small muted">Variáveis salvas por "Perguntar" e pelo mapeamento do HTTP também podem ser usadas.</p></div>
             </div>
           ) : (
-            <NodeEditor key={sel.id} node={sel} readOnly={readOnly} onChange={(p) => updateData(sel.id, p)} onRemove={() => removeNode(sel.id)} />
+            <NodeEditor key={sel.id} node={sel} nodes={nodes} edges={edges} onSetOutput={(h, target) => setOutput(sel.id, h, target)} readOnly={readOnly} onChange={(p) => updateData(sel.id, p)} onRemove={() => removeNode(sel.id)} />
           )}
         </div>
       </div>
@@ -207,7 +231,26 @@ export default function FlowEditor() {
   );
 }
 
-function NodeEditor({ node, onChange, onRemove, readOnly }: { node: Node; onChange: (p: any) => void; onRemove: () => void; readOnly: boolean }) {
+function nodeTitle(n: Node): string {
+  const t = n.type as NodeType;
+  const s = summary(t, n.data as any) ?? '';
+  return `${META[t]?.label ?? t}${s ? ` — ${s.length > 40 ? `${s.slice(0, 40)}…` : s}` : ''}`;
+}
+
+/** "Ir para o bloco…": escolhe o destino de uma saída sem precisar arrastar. */
+function GoTo({ node, handle, nodes, edges, onSetOutput, label }: { node: Node; handle: string; nodes: Node[]; edges: Edge[]; onSetOutput: (h: string, target: string | null) => void; label?: string }) {
+  const current = edgeTarget(edges, node.id, handle) ?? '';
+  const others = nodes.filter((n) => n.id !== node.id && n.type !== 'start');
+  return (
+    <select aria-label={label ? `Ir para o bloco (${label})` : 'Ir para o bloco'} data-testid={`goto-${handle}`} value={current} onChange={(e) => onSetOutput(handle, e.target.value || null)} style={{ flex: 1, minWidth: 0 }}>
+      <option value="">Ir para o bloco… (sem conexão)</option>
+      {others.map((n) => <option key={n.id} value={n.id}>{nodeTitle(n)}</option>)}
+      {current && !others.some((n) => n.id === current) && <option value={current}>(bloco {current})</option>}
+    </select>
+  );
+}
+
+function NodeEditor({ node, nodes, edges, onSetOutput, onChange, onRemove, readOnly }: { node: Node; nodes: Node[]; edges: Edge[]; onSetOutput: (h: string, target: string | null) => void; onChange: (p: any) => void; onRemove: () => void; readOnly: boolean }) {
   const d = node.data as any;
   const t = node.type as NodeType;
   const integrations = useApi<any[]>(t === 'http' ? '/integrations' : null);
@@ -258,10 +301,16 @@ function NodeEditor({ node, onChange, onRemove, readOnly }: { node: Node; onChan
         <Field label="Texto do menu">{area('text')}</Field>
         <Field label="Formato"><select value={d.style ?? 'text'} onChange={(e) => onChange({ style: e.target.value })}><option value="text">Lista numerada (texto)</option><option value="buttons">Botões (até 3 opções)</option></select></Field>
         {list('options').map((o, i) => (
-          <div key={o.id} className="row"><span className="small">{i + 1}.</span><input value={o.label} maxLength={20} onChange={(e) => setList('options', list('options').map((x) => (x.id === o.id ? { ...x, label: e.target.value } : x)))} style={{ flex: 1 }} />
-            <button className="btn sm danger" aria-label="Remover opção" onClick={() => setList('options', list('options').filter((x) => x.id !== o.id))}>✕</button></div>
+          <div key={o.id} className="card stack" style={{ padding: 8, gap: 6 }}>
+            <div className="row"><span className="small" style={{ fontWeight: 700 }}>{i + 1}.</span><input aria-label={`Opção ${i + 1}`} value={o.label} maxLength={20} onChange={(e) => setList('options', list('options').map((x) => (x.id === o.id ? { ...x, label: e.target.value } : x)))} style={{ flex: 1 }} />
+              <button className="btn sm danger" aria-label="Remover opção" onClick={() => setList('options', list('options').filter((x) => x.id !== o.id))}>✕</button></div>
+            <GoTo node={node} handle={menuHandleId(o.id)} nodes={nodes} edges={edges} onSetOutput={onSetOutput} label={`opção ${i + 1}`} />
+          </div>
         ))}
-        <button className="btn sm" onClick={() => setList('options', [...list('options'), { id: uid(), label: `Opção ${list('options').length + 1}` }])}>+ Opção</button>
+        <button className="btn sm" onClick={() => setList('options', [...list('options'), { id: newOptionId(list('options')), label: `Opção ${list('options').length + 1}` }])}>+ Opção</button>
+        <div className="row"><span className="small" style={{ color: '#d64545', fontWeight: 700 }}>✕</span><span className="small muted">Resposta inválida:</span>
+          <GoTo node={node} handle={INVALID_HANDLE} nodes={nodes} edges={edges} onSetOutput={onSetOutput} label="resposta inválida" /></div>
+        <p className="small muted">Ligue cada opção pelo seletor acima ou arrastando a bolinha numerada na base do bloco.</p>
         <Field label="Salvar escolha na variável">{inp('variable', { placeholder: 'menu_choice' })}</Field>
         <Field label="Mensagem para resposta inválida">{inp('invalidText', { placeholder: 'Opção inválida…' })}</Field>
       </>}
@@ -320,6 +369,13 @@ function NodeEditor({ node, onChange, onRemove, readOnly }: { node: Node; onChan
       </>}
       {t === 'handoff' && <Field label="Mensagem ao contato (opcional)">{area('message')}</Field>}
       {t === 'end' && <><Field label="Mensagem final (opcional)">{area('message')}</Field><label className="row small"><input type="checkbox" checked={!!d.closeConversation} onChange={(e) => onChange({ closeConversation: e.target.checked })} /> Encerrar a conversa</label></>}
+      {t !== 'menu' && META[t].outs(d).length > 0 && <>
+        <div className="small muted" style={{ fontWeight: 700 }}>Saídas</div>
+        {META[t].outs(d).map((o) => (
+          <div key={o.id} className="row"><span className="small" style={{ color: o.color, fontWeight: 700, minWidth: 34 }}>{o.label || '→'}</span>
+            <GoTo node={node} handle={o.id} nodes={nodes} edges={edges} onSetOutput={onSetOutput} label={o.label || 'próximo'} /></div>
+        ))}
+      </>}
       {!readOnly && <button className="btn danger sm" onClick={onRemove}>Remover bloco</button>}
       <p className="small muted mono">id: {node.id}</p>
     </fieldset>
