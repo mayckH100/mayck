@@ -1198,3 +1198,44 @@ model AnnouncementView {
   @@unique([announcementId, userId, day])
   @@index([announcementId])
 }
+
+/// Novidades (Painel Master): conta de rede social conectada pelo administrador da plataforma (uma por rede).
+/// provider: instagram | youtube | linkedin | tiktok. Tokens sempre cifrados (AES-256-GCM com MASTER_KEY, lib/crypto).
+model SocialAccount {
+  id           String    @id @default(cuid())
+  provider     String    @unique
+  /// Instagram: id da conta profissional (IG business); YouTube: id do canal; LinkedIn: URN/id da organização.
+  accountId    String
+  accountName  String?
+  /// Token de acesso cifrado (Instagram: token da Página do Facebook, sem validade).
+  accessToken  String
+  /// Refresh token cifrado (YouTube).
+  refreshToken String?
+  expiresAt    DateTime?
+  /// Dados extras da conexão (JSON), ex.: { "pageId", "pageName" } da Página ligada ao Instagram.
+  extra        String    @default("{}")
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+}
+
+/// Novidades: publicação criada no Painel Master e (após aprovação explícita) publicada nas redes e no site /empresa.
+model SocialPost {
+  id          String    @id @default(cuid())
+  title       String
+  body        String
+  mediaUrl    String?
+  /// image | video | nulo
+  mediaType   String?
+  /// JSON: lista de destinos, ex.: ["site","instagram","youtube"]
+  targets     String    @default("[]")
+  /// draft | approved (publicando) | published | partial | failed
+  status      String    @default("draft")
+  /// JSON por destino: { "instagram": { "ok": true, "id": "...", "url": "...", "at": "..." }, "youtube": { "ok": false, "error": "..." } }
+  results     String    @default("{}")
+  createdById String?
+  publishedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([status, publishedAt])
+}
