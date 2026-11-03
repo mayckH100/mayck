@@ -47,3 +47,24 @@ services:
         value: "5" # senhas/códigos errados seguidos até bloquear a conta
       - key: ACCOUNT_LOCK_MINUTES
         value: "15" # 1º bloqueio; dobra a cada nova falha (máx. 24 h)
+      # Novidades (Painel Master > Novidades): publicação no site e nas redes sociais oficiais. Todas opcionais.
+      - key: PUBLIC_URL
+        sync: false # ex.: https://mckbot.onrender.com (base das URLs de retorno do OAuth; vazio = esse padrão)
+      - key: META_APP_ID
+        sync: false # app da Meta (vazio = 1865951357919820)
+      - key: META_APP_SECRET
+        sync: false # segredo do app da Meta (Instagram via Facebook Login)
+      - key: GOOGLE_YT_CLIENT_ID
+        sync: false # OAuth do Google para o YouTube (pode ser o mesmo projeto da Agenda, com a YouTube Data API ativada)
+      - key: GOOGLE_YT_CLIENT_SECRET
+        sync: false
+      - key: LINKEDIN_CLIENT_ID
+        sync: false # app do LinkedIn com o produto Community Management API (w_organization_social)
+      - key: LINKEDIN_CLIENT_SECRET
+        sync: false
+      - key: LINKEDIN_ORG_ID
+        sync: false # id da Página da empresa (vazio = 145406914)
+      - key: TIKTOK_CLIENT_KEY
+        sync: false # reservado: integração com o TikTok ainda não disponível
+      - key: TIKTOK_CLIENT_SECRET
+        sync: false
