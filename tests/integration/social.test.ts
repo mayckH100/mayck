@@ -32,6 +32,7 @@ describe('Novidades (redes sociais do Painel Master)', () => {
       if (url.includes('grant_type=fb_exchange_token')) return json({ access_token: 'LONG' });
       if (url.includes('/me/accounts')) return json({ data: [{ id: 'P1', name: 'MCK', access_token: 'PAGE_SECRET_TOKEN', instagram_business_account: { id: 'IG1', username: 'mck.dev' } }] });
       if (url.endsWith('/IG1/media') && init.method === 'POST') return json({ id: 'CONT' });
+      if (url.includes('/CONT?')) return json({ status_code: 'FINISHED' });
       if (url.endsWith('/IG1/media_publish')) { igPublishes++; return json({ id: 'M1' }); }
       if (url.includes('/M1?')) return json({ permalink: 'https://www.instagram.com/p/m1/' });
       return json({ error: { message: `sem mock: ${url}` } }, 500);
