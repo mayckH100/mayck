@@ -205,6 +205,20 @@ Saia e entre de novo no app (ou recarregue): `GET /api/auth/me` passa a trazer `
 
 Migração `0005_user_disabled` adiciona `User.disabledAt` (aplicada automaticamente no `npm start`).
 
+## Novidades (Painel Master > Novidades) — redes sociais
+
+Exclusivo do superadmin. Cria publicações (título, texto, URL pública **https** de imagem/vídeo, destinos), que começam como **rascunho** e só são enviadas depois do botão **Aprovar e publicar** (com confirmação). Cada destino grava o próprio resultado; falha numa rede não impede as outras (status `published`, `partial` ou `failed`; "Tentar de novo" só reenvia o que falhou). Destino **Site** publica em `/empresa/novidades` (dados públicos em `GET /api/novidades`).
+
+| Variável | Para quê |
+|---|---|
+| `PUBLIC_URL` | Base das URLs de retorno do OAuth (padrão `https://mckbot.onrender.com`). |
+| `META_APP_ID` / `META_APP_SECRET` | Instagram (conta profissional ligada a uma Página do Facebook). App ID padrão `1865951357919820`. Retorno: `PUBLIC_URL/api/social/meta/callback`. Permissões: `instagram_basic, instagram_content_publish, pages_show_list, pages_read_engagement, business_management`. |
+| `GOOGLE_YT_CLIENT_ID` / `GOOGLE_YT_CLIENT_SECRET` | YouTube (YouTube Data API v3 ativada). Retorno: `PUBLIC_URL/api/social/youtube/callback`. Enquanto o app não for verificado pelo Google, os vídeos enviados ficam **privados**. |
+| `LINKEDIN_CLIENT_ID` / `LINKEDIN_CLIENT_SECRET` / `LINKEDIN_ORG_ID` | Página da empresa no LinkedIn (`w_organization_social`; padrão da Página `145406914`). Retorno: `PUBLIC_URL/api/social/linkedin/callback`. Opcional: `LINKEDIN_API_VERSION` (AAAAMM, padrão `202510`). Imagem vai anexada; vídeo vai como link no texto. O token dura 60 dias: reconecte quando vencer. |
+| `TIKTOK_CLIENT_KEY` / `TIKTOK_CLIENT_SECRET` | Reservado. A integração com o TikTok ainda não está disponível (exige app aprovado na Content Posting API). |
+
+Sem as variáveis, a rede aparece como "não configurada" e o resto funciona. Os tokens ficam cifrados no banco (AES-256-GCM com a `MASTER_KEY`). O "Conectar" grava um *state* assinado num cookie (10 min) e o retorno só é aceito com o mesmo state e a sessão do mesmo superadmin. A mídia precisa ser um link público https (o Instagram baixa do endereço; o YouTube/LinkedIn são baixados pelo servidor com proteção SSRF, até 200 MB para vídeo).
+
 ## E-mails transacionais (SMTP grátis)
 
 Cadastro (boas-vindas + confirmação de e-mail), "Esqueci minha senha" e aviso de senha alterada usam SMTP genérico via nodemailer. Sem SMTP, nada quebra: o servidor só registra no log que o e-mail não foi enviado.
