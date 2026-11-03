@@ -78,6 +78,7 @@ O Render Free **hiberna após ~15 min sem tráfego HTTP** e isso **derruba a con
 1. Crie uma conta gratuita em https://cron-job.org (ou outro monitor grátis, como UptimeRobot).
 2. **Create cronjob** → URL: `https://mckbot.onrender.com/api/health` → agendamento **a cada 10 minutos** → salvar.
 3. O endpoint `/api/health` é leve (não consulta o banco), então não gasta as horas do Neon.
+4. Monitor de uptime (opcional, grátis): use `GET /healthz` — sem login e sem dados; responde 200 se o app e o banco estão ok e 503 se o banco falhar ou demorar mais de 2 s. Ele consulta o banco, então use intervalo de 5 min ou mais para não impedir o Neon de dormir à toa; para só manter o Render acordado, continue com `/api/health`.
 
 750 horas grátis/mês do Render cobrem um serviço ligado o mês inteiro (~730 h). Mesmo com o pinger, o Render pode reiniciar o serviço (deploy, manutenção): o MCKBOT reconecta sozinho com a sessão salva.
 

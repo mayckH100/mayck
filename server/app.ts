@@ -74,6 +74,24 @@ export function createApp() {
     }
   });
 
+  // Monitor de uptime (UptimeRobot/BetterStack etc.): sem login, sem dados; confere o banco com limite de 2 s.
+  // 200 = app e banco ok; 503 = banco fora ou lento. Aceita GET e HEAD.
+  app.get('/healthz', async (_req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    let timer: NodeJS.Timeout | undefined;
+    try {
+      await Promise.race([
+        prisma.$queryRaw`SELECT 1`,
+        new Promise((_, rej) => { timer = setTimeout(() => rej(new Error('timeout')), 2000); }),
+      ]);
+      res.status(200).json({ ok: true });
+    } catch {
+      res.status(503).json({ ok: false });
+    } finally {
+      clearTimeout(timer);
+    }
+  });
+
   app.use(express.json({ limit: '1mb' }));
   app.use(cookieParser());
   app.use('/api', rateLimit({ windowMs: 60 * 1000, limit: () => config.API_RATE_LIMIT, standardHeaders: 'draft-7', legacyHeaders: false, message: { error: 'Muitas requisições. Aguarde um instante.' } }));
