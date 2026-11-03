@@ -1,5 +1,5 @@
 import { Prisma } from '@prisma/client';
-import { createGzip, gunzipSync } from 'node:zlib';
+import { crc32, createGzip, gunzipSync } from 'node:zlib';
 import { createCipheriv, createDecipheriv, hkdfSync, randomBytes } from 'node:crypto';
 import { prisma } from '../db.js';
 import { getMasterKey } from './crypto.js';
@@ -211,14 +211,38 @@ async function uploadGithub(name: string, file: Buffer): Promise<string> {
   return `github:${process.env.BACKUP_GITHUB_REPO}/${path}`;
 }
 
+
+/** ZIP mínimo com um único arquivo, sem compressão (método "store"). Abre em qualquer descompactador. */
+export function zipStore(name: string, data: Buffer, date = new Date()): Buffer {
+  const fname = Buffer.from(name, 'utf8');
+  const crc = crc32(data) >>> 0;
+  const dosTime = ((date.getHours() << 11) | (date.getMinutes() << 5) | Math.floor(date.getSeconds() / 2)) & 0xffff;
+  const dosDate = (((date.getFullYear() - 1980) << 9) | ((date.getMonth() + 1) << 5) | date.getDate()) & 0xffff;
+  const local = Buffer.alloc(30);
+  local.writeUInt32LE(0x04034b50, 0); local.writeUInt16LE(20, 4); local.writeUInt16LE(0x0800, 6); local.writeUInt16LE(0, 8);
+  local.writeUInt16LE(dosTime, 10); local.writeUInt16LE(dosDate, 12); local.writeUInt32LE(crc, 14);
+  local.writeUInt32LE(data.length, 18); local.writeUInt32LE(data.length, 22); local.writeUInt16LE(fname.length, 26); local.writeUInt16LE(0, 28);
+  const central = Buffer.alloc(46);
+  central.writeUInt32LE(0x02014b50, 0); central.writeUInt16LE(20, 4); central.writeUInt16LE(20, 6); central.writeUInt16LE(0x0800, 8); central.writeUInt16LE(0, 10);
+  central.writeUInt16LE(dosTime, 12); central.writeUInt16LE(dosDate, 14); central.writeUInt32LE(crc, 16);
+  central.writeUInt32LE(data.length, 20); central.writeUInt32LE(data.length, 24); central.writeUInt16LE(fname.length, 28);
+  central.writeUInt32LE(0, 42);
+  const cdOffset = local.length + fname.length + data.length;
+  const cdSize = central.length + fname.length;
+  const end = Buffer.alloc(22);
+  end.writeUInt32LE(0x06054b50, 0); end.writeUInt16LE(1, 8); end.writeUInt16LE(1, 10); end.writeUInt32LE(cdSize, 12); end.writeUInt32LE(cdOffset, 16);
+  return Buffer.concat([local, fname, data, central, fname, end]);
+}
+
 async function sendEmail(name: string, file: Buffer): Promise<string> {
   const to = backupEmailTo();
   if (!to) throw new Error('E-mail: destino do backup não definido');
   if (file.length > 15 * 1024 * 1024) throw new Error('Backup maior que 15 MB: grande demais para e-mail');
   const r = await sendMailResult({
     to, subject: `Backup MCK ${name}`,
-    text: `Backup diário cifrado do banco MCK (${(file.length / 1024).toFixed(0)} KB). Guarde este arquivo. Para restaurar, use scripts/backup-restore.mjs com a mesma MASTER_KEY/BACKUP_KEY do servidor.`,
-    attachments: [{ filename: name, content: file, contentType: 'application/octet-stream' }],
+    text: `Backup diário cifrado do banco MCK (${(file.length / 1024).toFixed(0)} KB). Guarde este arquivo. Extraia o .bkp de dentro do .zip; para restaurar, use scripts/backup-restore.mjs com a mesma MASTER_KEY/BACKUP_KEY do servidor.`,
+    // A API do Brevo recusa a extensão .bkp ("Unsupported file format"); o arquivo vai dentro de um .zip (sem compressão).
+    attachments: [{ filename: `${name}.zip`, content: zipStore(name, file), contentType: 'application/zip' }],
   });
   if (!r.ok) throw new Error(`E-mail: ${r.error}`);
   return `email:${to}`;
