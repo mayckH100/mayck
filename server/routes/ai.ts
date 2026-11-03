@@ -8,9 +8,13 @@ import { encrypt, decryptOrNull, maskSecret } from '../lib/crypto.js';
 import { audit } from '../lib/audit.js';
 import { parseJson } from '../lib/json.js';
 import { generateAiReply, reindexDoc, retrieve } from '../ai/service.js';
+import { productsRouter } from './products.js';
 
 export const aiRouter = Router();
 const admins = requireRole('OWNER', 'ADMIN');
+
+// Produtos (catálogo): mesmas proteções da base de conhecimento (módulo IA, MCKBOT ativo para escrita).
+aiRouter.use('/products', productsRouter);
 
 async function settingsView(orgId: string) {
   const s = await prisma.aiSettings.upsert({ where: { orgId }, create: { orgId }, update: {} });
