@@ -78,12 +78,24 @@ function Knowledge() {
   const state = useApi<any[]>('/ai/knowledge');
   const { can } = useAuth();
   const [edit, setEdit] = useState<any>(null);
+  const [remove, setRemove] = useState<any>(null);
   const { busy, run } = useAction();
   const ro = !can('OWNER', 'ADMIN');
   return (
     <>
+      {remove && (
+        <Modal title="Excluir documento" onClose={() => setRemove(null)}>
+          <div className="stack">
+            <p style={{ margin: 0 }}>Excluir <strong>{remove.title}</strong> da base de conhecimento?</p>
+            <div className="row" style={{ justifyContent: 'flex-end' }}>
+              <button type="button" className="btn" onClick={() => setRemove(null)} disabled={busy}>Voltar</button>
+              <button type="button" className="btn danger" disabled={busy} onClick={async () => { const ok = await run(() => del(`/ai/knowledge/${remove.id}`), 'Documento excluído'); if (ok) { setRemove(null); state.reload(); } }}>{busy ? 'Excluindo…' : 'Excluir'}</button>
+            </div>
+          </div>
+        </Modal>
+      )}
       <div className="row between" style={{ marginBottom: 12 }}>
-        <p className="muted" style={{ margin: 0 }}>Cole FAQ, tabela de preços, políticas e horários. O texto é dividido em trechos e os mais relevantes vão para a IA a cada pergunta.</p>
+        <p className="muted" style={{ margin: 0 }}>Cole FAQ, tabela de preços, políticas e horários. O texto é dividido em trechos e os mais relevantes vão para a IA a cada pergunta. Produtos com preço e estoque ficam em <a href="/produtos">Produtos</a>.</p>
         {!ro && <button className="btn primary" onClick={() => setEdit({ title: '', content: '' })}>+ Documento</button>}
       </div>
       <Async state={state}>{(docs) => docs.length === 0 ? <div className="card"><Empty title="Base de conhecimento vazia">Sem documentos, a IA não responde perguntas sobre preços e políticas — transfere para um humano.</Empty></div> : (
@@ -93,7 +105,7 @@ function Knowledge() {
               <div className="row between"><strong>{d.title}</strong><span className="badge">{d.chunks} trecho(s)</span></div>
               <p className="small muted" style={{ whiteSpace: 'pre-wrap', maxHeight: 90, overflow: 'hidden' }}>{d.content}</p>
               <div className="row between small"><span className="muted">Atualizado {fmtDate(d.updatedAt)}</span>
-                {!ro && <div className="row"><button className="btn sm" onClick={() => setEdit(d)}>Editar</button><button className="btn sm danger" disabled={busy} onClick={() => { if (confirm('Excluir documento?')) run(() => del(`/ai/knowledge/${d.id}`), 'Documento excluído').then(state.reload); }}>Excluir</button></div>}</div>
+                {!ro && <div className="row"><button className="btn sm" onClick={() => setEdit(d)}>Editar</button><button className="btn sm danger" disabled={busy} onClick={() => setRemove(d)}>Excluir</button></div>}</div>
             </div>
           ))}
         </div>
