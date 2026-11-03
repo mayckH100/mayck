@@ -4,6 +4,7 @@ import { del, post, put, upload } from '../api';
 import { useAuth, type SubscriptionView, type SubStatus } from '../auth';
 import { useApi, Async, Empty, Field, Loading, Modal, fmtDate, fmtNum, useAction } from '../ui';
 import { TwoFactorCard } from './Security';
+import NovidadesTab from './MasterNovidades';
 import {
   CYCLES, CYCLE_LABEL, KIND_LABEL, PLAN_PRODUCTS, PRODUCTS, PRODUCT_LABEL, SOURCE_LABEL, STATUSES, STATUS_LABEL,
   SubBadge, centsToInput, daysLeft, fmtBRL, fmtDay, fmtMonth, parseBRL, toDateInput, type Cycle, type PlanProduct,
@@ -36,7 +37,7 @@ interface Settings {
 }
 
 const TABS = [
-  ['geral', 'Visão geral'], ['clientes', 'Clientes'], ['vencimentos', 'Vencimentos'], ['pagamentos', 'Pagamentos'], ['atividades', 'Atividades'], ['avisos', 'Avisos'], ['configuracoes', 'Configurações'],
+  ['geral', 'Visão geral'], ['clientes', 'Clientes'], ['vencimentos', 'Vencimentos'], ['pagamentos', 'Pagamentos'], ['atividades', 'Atividades'], ['avisos', 'Avisos'], ['novidades', 'Novidades'], ['configuracoes', 'Configurações'],
 ] as const;
 type Tab = (typeof TABS)[number][0];
 
@@ -56,6 +57,8 @@ const ACTION_LABEL: Record<string, string> = {
   'master.announcement.activate': 'Master: aviso ativado', 'master.announcement.deactivate': 'Master: aviso desativado', 'master.announcement.delete': 'Master: aviso excluído',
   'billing.renewal_reminder.sent': 'Lembrete de vencimento enviado (e-mail)', 'billing.renewal_reminder.failed': 'Lembrete de vencimento falhou',
   'profile.renewal_reminders': 'Lembretes de vencimento alterados',
+  'master.social.connect': 'Master: rede social conectada', 'master.social.connect_failed': 'Master: falha ao conectar rede social', 'master.social.disconnect': 'Master: rede social desconectada',
+  'master.social.post_create': 'Master: novidade criada', 'master.social.post_publish': 'Master: novidade aprovada e publicada', 'master.social.post_delete': 'Master: novidade excluída',
   'backup.success': 'Backup do banco concluído', 'backup.failed': 'Backup do banco falhou', 'backup.download': 'Backup baixado pelo Master',
 };
 const actionLabel = (a: string) => ACTION_LABEL[a] ?? a;
@@ -1017,6 +1020,7 @@ export default function Master() {
           {tab === 'pagamentos' && <Payments />}
           {tab === 'atividades' && <Activity />}
           {tab === 'avisos' && <AnnouncementsSection />}
+          {tab === 'novidades' && <NovidadesTab />}
           {tab === 'configuracoes' && <SettingsTab />}
         </>
       )}
