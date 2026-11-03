@@ -1514,6 +1514,8 @@ model ErpConfig {
   alcadaCompraCents     Int      @default(500000) // pedido de compra até este valor é aprovado ao enviar; acima, só OWNER/ADMIN aprova
   toleranciaPrecoBp     Int      @default(200) // recebimento: diferença de preço NF × pedido aceita sem aprovação
   recebimentoCego       Boolean  @default(false) // conferência da NF-e sem mostrar a quantidade da nota
+  multaAtrasoBp         Int      @default(200) // multa por atraso (2%)
+  jurosMesBp            Int      @default(100) // juros de mora ao mês (1%), pro rata dia
   formatoLote           String   @default("{AA}{MM}{DD}-{SEQ}") // {AAAA} {AA} {MM} {DD} {SKU} {SEQ}
   etiquetaLarguraMm     Int      @default(100)
   etiquetaAlturaMm      Int      @default(50)
@@ -2029,4 +2031,198 @@ model ErpOpApontamento {
   custoUnitCents Int              @default(0)
   userId         String?
   createdAt      DateTime         @default(now())
+}
+
+// ======================= Financeiro =======================
+model ErpContaFinanceira {
+  id                String   @id @default(cuid())
+  orgId             String
+  nome              String
+  tipo              String   @default("BANCO") // BANCO | CAIXA | CARTAO
+  banco             String?
+  agencia           String?
+  conta             String?
+  chavePix          String? // chave Pix do cliente (para gerar Pix copia-e-cola)
+  saldoInicialCents Int      @default(0)
+  ativa             Boolean  @default(true)
+  createdAt         DateTime @default(now())
+
+  @@index([orgId])
+}
+
+/**
+ * Plano de contas gerencial (DRE): código hierárquico 1, 1.01, 1.01.001.
+ */
+model ErpCategoriaFinanceira {
+  id     String  @id @default(cuid())
+  orgId  String
+  codigo String
+  nome   String
+  tipo   String // RECEITA | DESPESA
+  grupo  String  @default("OPERACIONAL") // RECEITA_BRUTA | DEDUCAO | CUSTO | OPERACIONAL | FINANCEIRA | IMPOSTO
+  ativa  Boolean @default(true)
+
+  @@unique([orgId, codigo])
+}
+
+model ErpTitulo {
+  id              String     @id @default(cuid())
+  orgId           String
+  tipo            String // RECEBER | PAGAR
+  parceiroId      String?
+  descricao       String
+  docTipo         String? // pedido_venda | nfe_entrada | manual
+  docId           String?
+  parcela         Int        @default(1)
+  parcelas        Int        @default(1)
+  valorCents      Int
+  pagoCents       Int        @default(0)
+  jurosCents      Int        @default(0)
+  descontoCents   Int        @default(0)
+  emissao         DateTime   @default(now())
+  competencia     DateTime   @default(now())
+  vencimento      DateTime
+  status          String     @default("EM_ABERTO") // EM_ABERTO | PARCIAL | PAGO | CANCELADO
+  categoriaId     String?
+  centroCustoId   String?
+  contaPrevistaId String?
+  observacoes     String?
+  createdAt       DateTime   @default(now())
+  baixas          ErpBaixa[]
+
+  @@unique([orgId, tipo, docTipo, docId, parcela])
+  @@index([orgId, tipo, status, vencimento])
+  @@index([orgId, parceiroId])
+}
+
+model ErpBaixa {
+  id            String    @id @default(cuid())
+  tituloId      String
+  titulo        ErpTitulo @relation(fields: [tituloId], references: [id], onDelete: Cascade)
+  contaId       String
+  data          DateTime
+  valorCents    Int // principal abatido
+  jurosCents    Int       @default(0)
+  descontoCents Int       @default(0)
+  forma         String    @default("PIX") // PIX | BOLETO | TED | DINHEIRO | CARTAO
+  estornada     Boolean   @default(false)
+  userId        String?
+  createdAt     DateTime  @default(now())
+}
+
+/**
+ * Movimento da conta (baixas, transferências, tarifas). Base do saldo e da conciliação.
+ */
+model ErpLancamento {
+  id          String   @id @default(cuid())
+  orgId       String
+  contaId     String
+  data        DateTime
+  valorCents  Int // + entrada, − saída
+  descricao   String
+  origemTipo  String // baixa | transferencia | avulso | estorno
+  origemId    String?
+  categoriaId String?
+  conciliado  Boolean  @default(false)
+  extratoId   String?
+  createdAt   DateTime @default(now())
+
+  @@index([orgId, contaId, data])
+}
+
+/**
+ * Linha do extrato bancário importado (OFX) para conciliação.
+ */
+model ErpExtratoLinha {
+  id           String   @id @default(cuid())
+  orgId        String
+  contaId      String
+  fitId        String
+  data         DateTime
+  valorCents   Int
+  descricao    String
+  lancamentoId String?
+  createdAt    DateTime @default(now())
+
+  @@unique([contaId, fitId])
+  @@index([orgId, contaId, data])
+}
+
+// ======================= Fiscal =======================
+/**
+ * Dados do emitente e certificado A1 do próprio cliente (cifrado com MASTER_KEY).
+ */
+model ErpConfigFiscal {
+  orgId         String    @id
+  razaoSocial   String    @default("")
+  fantasia      String?
+  cnpj          String    @default("")
+  ie            String    @default("")
+  crt           Int       @default(1) // 1 Simples Nacional | 2 Simples excesso | 3 Regime normal
+  uf            String    @default("SP")
+  codMunicipio  String    @default("")
+  municipio     String    @default("")
+  logradouro    String    @default("")
+  numero        String    @default("")
+  bairro        String    @default("")
+  cep           String    @default("")
+  fone          String?
+  ambiente      Int       @default(2) // 1 produção | 2 homologação
+  serie         Int       @default(1)
+  proximoNumero Int       @default(1)
+  certPfx       String? // cifrado
+  certSenha     String? // cifrado
+  certTitular   String?
+  certValidade  DateTime?
+  updatedAt     DateTime  @updatedAt
+}
+
+/**
+ * Regra de tributação: por produto, por prefixo de NCM ou padrão (sem produto e sem NCM).
+ */
+model ErpRegraFiscal {
+  id           String  @id @default(cuid())
+  orgId        String
+  nome         String
+  produtoId    String?
+  ncmPrefixo   String?
+  cfopDentro   String  @default("5102")
+  cfopFora     String  @default("6102")
+  csosn        String  @default("102") // Simples Nacional
+  cstIcms      String  @default("00") // regime normal
+  aliqIcmsBp   Int     @default(0)
+  cstIpi       String  @default("53")
+  aliqIpiBp    Int     @default(0)
+  cstPis       String  @default("49")
+  aliqPisBp    Int     @default(0)
+  cstCofins    String  @default("49")
+  aliqCofinsBp Int     @default(0)
+  prioridade   Int     @default(0)
+
+  @@index([orgId, produtoId])
+}
+
+model ErpNfeSaida {
+  id           String    @id @default(cuid())
+  orgId        String
+  pedidoId     String?
+  parceiroId   String
+  numero       Int
+  serie        Int
+  chave        String
+  ambiente     Int
+  status       String    @default("ASSINADA") // RASCUNHO | ASSINADA | AUTORIZADA | REJEITADA | CANCELADA
+  totalCents   Int
+  xml          String
+  protocolo    String?
+  cStat        String?
+  motivo       String?
+  autorizadaEm DateTime?
+  canceladaEm  DateTime?
+  createdAt    DateTime  @default(now())
+
+  @@unique([orgId, chave])
+  @@unique([orgId, serie, numero, ambiente])
+  @@index([orgId, status])
+  @@index([pedidoId])
 }

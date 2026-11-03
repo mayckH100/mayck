@@ -10,8 +10,10 @@ const ITENS = [
   { to: '/erp/estoque', label: 'Estoque' },
   { to: '/erp/compras', label: 'Compras' },
   { to: '/erp/producao', label: 'Produção' },
+  { to: '/erp/financeiro', label: 'Financeiro' },
+  { to: '/erp/fiscal', label: 'Fiscal' },
 ];
-const PROXIMOS = ['Fiscal', 'Financeiro'];
+const PROXIMOS: string[] = ['BI'];
 
 export default function ErpNav() {
   return (

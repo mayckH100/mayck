@@ -5,6 +5,7 @@ import { post } from '../../api';
 import { useAuth } from '../../auth';
 import { useApi, Async, Modal, Field, useAction, useToast, fmtDate } from '../../ui';
 import ErpNav from '../ErpNav';
+import { NfeDoPedido } from '../fiscal/Fiscal';
 import { brl, qtd, toMil } from '../format';
 import { badgeStatus } from './Pedidos';
 
@@ -50,6 +51,7 @@ export default function Pedido() {
             </table>
             <div className="row between" style={{ marginTop: 8 }}><span className="small muted">Subtotal {brl(p.subtotalCents)} · descontos {brl(p.descontoCents)} · frete {brl(p.freteCents)}</span><strong>Total {brl(p.totalCents)}</strong></div>
           </div>
+          <NfeDoPedido pedido={p} onFaturar={(nfNumero) => acao('FATURAR', { nfNumero })} />
           {p.separacao.length > 0 && (
             <div className="card" style={{ marginTop: 14 }}>
               <h3>Lista de separação</h3>

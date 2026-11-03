@@ -22,6 +22,7 @@ export interface LoteXml { numero: string; qtdMil: number; fabricacao: string | 
 export interface ItemXml { nItem: number; codigo: string; descricao: string; ean: string | null; ncm: string | null; cfop: string | null; unidade: string; qtdMil: number; valorUnitCents: number; custoTotalCents: number; lotes: LoteXml[] }
 export interface NfeXml {
   chave: string; numero: string; serie: string; dataEmissao: Date | null; autorizada: boolean; valorTotalCents: number;
+  duplicatas: { numero: string; vencimento: Date | null; valorCents: number }[];
   emitente: { cnpj: string; nome: string; fantasia: string | null; ie: string | null; uf: string | null; municipio: string | null; cep: string | null; logradouro: string | null; numero: string | null; bairro: string | null };
   destinatarioDoc: string | null; itens: ItemXml[];
 }
@@ -57,6 +58,7 @@ export function lerNfe(xml: string): NfeXml {
     chave: inf[1], numero: tag(blocos(xml, 'ide')[0] ?? '', 'nNF') ?? '', serie: tag(blocos(xml, 'ide')[0] ?? '', 'serie') ?? '',
     dataEmissao: data(tag(xml, 'dhEmi') ?? tag(xml, 'dEmi')), autorizada: !!prot && tag(prot, 'cStat') === '100',
     valorTotalCents: cents(tag(blocos(xml, 'ICMSTot')[0] ?? '', 'vNF')),
+    duplicatas: blocos(blocos(xml, 'cobr')[0] ?? '', 'dup').map((d) => ({ numero: tag(d, 'nDup') ?? '', vencimento: data(tag(d, 'dVenc')), valorCents: cents(tag(d, 'vDup')) })).filter((d) => d.valorCents > 0),
     emitente: { cnpj, nome: tag(emit, 'xNome') ?? '', fantasia: tag(emit, 'xFant'), ie: tag(emit, 'IE'), uf: tag(end, 'UF'), municipio: tag(end, 'xMun'), cep: tag(end, 'CEP'), logradouro: tag(end, 'xLgr'), numero: tag(end, 'nro'), bairro: tag(end, 'xBairro') },
     destinatarioDoc: tag(dest, 'CNPJ') ?? tag(dest, 'CPF'), itens,
   };

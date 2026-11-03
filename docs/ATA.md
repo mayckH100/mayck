@@ -85,3 +85,8 @@ Formato de cada atualização: data, quem fez, o que foi feito, o que foi passad
 - **Verificado:** suíte completa `npm test` (92 arquivos, 824 testes) passou antes do commit; typecheck servidor e web; build web.
 - **Falta:** aplicar 0038–0041 no Postgres (só com aprovação do Mayck); testar impressão Zebra em hardware; Etapa 4 (Fiscal + Financeiro).
 - **Melhorar:** MRP com baldes de tempo, capacidade finita e apontamento por operação.
+
+## Atualização 2026-11-03 (noite, 4) — Hark
+- **Combinado com o Mayck:** seguir todas as etapas sem pedir permissão a cada uma; correções com o app no ar.
+- **Feito:** Etapa 4: Financeiro (contas, plano de contas, a receber/a pagar gerados por evento, baixa parcial com juros, estorno, Pix copia-e-cola, OFX e conciliação, aging, fluxo, DRE) e Fiscal (emitente, certificado A1 cifrado, regras, NF-e 4.00 assinada a partir do pedido, transmissão, cancelamento, DANFE). Migração `0042` (aditiva). Detalhes em `docs/ERP.md`.
+- **Falta:** testar NF-e em homologação com o certificado real; aplicar 0038–0042 no Postgres; SEFAZ próprias (MG, PR, RS...), ST/DIFAL, NFC-e/NFS-e; Etapa 5 (BI).

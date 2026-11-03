@@ -107,7 +107,7 @@ produtosRouter.get('/config', ah(async (req, res) => res.json(await configDa(org
 produtosRouter.put('/config', admins, ah(async (req, res) => {
   const b = z.object({ descontoMaxBp: z.number().int().min(0).max(10_000), bloquearSemCredito: z.boolean(), validadeOrcamentoDias: z.number().int().min(1).max(365),
     formatoLote: z.string().trim().min(3).max(40).regex(/\{SEQ\}/, 'O formato precisa ter {SEQ}').optional(), etiquetaLarguraMm: z.number().int().min(20).max(200).optional(), etiquetaAlturaMm: z.number().int().min(10).max(200).optional(), etiquetaDpi: z.union([z.literal(203), z.literal(300)]).optional(),
-    alcadaCompraCents: z.number().int().min(0).max(2_000_000_000).optional(), toleranciaPrecoBp: z.number().int().min(0).max(5000).optional(), recebimentoCego: z.boolean().optional() }).partial({ descontoMaxBp: true, bloquearSemCredito: true, validadeOrcamentoDias: true }).parse(req.body);
+    alcadaCompraCents: z.number().int().min(0).max(2_000_000_000).optional(), toleranciaPrecoBp: z.number().int().min(0).max(5000).optional(), recebimentoCego: z.boolean().optional(), multaAtrasoBp: z.number().int().min(0).max(200).optional(), jurosMesBp: z.number().int().min(0).max(1000).optional() }).partial({ descontoMaxBp: true, bloquearSemCredito: true, validadeOrcamentoDias: true }).parse(req.body);
   const orgId = orgOf(req);
   const antes = await configDa(orgId);
   const c = await prisma.erpConfig.update({ where: { orgId }, data: b });

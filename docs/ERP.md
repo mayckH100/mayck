@@ -196,3 +196,25 @@ Toda transição passa pelo motor de estados (função pura `transition(estado, 
 **Migração** `0041_erp_compras_producao`: só aditiva. Não aplicada em Postgres de produção.
 
 **Limitações conhecidas**: MRP sem baldes de tempo (datas só informativas); sem apontamento por operação nem capacidade finita; envio do pedido de compra/cotação ao fornecedor é por texto/PDF (sem e-mail automático).
+
+## Etapa 4 — Financeiro e Fiscal (2026-11-03)
+
+**Financeiro** (`/api/erp/financeiro`, tela `/erp/financeiro`)
+- Contas (banco, caixa, cartão) com saldo inicial e chave Pix; saldo = inicial + lançamentos.
+- Plano de contas gerencial por grupo da DRE (receita bruta, deduções, custos, operacionais, financeiras, impostos), criado com um padrão editável.
+- Títulos a receber e a pagar com parcelas. Gerados por evento: `vendas.pedido.faturado` → a receber pela condição de pagamento; `estoque.nfe_entrada.lancada` → a pagar pelas duplicatas da nota (sem duplicata: uma parcela na emissão). Pedido cancelado/devolvido cancela os títulos sem baixa.
+- Baixa total ou parcial com juros/multa e desconto (multa até 2% e juros de mora pro rata, configuráveis), estorno (só gestor), cancelamento (só gestor, sem baixa). Status financeiro do pedido acompanha (EM_ABERTO, PARCIAL, PAGO).
+- Pix copia-e-cola (BR Code estático com CRC16) na chave do cliente, sem provedor.
+- Transferência entre contas, lançamento avulso, importação de extrato OFX e conciliação (mesmo valor, até 3 dias; cria lançamento para tarifa).
+- Painel: saldo, aging a receber e a pagar, fluxo de caixa projetado. DRE por competência ou caixa.
+
+**Fiscal** (`/api/erp/fiscal`, tela `/erp/fiscal` e bloco "Nota fiscal" no pedido)
+- Emitente, regime (Simples ou normal), ambiente (homologação padrão), série e numeração.
+- Certificado A1 do próprio cliente, cifrado com `MASTER_KEY`; valida senha, validade e CNPJ.
+- Regras de tributação por produto, por prefixo de NCM ou padrão: CFOP dentro/fora do estado, CSOSN/CST ICMS, IPI, PIS e COFINS.
+- NF-e 4.00 a partir do pedido separado: chave com DV módulo 11, desconto e frete rateados, tributos por regra, XML assinado (XML-DSig, C14N, RSA-SHA1). Transmissão síncrona, nfeProc com protocolo, cancelamento em até 24 h (evento 110111), status do serviço, refazer após rejeição com o mesmo número, XML e DANFE com código de barras.
+- Endpoints: SP e UFs da SVRS. Demais UFs com SEFAZ própria (MG, PR, RS, BA, GO, MS, MT, PE, AM, MA) ainda não.
+
+**Migração** `0042_erp_financeiro_fiscal`: só aditiva. Não aplicada em Postgres de produção.
+
+**Limitações conhecidas**: transmissão nunca testada contra a SEFAZ real (precisa do certificado do cliente; começar em homologação); sem ST, DIFAL, FCP, NFC-e, NFS-e, inutilização de numeração, carta de correção e download de DF-e; boleto registrado depende do banco do cliente (hoje: Pix copia-e-cola).

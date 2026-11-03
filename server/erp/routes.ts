@@ -1,6 +1,6 @@
 /**
  * MCK ERP — roteador raiz (/api/erp). Cada módulo tem a própria pasta e o próprio sub-roteador.
- * Etapa 1: core + CRM. Etapa 2: produtos/, estoque/, vendas/. Etapa 3: compras/, producao/. Próximas: fiscal/, financeiro/, bi/.
+ * Etapa 1: core + CRM. Etapa 2: produtos/, estoque/, vendas/. Etapa 3: compras/, producao/. Etapa 4: financeiro/, fiscal/. Próxima: bi/.
  */
 import { Router } from 'express';
 import { coreRouter } from './core/core.routes.js';
@@ -17,10 +17,14 @@ import { inventarioRouter } from './estoque/inventario.routes.js';
 import { pedidosRouter } from './vendas/pedidos.routes.js';
 import { comprasRouter } from './compras/compras.routes.js';
 import { producaoRouter } from './producao/producao.routes.js';
+import { financeiroRouter } from './financeiro/financeiro.routes.js';
+import { fiscalRouter } from './fiscal/fiscal.routes.js';
+import { registrarConsumidoresFinanceiro } from './financeiro/consumidores.js';
 import { registrarConsumidoresVendas } from './vendas/consumidores.js';
 
 registrarConsumidoresCrm();
 registrarConsumidoresVendas();
+registrarConsumidoresFinanceiro();
 
 export const erpRouter = Router();
 erpRouter.use('/core', coreRouter);
@@ -35,6 +39,8 @@ erpRouter.use('/estoque', estoqueRouter);
 erpRouter.use('/vendas/pedidos', pedidosRouter);
 erpRouter.use('/compras', comprasRouter);
 erpRouter.use('/producao', producaoRouter);
+erpRouter.use('/financeiro', financeiroRouter);
+erpRouter.use('/fiscal', fiscalRouter);
 
 /** Chamado na subida do servidor (fora dos testes). */
 export function iniciarErp() { iniciarDespachante(); }
