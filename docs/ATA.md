@@ -127,4 +127,4 @@ Formato de cada atualização: data, quem fez, o que foi feito, o que foi passad
 - **Pedido do dono (20:14):** o alerta deve sair na PRIMEIRA falha de CADA conversa, sem o agrupamento por empresa de 5 min.
 - **Feito:** `aiFailureOrgWindowMs()` (server/whatsapp/staffAlerts.ts) agora tem padrão 0 = desligado; AI_FAILURE_ORG_ALERT_MIN continua como opção (> 0 volta a agrupar e contar as seguradas). Mantido: 1 alerta por conversa a cada 30 min (AI_FAILURE_ALERT_MIN). Sem migração. Novidades: entrada 1.13.1.
 - **Testes:** integração ia-falha-alerta (novo: duas conversas da mesma empresa → dois alertas WhatsApp + dois e-mails; com a variável = 5 volta a agrupar) e unit das janelas.
-- **Deploy:** Manual Deploy (Deploy latest commit) no Render após o CI verde; conferir /api/versao = 1.13.1.
+- **Deploy:** CI verde; Manual Deploy (Deploy latest commit) de 07c0c9d no Render, Live às 20:22 BRT de 04/11; /api/versao devolve 1.13.1 · 07c0c9d.
