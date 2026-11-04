@@ -45,6 +45,9 @@ test.describe.serial('Telas críticas: cadastro, renovação e avisos', () => {
     const master = await signup(page, request, { email: MASTER_EMAIL, org: 'Plataforma E2E' });
     await page.getByRole('button', { name: 'Sair' }).click();
     await login(page, master.email, master.password);
+    // Menu lateral em categorias: "Plataforma" começa fechada; abre para achar o Painel Master.
+    const plataforma = page.getByRole('navigation').getByRole('button', { name: /Plataforma/ });
+    if ((await plataforma.getAttribute('aria-expanded')) !== 'true') await plataforma.click();
     await expect(page.getByRole('navigation').getByRole('link', { name: 'Painel Master' })).toBeVisible();
     await page.goto('/master?aba=avisos');
     await page.getByRole('button', { name: 'Novo aviso' }).click();
