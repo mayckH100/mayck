@@ -218,3 +218,7 @@ tr:hover td { background: #fafcfb; }
 .novidade-banner .nb-close { flex: none; border: 0; background: transparent; font-size: 18px; line-height: 1; padding: 2px 6px; cursor: pointer; color: inherit; opacity: .6; }
 .novidade-banner .nb-close:hover { opacity: 1; }
 @media (max-width: 640px) { .novidade-banner { margin: 8px 12px 0; } .novidade-banner .nb-txt { white-space: normal; } }
+
+/* Número da versão (rodapé do menu e tela de entrada) */
+.versao-rodape { display: block; font-size: 11px; opacity: .7; text-align: center; text-decoration: none; color: inherit; padding: 2px 0; }
+.versao-rodape:hover { opacity: 1; text-decoration: underline; }

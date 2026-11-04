@@ -45,6 +45,7 @@ import Announcements from './Announcements';
 import WaDownBanner from './WaDownBanner';
 import NovidadeBanner from './NovidadeBanner';
 import { STATUS_LABEL, fmtDay } from './billing';
+import { Versoes, VersaoRodape } from './Versao';
 
 type NavItem = { to: string; label: string; icon?: string; roles?: Role[]; superAdmin?: boolean; module?: string; sub?: string; href?: string; end?: boolean };
 /** Menu por categoria: os três produtos primeiro (MCK ERP, MCKBOT, MCK Mensagens), depois gestão e conta. */
@@ -228,6 +229,7 @@ function Shell({ children }: { children: ReactNode }) {
           </select>
           <InstallButton appName="MCKBOT" />
           <button className="btn sm" data-sub-exempt onClick={async () => { await logout(); nav('/login'); }}>Sair</button>
+          <VersaoRodape />
         </div>
       </aside>
       <div className="main">
@@ -273,6 +275,7 @@ export default function App() {
         <Route path="/redefinir-senha" element={<Reset />} />
         <Route path="/verificar-email" element={<Verify />} />
         <Route path="/convite/:token" element={<AcceptInvite />} />
+        <Route path="/versoes" element={<Versoes standalone />} />
         <Route path="*" element={<Navigate to="/login" replace />} />
       </Routes>
     );
@@ -284,6 +287,7 @@ export default function App() {
         <Route path="/convite/:token" element={<AcceptInvite />} />
         <Route path="/redefinir-senha" element={<Reset />} />
         <Route path="/verificar-email" element={<Verify />} />
+        <Route path="/versoes" element={<Versoes standalone />} />
         <Route path="*" element={<NoOrg />} />
       </Routes>
     );
@@ -339,6 +343,7 @@ export default function App() {
             <Route path="/auditoria" element={<Audit />} />
             <Route path="/perfil" element={<Profile />} />
             <Route path="/boas-praticas" element={<Guide />} />
+            <Route path="/versoes" element={<Versoes />} />
             <Route path="/tutoriais" element={<Tutorials app="mckbot" appName="MCKBOT" planPath="/plano" />} />
             <Route path="*" element={<div className="empty"><div className="t">Página não encontrada</div><NavLink to="/">Voltar para a visão geral</NavLink></div>} />
           </Routes>

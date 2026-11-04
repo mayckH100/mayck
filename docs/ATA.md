@@ -15,6 +15,7 @@ Formato de cada atualização: data, quem fez, o que foi feito, o que foi passad
 - Nada é publicado em nome da empresa (posts, e-mails, mensagens) sem aprovação do Mayck.
 - Tudo gratuito por enquanto: não contratar serviço pago sem pedido do Mayck.
 - Diferenciar sempre da "MCK Desenvolvimento de Sistemas LTDA" (outra empresa, desde 2007) e do Grupo MCK Automação.
+- Versão e Novidades: todo commit com mudança visível para o cliente acrescenta uma entrada NO TOPO de `server/changelog.ts` (português simples, para cliente final, sem termos técnicos nem dados sensíveis) e sobe a versão (1.N.0 → 1.N+1.0; correção pequena: 1.N.1); manter `version` do package.json igual. O teste tests/unit/versao.test.ts confere ordem e formato.
 
 ## Estado em 2026-11-02 (Hark)
 ### Feito
@@ -109,3 +110,8 @@ Formato de cada atualização: data, quem fez, o que foi feito, o que foi passad
 ## Pendência (2026-11-03 22:55)
 - Deploy do commit c75347f parado: o Render espera o check `e2e`. Corrigido o runner (ubuntu-24.04, commit 44d0906). Agora falha só `tests/e2e/qualidade.spec.ts:43` (Master › Avisos: pop-up central não aparece para o cliente), provavelmente por causa do menu lateral novo. Próximo passo: rodar esse e2e localmente e corrigir, ou fazer Manual Deploy no Render.
 - Uso diário do Hark chegou a 96%: trabalho pausado até 2026-11-04 12:57.
+
+## Atualização 2026-11-04 — Hark: número da versão e histórico
+- **Feito:** rótulo "Versão 1.N.0 · <sha curto> · <data do build>" no fim do menu lateral do MCKBOT, no rodapé do MCK Mensagens e nas telas de entrada dos dois; clique abre /versoes ("Novidades e histórico de versões", logado ou não). Fonte única: `server/changelog.ts` (13 versões, 1.0.0 de 25/10 a 1.12.0 de 04/11, preenchidas a partir do git). Commit/data vêm do build (RENDER_GIT_COMMIT > git rev-parse > "dev"; vite grava dist/web/build-info.json). GET /api/versao (sem login, no-store) devolve versão, commit, data e rótulo; /healthz não mudou. Sem migração. Sem deploy.
+- **Testes:** typecheck servidor+web, build, unit/integração de versão, healthz e spa; e2e qualidade.spec.ts 3/3 e versao.spec.ts 2/2 localmente.
+

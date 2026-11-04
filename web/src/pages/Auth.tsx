@@ -8,6 +8,7 @@ import { PlansShowcase, ForgotPassword, ResetPassword, VerifyEmail } from './Pub
 import { normalizeCoupon, storedCoupon } from '../billing';
 import { MfaLoginStep } from './Security';
 import { SignupFlow, CompleteCadastro } from './Cadastro';
+import { VersaoRodape } from '../Versao';
 
 export function Brand() {
   return <div className="brand"><img src="/logo.svg" alt="" /> MCKBOT</div>;
@@ -56,6 +57,7 @@ export function Login() {
             <InstallButton appName="MCKBOT" />
             <a href="/mensagem/login" className="small">Ir para MCK Mensagens</a>
           </div>
+          <VersaoRodape />
         </form>
         )}
         <PlansShowcase />

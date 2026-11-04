@@ -7,6 +7,7 @@ import { STATUS_LABEL, fmtDay, subOf } from '../billing';
 import { MCKBOT_URL } from './common';
 import { MmLogin, MmRegister, MmNoOrg, MmBrand, MmForgot, MmReset, MmVerify, MmCompletar } from './pages/Auth';
 import { InstallButton } from '../pwa';
+import { Versoes, VersaoRodape } from '../Versao';
 import MmDashboard from './pages/Dashboard';
 import MmLeads from './pages/Leads';
 import MmCampaigns from './pages/Campaigns';
@@ -122,6 +123,7 @@ function Shell({ children, nav: navItems = NAV }: { children: ReactNode; nav?: t
       <Announcements app="mensagem" />
       <NovidadeBanner base={MCKBOT_URL} />
       <main className="mm-content">{children}</main>
+      <footer className="mm-foot"><VersaoRodape /></footer>
     </div>
   );
 }
@@ -155,6 +157,7 @@ export default function MensagemApp() {
         <Route path="/esqueci-senha" element={<MmForgot />} />
         <Route path="/redefinir-senha" element={<MmReset />} />
         <Route path="/verificar-email" element={<MmVerify />} />
+        <Route path="/versoes" element={<Versoes standalone />} />
         <Route path="*" element={<Navigate to="/login" replace />} />
       </Routes>
     );
@@ -166,10 +169,10 @@ export default function MensagemApp() {
   if (!me.org) return <MmNoOrg />;
   if (!can('OWNER', 'ADMIN')) {
     // Atendente (AGENT): só consulta o módulo Automações e Cobranças, sem alterar nada.
-    if (!/\/mensagem\/automacoes/.test(path)) return <AgentBlocked />;
+    if (!/\/mensagem\/(automacoes|versoes)/.test(path)) return <AgentBlocked />;
     return (
       <Shell nav={[{ to: '/automacoes', label: 'Automações e Cobranças', icon: '⏱' }]}>
-        <Routes><Route path="/automacoes/*" element={<AutomacoesModulo readOnly />} /><Route path="*" element={<AgentBlocked />} /></Routes>
+        <Routes><Route path="/automacoes/*" element={<AutomacoesModulo readOnly />} /><Route path="/versoes" element={<Versoes />} /><Route path="*" element={<AgentBlocked />} /></Routes>
       </Shell>
     );
   }
@@ -189,6 +192,7 @@ export default function MensagemApp() {
             <Route path="/assinatura" element={<MmSubscription />} />
             <Route path="/tutoriais" element={<Tutorials app="mck-mensagens" appName="MCK Mensagens" planPath="/assinatura" />} />
             <Route path="/seguranca" element={<SecurityPage />} />
+            <Route path="/versoes" element={<Versoes />} />
             <Route path="/plano" element={<Navigate to="/assinatura" replace />} />
             <Route path="*" element={<div className="empty"><div className="t">Página não encontrada</div><NavLink to="/">Voltar para o painel</NavLink></div>} />
           </Routes>

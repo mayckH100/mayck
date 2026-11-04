@@ -37,6 +37,7 @@ import { outbox } from './lib/mailer.js';
 import { socialRouter, socialCallbackRouter, publicNovidadesRouter } from './social/routes.js';
 import { erpRouter } from './erp/routes.js';
 import { CADASTRO_META, loadHtml, rootWantsApp, withPageMeta } from './lib/siteHtml.js';
+import { versaoInfo } from './lib/versao.js';
 
 export function createApp() {
   const app = express();
@@ -71,6 +72,8 @@ export function createApp() {
 
   // Health check leve (não toca no banco — permite o Postgres grátis do Neon escalar a zero).
   app.get('/api/health', (_req, res) => res.json({ ok: true }));
+  // Versão no ar (número, commit e data do build), sem login e sem dados sensíveis.
+  app.get('/api/versao', (_req, res) => { res.setHeader('Cache-Control', 'no-store'); res.json(versaoInfo()); });
   // Verificação completa, incluindo o banco.
   app.get('/api/health/db', async (_req, res) => {
     try {
