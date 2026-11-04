@@ -158,10 +158,15 @@ export function aiFailureAlertWindowMs(): number {
   const v = Number(process.env.AI_FAILURE_ALERT_MIN);
   return (Number.isFinite(v) && v > 0 ? v : 30) * 60_000;
 }
-/** Intervalo mínimo (ms) entre alertas da mesma organização (agrupa quedas que pegam várias conversas). AI_FAILURE_ORG_ALERT_MIN; padrão 5 min. */
+/**
+ * Intervalo mínimo (ms) entre alertas da mesma organização. AI_FAILURE_ORG_ALERT_MIN; padrão 0 = desligado
+ * (pedido do dono, 2026-11-04: alertar na 1ª falha de CADA conversa). Se configurado (> 0), agrupa quedas
+ * que pegam várias conversas e as seguradas entram como contagem no próximo alerta.
+ */
 export function aiFailureOrgWindowMs(): number {
-  const v = Number(process.env.AI_FAILURE_ORG_ALERT_MIN);
-  return (Number.isFinite(v) && v >= 0 ? v : 5) * 60_000;
+  const raw = process.env.AI_FAILURE_ORG_ALERT_MIN;
+  const v = raw === undefined || raw.trim() === '' ? 0 : Number(raw);
+  return (Number.isFinite(v) && v > 0 ? v : 0) * 60_000;
 }
 
 const aiConvLast = new Map<string, number>();
@@ -190,8 +195,9 @@ export interface AiFailureArgs { orgId: string; conversationId: string; reason: 
 
 /**
  * Alerta o Proprietário quando a IA não consegue responder um cliente: WhatsApp nos números de aviso
- * (deliverStaffAlert) E e-mail (Brevo) para Proprietário/Admin. No máximo 1 por conversa a cada 30 min e
- * 1 por organização a cada 5 min (as falhas seguradas entram como contagem no próximo). Desligável no Perfil
+ * (deliverStaffAlert) E e-mail (Brevo) para Proprietário/Admin. Sai na 1ª falha de cada conversa; no máximo
+ * 1 por conversa a cada 30 min. Agrupamento por organização só se AI_FAILURE_ORG_ALERT_MIN > 0 (padrão
+ * desligado; as falhas seguradas entram como contagem no próximo). Desligável no Perfil
  * (Organization.alertAiFailure). Retorna null quando nada foi enviado. Nunca lança.
  */
 export async function notifyAiFailure(a: AiFailureArgs): Promise<DeliveryReport | null> {
@@ -202,7 +208,8 @@ export async function notifyAiFailure(a: AiFailureArgs): Promise<DeliveryReport 
     const org = await prisma.organization.findUnique({ where: { id: a.orgId } });
     if (!org || !alertEnabled(org, 'ai_failure')) return null;
     const ol = aiOrgLast.get(a.orgId);
-    if (ol && now - ol.at < aiFailureOrgWindowMs()) { ol.suppressed++; aiConvLast.set(a.conversationId, now); return null; }
+    const orgWin = aiFailureOrgWindowMs();
+    if (ol && orgWin > 0 && now - ol.at < orgWin) { ol.suppressed++; aiConvLast.set(a.conversationId, now); return null; }
     aiConvLast.set(a.conversationId, now);
     if (aiConvLast.size > 5000) aiConvLast.clear();
     const others = ol?.suppressed ?? 0;

@@ -28,6 +28,7 @@ describe('IA: modelo reserva, falha sem repetir e alerta ao Proprietário', () =
     process.env.AI_TOTAL_TIMEOUT_MS = '3000';
     process.env.AI_RETRY_BACKOFF_MS = '10';
     process.env.AI_FALLBACK_MODEL = 'fake-reserva';
+    delete process.env.AI_FAILURE_ORG_ALERT_MIN;
     installGraphMock();
     owner = await registerClient();
     orgId = owner.me.org.id;
@@ -39,7 +40,7 @@ describe('IA: modelo reserva, falha sem repetir e alerta ao Proprietário', () =
     expect(o.status).toBe(200);
   });
   afterAll(async () => {
-    for (const k of ['AI_TIMEOUT_MS', 'AI_TOTAL_TIMEOUT_MS', 'AI_RETRY_BACKOFF_MS', 'AI_FALLBACK_MODEL']) { if (env[k] === undefined) delete process.env[k]; else process.env[k] = env[k]; }
+    for (const k of ['AI_TIMEOUT_MS', 'AI_TOTAL_TIMEOUT_MS', 'AI_RETRY_BACKOFF_MS', 'AI_FALLBACK_MODEL', 'AI_FAILURE_ORG_ALERT_MIN']) { if (env[k] === undefined) delete process.env[k]; else process.env[k] = env[k]; }
     await prisma.organization.update({ where: { id: orgId }, data: { handoffNotifyPhones: '[]', backupPhone: null } });
     await prisma.conversation.updateMany({ where: { orgId }, data: { waitingSince: null, mode: 'BOT', status: 'CLOSED' } });
   });
@@ -102,6 +103,44 @@ describe('IA: modelo reserva, falha sem repetir e alerta ao Proprietário', () =
     expect(conv.mode).toBe('BOT'); // não transfere sozinho
     const notes = await prisma.message.findMany({ where: { conversationId: conv.id, direction: 'INTERNAL' }, orderBy: { createdAt: 'asc' } });
     expect(notes.at(-1)!.body).toMatch(/Nada enviado ao cliente/);
+  });
+
+  it('duas conversas diferentes da mesma empresa → dois alertas (sem agrupar por empresa)', async () => {
+    delete process.env.AI_FAILURE_ORG_ALERT_MIN;
+    const mails0 = outbox.length;
+    const p1 = nextPhone();
+    const p2 = nextPhone();
+    fakeAi.script = ['__503__', '__503__', '__503__'];
+    await sendInbound(ctx, p1, 'oi, preciso de ajuda');
+    await flushStaffAlerts();
+    fakeAi.script = ['__503__', '__503__', '__503__'];
+    await sendInbound(ctx, p2, 'bom dia, tudo bem?');
+    await flushStaffAlerts();
+    expect(toClient(p1)).toEqual([FAIL]);
+    expect(toClient(p2)).toEqual([FAIL]);
+    const staff = toStaff();
+    expect(staff).toHaveLength(2);
+    expect(staff[0]).toMatch(new RegExp(`Contato: .*${p1.slice(-8)}`));
+    expect(staff[1]).toMatch(new RegExp(`Contato: .*${p2.slice(-8)}`));
+    expect(staff.some((t) => /outras conversas/.test(t))).toBe(false);
+    expect(outbox.slice(mails0).filter((m) => /^Falha da IA/.test(m.subject))).toHaveLength(2);
+  });
+
+  it('AI_FAILURE_ORG_ALERT_MIN > 0 (opcional) volta a agrupar por empresa', async () => {
+    process.env.AI_FAILURE_ORG_ALERT_MIN = '5';
+    try {
+      const p1 = nextPhone();
+      const p2 = nextPhone();
+      fakeAi.script = ['__503__', '__503__', '__503__'];
+      await sendInbound(ctx, p1, 'oi');
+      await flushStaffAlerts();
+      fakeAi.script = ['__503__', '__503__', '__503__'];
+      await sendInbound(ctx, p2, 'olá');
+      await flushStaffAlerts();
+      expect(toStaff()).toHaveLength(1);
+    } finally {
+      delete process.env.AI_FAILURE_ORG_ALERT_MIN;
+    }
   });
 
   it('opção "Falha da IA" desligada no Perfil → não avisa; religada → avisa', async () => {

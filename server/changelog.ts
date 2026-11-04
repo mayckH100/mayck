@@ -21,6 +21,15 @@ export type EntradaChangelog = {
 
 export const CHANGELOG: EntradaChangelog[] = [
   {
+    versao: '1.13.1',
+    data: '04/11/2026',
+    titulo: 'Alerta de falha da IA agora chega na primeira falha de cada conversa',
+    itens: [
+      'Alerta de falha da IA agora chega na primeira falha de cada conversa: se a IA falhar com dois clientes diferentes, você recebe um aviso para cada um.',
+      'Na mesma conversa, o aviso continua chegando no máximo uma vez a cada 30 minutos.',
+    ],
+  },
+  {
     versao: '1.13.0',
     data: '04/11/2026',
     titulo: 'IA mais estável e aviso quando ela não consegue responder',

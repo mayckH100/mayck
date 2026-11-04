@@ -1,7 +1,7 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterEach } from 'vitest';
 import { pickGeminiFallbackModel } from '../../server/ai/providers.js';
 import { failureTextForStreak, SECOND_FAILURE_TEXT } from '../../server/ai/failurePolicy.js';
-import { aiFailureAlertText, alertEnabled } from '../../server/whatsapp/staffAlerts.js';
+import { aiFailureAlertText, alertEnabled, aiFailureOrgWindowMs, aiFailureAlertWindowMs } from '../../server/whatsapp/staffAlerts.js';
 
 /** Falha de 2026-11-04 (forza seguros): Gemini sobrecarregado (503 + timeouts de 20 s) e o cliente recebeu 2x o mesmo texto de falha. */
 describe('modelo reserva do Gemini', () => {
@@ -49,5 +49,31 @@ describe('alerta de falha da IA', () => {
   it('opção "Falha da IA": ausente = ligada; false desliga', () => {
     expect(alertEnabled({}, 'ai_failure')).toBe(true);
     expect(alertEnabled({ alertAiFailure: false }, 'ai_failure')).toBe(false);
+  });
+});
+
+describe('janelas do alerta de falha da IA (pedido do dono 2026-11-04: 1ª falha de cada conversa)', () => {
+  const orig = { org: process.env.AI_FAILURE_ORG_ALERT_MIN, conv: process.env.AI_FAILURE_ALERT_MIN };
+  afterEach(() => {
+    if (orig.org === undefined) delete process.env.AI_FAILURE_ORG_ALERT_MIN; else process.env.AI_FAILURE_ORG_ALERT_MIN = orig.org;
+    if (orig.conv === undefined) delete process.env.AI_FAILURE_ALERT_MIN; else process.env.AI_FAILURE_ALERT_MIN = orig.conv;
+  });
+  it('agrupamento por organização desligado por padrão (0)', () => {
+    delete process.env.AI_FAILURE_ORG_ALERT_MIN;
+    expect(aiFailureOrgWindowMs()).toBe(0);
+    process.env.AI_FAILURE_ORG_ALERT_MIN = '';
+    expect(aiFailureOrgWindowMs()).toBe(0);
+    process.env.AI_FAILURE_ORG_ALERT_MIN = 'abc';
+    expect(aiFailureOrgWindowMs()).toBe(0);
+  });
+  it('variável de ambiente continua como opção', () => {
+    process.env.AI_FAILURE_ORG_ALERT_MIN = '5';
+    expect(aiFailureOrgWindowMs()).toBe(5 * 60_000);
+    process.env.AI_FAILURE_ORG_ALERT_MIN = '0';
+    expect(aiFailureOrgWindowMs()).toBe(0);
+  });
+  it('limite por conversa segue 30 min por padrão', () => {
+    delete process.env.AI_FAILURE_ALERT_MIN;
+    expect(aiFailureAlertWindowMs()).toBe(30 * 60_000);
   });
 });
