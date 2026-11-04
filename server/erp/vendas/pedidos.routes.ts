@@ -17,6 +17,7 @@ import { maquinaPedido, financeiroApos, COM_RESERVA, type StatusPedido, type Eve
 import { totalizar, totalItem, motivosBloqueio, precoPorVolume } from './calculo.js';
 import { reservarPedido, liberarReservas, baixarReservas, conferir, LOTE_UNICO } from '../estoque/servico.js';
 import { configDa } from '../produtos/produtos.routes.js';
+import { avisarPedidoErp } from './avisoPedido.js';
 
 type Tx = Prisma.TransactionClient;
 export const pedidosRouter = Router();
@@ -105,6 +106,7 @@ pedidosRouter.post('/', ah(async (req, res) => {
   });
   despacharEmBreve();
   await auditar(req, 'pedido.criar', 'erp_pedido_venda', pedido.id, null, { numero: pedido.numero, totalCents: pedido.totalCents });
+  avisarPedidoErp(pedido);
   res.status(201).json(pedido);
 }));
 

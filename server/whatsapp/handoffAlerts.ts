@@ -34,7 +34,7 @@ export async function tickHandoffAlerts(now = new Date()) {
   const orgs = await prisma.organization.findMany({ where: { id: { in: [...new Set(convs.map((c) => c.orgId))] } } });
   for (const conv of convs) {
     const org = orgs.find((o) => o.id === conv.orgId);
-    if (!org || !orgNotifyPhones(org).length || !conv.waitingSince) continue;
+    if (!org || org.alertHandoff === false || !orgNotifyPhones(org).length || !conv.waitingSince) continue;
     const waitedMs = now.getTime() - conv.waitingSince.getTime();
     if (waitedMs < org.handoffAlertMinutes * 60_000) continue;
     // Nova tentativa após falha: espera 2 min entre as tentativas.

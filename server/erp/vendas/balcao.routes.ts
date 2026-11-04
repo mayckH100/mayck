@@ -15,6 +15,7 @@ import { baixarReservas, reservarPedido } from '../estoque/servico.js';
 import { titulosDoPedido, recalcularTitulo } from '../financeiro/servico.js';
 import { aplicar, itemSchema, montarItens } from './pedidos.routes.js';
 import { configDa } from '../produtos/produtos.routes.js';
+import { avisarPedidoErp } from './avisoPedido.js';
 
 export const balcaoRouter = Router();
 export const DOC_CONSUMIDOR = '00000000000';
@@ -97,5 +98,6 @@ balcaoRouter.post('/', ah(async (req, res) => {
   });
   despacharEmBreve();
   await auditar(req, 'pedido.balcao', 'erp_pedido_venda', pedido.id, null, { numero: pedido.numero, totalCents: pedido.totalCents, forma: b.forma });
+  avisarPedidoErp(pedido, { balcao: true });
   res.status(201).json(pedido);
 }));

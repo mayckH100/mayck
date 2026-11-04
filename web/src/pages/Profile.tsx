@@ -68,35 +68,60 @@ const samePhone = (a?: string | null, b?: string | null) => {
   return !!br(x) && br(x) === br(y);
 };
 
-/** Números que recebem no WhatsApp o aviso de cada transferência para atendimento humano (+ "Enviar teste"). */
+type AlertKey = 'handoff' | 'meeting' | 'task' | 'order';
+const ALERT_OPTIONS: [AlertKey, string, string][] = [
+  ['handoff', 'Transferência para humano', 'a IA, o fluxo ou a qualificação passou o contato para um atendente'],
+  ['meeting', 'Reunião marcada', 'pela IA/fluxo no WhatsApp ou pela equipe na Agenda'],
+  ['task', 'Tarefa criada', 'tarefas da Agenda (também as criadas pelo Kanban)'],
+  ['order', 'Pedido feito', 'pedido do cliente no WhatsApp e pedidos/vendas do MCK ERP'],
+];
+
+/** Números que recebem no WhatsApp os avisos (transferência, reunião, tarefa, pedido) + "Enviar teste". */
 function HandoffNotifyCard({ onSaved }: { onSaved: () => void }) {
   const [data, setData] = useState<any>(null);
   const [phones, setPhones] = useState<string[]>(['']);
   const [result, setResult] = useState<any>(null);
+  const [alerts, setAlerts] = useState<Record<AlertKey, boolean>>({ handoff: true, meeting: true, task: true, order: true });
   const { busy, run } = useAction();
   const load = async () => {
     const d = await get('/org/handoff-notify').catch(() => null);
     if (!d) return;
     setData(d);
     setPhones(d.phones.length ? d.phones : ['']);
+    if (d.alerts) setAlerts({ handoff: d.alerts.handoff !== false, meeting: d.alerts.meeting !== false, task: d.alerts.task !== false, order: d.alerts.order !== false });
   };
   useEffect(() => { load(); }, []);
+  // Atalhos da Visão geral/Inbox/Canais abrem /perfil#avisos-atendimento: rola até o cartão quando ele carrega.
+  useEffect(() => {
+    if (data && window.location.hash === '#avisos-atendimento') document.getElementById('avisos-atendimento')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, [!!data]);
   const list = phones.map((p) => p.trim()).filter(Boolean);
   const selfOf = (p: string) => data?.channels?.find((c: any) => samePhone(c.phone, p));
   const st = data?.status;
   return (
-    <form id="avisos-atendimento" className="card stack" onSubmit={async (e) => { e.preventDefault(); if (await run(() => patch('/org', { handoffNotifyPhones: list }), list.length ? 'Números de aviso salvos' : 'Avisos desligados')) { await load(); onSaved(); } }}>
-      <h2>Números de aviso de atendimento</h2>
-      <p className="muted small" style={{ margin: 0 }}>Quando um contato é transferido para atendimento humano (pedido do cliente, fluxo ou qualificação), estes números recebem na hora uma mensagem no WhatsApp com nome, telefone, motivo, WhatsApp de origem e o link da conversa. Use o celular de quem atende, não o número conectado no MCKBOT.</p>
+    <form id="avisos-atendimento" className="card stack" onSubmit={async (e) => { e.preventDefault(); if (await run(() => patch('/org', { handoffNotifyPhones: list, alertHandoff: alerts.handoff, alertMeeting: alerts.meeting, alertTask: alerts.task, alertOrder: alerts.order }), list.length ? 'Números de aviso salvos' : 'Avisos desligados')) { await load(); onSaved(); } }}>
+      <h2>Números de aviso (WhatsApp)</h2>
+      <p className="muted small" style={{ margin: 0 }}>Estes números recebem na hora uma mensagem no WhatsApp com o contato e o link para abrir no app. Pode ser o <strong>WhatsApp particular do proprietário</strong> ou o celular de quem atende — não use o número conectado no MCKBOT (o WhatsApp não avisa o próprio número).</p>
       {data && !data.phones.length && (
-        <div className="alert warn" role="alert">Nenhum número configurado: <strong>hoje ninguém é avisado</strong> quando um contato pede atendimento humano.</div>
+        <div className="alert warn" role="alert">Nenhum número configurado: <strong>hoje ninguém é avisado</strong> quando um contato pede atendimento humano, marca reunião ou faz pedido.</div>
       )}
+      <fieldset className="stack" style={{ gap: 4, border: 0, padding: 0, margin: 0 }}>
+        <legend className="small" style={{ fontWeight: 600, marginBottom: 4 }}>Avisar quando:</legend>
+        {ALERT_OPTIONS.map(([k, label, hint]) => (
+          <label key={k} className="row small" style={{ gap: 8, alignItems: 'flex-start' }}>
+            <input type="checkbox" checked={alerts[k]} onChange={(e) => setAlerts({ ...alerts, [k]: e.target.checked })} />
+            <span><strong>{label}</strong> <span className="muted">— {hint}</span></span>
+          </label>
+        ))}
+        <span className="small muted">Reunião, tarefa ou pedido criados pelo próprio Proprietário no app não geram aviso (ele já sabe).</span>
+      </fieldset>
       {phones.map((p, i) => {
         const self = p.trim() && selfOf(p.trim());
         return (
           <div key={i} className="stack" style={{ gap: 4 }}>
+            <label className="small" htmlFor={`aviso-num-${i}`} style={{ fontWeight: 600 }}>{i === 0 ? 'Seu WhatsApp particular para receber avisos' : `Outro número (opcional) ${i + 1}`}</label>
             <div className="row" style={{ gap: 8 }}>
-              <input type="tel" aria-label={`Número de aviso ${i + 1}`} placeholder="+5511999998888" value={p} onChange={(e) => setPhones(phones.map((x, j) => (j === i ? e.target.value : x)))} />
+              <input id={`aviso-num-${i}`} type="tel" aria-label={`Número de aviso ${i + 1}`} placeholder="+55 11 99999-8888" value={p} onChange={(e) => setPhones(phones.map((x, j) => (j === i ? e.target.value : x)))} />
               {phones.length > 1 && <button type="button" className="btn sm" onClick={() => setPhones(phones.filter((_, j) => j !== i))} aria-label="Remover número">✕</button>}
             </div>
             {self && <span className="small" style={{ color: '#b45309' }}>Este é o número do {self.label}. O WhatsApp não envia notificação para o próprio número: o aviso não chegaria. Use outro celular (se não houver outro WhatsApp conectado, o aviso vai por e-mail para o Proprietário/Admin).</span>}
@@ -104,15 +129,16 @@ function HandoffNotifyCard({ onSaved }: { onSaved: () => void }) {
         );
       })}
       <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
-        {phones.length < 5 && <button type="button" className="btn sm" onClick={() => setPhones([...phones, ''])}>+ Adicionar número</button>}
+        {phones.length < 5 && <button type="button" className="btn sm" onClick={() => setPhones([...phones, ''])}>+ Adicionar outro número (equipe/sócio)</button>}
         {data?.suggestion && !list.some((x) => samePhone(x, data.suggestion)) && (
-          <button type="button" className="btn sm" onClick={() => setPhones([...list, data.suggestion])}>Usar meu WhatsApp para contato ({data.suggestion})</button>
+          <button type="button" className="btn sm" onClick={() => setPhones([...list, data.suggestion])}>Usar meu WhatsApp do perfil ({data.suggestion})</button>
         )}
       </div>
       <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
-        <button className="btn primary" disabled={busy}>Salvar números</button>
-        <button type="button" className="btn" disabled={busy || !list.length} onClick={async () => { const r = await run(() => post('/org/handoff-notify/test', { phones: list })); if (r) { setResult(r); load(); } }}>Enviar teste</button>
+        <button className="btn primary" disabled={busy}>Salvar avisos</button>
+        <button type="button" className="btn" title="Manda uma mensagem de teste agora para os números da tela" disabled={busy || !list.length} onClick={async () => { const r = await run(() => post('/org/handoff-notify/test', { phones: list })); if (r) { setResult(r); load(); } }}>📲 Enviar teste</button>
       </div>
+      <p className="small muted" style={{ margin: 0 }}>Dica: salve e toque em <strong>Enviar teste</strong> para conferir se a mensagem chega no seu celular.</p>
       {result && (
         <div className={`alert ${result.ok ? 'ok' : 'err'}`} role="status">
           {result.results.map((r: any) => <div key={r.phone}>{r.ok ? '✅' : '❌'} {r.phone}: {r.ok ? `enviado pelo ${r.via}` : r.error}</div>)}

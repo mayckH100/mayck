@@ -9,6 +9,7 @@ import { channelLabels, type ChannelLabelInfo } from '../whatsapp/channelLabel.j
 import { sendOutbound } from '../whatsapp/messaging.js';
 import { normalizePhone } from '../routes/contacts.js';
 import { findJsonMarkers, isAffirmative, stripSystemLinks, TIPO_ALL_RE } from './ai.js';
+import { contactLabel, linkFor, notifyStaffEventInBackground, orderAlertText, userName } from '../whatsapp/staffAlerts.js';
 import { getSettings, handlesMeetings, handlesOrders, ownerPhones, sendToPhone, viaOf, type AgendaSettingsView } from './service.js';
 
 // ---------------- Tipos e rótulos ----------------
@@ -239,13 +240,14 @@ export function orderTeamMessage(o: Order, clientName: string | null, via: strin
 }
 
 /** Avisa o(s) dono(s) e a equipe ativa pelo WhatsApp da empresa (mesmos destinatários dos avisos de reunião). */
-async function notifyOrderTeam(o: Order, build?: (clientName: string | null, via: string | null) => string) {
+async function notifyOrderTeam(o: Order, build?: (clientName: string | null, via: string | null) => string): Promise<string[]> {
+  const delivered: string[] = [];
   try {
     const s = await getSettings(o.orgId);
     const to: { phone: string; target: string }[] = [];
     if (s.notifyOwner) for (const ow of await ownerPhones(o.orgId)) if (ow.phone) to.push({ phone: ow.phone, target: 'dono' });
     for (const m of s.teamContacts) if (m.active) to.push({ phone: m.phone, target: 'equipe' });
-    if (!to.length) return;
+    if (!to.length) return delivered;
     const contact = o.contactId ? await prisma.contact.findFirst({ where: { id: o.contactId, orgId: o.orgId }, select: { name: true, phone: true } }) : null;
     const clientPhone = contact?.phone.replace(/\D/g, '');
     const clientName = contact ? contact.name ?? contact.phone : null;
@@ -254,13 +256,14 @@ async function notifyOrderTeam(o: Order, build?: (clientName: string | null, via
     for (const r of to) {
       if (seen.has(r.phone)) continue;
       seen.add(r.phone);
-      try { await sendToPhone(o, r.phone, text); } catch (e) {
+      try { await sendToPhone(o, r.phone, text); delivered.push(r.phone); } catch (e) {
         await audit(null, 'pedido.aviso_falha', { orgId: o.orgId, entity: 'order', entityId: o.id, meta: { target: r.target, error: (e as Error).message } }).catch(() => undefined);
       }
     }
   } catch (e) {
     console.error('[pedidos] aviso à equipe falhou', (e as Error).message);
   }
+  return delivered;
 }
 
 // ---------------- Criação ----------------
@@ -299,8 +302,20 @@ export async function createOrder(input: OrderInput, ctx: { orgId: string; userI
   await addHistory(o!, 'STATUS', null, 'NOVO', ctx.source === 'AI' ? 'Pedido registrado pela IA (WhatsApp)' : 'Pedido registrado', ctx.userId);
   if (o!.conversationId) await tagConversation(ctx.orgId, o!.conversationId, 'PEDIDO');
   await noteOrderInConversation(o!);
-  await notifyOrderTeam(o!);
-  return o!;
+  const delivered = await notifyOrderTeam(o!);
+  // Aviso para os "Números de aviso (WhatsApp)" do Perfil (em segundo plano; quem já recebeu acima não recebe de novo).
+  const ord = o!;
+  notifyStaffEventInBackground({
+    orgId: ord.orgId, event: 'order', key: ord.id, channelId: ord.channelId, createdByUserId: ctx.userId ?? null, manual: ord.source !== 'AI',
+    skipPhones: delivered, emailUrl: linkFor(ord.conversationId, '/agenda'),
+    text: async () => orderAlertText({
+      title: `🛒 Novo pedido ${ord.code}`, who: await contactLabel(ord.orgId, ord.contactId), items: itemsText(parseJson<OrderItem[]>(ord.items, [])),
+      extra: `Tipo: ${ord.type === 'ONLINE' ? 'Online' : 'Físico'}`,
+      by: ord.source === 'AI' ? 'IA (WhatsApp)' : (await userName(ctx.userId)) ?? 'equipe',
+      via: (await viaOf(ord).catch(() => '')).replace(/^📲 Via: /, ''), url: linkFor(ord.conversationId, '/agenda'),
+    }),
+  });
+  return ord;
 }
 
 // ---------------- Contatos adicionais, histórico e avisos ao cliente ----------------

@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom';
+import AvisoNumeroBanner from '../AvisoNumeroBanner';
 import { useApi, Async, fmtNum, fmtDate, fmtDuration, StatusBadge, Empty } from '../ui';
 
 function Stat({ label, value, sub, to }: { label: string; value: string; sub?: string; to?: string }) {
@@ -14,6 +15,7 @@ export default function Dashboard() {
         <div><h1>Visão geral</h1><p className="muted">Indicadores calculados em tempo real a partir do banco de dados.</p></div>
         <button className="btn" onClick={state.reload} disabled={state.loading}>{state.loading ? 'Atualizando…' : 'Atualizar'}</button>
       </div>
+      <AvisoNumeroBanner />
       <Async state={state}>{(d) => (
         <div className="stack">
           <div className="grid g4">

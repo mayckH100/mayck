@@ -16,6 +16,7 @@ import { buildIcs, googleAddLink, outlookAddLink, publicEventToken } from './ics
 import { googleBusy, upsertGoogleEvent, deleteGoogleEvent, googleConfigured, type GoogleAccountRow } from './google.js';
 import { humanPt, safeTz, zonedParts, zonedToUtc, hhmmToMin, toLocalIso } from './time.js';
 import { channelLabels, type ChannelLabelInfo } from '../whatsapp/channelLabel.js';
+import { appointmentAlertText, contactLabel, formatWhen, linkFor, notifyStaffEventInBackground } from '../whatsapp/staffAlerts.js';
 
 export const KIND_LABEL: Record<string, string> = { MEETING: 'Reunião', TASK: 'Tarefa' };
 /** Gênero gramatical do rótulo (concordância: "Reunião cancelada", "Compromisso cancelado"). */
@@ -365,8 +366,28 @@ export async function createAppointment(input: AppointmentInput, ctx: Ctx): Prom
   const synced = await syncGoogle(a, { meet: wantMeet });
   if (wantMeet && !synced.meetLink) console.warn(`[agenda] compromisso ${a.id} criado sem link do Google Meet (${synced.googleEventId ? 'o Google não devolveu o link' : 'Google Agenda não conectado ou falhou'})`);
   await noteInConversation(synced);
-  await notifyCreated(synced, ctx.req ?? undefined);
+  const delivered = await notifyCreated(synced, ctx.req ?? undefined);
+  alertStaffNumbers(synced, delivered);
   return synced;
+}
+
+/**
+ * Aviso para os "Números de aviso (WhatsApp)" do Perfil: reunião marcada / tarefa criada, de qualquer origem
+ * (IA, fluxo, Kanban ou equipe no app). Em segundo plano; quem já recebeu o aviso da Agenda não recebe de novo.
+ */
+function alertStaffNumbers(a: Appointment, delivered: RecipientResult[]) {
+  notifyStaffEventInBackground({
+    orgId: a.orgId, event: a.kind === 'TASK' ? 'task' : 'meeting', key: a.id, channelId: a.channelId,
+    createdByUserId: a.createdById, manual: a.source !== 'AI',
+    skipPhones: delivered.filter((r) => r.ok && r.phone).map((r) => r.phone!),
+    emailUrl: linkFor(a.conversationId, '/agenda'),
+    text: async () => {
+      const tz = await orgTz(a.orgId);
+      const by = await bookedByOf(a);
+      const via = (await viaOf(a).catch(() => '')).replace(/^📲 Via: /, '');
+      return appointmentAlertText({ kind: a.kind, title: a.title, who: await contactLabel(a.orgId, a.contactId), when: formatWhen(a.startAt, tz), by: by ?? (a.source === 'KANBAN' ? 'equipe (Kanban)' : null), via, url: linkFor(a.conversationId, '/agenda') });
+    },
+  });
 }
 
 /** Aviso no app (nota interna na conversa do Inbox): o que foi marcado e por qual WhatsApp. */
@@ -628,10 +649,11 @@ export function hasRecipients(a: Appointment) {
   return (a.notifyContact && !!a.contactId) || a.notifyOwner || a.teamContacts !== '[]' || (a.notifyAssignee && !!a.assignedUserId) || (a.notifyExtras && extraContactsOf(a).length > 0);
 }
 
-async function notifyCreated(a: Appointment, req?: Request) {
+async function notifyCreated(a: Appointment, req?: Request): Promise<RecipientResult[]> {
   // A IA já confirma o horário na própria resposta ao cliente; os demais destinatários (equipe) são avisados mesmo assim.
-  await notifyRecipients(a, 'criado', { req, skipClient: a.source === 'AI' });
+  const r = await notifyRecipients(a, 'criado', { req, skipClient: a.source === 'AI' }).catch(() => [] as RecipientResult[]);
   await notifyTeam(a, req);
+  return r;
 }
 
 /** E-mail para o responsável com o convite .ics anexado (abre direto na agenda do celular). */

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { get, post, patch, del } from '../api';
 import { useAuth } from '../auth';
+import AvisoNumeroBanner from '../AvisoNumeroBanner';
 import { useApi, Async, Empty, useAction, Modal, Field, fmtDate, StatusBadge, useToast, copy } from '../ui';
 import { fmtWaDownSince } from '../WaDownBanner';
 
@@ -94,8 +95,10 @@ export default function Channels() {
   const downList = (state.data ?? []).filter((c) => c.downAlert?.alertedAt && c.status !== 'CONNECTED');
   const backList = (state.data ?? []).filter((c) => c.downAlert?.backAt && !hiddenBack.includes(`${c.id}:${c.downAlert.backAt}`));
   useEffect(() => { const t = setInterval(() => state.reload(), 60_000); return () => clearInterval(t); }, []);
+  const anyConnected = (state.data ?? []).some((c) => c.status === 'CONNECTED');
   return (
     <>
+      {anyConnected && <AvisoNumeroBanner where="(use um número diferente do WhatsApp conectado aqui)" />}
       {downList.map((c) => (
         <div key={`down-${c.id}`} className="alert err row between" role="alert" style={{ marginBottom: 12, gap: 8, flexWrap: 'wrap' }}>
           <span><strong>{c.label ?? c.name}</strong> está <strong>desconectado</strong> desde {fmtWaDownSince(c.downAlert.downSince)}. Nada é enviado nem recebido por esse número até reconectar.</span>

@@ -23,7 +23,7 @@ export const MAX_NOTIFY_TRIES = 3;
 
 export interface NotifyResult { phone: string; ok: boolean; self?: boolean; via?: string; error?: string }
 export interface DeliveryReport { ok: boolean; results: NotifyResult[]; emailed: number; detail: string }
-export interface NotifyStatus { at: string; ok: boolean; detail: string; kind: 'handoff' | 'reminder' | 'test' }
+export interface NotifyStatus { at: string; ok: boolean; detail: string; kind: 'handoff' | 'reminder' | 'test' | 'meeting' | 'task' | 'order' }
 
 const digits = (s: string | null | undefined) => String(s ?? '').replace(/\D/g, '');
 
@@ -108,7 +108,7 @@ export async function deliverStaffAlert(args: {
   if (!org) return { ok: false, results: [], emailed: 0, detail: 'Organização não encontrada' };
   const phones = (args.phones ?? orgNotifyPhones(org)).slice(0, MAX_NOTIFY_PHONES);
   if (!phones.length) {
-    const r = { ok: false, results: [], emailed: 0, detail: 'Nenhum número de aviso configurado (Perfil › Organização › Números de aviso de atendimento)' };
+    const r = { ok: false, results: [], emailed: 0, detail: 'Nenhum número de aviso configurado (Perfil › Organização › Números de aviso (WhatsApp))' };
     await saveNotifyStatus(args.orgId, { ok: false, detail: r.detail, kind: args.kind });
     return r;
   }
@@ -166,6 +166,8 @@ async function lastHandoffReason(conversationId: string): Promise<string> {
 export async function notifyHandoffNow(conv: Pick<Conversation, 'id' | 'orgId' | 'contactId' | 'channelId'>, reason?: string, now = new Date()): Promise<DeliveryReport | null> {
   const org = await prisma.organization.findUnique({ where: { id: conv.orgId } });
   if (!org) return null;
+  // "Transferência para humano" desligada no Perfil › Organização › Números de aviso.
+  if (org.alertHandoff === false) return null;
   if (!orgNotifyPhones(org).length) {
     await saveNotifyStatus(conv.orgId, { ok: false, detail: 'Transferência sem aviso: nenhum número de aviso configurado (Perfil › Organização)', kind: 'handoff' }, now);
     return null;

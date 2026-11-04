@@ -101,6 +101,11 @@ orgRouter.patch('/', requireRole('OWNER', 'ADMIN'), ah(async (req, res) => {
     }),
     handoffAlertMinutes: z.number({ invalid_type_error: 'Minutos do aviso inválidos' }).int('Minutos do aviso devem ser um número inteiro').min(1, 'Minutos do aviso: mínimo 1').max(120, 'Minutos do aviso: máximo 120').optional(),
     handoffNotifyPhones: notifyPhonesSchema.optional(),
+    // O que os números de aviso recebem (todos ligados por padrão).
+    alertHandoff: z.boolean().optional(),
+    alertMeeting: z.boolean().optional(),
+    alertTask: z.boolean().optional(),
+    alertOrder: z.boolean().optional(),
   }).parse(req.body);
   const { handoffNotifyPhones, ...rest } = body;
   const data: Record<string, unknown> = { ...rest };
@@ -126,6 +131,7 @@ orgRouter.get('/handoff-notify', requireRole('OWNER', 'ADMIN'), ah(async (req, r
   res.json({
     phones: orgNotifyPhones(org),
     handoffAlertMinutes: org.handoffAlertMinutes,
+    alerts: { handoff: org.alertHandoff !== false, meeting: org.alertMeeting !== false, task: org.alertTask !== false, order: org.alertOrder !== false },
     status: parseJson(org.handoffNotifyStatus, null),
     channels: chans.map((c) => ({ id: c.id, label: labels.get(c.id)?.label ?? 'WhatsApp', phone: c.displayPhone, connected: c.status === 'CONNECTED' })),
     suggestion: me?.phone ? normalizeBrPhone(me.phone) : null,
@@ -145,7 +151,7 @@ orgRouter.post('/handoff-notify/test', requireRole('OWNER', 'ADMIN'), testLimite
   const org = await prisma.organization.findUniqueOrThrow({ where: { id: orgId } });
   const phones = body.phones ?? orgNotifyPhones(org);
   if (!phones.length) throw new HttpError(400, 'Informe pelo menos um número de aviso (+55 DDD número).');
-  const text = ['✅ Teste do aviso de atendimento', `Organização: ${org.name}`, 'Quando um contato for transferido para atendimento humano, você recebe uma mensagem como esta, com nome, telefone, motivo e o link da conversa.', `App: ${conversationUrl('').replace(/\/inbox\/$/, '/inbox')}`].join('\n');
+  const text = ['✅ Teste do aviso de atendimento', `Organização: ${org.name}`, 'Você vai receber aqui os avisos ligados no Perfil (transferência para humano, reunião marcada, tarefa criada e pedido feito), com o contato e o link para abrir no app.', `App: ${conversationUrl('').replace(/\/inbox\/$/, '/inbox')}`].join('\n');
   const r = await deliverStaffAlert({
     orgId, kind: 'test', phones, text,
     email: { subject: 'Teste do aviso de atendimento (WhatsApp não entregue)', title: 'Teste do aviso de atendimento', lines: ['Este é o e-mail de reserva: o teste por WhatsApp não foi entregue.'] },

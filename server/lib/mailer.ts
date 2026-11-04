@@ -358,7 +358,7 @@ export function waDownMail(o: { to: string; name: string; app: AppBrand; channel
 export function handoffMail(o: { to: string; name: string; subject: string; title: string; lines: string[]; url?: string }): MailMessage {
   const { html, text } = layout('mckbot', undefined, o.title, [`Olá, ${esc(o.name)}.`, ...o.lines.map(esc)],
     o.url ? { label: 'Abrir a conversa', url: o.url } : undefined,
-    'Configure os números que recebem este aviso por WhatsApp em Perfil › Organização › Números de aviso de atendimento.');
+    'Configure os números que recebem este aviso por WhatsApp em Perfil › Organização › Números de aviso (WhatsApp).');
   return { to: o.to, subject: o.subject, html, text, kind: 'handoff_alert' };
 }
 
