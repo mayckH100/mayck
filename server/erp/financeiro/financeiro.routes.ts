@@ -16,6 +16,11 @@ export const financeiroRouter = Router();
 const gestor = (req: { auth?: { role?: string | null } }) => req.auth?.role === 'OWNER' || req.auth?.role === 'ADMIN';
 const cents = z.number().int().min(0).max(2_000_000_000);
 const DIA = 86_400_000;
+/** Natureza da conta a pagar: fornecedor (padrão) ou conta da empresa (água, luz, internet...). */
+export const NATUREZAS = ['FORNECEDOR', 'AGUA', 'LUZ', 'INTERNET', 'TELEFONE', 'ALUGUEL', 'IMPOSTO', 'OUTRA_CONTA'] as const;
+const naturezaSchema = z.enum(NATUREZAS).nullish();
+/** Categoria padrão do plano de contas para cada conta da empresa (quando o usuário não escolhe). */
+const CATEGORIA_DA_NATUREZA: Record<string, string> = { AGUA: '4.03', LUZ: '4.03', INTERNET: '4.03', TELEFONE: '4.03', ALUGUEL: '4.02', IMPOSTO: '6.01', FORNECEDOR: '3.01' };
 
 async function saldosContas(orgId: string) {
   const [contas, g] = await Promise.all([
@@ -74,6 +79,7 @@ financeiroRouter.get('/titulos', ah(async (req, res) => {
   const l = await prisma.erpTitulo.findMany({
     where: { orgId, ...(q.tipo ? { tipo: q.tipo } : {}), ...(q.parceiroId ? { parceiroId: q.parceiroId } : {}),
       ...(q.status === 'ABERTOS' ? { status: { in: ['EM_ABERTO', 'PARCIAL'] } } : q.status ? { status: q.status } : {}),
+      ...(q.natureza === 'FORNECEDOR' ? { OR: [{ natureza: null }, { natureza: 'FORNECEDOR' }] } : q.natureza === 'CONTAS' ? { natureza: { notIn: ['FORNECEDOR'] }, NOT: { natureza: null } } : {}),
       ...(q.vencidos === '1' ? { vencimento: { lt: hoje }, status: { in: ['EM_ABERTO', 'PARCIAL'] } } : {}),
       ...(q.de || q.ate ? { vencimento: { ...(q.de ? { gte: new Date(q.de) } : {}), ...(q.ate ? { lte: new Date(`${q.ate}T23:59:59Z`) } : {}) } } : {}) },
     orderBy: [{ vencimento: 'asc' }], take: 500,
@@ -94,23 +100,25 @@ financeiroRouter.get('/titulos/:id', ah(async (req, res) => {
 
 financeiroRouter.post('/titulos', ah(async (req, res) => {
   const orgId = orgOf(req);
-  const b = z.object({ tipo: z.enum(['RECEBER', 'PAGAR']), parceiroId: z.string().nullish(), descricao: z.string().trim().min(2).max(200), valorCents: cents.min(1), primeiroVencimento: z.coerce.date(), prazos: z.array(z.number().int().min(0).max(3650)).max(120).default([0]), competencia: z.coerce.date().nullish(), categoriaId: z.string().nullish(), centroCustoId: z.string().nullish(), observacoes: z.string().trim().max(1000).nullish() }).parse(req.body);
+  const b = z.object({ tipo: z.enum(['RECEBER', 'PAGAR']), parceiroId: z.string().nullish(), descricao: z.string().trim().min(2).max(200), valorCents: cents.min(1), primeiroVencimento: z.coerce.date(), prazos: z.array(z.number().int().min(0).max(3650)).max(120).default([0]), competencia: z.coerce.date().nullish(), categoriaId: z.string().nullish(), centroCustoId: z.string().nullish(), observacoes: z.string().trim().max(1000).nullish(), natureza: naturezaSchema }).parse(req.body);
+  const natureza = b.tipo === 'PAGAR' ? (b.natureza ?? 'FORNECEDOR') : null;
+  if (natureza && !b.categoriaId && CATEGORIA_DA_NATUREZA[natureza]) { await garantirPlano(prisma, orgId); b.categoriaId = (await prisma.erpCategoriaFinanceira.findUnique({ where: { orgId_codigo: { orgId, codigo: CATEGORIA_DA_NATUREZA[natureza] } } }))?.id ?? null; }
   if (b.parceiroId && !(await prisma.erpParceiro.findFirst({ where: { id: b.parceiroId, orgId } }))) throw badRequest('Parceiro inválido');
   if (b.categoriaId && !(await prisma.erpCategoriaFinanceira.findFirst({ where: { id: b.categoriaId, orgId } }))) throw badRequest('Categoria inválida');
   const ps = parcelar(b.valorCents, b.prazos, b.primeiroVencimento);
   const docId = `manual-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-  const criados = await prisma.$transaction(ps.map((x) => prisma.erpTitulo.create({ data: { orgId, tipo: b.tipo, parceiroId: b.parceiroId ?? null, descricao: ps.length > 1 ? `${b.descricao} (${x.parcela}/${x.parcelas})` : b.descricao, docTipo: 'manual', docId, parcela: x.parcela, parcelas: x.parcelas, valorCents: x.valorCents, vencimento: x.vencimento, competencia: b.competencia ?? b.primeiroVencimento, categoriaId: b.categoriaId ?? null, centroCustoId: b.centroCustoId ?? null, observacoes: b.observacoes ?? null } })));
+  const criados = await prisma.$transaction(ps.map((x) => prisma.erpTitulo.create({ data: { orgId, tipo: b.tipo, parceiroId: b.parceiroId ?? null, descricao: ps.length > 1 ? `${b.descricao} (${x.parcela}/${x.parcelas})` : b.descricao, docTipo: 'manual', docId, parcela: x.parcela, parcelas: x.parcelas, valorCents: x.valorCents, vencimento: x.vencimento, competencia: b.competencia ?? b.primeiroVencimento, categoriaId: b.categoriaId ?? null, centroCustoId: b.centroCustoId ?? null, observacoes: b.observacoes ?? null, natureza } })));
   await auditar(req, 'titulo.criar', 'erp_titulo', criados[0].id, null, { tipo: b.tipo, valorCents: b.valorCents, parcelas: ps.length });
   res.status(201).json(criados);
 }));
 
 financeiroRouter.put('/titulos/:id', ah(async (req, res) => {
   const orgId = orgOf(req);
-  const b = z.object({ descricao: z.string().trim().min(2).max(200).optional(), vencimento: z.coerce.date().optional(), categoriaId: z.string().nullish(), centroCustoId: z.string().nullish(), observacoes: z.string().trim().max(1000).nullish() }).parse(req.body);
+  const b = z.object({ descricao: z.string().trim().min(2).max(200).optional(), vencimento: z.coerce.date().optional(), categoriaId: z.string().nullish(), centroCustoId: z.string().nullish(), observacoes: z.string().trim().max(1000).nullish() }).extend({ natureza: naturezaSchema }).parse(req.body);
   const t = await prisma.erpTitulo.findFirst({ where: { id: req.params.id, orgId } });
   if (!t) throw notFound('Título');
   if (!['EM_ABERTO', 'PARCIAL'].includes(t.status)) throw badRequest('Só título em aberto pode ser alterado');
-  const n = await prisma.erpTitulo.update({ where: { id: t.id }, data: { ...(b.descricao ? { descricao: b.descricao } : {}), ...(b.vencimento ? { vencimento: b.vencimento } : {}), ...(b.categoriaId !== undefined ? { categoriaId: b.categoriaId } : {}), ...(b.centroCustoId !== undefined ? { centroCustoId: b.centroCustoId } : {}), ...(b.observacoes !== undefined ? { observacoes: b.observacoes } : {}) } });
+  const n = await prisma.erpTitulo.update({ where: { id: t.id }, data: { ...(b.descricao ? { descricao: b.descricao } : {}), ...(b.vencimento ? { vencimento: b.vencimento } : {}), ...(b.categoriaId !== undefined ? { categoriaId: b.categoriaId } : {}), ...(b.centroCustoId !== undefined ? { centroCustoId: b.centroCustoId } : {}), ...(b.observacoes !== undefined ? { observacoes: b.observacoes } : {}), ...(b.natureza !== undefined && t.tipo === 'PAGAR' ? { natureza: b.natureza ?? 'FORNECEDOR' } : {}) } });
   await auditar(req, 'titulo.editar', 'erp_titulo', t.id, { vencimento: t.vencimento }, { vencimento: n.vencimento });
   res.json(n);
 }));

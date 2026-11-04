@@ -132,7 +132,7 @@ function Mrp() {
   const [sel, setSel] = useState<Record<string, string>>({});
   const { busy, run } = useAction();
   return (
-    <Async state={st}>{(d) => d.length === 0 ? <div className="card"><Empty title="Nada a comprar ou produzir">Pedidos aprovados, OPs abertas, estoque mínimo e ponto de pedido estão cobertos.</Empty></div> : (
+    <Async state={st}>{(d) => d.length === 0 ? <div className="card"><Empty title="Nada a comprar ou produzir">Pedidos aprovados, OPs abertas, estoque mínimo e estimativa de compra estão cobertos.</Empty></div> : (
       <>
         <div className="card table-wrap"><table><thead><tr><th></th><th>Ação</th><th>Produto</th><th>Necessidade</th><th>Sugerido</th><th>Fornecedor padrão</th><th>Cálculo</th></tr></thead>
           <tbody>{d.map((s) => { const v = sel[s.produtoId]; return <tr key={s.produtoId}>

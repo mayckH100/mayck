@@ -4,6 +4,8 @@
  *  - reserva e saída usam UPDATE atômico condicionado ao disponível, então dois pedidos simultâneos
  *    nunca reservam o mesmo saldo (no Postgres há ainda CHECK >= 0 na migração).
  */
+import { custoTotal } from '../produtos/produtos.routes.js';
+import { lerCodigoEtiqueta } from './etiquetas.js';
 import type { Prisma } from '@prisma/client';
 import { HttpError } from '../../lib/http.js';
 import { planejarAlocacao, novoCustoMedio, type SaldoLinha } from './saldo.js';
@@ -61,7 +63,7 @@ export async function saidaDoSaldo(tx: Tx, e: MovBase & { saldoId: string; qtdMi
   if (!n) throw new EstoqueErro('Saldo disponível insuficiente (parte pode estar reservada ou em quarentena)');
   const s = await tx.erpSaldo.findUniqueOrThrow({ where: { id: e.saldoId } });
   const p = await tx.erpProduto.findUniqueOrThrow({ where: { id: s.produtoId } });
-  await tx.erpMovimento.create({ data: { orgId: e.orgId, produtoId: s.produtoId, loteId: s.loteId, enderecoId: s.enderecoId, tipo: e.tipo, qtdMil: -e.qtdMil, custoUnitCents: p.custoMedioCents, saldoAposMil: s.fisicoMil, docTipo: e.docTipo ?? null, docId: e.docId ?? null, motivo: e.motivo ?? null, userId: e.userId ?? null, correlationId: e.correlationId ?? null } });
+  await tx.erpMovimento.create({ data: { orgId: e.orgId, produtoId: s.produtoId, loteId: s.loteId, enderecoId: s.enderecoId, tipo: e.tipo, qtdMil: -e.qtdMil, custoUnitCents: custoTotal(p), saldoAposMil: s.fisicoMil, docTipo: e.docTipo ?? null, docId: e.docId ?? null, motivo: e.motivo ?? null, userId: e.userId ?? null, correlationId: e.correlationId ?? null } });
   return s;
 }
 
@@ -148,7 +150,7 @@ export async function baixarReservas(tx: Tx, e: MovBase & { pedidoId: string }) 
     if (!n) throw new EstoqueErro('Saldo reservado inconsistente: confira o inventário antes de faturar');
     const s = await tx.erpSaldo.findUniqueOrThrow({ where: { id: r.saldoId } });
     const p = await tx.erpProduto.findUniqueOrThrow({ where: { id: r.produtoId } });
-    await tx.erpMovimento.create({ data: { orgId: e.orgId, produtoId: r.produtoId, loteId: r.loteId, enderecoId: r.enderecoId, tipo: 'SAIDA', qtdMil: -r.qtdMil, custoUnitCents: p.custoMedioCents, saldoAposMil: s.fisicoMil, docTipo: 'pedido_venda', docId: e.pedidoId, motivo: e.motivo ?? null, userId: e.userId ?? null, correlationId: e.correlationId ?? null } });
+    await tx.erpMovimento.create({ data: { orgId: e.orgId, produtoId: r.produtoId, loteId: r.loteId, enderecoId: r.enderecoId, tipo: 'SAIDA', qtdMil: -r.qtdMil, custoUnitCents: custoTotal(p), saldoAposMil: s.fisicoMil, docTipo: 'pedido_venda', docId: e.pedidoId, motivo: e.motivo ?? null, userId: e.userId ?? null, correlationId: e.correlationId ?? null } });
     await tx.erpReserva.update({ where: { id: r.id }, data: { status: 'BAIXADA' } });
   }
   return reservas.length;
@@ -159,6 +161,9 @@ export async function baixarReservas(tx: Tx, e: MovBase & { pedidoId: string }) 
  * Só aceita o lote que o FEFO/FIFO reservou, para o picking não furar a regra.
  */
 export async function conferir(tx: Tx, orgId: string, pedidoId: string, codigo: string, qtdMil: number) {
+  // QR da etiqueta (MCK1;lote;...) vira o lote interno (ou o SKU, sem lote); código simples segue igual.
+  const lido = lerCodigoEtiqueta(codigo);
+  codigo = lido.lote ?? lido.sku ?? lido.bruto;
   const cod = codigo.trim().toUpperCase();
   if (qtdMil <= 0) throw new EstoqueErro('Quantidade deve ser maior que zero');
   const itens = await tx.erpPedidoItem.findMany({ where: { pedidoId } });

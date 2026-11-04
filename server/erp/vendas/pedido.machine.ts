@@ -26,7 +26,7 @@ export const maquinaPedido: Maquina<StatusPedido, EventoPedido, CtxPedido> = {
     { de: 'EM_SEPARACAO', evento: 'CONFERIR', para: 'SEPARADO', guarda: (c) => (c.tudoSeparado ? null : 'Ainda há itens sem conferência') },
     { de: 'SEPARADO', evento: 'FATURAR', para: 'FATURADO', guarda: (c) => (c.nfNumero ? null : 'Informe o número da nota fiscal'), emite: ['vendas.pedido.faturado'] },
     { de: 'FATURADO', evento: 'EXPEDIR', para: 'EM_TRANSPORTE', emite: ['vendas.pedido.expedido'] },
-    { de: 'EM_TRANSPORTE', evento: 'ENTREGAR', para: 'ENTREGUE', emite: ['vendas.pedido.entregue'] },
+    { de: ['EM_TRANSPORTE', 'FATURADO'], evento: 'ENTREGAR', para: 'ENTREGUE', emite: ['vendas.pedido.entregue'] }, // FATURADO → ENTREGUE: retirada no balcão
     { de: 'EM_TRANSPORTE', evento: 'ENTREGAR_PARCIAL', para: 'ENTREGA_PARCIAL', guarda: (c) => (c.motivo ? null : 'Descreva o que faltou'), emite: ['vendas.pedido.entrega_parcial'] },
     { de: ['EM_TRANSPORTE', 'ENTREGA_PARCIAL'], evento: 'DEVOLVER', para: 'DEVOLVIDO', guarda: (c) => (c.motivo ? null : 'Informe o motivo da devolução'), emite: ['vendas.pedido.devolvido'] },
     { de: 'ENTREGA_PARCIAL', evento: 'ENTREGAR', para: 'ENTREGUE', emite: ['vendas.pedido.entregue'] },

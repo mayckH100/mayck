@@ -7,7 +7,7 @@ export const PRODUCTS = ['MCKBOT', 'MCKMENSAGEM'] as const;
 export const CYCLES: Cycle[] = ['MENSAL', 'ANUAL'];
 export const STATUSES: SubStatus[] = ['ATIVA', 'TRIAL', 'VENCIDA', 'BLOQUEADA'];
 
-export const PRODUCT_LABEL: Record<PlanProduct, string> = { MCKBOT: 'MCKBOT', MCKMENSAGEM: 'MCKMENSAGEM', COMBO: 'Combo MCKBOT + MCKMENSAGEM' };
+export const PRODUCT_LABEL: Record<PlanProduct, string> = { MCKBOT: 'MCKBOT', MCKMENSAGEM: 'MCKMENSAGEM', COMBO: 'Plano Completo: MCK ERP + MCKBOT + MCK Mensagens' };
 export const CYCLE_LABEL: Record<string, string> = { MENSAL: 'Mensal', ANUAL: 'Anual' };
 export const STATUS_LABEL: Record<SubStatus, string> = { ATIVA: 'Ativa', TRIAL: 'Em teste', VENCIDA: 'Vencida', BLOQUEADA: 'Bloqueada' };
 export const STATUS_CLS: Record<SubStatus, string> = { ATIVA: 'green', TRIAL: 'blue', VENCIDA: 'amber', BLOQUEADA: 'red' };

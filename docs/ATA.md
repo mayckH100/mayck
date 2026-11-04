@@ -91,3 +91,11 @@ Formato de cada atualização: data, quem fez, o que foi feito, o que foi passad
 - **Feito:** Etapa 4: Financeiro (contas, plano de contas, a receber/a pagar gerados por evento, baixa parcial com juros, estorno, Pix copia-e-cola, OFX e conciliação, aging, fluxo, DRE) e Fiscal (emitente, certificado A1 cifrado, regras, NF-e 4.00 assinada a partir do pedido, transmissão, cancelamento, DANFE). Migração `0042` (aditiva). Detalhes em `docs/ERP.md`.
 - **Etapa 5 (BI) também entregue:** painel único e CSV (ver `docs/ERP.md`). Migração `0043` (aditiva).
 - **Falta:** testar NF-e em homologação com o certificado real; aplicar 0038–0043 no Postgres e conferir o deploy no Render; SEFAZ próprias (MG, PR, RS...), ST/DIFAL, NFC-e/NFS-e; impressão Zebra em hardware.
+
+## Atualização 2026-11-03 (noite, 5) — Hark
+- **Feito**: ERP no ar às 20:37 (deploy manual de `8f8a8a1` no Render, aprovado pelo Mayck; migrações 0038–0043 aplicadas no Postgres sem erro). Ajustes pedidos: clientes e fornecedores em cadastros separados; contas da empresa (água, luz, internet...) separadas dos fornecedores; alertas diários por WhatsApp (contas a pagar, estoque mínimo, produto sem saída em 15 dias); código de barras automático no produto; custo + "Adicionar custo"; etiqueta com lote interno, lote do fornecedor e validade; "Estimativa de compra". Detalhes em `docs/ERP.md` (Ajustes pós-lançamento).
+- **Também**: Venda balcão; importar/exportar planilhas (clientes, fornecedores, produtos) com modelo; menu em categorias (ERP, MCKBOT, Mensagens no topo); Plano Completo R$ 100 (ERP + MCKBOT + Mensagens).
+- **Também (2)**: custos extras no CMV; custo de NF-e só com senha + log + aviso ao proprietário; aba Relatórios com envio às 22h; aba Funcionários com áreas de acesso do ERP.
+- **Regra do Mayck**: toda etapa/módulo novo entra com modelo de planilha, importação e exportação.
+- **Passado**: Auto-Deploy do Render está On Commit, mas `8f8a8a1` não disparou sozinho (check do GitHub falhou 0/1). O start roda `prisma migrate deploy`: todo deploy aplica as migrações pendentes.
+- **Falta**: aplicar `0044_erp_alertas` (aditiva) com aprovação; TLS da SEFAZ (`SEFAZ_CA_PEM`) antes de nota real; homologação da NF-e; impressão em Zebra real; ver o check do GitHub; dois canais de WhatsApp pediram QR novo após o reinício.

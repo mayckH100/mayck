@@ -12,6 +12,8 @@ import { syncSuperAdmins } from './auth/superadmin.js';
 import { maybeDailyBackup, backupAutoEnabled } from './lib/backup.js';
 import { tickAgendaReminders } from './agenda/service.js';
 import { tickHandoffAlerts } from './whatsapp/handoffAlerts.js';
+import { tickAlertasErp } from './erp/alertas/alertas.js';
+import { tickRelatorioDiario } from './erp/relatorios/relatorio.js';
 import { tickRenewalReminders } from './billing/reminders.js';
 import { tickDownAlerts, maybeDownDigest } from './whatsapp/downAlerts.js';
 
@@ -46,6 +48,13 @@ if (config.ENABLE_SCHEDULER === 'true') {
     handoffRunning = true;
     tickHandoffAlerts().catch((e) => console.error('[aguardando]', e)).finally(() => { handoffRunning = false; });
   }, 60_000).unref();
+  // MCK ERP: alertas diários por WhatsApp (contas a pagar, estoque mínimo, produto parado), a cada 5 min.
+  let erpAlertaRunning = false;
+  setInterval(() => {
+    if (erpAlertaRunning) return;
+    erpAlertaRunning = true;
+    tickAlertasErp().then(() => tickRelatorioDiario()).catch((e) => console.error('[erp-alertas]', (e as Error).message)).finally(() => { erpAlertaRunning = false; });
+  }, 5 * 60_000).unref();
   // Lembrete de vencimento (teste/plano) por e-mail ao titular, N dias antes; fora do horário 21h–8h (a cada 15 min).
   let reminderRunning = false;
   const reminderTick = () => {

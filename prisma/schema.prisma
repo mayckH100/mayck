@@ -1520,6 +1520,17 @@ model ErpConfig {
   etiquetaLarguraMm     Int      @default(100)
   etiquetaAlturaMm      Int      @default(50)
   etiquetaDpi           Int      @default(203) // 203 ou 300 (Zebra)
+  // Alertas diários por WhatsApp para a administração (financeiro e estoque)
+  alertaAtivo           Boolean  @default(false)
+  alertaTelefones       String? // JSON: ["+55..."]
+  alertaHora            Int      @default(8) // hora local (fuso da organização)
+  alertaDiasAntes       Int      @default(3) // contas a pagar que vencem em até N dias (e as vencidas)
+  alertaPagar           Boolean  @default(true)
+  alertaEstoqueMinimo   Boolean  @default(true)
+  alertaSemSaidaDias    Int      @default(15) // produto com saldo e sem saída há N dias; 0 = desligado
+  alertaUltimoDia       String? // AAAA-MM-DD do último envio automático
+  alertaStatus          String? // JSON: { at, ok, detail }
+  relatorioUltimoDia    String? // "YYYY-MM-DD" do último relatório diário enviado ao proprietário
   updatedAt             DateTime @updatedAt
 }
 
@@ -1542,6 +1553,7 @@ model ErpProduto {
   pontoPedidoMil     Int      @default(0)
   precoBaseCents     Int      @default(0)
   custoMedioCents    Int      @default(0) // por unidade (1000 mil)
+  custosAdicionais   String   @default("[]") // JSON [{ nome, valorCents }] por unidade: embalagem, rótulo, frete... somados ao custo
   tipo               String   @default("REVENDA") // REVENDA | PRODUZIDO | INSUMO | SERVICO
   leadTimeDias       Int      @default(0) // prazo de compra ou de fabricação (MRP)
   loteMinimoMil      Int      @default(0) // lote mínimo de compra/produção (MRP)
@@ -2087,6 +2099,7 @@ model ErpTitulo {
   categoriaId     String?
   centroCustoId   String?
   contaPrevistaId String?
+  natureza        String? // a pagar: FORNECEDOR (nulo = fornecedor) | AGUA | LUZ | INTERNET | TELEFONE | ALUGUEL | IMPOSTO | OUTRA_CONTA
   observacoes     String?
   createdAt       DateTime   @default(now())
   baixas          ErpBaixa[]

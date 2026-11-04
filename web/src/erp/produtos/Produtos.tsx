@@ -1,9 +1,10 @@
-/** Produtos: cadastro com NCM, lote/validade, FEFO/FIFO, mínimo e ponto de pedido; regras comerciais (alçada). */
+/** Produtos: cadastro com NCM, lote/validade, FEFO/FIFO, mínimo e estimativa de compra; regras comerciais (alçada). */
 import { useState } from 'react';
 import { post, put } from '../../api';
 import { useAuth } from '../../auth';
 import { useApi, Async, Empty, Modal, Field, useAction } from '../../ui';
 import ErpNav from '../ErpNav';
+import ImportarExportar from '../ImportarExportar';
 import { brl, qtd, toCents, fromCents, toMil } from '../format';
 
 export default function Produtos() {
@@ -19,13 +20,14 @@ export default function Produtos() {
         <div className="row">
           <form onSubmit={(e) => { e.preventDefault(); setQuery(q); }}><input placeholder="Nome, SKU ou código de barras" value={q} onChange={(e) => setQ(e.target.value)} style={{ width: 230 }} aria-label="Pesquisar" /></form>
           {can('OWNER', 'ADMIN') && <button className="btn" onClick={() => setRegras(true)}>Regras comerciais</button>}
+          <ImportarExportar entidade="produtos" podeImportar={can('OWNER', 'ADMIN')} onImportado={state.reload} />
           <button className="btn primary" onClick={() => setEdit({})}>+ Produto</button>
         </div>
       </div>
       <ErpNav />
       <Async state={state}>{(d) => d.items.length === 0 ? <div className="card"><Empty title="Nenhum produto ainda">Cadastre o primeiro produto para começar a vender e controlar estoque.</Empty></div> : (
         <div className="card table-wrap"><table>
-          <thead><tr><th>SKU</th><th>Produto</th><th>Preço</th><th>Disponível</th><th>Reservado</th><th>Custo médio</th><th></th></tr></thead>
+          <thead><tr><th>SKU</th><th>Produto</th><th>Preço</th><th>Disponível</th><th>Reservado</th><th>Custo total</th><th></th></tr></thead>
           <tbody>{d.items.map((p: any) => (
             <tr key={p.id} style={{ opacity: p.ativo ? 1 : 0.5 }}>
               <td><code>{p.sku}</code></td>
@@ -33,7 +35,7 @@ export default function Produtos() {
               <td>{brl(p.precoBaseCents)}</td>
               <td>{p.tipo === 'SERVICO' ? '—' : <>{qtd(p.saldo.disponivelMil)} {p.abaixoMinimo && <span className="badge red">abaixo do mínimo</span>}{!p.abaixoMinimo && p.noPontoPedido && <span className="badge">repor</span>}</>}</td>
               <td>{p.tipo === 'SERVICO' ? '—' : qtd(p.saldo.reservadoMil)}</td>
-              <td>{brl(p.custoMedioCents)}</td>
+              <td>{brl(custoTotal(p))}{custoTotal(p) !== p.custoMedioCents ? <div className="small muted">produto {brl(p.custoMedioCents)}</div> : null}</td>
               <td><button className="btn sm" onClick={() => setEdit(p)}>Editar</button></td>
             </tr>
           ))}</tbody>
@@ -45,18 +47,25 @@ export default function Produtos() {
   );
 }
 
+/** Custo do produto + custos adicionais (embalagem etc.). */
+export function custoTotal(p: any) {
+  try { return (p.custoMedioCents ?? 0) + JSON.parse(p.custosAdicionais ?? '[]').reduce((a: number, c: any) => a + (c.valorCents ?? 0), 0); } catch { return p.custoMedioCents ?? 0; }
+}
+
 function ProdutoForm({ inicial, onClose, onSaved }: { inicial: any; onClose: () => void; onSaved: () => void }) {
   const [f, setF] = useState<any>({
     sku: inicial.sku ?? '', nome: inicial.nome ?? '', unidade: inicial.unidade ?? 'UN', codigoBarras: inicial.codigoBarras ?? '', ncm: inicial.ncm ?? '', cest: inicial.cest ?? '',
     origem: inicial.origem ?? 0, tipo: inicial.tipo ?? 'REVENDA', controlaLote: !!inicial.controlaLote, controlaValidade: !!inicial.controlaValidade, regraSaida: inicial.regraSaida ?? 'FIFO',
-    preco: fromCents(inicial.precoBaseCents), minimo: qtd(inicial.estoqueMinimoMil).replace(/\./g, ''), ponto: qtd(inicial.pontoPedidoMil).replace(/\./g, ''), lead: String(inicial.leadTimeDias ?? 0), loteMin: qtd(inicial.loteMinimoMil ?? 0).replace(/\./g, ''), ativo: inicial.ativo ?? true,
+    preco: fromCents(inicial.precoBaseCents), custo: fromCents(inicial.custoMedioCents ?? 0), extras: (() => { try { return JSON.parse(inicial.custosAdicionais ?? '[]').map((c: any) => ({ nome: c.nome, valor: fromCents(c.valorCents) })); } catch { return []; } })(), fornecedor: inicial.fornecedorPadraoId ?? '', minimo: qtd(inicial.estoqueMinimoMil).replace(/\./g, ''), ponto: qtd(inicial.pontoPedidoMil).replace(/\./g, ''), lead: String(inicial.leadTimeDias ?? 0), loteMin: qtd(inicial.loteMinimoMil ?? 0).replace(/\./g, ''), ativo: inicial.ativo ?? true,
   });
   const { busy, run } = useAction();
+  const fornecedores = useApi<any>('/erp/crm/parceiros?tipo=fornecedor', []);
   const set = (k: string) => (e: any) => setF({ ...f, [k]: e.target.type === 'checkbox' ? e.target.checked : e.target.value });
+  const [senhaCusto, setSenhaCusto] = useState('');
   async function salvar() {
     const body = { sku: f.sku, nome: f.nome, unidade: f.unidade, codigoBarras: f.codigoBarras || null, ncm: f.ncm || null, cest: f.cest || null, origem: Number(f.origem), tipo: f.tipo,
       controlaLote: f.controlaLote || f.controlaValidade, controlaValidade: f.controlaValidade, regraSaida: f.controlaValidade ? 'FEFO' : f.regraSaida,
-      precoBaseCents: toCents(f.preco), estoqueMinimoMil: toMil(f.minimo), pontoPedidoMil: toMil(f.ponto), leadTimeDias: Number(f.lead) || 0, loteMinimoMil: toMil(f.loteMin || '0'), fornecedorPadraoId: inicial.fornecedorPadraoId ?? null, ativo: f.ativo };
+      precoBaseCents: toCents(f.preco), custoMedioCents: toCents(f.custo || '0'), custosAdicionais: f.extras.filter((c: any) => c.nome.trim()).map((c: any) => ({ nome: c.nome.trim(), valorCents: toCents(c.valor || '0') })), estoqueMinimoMil: toMil(f.minimo), pontoPedidoMil: toMil(f.ponto), leadTimeDias: Number(f.lead) || 0, loteMinimoMil: toMil(f.loteMin || '0'), fornecedorPadraoId: f.fornecedor || null, ativo: f.ativo, ...(senhaCusto ? { senhaCusto } : {}) };
     if (await run(() => (inicial.id ? put(`/erp/produtos/${inicial.id}`, body) : post('/erp/produtos', body)), 'Produto salvo')) onSaved();
   }
   return (
@@ -69,10 +78,25 @@ function ProdutoForm({ inicial, onClose, onSaved }: { inicial: any; onClose: () 
       <div className="grid g2">
         <Field label="Unidade"><input value={f.unidade} onChange={set('unidade')} maxLength={6} /></Field>
         <Field label="Preço base (R$)"><input value={f.preco} onChange={set('preco')} inputMode="decimal" /></Field>
+        <Field label="Custo (R$)" hint={inicial.custoPorXml ? 'Veio da nota fiscal (XML): alterar pede sua senha e fica no log' : 'Custo inicial; as entradas de estoque atualizam pelo custo médio'}><input value={f.custo} onChange={set('custo')} inputMode="decimal" /></Field>
+        {inicial.custoPorXml && toCents(f.custo || '0') !== (inicial.custoMedioCents ?? 0) && <Field label="Sua senha (para alterar o custo da nota)"><input type="password" autoComplete="current-password" value={senhaCusto} onChange={(e) => setSenhaCusto(e.target.value)} /></Field>}
+        <Field label="Fornecedor padrão"><select value={f.fornecedor} onChange={set('fornecedor')}><option value="">—</option>{(fornecedores.data?.items ?? []).map((x: any) => <option key={x.id} value={x.id}>{x.fantasia || x.nome}</option>)}</select></Field>
         <Field label="NCM" hint="8 dígitos, obrigatório para nota fiscal"><input value={f.ncm} onChange={set('ncm')} /></Field>
-        <Field label="Código de barras (EAN)"><input value={f.codigoBarras} onChange={set('codigoBarras')} /></Field>
+        <Field label="Código de barras (EAN)" hint="Deixe vazio para o sistema gerar"><input value={f.codigoBarras} onChange={set('codigoBarras')} placeholder="Gerado automaticamente" /></Field>
         <Field label="CEST"><input value={f.cest} onChange={set('cest')} /></Field>
         <Field label="Origem (SEFAZ)"><select value={f.origem} onChange={set('origem')}>{['0 Nacional', '1 Estrangeira (importação direta)', '2 Estrangeira (mercado interno)', '3 Nacional >40% importado', '4 Nacional (PPB)', '5 Nacional ≤40% importado', '6 Estrangeira sem similar (direta)', '7 Estrangeira sem similar (interno)', '8 Nacional >70% importado'].map((o, i) => <option key={i} value={i}>{o}</option>)}</select></Field>
+      </div>
+      <div className="small muted" style={{ margin: '6px 0 4px' }}>Outros custos por unidade (embalagem, rótulo, frete...)</div>
+      {f.extras.map((c: any, i: number) => (
+        <div className="row" key={i} style={{ marginBottom: 4 }}>
+          <input placeholder="Ex.: Embalagem" value={c.nome} onChange={(e) => setF({ ...f, extras: f.extras.map((x: any, j: number) => (j === i ? { ...x, nome: e.target.value } : x)) })} aria-label="Nome do custo" />
+          <input placeholder="0,00" value={c.valor} inputMode="decimal" style={{ width: 100 }} onChange={(e) => setF({ ...f, extras: f.extras.map((x: any, j: number) => (j === i ? { ...x, valor: e.target.value } : x)) })} aria-label="Valor (R$)" />
+          <button type="button" className="btn sm ghost" onClick={() => setF({ ...f, extras: f.extras.filter((_: any, j: number) => j !== i) })} aria-label="Remover custo">✕</button>
+        </div>
+      ))}
+      <div className="row" style={{ justifyContent: 'space-between', marginBottom: 8 }}>
+        <button type="button" className="btn sm" onClick={() => setF({ ...f, extras: [...f.extras, { nome: '', valor: '' }] })}>+ Adicionar custo</button>
+        <span className="small">Custo total (entra no CMV): <strong>{brl(toCents(f.custo || '0') + f.extras.reduce((a: number, c: any) => a + toCents(c.valor || '0'), 0))}</strong></span>
       </div>
       {f.tipo !== 'SERVICO' && <>
         <div className="row">
@@ -82,7 +106,7 @@ function ProdutoForm({ inicial, onClose, onSaved }: { inicial: any; onClose: () 
         </div>
         <div className="grid g2">
           <Field label="Estoque mínimo"><input value={f.minimo} onChange={set('minimo')} inputMode="decimal" /></Field>
-          <Field label="Ponto de pedido"><input value={f.ponto} onChange={set('ponto')} inputMode="decimal" /></Field>
+          <Field label="Estimativa de compra"><input value={f.ponto} onChange={set('ponto')} inputMode="decimal" /></Field>
           <Field label="Prazo de compra/fabricação (dias)"><input value={f.lead} onChange={set('lead')} inputMode="numeric" /></Field>
           <Field label="Lote mínimo de compra/produção"><input value={f.loteMin} onChange={set('loteMin')} inputMode="decimal" /></Field>
         </div>

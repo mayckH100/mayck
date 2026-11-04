@@ -79,7 +79,15 @@ parceirosRouter.get('/:id', ah(async (req, res) => {
 parceirosRouter.post('/', ah(async (req, res) => {
   const orgId = orgOf(req);
   const body = parceiroSchema.parse(req.body);
-  if (await prisma.erpParceiro.findUnique({ where: { orgId_documento: { orgId, documento: body.documento } } })) throw badRequest('Já existe um cadastro com este CPF/CNPJ');
+  const existente = await prisma.erpParceiro.findUnique({ where: { orgId_documento: { orgId, documento: body.documento } } });
+  if (existente) {
+    // Clientes e Fornecedores são cadastros separados na tela, mas o mesmo CNPJ pode ser os dois: só acrescenta o papel.
+    const add = { ...(body.ehCliente && !existente.ehCliente ? { ehCliente: true } : {}), ...(body.ehFornecedor && !existente.ehFornecedor ? { ehFornecedor: true } : {}) };
+    if (!Object.keys(add).length) throw badRequest(`Já existe ${existente.ehFornecedor && !existente.ehCliente ? 'um fornecedor' : 'um cliente'} com este CPF/CNPJ`);
+    const p = await prisma.erpParceiro.update({ where: { id: existente.id }, data: add });
+    await auditar(req, 'parceiro.papel', 'erp_parceiro', p.id, { ehCliente: existente.ehCliente, ehFornecedor: existente.ehFornecedor }, add);
+    return res.json({ ...fromRow(p), jaExistia: true });
+  }
   const p = await prisma.erpParceiro.create({ data: { orgId, ...toData(body), situacaoConsultaEm: body.situacaoCadastral ? new Date() : null } });
   await auditar(req, 'parceiro.criar', 'erp_parceiro', p.id, null, { nome: p.nome, tipoPessoa: p.tipoPessoa });
   res.status(201).json(fromRow(p));

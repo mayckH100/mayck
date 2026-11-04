@@ -1,4 +1,5 @@
 import type { Channel } from '@prisma/client';
+import { DEFAULT_PRICES } from '../billing/service.js';
 import { prisma } from '../db.js';
 import { sendMail, waDownMail, waDownDigestMail, type AppBrand } from '../lib/mailer.js';
 import { channelLabels } from './channelLabel.js';
@@ -151,7 +152,7 @@ export async function maybeDownDigest(now = new Date()) {
   if (!to.length) return false;
   const today = dayKeySP(now);
   const row = await prisma.platformSettings.findUnique({ where: { id: 'default' } })
-    ?? await prisma.platformSettings.create({ data: { id: 'default' } }).catch(() => prisma.platformSettings.findUniqueOrThrow({ where: { id: 'default' } }));
+    ?? await prisma.platformSettings.create({ data: { id: 'default', pricesJson: JSON.stringify(DEFAULT_PRICES) } }).catch(() => prisma.platformSettings.findUniqueOrThrow({ where: { id: 'default' } }));
   if (row.waDigestDay === today) return false;
   const claim = await prisma.platformSettings.updateMany({ where: { id: 'default', waDigestDay: row.waDigestDay }, data: { waDigestDay: today } });
   if (claim.count !== 1) return false;

@@ -9,11 +9,12 @@ type Channel = { id: string; label: string };
 type InviteResult = { email: string; link: string; emailSent: boolean; message: string };
 
 /** Caixas por módulo + canais WhatsApp. Só mostra o que o papel permite e o que quem concede tem. */
-function PermissionPicker({ perms, role, channels, modules, setModules, channelIds, setChannelIds }: {
+function PermissionPicker({ perms, role, channels, modules, setModules, channelIds, setChannelIds, soErp }: {
+  soErp?: boolean;
   perms: Perms; role: 'ADMIN' | 'AGENT'; channels: Channel[];
   modules: string[]; setModules: (m: string[]) => void; channelIds: string[] | null; setChannelIds: (c: string[] | null) => void;
 }) {
-  const avail = perms.catalog.filter((m) => perms.roleModules[role]?.includes(m.id));
+  const avail = perms.catalog.filter((m) => perms.roleModules[role]?.includes(m.id) && (!soErp || m.id.startsWith('erp_')));
   const myCh = perms.myChannelIds;
   const selectable = myCh ? channels.filter((c) => myCh.includes(c.id)) : channels;
   const toggle = (id: string) => setModules(modules.includes(id) ? modules.filter((x) => x !== id) : [...modules, id]);
@@ -58,19 +59,20 @@ function ResultBox({ r, toast }: { r: InviteResult; toast: (t: string) => void }
   );
 }
 
-function MemberPerms({ m, perms, channels, onSaved }: { m: any; perms: Perms; channels: Channel[]; onSaved: () => void }) {
+function MemberPerms({ m, perms, channels, onSaved, soErp }: { m: any; perms: Perms; channels: Channel[]; onSaved: () => void; soErp?: boolean }) {
   const [modules, setModules] = useState<string[]>(m.modules ?? []);
   const [channelIds, setChannelIds] = useState<string[] | null>(m.channelIds ?? null);
   const { busy, run } = useAction();
   return (
     <div className="card stack" style={{ marginTop: 6 }}>
-      <PermissionPicker perms={perms} role={m.role} channels={channels} modules={modules} setModules={setModules} channelIds={channelIds} setChannelIds={setChannelIds} />
+      <PermissionPicker soErp={soErp} perms={perms} role={m.role} channels={channels} modules={modules} setModules={setModules} channelIds={channelIds} setChannelIds={setChannelIds} />
       <div><button className="btn sm primary" disabled={busy} onClick={async () => { const r = await run(() => patch(`/team/members/${m.id}`, { modules, channelIds }), 'Permissões atualizadas'); if (r) onSaved(); }}>Salvar permissões</button></div>
     </div>
   );
 }
 
-export default function Team() {
+export default function Team({ erp = false }: { erp?: boolean }) {
+  const soErp = erp;
   const state = useApi<any>('/team');
   const chState = useApi<any[]>('/channels');
   const { me, can } = useAuth();
@@ -85,13 +87,13 @@ export default function Team() {
   const admin = can('OWNER', 'ADMIN');
   const perms: Perms | null = state.data?.permissions ?? null;
   const channels: Channel[] = (chState.data ?? []).map((c: any) => ({ id: c.id, label: c.label ?? c.name }));
-  const defaultsFor = (r: 'ADMIN' | 'AGENT') => (perms ? perms.defaults[r].filter((x) => perms.mine.includes(x)) : []);
+  const defaultsFor = (r: 'ADMIN' | 'AGENT') => (perms ? (erp ? perms.catalog.map((c) => c.id).filter((x) => x.startsWith('erp_')) : perms.defaults[r]).filter((x) => perms.mine.includes(x)) : []);
   const mods = modules ?? defaultsFor(role);
   const isOwner = me?.role === 'OWNER';
   const canEditMember = (m: any) => admin && perms && m.role !== 'OWNER' && m.user.id !== me?.user.id && (m.role !== 'ADMIN' || isOwner);
   return (
     <>
-      <div className="page-head"><div><h1>Equipe</h1><p className="muted">Papéis: Proprietário (tudo), Administrador (fluxos, IA, canais, equipe) e Atendente (Inbox, Kanban e contatos). Em cada pessoa você escolhe os módulos e os canais WhatsApp que ela pode acessar.</p></div></div>
+      <div className="page-head"><div><h1>{erp ? 'Funcionários' : 'Equipe'}</h1><p className="muted">{erp ? 'Cadastre o funcionário pelo e-mail e marque as áreas do MCK ERP que ele pode usar. Você muda isso quando quiser em "Permissões".' : <>Papéis: Proprietário (tudo), Administrador (fluxos, IA, canais, equipe) e Atendente (Inbox, Kanban e contatos). Em cada pessoa você escolhe os módulos e os canais WhatsApp que ela pode acessar.</>}</p></div></div>
       <div className="grid g2">
         {admin && perms && (
           <form className="card stack" onSubmit={async (e) => {
@@ -105,7 +107,7 @@ export default function Team() {
             <h2>Convidar membro</h2>
             <Field label="E-mail"><input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="colega@empresa.com" /></Field>
             <Field label="Papel"><select value={role} onChange={(e) => { setRole(e.target.value as 'ADMIN' | 'AGENT'); setModules(null); }}><option value="AGENT">Atendente</option><option value="ADMIN">Administrador</option></select></Field>
-            <PermissionPicker perms={perms} role={role} channels={channels} modules={mods} setModules={setModules} channelIds={channelIds} setChannelIds={setChannelIds} />
+            <PermissionPicker soErp={soErp} perms={perms} role={role} channels={channels} modules={mods} setModules={setModules} channelIds={channelIds} setChannelIds={setChannelIds} />
             <button className="btn primary" disabled={busy}>Enviar convite</button>
             <p className="small muted">A pessoa recebe o convite por e-mail. O link vale 7 dias e só pode ser usado uma vez.</p>
             {result && <ResultBox r={result} toast={toast} />}
@@ -130,7 +132,7 @@ export default function Team() {
                       <button className="btn sm danger" disabled={busy} onClick={() => { if (confirm(`Remover ${m.user.name} da equipe?`)) run(() => del(`/team/members/${m.id}`), 'Membro removido').then(state.reload); }}>Remover</button>)}
                   </div>
                 </div>
-                {editing === m.id && perms && <MemberPerms key={m.id + m.role} m={m} perms={perms} channels={channels} onSaved={() => { setEditing(null); state.reload(); }} />}
+                {editing === m.id && perms && <MemberPerms soErp={soErp} key={m.id + m.role} m={m} perms={perms} channels={channels} onSaved={() => { setEditing(null); state.reload(); }} />}
               </div>
             ))}
             {d.invites.length > 0 && <>

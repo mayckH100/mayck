@@ -56,7 +56,7 @@ export default function MmSubscription() {
             <div className="grid g2">
               <ProductCard product="MCKMENSAGEM" label="MCK Mensagens" app="mensagem" sub={mm} prices={b.prices.MCKMENSAGEM} configured={b.configured} coupon={coupon.applied}
                 desc="Contatos com consentimento, campanhas personalizadas com {nome}, limites seguros e métricas de resposta e conversão." />
-              <ProductCard product="COMBO" label="Combo MCKBOT + MCK Mensagens" app="mensagem" sub={comboView(b.subscriptions)} prices={b.prices.COMBO} configured={b.configured} coupon={coupon.applied}
+              <ProductCard product="COMBO" label="Plano Completo: MCK ERP + MCKBOT + MCK Mensagens" app="mensagem" sub={comboView(b.subscriptions)} prices={b.prices.COMBO} configured={b.configured} coupon={coupon.applied}
                 desc="Atendimento automatizado (MCKBOT) e campanhas (MCK Mensagens) juntos, com desconto. Renova os dois de uma vez." />
             </div>
             <p className="small muted">Com a assinatura inativa você continua consultando e exportando seus contatos e métricas, mas não pode criar, importar nem disparar campanhas. Ao renovar antes do vencimento, o novo período é somado ao que resta. Novos clientes têm {b.trialDays} dia(s) de teste grátis.</p>

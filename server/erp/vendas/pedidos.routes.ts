@@ -21,7 +21,7 @@ import { configDa } from '../produtos/produtos.routes.js';
 type Tx = Prisma.TransactionClient;
 export const pedidosRouter = Router();
 
-const itemSchema = z.object({ produtoId: z.string(), qtdMil: z.number().int().min(1).max(2_000_000_000), precoUnitCents: z.number().int().min(0).max(2_000_000_000).optional(), descontoBp: z.number().int().min(0).max(10_000).default(0) });
+export const itemSchema = z.object({ produtoId: z.string(), qtdMil: z.number().int().min(1).max(2_000_000_000), precoUnitCents: z.number().int().min(0).max(2_000_000_000).optional(), descontoBp: z.number().int().min(0).max(10_000).default(0) });
 const pedidoSchema = z.object({
   parceiroId: z.string(), oportunidadeId: z.string().nullish(), tabelaPrecoId: z.string().nullish(), condicaoPagamentoId: z.string().nullish(),
   depositoId: z.string().nullish(), filialId: z.string().nullish(), centroCustoId: z.string().nullish(),
@@ -31,7 +31,7 @@ const pedidoSchema = z.object({
 });
 
 /** Monta os itens com preço da tabela (faixa de volume) quando o preço não veio, e totaliza. */
-async function montarItens(tx: Tx, orgId: string, b: z.infer<typeof pedidoSchema>) {
+export async function montarItens(tx: Tx, orgId: string, b: Pick<z.infer<typeof pedidoSchema>, 'itens' | 'tabelaPrecoId' | 'descontoCents' | 'freteCents'>) {
   const ids = [...new Set(b.itens.map((i) => i.produtoId))];
   const produtos = await tx.erpProduto.findMany({ where: { orgId, id: { in: ids }, ativo: true } });
   if (produtos.length !== ids.length) throw badRequest('Produto inválido ou inativo no pedido');
@@ -130,7 +130,7 @@ pedidosRouter.put('/:id', ah(async (req, res) => {
 type Pedido = Prisma.ErpPedidoVendaGetPayload<{ include: { itens: true } }>;
 
 /** Aplica uma transição: valida na máquina, grava status (operacional + financeiro) e emite os eventos. */
-async function aplicar(tx: Tx, p: Pedido, evento: EventoPedido, ctx: Partial<CtxPedido>, extra: Prisma.ErpPedidoVendaUpdateInput = {}) {
+export async function aplicar(tx: Tx, p: Pedido, evento: EventoPedido, ctx: Partial<CtxPedido>, extra: Prisma.ErpPedidoVendaUpdateInput = {}) {
   const r = transicionar(maquinaPedido, p.statusOperacional as StatusPedido, evento, { itens: p.itens.length, totalCents: p.totalCents, ...ctx });
   if (!r.ok) throw badRequest(r.erro);
   const novo = await tx.erpPedidoVenda.update({ where: { id: p.id }, data: { statusOperacional: r.para, statusFinanceiro: financeiroApos(r.para, p.statusFinanceiro), ...extra }, include: { itens: true } });
@@ -139,7 +139,7 @@ async function aplicar(tx: Tx, p: Pedido, evento: EventoPedido, ctx: Partial<Ctx
 }
 
 /** Depois de aprovado: tenta reservar tudo; o que faltar deixa o pedido aguardando suprimento (gera necessidade para Compras/MRP). */
-async function reservarOuAguardar(tx: Tx, p: Pedido) {
+export async function reservarOuAguardar(tx: Tx, p: Pedido) {
   const faltas = await reservarPedido(tx, p.orgId, p.id, p.depositoId);
   const atual = await tx.erpPedidoVenda.findUniqueOrThrow({ where: { id: p.id }, include: { itens: true } });
   if (!faltas.length) return aplicar(tx, atual, 'RESERVAR', {});

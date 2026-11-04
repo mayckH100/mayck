@@ -1,4 +1,5 @@
 /** Estoque da produção: reserva de componentes da OP, consumo (backflush) com genealogia de lotes e liberação. */
+import { custoTotal } from '../produtos/produtos.routes.js';
 import type { Prisma } from '@prisma/client';
 import { EstoqueErro, saldosParaSaida } from '../estoque/servico.js';
 import { planejarAlocacao } from '../estoque/saldo.js';
@@ -48,7 +49,7 @@ export async function consumirComponente(tx: Tx, e: { orgId: string; opId: strin
       : await tx.$executeRaw`UPDATE "ErpSaldo" SET "fisicoMil" = "fisicoMil" - ${q} WHERE "id" = ${saldoId} AND "fisicoMil" - "reservadoMil" - "quarentenaMil" >= ${q}`;
     if (!n) throw new EstoqueErro(`Saldo de ${produto.sku} mudou durante o apontamento: tente de novo`);
     const s = await tx.erpSaldo.findUniqueOrThrow({ where: { id: saldoId } });
-    await tx.erpMovimento.create({ data: { orgId: e.orgId, produtoId: e.produtoId, loteId, enderecoId, tipo: 'CONSUMO', qtdMil: -q, custoUnitCents: produto.custoMedioCents, saldoAposMil: s.fisicoMil, docTipo: 'op', docId: e.opId, motivo: e.motivo, userId: e.userId ?? null } });
+    await tx.erpMovimento.create({ data: { orgId: e.orgId, produtoId: e.produtoId, loteId, enderecoId, tipo: 'CONSUMO', qtdMil: -q, custoUnitCents: custoTotal(produto), saldoAposMil: s.fisicoMil, docTipo: 'op', docId: e.opId, motivo: e.motivo, userId: e.userId ?? null } });
     lotes.add(loteId);
   };
   for (const r of reservas) {
@@ -65,5 +66,5 @@ export async function consumirComponente(tx: Tx, e: { orgId: string; opId: strin
     for (const a of plano.alocacoes) await mover(a.saldoId, a.loteId, a.enderecoId, a.qtdMil, false);
   }
   await tx.erpOpComponente.update({ where: { id: e.compId }, data: { qtdConsumidaMil: { increment: e.qtdMil }, qtdReservadaMil: { decrement: daReserva } } });
-  return { lotes: [...lotes], custoCents: Math.round((e.qtdMil * produto.custoMedioCents) / 1000) };
+  return { lotes: [...lotes], custoCents: Math.round((e.qtdMil * custoTotal(produto)) / 1000) };
 }

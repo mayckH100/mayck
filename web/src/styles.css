@@ -25,6 +25,13 @@ p { margin: 0 0 8px; }
 .nav a { display: flex; align-items: center; gap: 10px; padding: 9px 10px; border-radius: 8px; color: var(--side-ink); font-weight: 500; }
 .nav a:hover { background: rgba(255,255,255,.07); text-decoration: none; }
 .nav a.active { background: var(--brand); color: #fff; }
+.nav-cat { all: unset; box-sizing: border-box; display: flex; align-items: center; gap: 10px; width: 100%; padding: 10px; margin-top: 4px; border-radius: 8px; cursor: pointer; font-weight: 700; font-size: 13px; letter-spacing: .04em; text-transform: uppercase; color: var(--side-ink); opacity: .8; }
+.nav-cat:hover { background: rgba(255,255,255,.07); opacity: 1; }
+.nav-cat:focus-visible { outline: 2px solid var(--brand); }
+.nav-group.current > .nav-cat { opacity: 1; }
+.nav-caret { font-size: 12px; opacity: .7; }
+.nav-items { padding-left: 8px; border-left: 1px solid rgba(255,255,255,.08); margin-left: 16px; margin-bottom: 6px; }
+.nav-items a { padding: 7px 10px; font-size: 14px; }
 .nav .sep { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; opacity: .55; padding: 14px 10px 6px; }
 .side-foot { margin-top: auto; padding-top: 12px; border-top: 1px solid rgba(255,255,255,.1); display: grid; gap: 8px; }
 .side-foot select { background: #1c1c1f; color: #fff; border-color: #3a3a40; }

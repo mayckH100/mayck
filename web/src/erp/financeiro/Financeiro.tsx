@@ -49,17 +49,19 @@ function Painel() {
 
 function Titulos({ tipo }: { tipo: 'RECEBER' | 'PAGAR' }) {
   const [filtro, setFiltro] = useState('ABERTOS');
-  const l = useApi<any[]>(`/erp/financeiro/titulos?tipo=${tipo}&status=${filtro === 'TODOS' ? '' : filtro}`, [filtro]);
+  const [nat, setNat] = useState(''); // a pagar: '' todas | FORNECEDOR | CONTAS (água, luz, internet...)
+  const l = useApi<any[]>(`/erp/financeiro/titulos?tipo=${tipo}&status=${filtro === 'TODOS' ? '' : filtro}${tipo === 'PAGAR' && nat ? `&natureza=${nat}` : ''}`, [filtro, nat]);
   const [novo, setNovo] = useState(false); const [baixar, setBaixar] = useState<string | null>(null);
   return (
     <>
       <div className="row" style={{ marginBottom: 10, gap: 6 }}>
         <button className="btn primary" onClick={() => setNovo(true)}>+ {tipo === 'RECEBER' ? 'Conta a receber' : 'Conta a pagar'}</button>
         <select value={filtro} onChange={(e) => setFiltro(e.target.value)} aria-label="Filtro"><option value="ABERTOS">Em aberto</option><option value="PAGO">Pagos</option><option value="CANCELADO">Cancelados</option><option value="TODOS">Todos</option></select>
+        {tipo === 'PAGAR' && ([['', 'Todas'], ['FORNECEDOR', 'Fornecedores'], ['CONTAS', 'Contas da empresa']] as const).map(([v, r]) => <button key={v} className={`btn sm ${nat === v ? 'primary' : ''}`} onClick={() => setNat(v)}>{r}</button>)}
       </div>
       <Async state={l}>{(d) => d.length === 0 ? <div className="card"><Empty title="Nada por aqui">{tipo === 'RECEBER' ? 'Pedidos faturados entram aqui sozinhos.' : 'NF-e de entrada lançadas entram aqui sozinhas.'}</Empty></div> : (
-        <div className="card table-wrap"><table><thead><tr><th>Vencimento</th><th>{tipo === 'RECEBER' ? 'Cliente' : 'Fornecedor'}</th><th>Descrição</th><th>Valor</th><th>Saldo</th><th>Status</th><th></th></tr></thead>
-          <tbody>{d.map((t) => <tr key={t.id}><td style={{ color: t.vencido ? '#dc2626' : undefined }}>{dt(t.vencimento)}</td><td>{t.parceiro ?? '—'}</td><td className="small">{t.descricao}</td><td>{brl(t.valorCents)}</td><td>{brl(t.saldoCents)}</td><td>{ST[t.status]}</td><td><button className="btn sm" onClick={() => setBaixar(t.id)}>Abrir</button></td></tr>)}</tbody></table>
+        <div className="card table-wrap"><table><thead><tr><th>Vencimento</th><th>{tipo === 'RECEBER' ? 'Cliente' : 'Fornecedor / conta'}</th><th>Descrição</th><th>Valor</th><th>Saldo</th><th>Status</th><th></th></tr></thead>
+          <tbody>{d.map((t) => <tr key={t.id}><td style={{ color: t.vencido ? '#dc2626' : undefined }}>{dt(t.vencimento)}</td><td>{t.natureza && t.natureza !== 'FORNECEDOR' ? <span className="badge">{NATUREZA[t.natureza] ?? 'Conta'}</span> : t.parceiro ?? '—'}</td><td className="small">{t.descricao}</td><td>{brl(t.valorCents)}</td><td>{brl(t.saldoCents)}</td><td>{ST[t.status]}</td><td><button className="btn sm" onClick={() => setBaixar(t.id)}>Abrir</button></td></tr>)}</tbody></table>
           <p className="small">Total em aberto: <b>{brl(d.reduce((a, t) => a + t.saldoCents, 0))}</b></p></div>
       )}</Async>
       {novo && <NovoTitulo tipo={tipo} onClose={() => setNovo(false)} onDone={() => { setNovo(false); l.reload(); }} />}
@@ -68,21 +70,24 @@ function Titulos({ tipo }: { tipo: 'RECEBER' | 'PAGAR' }) {
   );
 }
 
+const NATUREZA: Record<string, string> = { FORNECEDOR: 'Fornecedor', AGUA: 'Água', LUZ: 'Luz', INTERNET: 'Internet', TELEFONE: 'Telefone', ALUGUEL: 'Aluguel', IMPOSTO: 'Imposto', OUTRA_CONTA: 'Outra conta' };
+
 function NovoTitulo({ tipo, onClose, onDone }: { tipo: string; onClose: () => void; onDone: () => void }) {
   const cats = useApi<any[]>('/erp/financeiro/categorias');
-  const [f, setF] = useState<any>({ parceiro: null, descricao: '', valor: '', venc: hojeIso(), prazos: '0', categoriaId: '' });
+  const [f, setF] = useState<any>({ parceiro: null, descricao: '', valor: '', venc: hojeIso(), prazos: '0', categoriaId: '', natureza: 'FORNECEDOR' });
   const { busy, run } = useAction();
   return (
     <Modal title={tipo === 'RECEBER' ? 'Nova conta a receber' : 'Nova conta a pagar'} onClose={onClose}>
-      <Field label={tipo === 'RECEBER' ? 'Cliente (opcional)' : 'Fornecedor (opcional)'}>{f.parceiro ? <div className="row between"><strong>{f.parceiro.fantasia || f.parceiro.nome}</strong><button className="btn ghost sm" onClick={() => setF({ ...f, parceiro: null })}>Trocar</button></div> : <BuscaParceiro tipo="" onPick={(p) => setF({ ...f, parceiro: p })} />}</Field>
+      {tipo === 'PAGAR' && <Field label="Tipo de conta"><select value={f.natureza} onChange={(e) => setF({ ...f, natureza: e.target.value, parceiro: e.target.value === 'FORNECEDOR' ? f.parceiro : null })}>{Object.entries(NATUREZA).map(([v, r]) => <option key={v} value={v}>{v === 'FORNECEDOR' ? 'Fornecedor' : `Conta da empresa: ${r}`}</option>)}</select></Field>}
+      {(tipo === 'RECEBER' || f.natureza === 'FORNECEDOR') && <Field label={tipo === 'RECEBER' ? 'Cliente (opcional)' : 'Fornecedor (opcional)'}>{f.parceiro ? <div className="row between"><strong>{f.parceiro.fantasia || f.parceiro.nome}</strong><button className="btn ghost sm" onClick={() => setF({ ...f, parceiro: null })}>Trocar</button></div> : <BuscaParceiro tipo={tipo === 'RECEBER' ? 'cliente' : 'fornecedor'} placeholder={tipo === 'RECEBER' ? 'Cliente (nome ou CPF/CNPJ)' : 'Fornecedor (nome ou CNPJ)'} onPick={(p) => setF({ ...f, parceiro: p })} />}</Field>}
       <Field label="Descrição"><input value={f.descricao} onChange={(e) => setF({ ...f, descricao: e.target.value })} placeholder="Aluguel de novembro" /></Field>
       <div className="grid g2">
         <Field label="Valor total (R$)"><input value={f.valor} onChange={(e) => setF({ ...f, valor: e.target.value })} inputMode="decimal" /></Field>
         <Field label="1º vencimento"><input type="date" value={f.venc} onChange={(e) => setF({ ...f, venc: e.target.value })} /></Field>
         <Field label="Parcelas (dias após o 1º)" hint="0 = à vista; 0,30,60 = três parcelas"><input value={f.prazos} onChange={(e) => setF({ ...f, prazos: e.target.value })} /></Field>
-        <Field label="Categoria"><select value={f.categoriaId} onChange={(e) => setF({ ...f, categoriaId: e.target.value })}><option value="">—</option>{(cats.data ?? []).filter((c: any) => c.tipo === (tipo === 'RECEBER' ? 'RECEITA' : 'DESPESA')).map((c: any) => <option key={c.id} value={c.id}>{c.codigo} {c.nome}</option>)}</select></Field>
+        <Field label="Categoria"><select value={f.categoriaId} onChange={(e) => setF({ ...f, categoriaId: e.target.value })}><option value="">{tipo === 'PAGAR' ? 'Automática pelo tipo' : '—'}</option>{(cats.data ?? []).filter((c: any) => c.tipo === (tipo === 'RECEBER' ? 'RECEITA' : 'DESPESA')).map((c: any) => <option key={c.id} value={c.id}>{c.codigo} {c.nome}</option>)}</select></Field>
       </div>
-      <div className="row" style={{ justifyContent: 'flex-end' }}><button className="btn primary" disabled={busy || f.descricao.length < 2 || toCents(f.valor) <= 0} onClick={async () => { if (await run(() => post('/erp/financeiro/titulos', { tipo, parceiroId: f.parceiro?.id ?? null, descricao: f.descricao, valorCents: toCents(f.valor), primeiroVencimento: f.venc, prazos: String(f.prazos).split(/[,;\s/]+/).filter(Boolean).map(Number).filter((n: number) => Number.isFinite(n)), categoriaId: f.categoriaId || null }), 'Lançado')) onDone(); }}>Salvar</button></div>
+      <div className="row" style={{ justifyContent: 'flex-end' }}><button className="btn primary" disabled={busy || f.descricao.length < 2 || toCents(f.valor) <= 0} onClick={async () => { if (await run(() => post('/erp/financeiro/titulos', { tipo, parceiroId: f.parceiro?.id ?? null, descricao: f.descricao, valorCents: toCents(f.valor), primeiroVencimento: f.venc, prazos: String(f.prazos).split(/[,;\s/]+/).filter(Boolean).map(Number).filter((n: number) => Number.isFinite(n)), categoriaId: f.categoriaId || null, ...(tipo === 'PAGAR' ? { natureza: f.natureza } : {}) }), 'Lançado')) onDone(); }}>Salvar</button></div>
     </Modal>
   );
 }

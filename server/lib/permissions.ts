@@ -24,7 +24,12 @@ export const MODULES = [
   { id: 'auditoria', label: 'Auditoria', app: 'MCKBOT' },
   { id: 'mensagens', label: 'MCK Mensagens: leads, campanhas/disparos e IA', app: 'MCKMENSAGEM' },
   { id: 'automacoes', label: 'MCK Mensagens: automações e cobranças', app: 'MCKMENSAGEM' },
-  { id: 'erp_crm', label: 'MCK ERP: CRM, vendas, produtos e estoque', app: 'MCKBOT' },
+  { id: 'erp_crm', label: 'MCK ERP: acesso (clientes, fornecedores e CRM)', app: 'MCKERP' },
+  { id: 'erp_vendas', label: 'MCK ERP: vendas, pedidos e venda balcão', app: 'MCKERP' },
+  { id: 'erp_estoque', label: 'MCK ERP: produtos, estoque e etiquetas', app: 'MCKERP' },
+  { id: 'erp_compras', label: 'MCK ERP: compras e produção', app: 'MCKERP' },
+  { id: 'erp_financeiro', label: 'MCK ERP: financeiro e fiscal', app: 'MCKERP' },
+  { id: 'erp_relatorios', label: 'MCK ERP: relatórios, BI e alertas', app: 'MCKERP' },
 ] as const;
 export type ModuleId = (typeof MODULES)[number]['id'];
 export const MODULE_IDS = MODULES.map((m) => m.id) as ModuleId[];
@@ -35,7 +40,7 @@ export const moduleLabel = (id: string) => MODULES.find((m) => m.id === id)?.lab
 export const ROLE_MODULES: Record<Role, ModuleId[]> = {
   OWNER: MODULE_IDS,
   ADMIN: MODULE_IDS,
-  AGENT: ['inbox', 'kanban', 'agenda', 'contatos', 'fluxos', 'ia', 'canais', 'relatorios', 'equipe', 'plano', 'automacoes', 'erp_crm'],
+  AGENT: ['inbox', 'kanban', 'agenda', 'contatos', 'fluxos', 'ia', 'canais', 'relatorios', 'equipe', 'plano', 'automacoes', 'erp_crm', 'erp_vendas', 'erp_estoque', 'erp_compras', 'erp_financeiro', 'erp_relatorios'],
 };
 /** Pré-seleção do formulário de convite. */
 export const DEFAULT_MODULES: Record<'ADMIN' | 'AGENT', ModuleId[]> = {
@@ -128,4 +133,18 @@ export function sanitizeGrant(
     else if (channels.some((c) => !myCh.includes(c))) return { error: 'Você não pode liberar canais WhatsApp que você não atende' };
   }
   return { modules: keepNull ? null : JSON.stringify(mods), channelIds: channels ? JSON.stringify(channels) : null };
+}
+
+/** Áreas do MCK ERP. Compatível: quem tem o acesso ao ERP e nenhuma área marcada (permissão antiga) continua vendo tudo. */
+export const ERP_AREAS = ['erp_vendas', 'erp_estoque', 'erp_compras', 'erp_financeiro', 'erp_relatorios'] as const;
+export type ErpArea = (typeof ERP_AREAS)[number];
+export function requireErpArea(area: ErpArea, leituraTambem: ErpArea[] = []) {
+  return (req: Request, _res: Response, next: NextFunction) => {
+    const a = req.auth;
+    if (a?.role === 'OWNER' || !a?.modules) return next();
+    if (a.modules.includes(area)) return next();
+    if (!ERP_AREAS.some((m) => a.modules!.includes(m))) return next();
+    if (req.method === 'GET' && leituraTambem.some((m) => a.modules!.includes(m))) return next();
+    next(forbidden(`Você não tem acesso a esta área do MCK ERP (${moduleLabel(area).replace('MCK ERP: ', '')}). Peça ao proprietário.`));
+  };
 }

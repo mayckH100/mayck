@@ -305,7 +305,7 @@ function ActionModal({ orgId, product, kind, current, onClose, onDone }: { orgId
     <Modal title={`${ACTION_TITLE[kind]} — ${PRODUCT_LABEL[product]}`} onClose={onClose}>
       <form className="stack" onSubmit={submit}>
         <p className="muted">{desc[kind]}</p>
-        {product === 'COMBO' && <div className="alert info small">Combo: a ação vale para MCKBOT e MCKMENSAGEM ao mesmo tempo.</div>}
+        {product === 'COMBO' && <div className="alert info small">Plano Completo: a ação vale para MCKBOT (com o MCK ERP) e MCKMENSAGEM ao mesmo tempo.</div>}
         {current && <p className="small">Situação atual: <SubBadge status={current.status} /> · vence em {fmtDay(current.validUntil)}</p>}
         {kind === 'activate' && <Field label="Ciclo"><select value={cycle} onChange={(e) => setCycle(e.target.value as Cycle)}>{CYCLES.map((c) => <option key={c} value={c}>{CYCLE_LABEL[c]}</option>)}</select></Field>}
         {kind === 'set-date' && <Field label="Novo vencimento"><input type="date" required value={date} onChange={(e) => setDate(e.target.value)} /></Field>}
@@ -384,7 +384,7 @@ function ClientDetailView({ orgId }: { orgId: string }) {
               })}
             </div>
             <div className="card stack">
-              <div className="row between"><h2 style={{ margin: 0 }}>Combo (os dois produtos)</h2><span className="small muted">Aplica a ação em MCKBOT e MCKMENSAGEM juntos</span></div>
+              <div className="row between"><h2 style={{ margin: 0 }}>Plano Completo (ERP + MCKBOT + Mensagens)</h2><span className="small muted">Aplica a ação em MCKBOT e MCKMENSAGEM juntos</span></div>
               <SubActions status={bothBlocked ? 'BLOQUEADA' : undefined} onAction={(kind) => setModal({ product: 'COMBO', kind })} />
             </div>
 
@@ -565,7 +565,7 @@ interface Coupon {
   validUntil: string | null; maxUses: number | null; active: boolean; state: 'ATIVO' | 'INATIVO' | 'EXPIRADO' | 'ESGOTADO';
   uses: number; revenueCents: number; discountCents: number; deletable: boolean; createdAt: string;
 }
-const COUPON_PRODUCT_LABEL: Record<string, string> = { ALL: 'Todos os planos', MCKBOT: 'MCKBOT', MCKMENSAGEM: 'MCK Mensagens', COMBO: 'Combo' };
+const COUPON_PRODUCT_LABEL: Record<string, string> = { ALL: 'Todos os planos', MCKBOT: 'MCKBOT', MCKMENSAGEM: 'MCK Mensagens', COMBO: 'Plano Completo' };
 const COUPON_CYCLE_LABEL: Record<string, string> = { ALL: 'Mensal e anual', MENSAL: 'Só mensal', ANUAL: 'Só anual' };
 const COUPON_STATE_CLS: Record<Coupon['state'], string> = { ATIVO: 'green', INATIVO: '', EXPIRADO: 'amber', ESGOTADO: 'amber' };
 const COUPON_STATE_LABEL: Record<Coupon['state'], string> = { ATIVO: 'Ativo', INATIVO: 'Inativo', EXPIRADO: 'Expirado', ESGOTADO: 'Esgotado' };

@@ -41,7 +41,7 @@ export async function titulosDaNfe(tx: Tx, orgId: string, nfeId: string) {
   const lista = dups.length ? dups : [{ numero: '1', vencimento: n.dataEmissao ?? new Date(), valorCents: n.valorTotalCents }];
   const cat = await categoria(tx, orgId, '3.01');
   for (const [i, d] of lista.entries()) {
-    const t = await tx.erpTitulo.create({ data: { orgId, tipo: 'PAGAR', parceiroId: n.parceiroId, descricao: `NF ${n.numero}/${n.serie} · ${n.emitenteNome} (${i + 1}/${lista.length})`, docTipo: 'nfe_entrada', docId: n.id, parcela: i + 1, parcelas: lista.length, valorCents: d.valorCents, vencimento: d.vencimento ?? n.dataEmissao ?? new Date(), emissao: n.dataEmissao ?? new Date(), competencia: n.dataEmissao ?? new Date(), categoriaId: cat } });
+    const t = await tx.erpTitulo.create({ data: { orgId, tipo: 'PAGAR', parceiroId: n.parceiroId, descricao: `NF ${n.numero}/${n.serie} · ${n.emitenteNome} (${i + 1}/${lista.length})`, docTipo: 'nfe_entrada', docId: n.id, natureza: 'FORNECEDOR', parcela: i + 1, parcelas: lista.length, valorCents: d.valorCents, vencimento: d.vencimento ?? n.dataEmissao ?? new Date(), emissao: n.dataEmissao ?? new Date(), competencia: n.dataEmissao ?? new Date(), categoriaId: cat } });
     if (i === 0) await vincular(tx, orgId, { tipo: 'nfe_entrada', id: n.id }, { tipo: 'titulo', id: t.id }, 'gerou');
   }
   return lista.length;

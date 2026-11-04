@@ -18,6 +18,7 @@ import Channels from './pages/Channels';
 import Integrations from './pages/Integrations';
 import Reports from './pages/Reports';
 import Team from './pages/Team';
+import RelatoriosErp from './erp/relatorios/Relatorios';
 import Plan from './pages/Plan';
 import Audit from './pages/Audit';
 import Profile from './pages/Profile';
@@ -36,6 +37,8 @@ import ErpProducao from './erp/producao/Producao';
 import ErpFinanceiro from './erp/financeiro/Financeiro';
 import ErpFiscal from './erp/fiscal/Fiscal';
 import ErpBi from './erp/bi/Bi';
+import ErpAlertas from './erp/alertas/Alertas';
+import { ERP_ITENS } from './erp/ErpNav';
 import Tutorials from './Tutorials';
 import SubscriptionGate from './SubscriptionGate';
 import Announcements from './Announcements';
@@ -43,27 +46,81 @@ import WaDownBanner from './WaDownBanner';
 import NovidadeBanner from './NovidadeBanner';
 import { STATUS_LABEL, fmtDay } from './billing';
 
-const NAV: { to: string; label: string; icon: string; roles?: Role[]; sep?: string; superAdmin?: boolean; module?: string }[] = [
-  { to: '/', label: 'Visão geral', icon: '◧' },
-  { to: '/inbox', module: 'inbox', label: 'Inbox', icon: '✉', sep: 'Atendimento' },
-  { to: '/kanban', module: 'kanban', label: 'Kanban', icon: '▦' },
-  { to: '/agenda', module: 'agenda', label: 'Agenda', icon: '📅' },
-  { to: '/contatos', module: 'contatos', label: 'Contatos', icon: '☺' },
-  { to: '/fluxos', module: 'fluxos', label: 'Fluxos', icon: '⇄', sep: 'Automação' },
-  { to: '/ia', module: 'ia', label: 'Inteligência artificial', icon: '✦' },
-  { to: '/produtos', module: 'ia', label: 'Produtos', icon: '▣' },
-  { to: '/canais', module: 'canais', label: 'Canais WhatsApp', icon: '☏' },
-  { to: '/integracoes', module: 'integracoes', label: 'Integrações', icon: '⚙', roles: ['OWNER', 'ADMIN'] },
-  { to: '/erp', module: 'erp_crm', label: 'MCK ERP', icon: '◆', sep: 'ERP' },
-  { to: '/relatorios', module: 'relatorios', label: 'Relatórios', icon: '▤', sep: 'Gestão' },
-  { to: '/equipe', module: 'equipe', label: 'Equipe', icon: '♟' },
-  { to: '/plano', module: 'plano', label: 'Plano', icon: '◈' },
-  { to: '/auditoria', module: 'auditoria', label: 'Auditoria', icon: '☰', roles: ['OWNER', 'ADMIN'] },
-  { to: '/perfil', label: 'Perfil', icon: '☻', sep: 'Conta' },
-  { to: '/tutoriais', label: 'Tutoriais', icon: '▶' },
-  { to: '/boas-praticas', label: 'Boas práticas', icon: '?' },
-  { to: '/master', label: 'Painel Master', icon: '♛', sep: 'Plataforma', superAdmin: true },
+type NavItem = { to: string; label: string; icon?: string; roles?: Role[]; superAdmin?: boolean; module?: string; sub?: string; href?: string; end?: boolean };
+/** Menu por categoria: os três produtos primeiro (MCK ERP, MCKBOT, MCK Mensagens), depois gestão e conta. */
+const NAV_GROUPS: { id: string; label: string; icon: string; items: NavItem[] }[] = [
+  { id: 'erp', label: 'MCK ERP', icon: '◆', items: [
+    ...ERP_ITENS.map((i) => ({ ...i, module: 'erp_crm' })),
+    { to: '/erp/relatorios', label: 'Relatórios', module: 'erp_relatorios' },
+    { to: '/erp/funcionarios', label: 'Funcionários', module: 'equipe', roles: ['OWNER', 'ADMIN'] },
+  ] },
+  { id: 'bot', label: 'MCKBOT', icon: '✉', items: [
+    { to: '/', label: 'Visão geral', icon: '◧', end: true },
+    { to: '/inbox', module: 'inbox', label: 'Inbox', icon: '✉', sub: 'Atendimento' },
+    { to: '/kanban', module: 'kanban', label: 'Kanban', icon: '▦' },
+    { to: '/agenda', module: 'agenda', label: 'Agenda', icon: '📅' },
+    { to: '/contatos', module: 'contatos', label: 'Contatos', icon: '☺' },
+    { to: '/fluxos', module: 'fluxos', label: 'Fluxos', icon: '⇄', sub: 'Automação' },
+    { to: '/ia', module: 'ia', label: 'Inteligência artificial', icon: '✦' },
+    { to: '/produtos', module: 'ia', label: 'Produtos', icon: '▣' },
+    { to: '/canais', module: 'canais', label: 'Canais WhatsApp', icon: '☏' },
+    { to: '/integracoes', module: 'integracoes', label: 'Integrações', icon: '⚙', roles: ['OWNER', 'ADMIN'] },
+  ] },
+  { id: 'msg', label: 'MCK Mensagens', icon: '✆', items: [
+    { to: '/mensagem/', href: '/mensagem/', label: 'Abrir MCK Mensagens ↗', icon: '↗', roles: ['OWNER', 'ADMIN'], module: 'mensagens|automacoes' },
+  ] },
+  { id: 'gestao', label: 'Gestão', icon: '▤', items: [
+    { to: '/relatorios', module: 'relatorios', label: 'Relatórios', icon: '▤' },
+    { to: '/equipe', module: 'equipe', label: 'Equipe', icon: '♟' },
+    { to: '/plano', module: 'plano', label: 'Plano', icon: '◈' },
+    { to: '/auditoria', module: 'auditoria', label: 'Auditoria', icon: '☰', roles: ['OWNER', 'ADMIN'] },
+  ] },
+  { id: 'conta', label: 'Conta', icon: '☻', items: [
+    { to: '/perfil', label: 'Perfil', icon: '☻' },
+    { to: '/tutoriais', label: 'Tutoriais', icon: '▶' },
+    { to: '/boas-praticas', label: 'Boas práticas', icon: '?' },
+  ] },
+  { id: 'plataforma', label: 'Plataforma', icon: '♛', items: [
+    { to: '/master', label: 'Painel Master', icon: '♛', superAdmin: true },
+  ] },
 ];
+
+const ativo = (to: string, end: boolean | undefined, path: string) => (end || to === '/' ? path === to : path === to || path.startsWith(`${to}/`));
+
+/** Menu lateral em categorias que abrem e fecham; a categoria da página atual abre sozinha. */
+function SideNav() {
+  const { me, can, hasModule } = useAuth();
+  const loc = useLocation();
+  const visivel = (n: NavItem) => (!n.roles || can(...n.roles)) && (!n.module || n.module.split('|').some((m) => hasModule(m))) && (!n.superAdmin || me?.isSuperAdmin);
+  const grupos = NAV_GROUPS.map((g) => ({ ...g, items: g.items.filter(visivel) })).filter((g) => g.items.length);
+  const atual = grupos.find((g) => g.items.some((i) => !i.href && ativo(i.to, i.end, loc.pathname)))?.id;
+  const [abertos, setAbertos] = useState<string[]>(() => { try { return JSON.parse(localStorage.getItem('nav-abertos') ?? '["erp"]'); } catch { return ['erp']; } });
+  useEffect(() => { if (atual && !abertos.includes(atual)) setAbertos((a) => [...a, atual]); }, [atual]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { localStorage.setItem('nav-abertos', JSON.stringify(abertos)); }, [abertos]);
+  const alternar = (id: string) => setAbertos((a) => (a.includes(id) ? a.filter((x) => x !== id) : [...a, id]));
+  return (
+    <nav className="nav">
+      {grupos.map((g) => {
+        const aberto = abertos.includes(g.id);
+        return (
+          <div key={g.id} className={`nav-group ${g.id === atual ? 'current' : ''}`}>
+            <button type="button" className="nav-cat" aria-expanded={aberto} onClick={(e) => { e.stopPropagation(); alternar(g.id); }}>
+              <span aria-hidden>{g.icon}</span><span style={{ flex: 1 }}>{g.label}</span><span aria-hidden className="nav-caret">{aberto ? '▾' : '▸'}</span>
+            </button>
+            {aberto && <div className="nav-items">{g.items.map((n) => (
+              <div key={n.to}>
+                {n.sub && <div className="sep">{n.sub}</div>}
+                {n.href
+                  ? <a href={n.href}><span aria-hidden>{n.icon}</span>{n.label}</a>
+                  : <NavLink to={n.to} end={n.end || n.to === '/'} className={({ isActive }) => (isActive ? 'active' : '')}>{n.icon && <span aria-hidden>{n.icon}</span>}{n.label}</NavLink>}
+              </div>
+            ))}</div>}
+          </div>
+        );
+      })}
+    </nav>
+  );
+}
 
 /** Aviso quando o MCKBOT está vencido/bloqueado ou a API respondeu 402. */
 function SubscriptionBanner() {
@@ -163,16 +220,8 @@ function Shell({ children }: { children: ReactNode }) {
     <div className="app">
       <aside className={`sidebar ${open ? 'open' : ''}`} onClick={() => setOpen(false)}>
         <div className="brand"><img src="/logo.svg" alt="" /> MCKBOT</div>
-        <nav className="nav">
-          {NAV.filter((n) => (!n.roles || can(...n.roles)) && (!n.module || hasModule(n.module)) && (!n.superAdmin || me?.isSuperAdmin)).map((n) => (
-            <div key={n.to}>
-              {n.sep && <div className="sep">{n.sep}</div>}
-              <NavLink to={n.to} end={n.to === '/'} className={({ isActive }) => (isActive ? 'active' : '')}><span aria-hidden>{n.icon}</span>{n.label}</NavLink>
-            </div>
-          ))}
-        </nav>
+        <SideNav />
         <div className="side-foot" onClick={(e) => e.stopPropagation()}>
-          {can('OWNER', 'ADMIN') && (hasModule('mensagens') || hasModule('automacoes')) && <a href="/mensagem/" className="btn sm" style={{ background: '#0a0a0b', borderColor: '#e10a2c', color: '#fff', textDecoration: 'none' }}>Ir para MCK Mensagens ↗</a>}
           <label className="small" htmlFor="org-sel">Organização</label>
           <select id="org-sel" value={me?.org?.id} onChange={(e) => switchOrg(e.target.value)}>
             {me?.orgs.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
@@ -265,8 +314,11 @@ export default function App() {
             <Route path="/integracoes" element={<Integrations />} />
             <Route path="/erp" element={<ErpPainel />} />
             <Route path="/erp/funil" element={<ErpFunil />} />
-            <Route path="/erp/clientes" element={<ErpClientes />} />
+            <Route path="/erp/clientes" element={<ErpClientes key="c" />} />
             <Route path="/erp/clientes/:id" element={<ErpCliente360 />} />
+            <Route path="/erp/fornecedores" element={<ErpClientes key="f" papel="fornecedor" />} />
+            <Route path="/erp/fornecedores/:id" element={<ErpCliente360 />} />
+            <Route path="/erp/alertas" element={<ErpAlertas />} />
             <Route path="/erp/produtos" element={<ErpProdutos />} />
             <Route path="/erp/estoque" element={<ErpEstoque />} />
             <Route path="/erp/pedidos" element={<ErpPedidos />} />
@@ -278,6 +330,8 @@ export default function App() {
             <Route path="/erp/bi" element={<ErpBi />} />
             <Route path="/relatorios" element={<Reports />} />
             <Route path="/equipe" element={<Team />} />
+            <Route path="/erp/funcionarios" element={<Team erp />} />
+            <Route path="/erp/relatorios" element={<RelatoriosErp />} />
             <Route path="/plano" element={<Plan />} />
             <Route path="/assinatura" element={<Navigate to="/plano" replace />} />
             <Route path="/master" element={<Master />} />

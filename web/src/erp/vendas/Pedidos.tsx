@@ -4,6 +4,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { get, post } from '../../api';
 import { useApi, Async, Empty, Modal, Field, useAction, fmtDate } from '../../ui';
 import ErpNav from '../ErpNav';
+import VendaBalcao from './Balcao';
 import { brl, toCents, toMil, qtd, STATUS_PEDIDO } from '../format';
 
 const GRUPOS: { label: string; status: string }[] = [
@@ -26,12 +27,16 @@ export default function Pedidos() {
   const [grupo, setGrupo] = useState('');
   const state = useApi<any[]>(`/erp/vendas/pedidos?status=${grupo}`, [grupo]);
   const [novo, setNovo] = useState(!!sp.get('parceiroId'));
+  const [balcao, setBalcao] = useState(false);
   const nav = useNavigate();
   return (
     <>
       <div className="page-head">
         <div><h1>Pedidos de venda</h1><p className="muted">Do orçamento à entrega: aprovação, reserva de estoque, separação por QR e faturamento.</p></div>
-        <button className="btn primary" onClick={() => setNovo(true)}>+ Orçamento</button>
+        <div className="row" style={{ gap: 6 }}>
+          <button className="btn" onClick={() => setNovo(true)}>+ Orçamento</button>
+          <button className="btn primary" onClick={() => setBalcao(true)}>Venda balcão</button>
+        </div>
       </div>
       <ErpNav />
       <div className="row" style={{ marginBottom: 10, flexWrap: 'wrap' }}>{GRUPOS.map((g) => <button key={g.label} className={`btn sm ${grupo === g.status ? 'primary' : ''}`} onClick={() => setGrupo(g.status)}>{g.label}</button>)}</div>
@@ -44,6 +49,7 @@ export default function Pedidos() {
         </table></div>
       )}</Async>
       {novo && <NovoPedido parceiroId={sp.get('parceiroId')} oportunidadeId={sp.get('oportunidadeId')} onClose={() => setNovo(false)} onSaved={(p) => nav(`/erp/pedidos/${p.id}`)} />}
+      {balcao && <VendaBalcao onClose={() => setBalcao(false)} onDone={() => { setBalcao(false); state.reload(); }} />}
     </>
   );
 }

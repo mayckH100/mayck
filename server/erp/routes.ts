@@ -2,6 +2,10 @@
  * MCK ERP — roteador raiz (/api/erp). Cada módulo tem a própria pasta e o próprio sub-roteador.
  * Etapa 1: core + CRM. Etapa 2: produtos/, estoque/, vendas/. Etapa 3: compras/, producao/. Etapa 4: financeiro/, fiscal/. Etapa 5: bi/.
  */
+import { requireErpArea } from '../lib/permissions.js';
+import { relatoriosRouter } from './relatorios/relatorios.routes.js';
+import { balcaoRouter } from './vendas/balcao.routes.js';
+import { importacaoRouter } from './importacao/importacao.routes.js';
 import { Router } from 'express';
 import { coreRouter } from './core/core.routes.js';
 import { parceirosRouter } from './crm/parceiros.routes.js';
@@ -20,6 +24,7 @@ import { producaoRouter } from './producao/producao.routes.js';
 import { financeiroRouter } from './financeiro/financeiro.routes.js';
 import { fiscalRouter } from './fiscal/fiscal.routes.js';
 import { biRouter } from './bi/bi.routes.js';
+import { alertasRouter } from './alertas/alertas.routes.js';
 import { registrarConsumidoresFinanceiro } from './financeiro/consumidores.js';
 import { registrarConsumidoresVendas } from './vendas/consumidores.js';
 
@@ -33,16 +38,20 @@ erpRouter.use('/crm/parceiros', parceirosRouter);
 erpRouter.use('/crm/funil', funilRouter);
 erpRouter.use('/crm/interacoes', interacoesRouter);
 erpRouter.use('/crm/kpis', kpisRouter);
-erpRouter.use('/produtos', produtosRouter);
-erpRouter.use('/estoque/nfe', nfeRouter);
-erpRouter.use('/estoque/inventarios', inventarioRouter);
-erpRouter.use('/estoque', estoqueRouter);
-erpRouter.use('/vendas/pedidos', pedidosRouter);
-erpRouter.use('/compras', comprasRouter);
-erpRouter.use('/producao', producaoRouter);
-erpRouter.use('/financeiro', financeiroRouter);
-erpRouter.use('/fiscal', fiscalRouter);
-erpRouter.use('/bi', biRouter);
+erpRouter.use('/produtos', requireErpArea('erp_estoque', ['erp_vendas', 'erp_compras']), produtosRouter);
+erpRouter.use('/estoque/nfe', requireErpArea('erp_estoque', ['erp_compras']), nfeRouter);
+erpRouter.use('/estoque/inventarios', requireErpArea('erp_estoque'), inventarioRouter);
+erpRouter.use('/estoque', requireErpArea('erp_estoque', ['erp_vendas', 'erp_compras']), estoqueRouter);
+erpRouter.use('/vendas/balcao', requireErpArea('erp_vendas'), balcaoRouter);
+erpRouter.use('/vendas/pedidos', requireErpArea('erp_vendas', ['erp_estoque', 'erp_financeiro']), pedidosRouter);
+erpRouter.use('/compras', requireErpArea('erp_compras', ['erp_estoque', 'erp_financeiro']), comprasRouter);
+erpRouter.use('/producao', requireErpArea('erp_compras', ['erp_estoque']), producaoRouter);
+erpRouter.use('/financeiro', requireErpArea('erp_financeiro'), financeiroRouter);
+erpRouter.use('/fiscal', requireErpArea('erp_financeiro'), fiscalRouter);
+erpRouter.use('/bi', requireErpArea('erp_relatorios'), biRouter);
+erpRouter.use('/alertas', requireErpArea('erp_relatorios'), alertasRouter);
+erpRouter.use('/relatorios', requireErpArea('erp_relatorios'), relatoriosRouter);
+erpRouter.use('/io', importacaoRouter);
 
 /** Chamado na subida do servidor (fora dos testes). */
 export function iniciarErp() { iniciarDespachante(); }

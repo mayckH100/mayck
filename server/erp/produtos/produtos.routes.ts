@@ -5,7 +5,22 @@ import { prisma } from '../../db.js';
 import { ah, badRequest, notFound } from '../../lib/http.js';
 import { orgOf, requireRole } from '../../auth/session.js';
 import { auditar } from '../shared/auditoria.js';
+import bcrypt from 'bcryptjs';
 import { precoPorVolume } from '../vendas/calculo.js';
+import { HttpError } from '../../lib/http.js';
+import { notificarProprietario } from '../alertas/alertas.js';
+
+/** Custo que entra no CMV: custo médio + custos adicionais por unidade (embalagem, frete rateado...). */
+export function custoTotal(p: { custoMedioCents: number; custosAdicionais?: string | null }): number {
+  try { return p.custoMedioCents + (JSON.parse(p.custosAdicionais || '[]') as { valorCents: number }[]).reduce((a, c) => a + (Number(c.valorCents) || 0), 0); }
+  catch { return p.custoMedioCents; }
+}
+/** Produtos cujo custo veio de NF-e (XML): mudar o custo à mão exige a senha do usuário. */
+export async function comEntradaXml(orgId: string, ids: string[]) {
+  if (!ids.length) return new Set<string>();
+  const r = await prisma.erpMovimento.findMany({ where: { orgId, produtoId: { in: ids }, docTipo: 'nfe_entrada' }, distinct: ['produtoId'], select: { produtoId: true } });
+  return new Set(r.map((m) => m.produtoId));
+}
 
 export const produtosRouter = Router();
 const admins = requireRole('OWNER', 'ADMIN');
@@ -21,7 +36,7 @@ export const produtoSchema = z.object({
   controlaLote: z.boolean().default(false), controlaValidade: z.boolean().default(false), regraSaida: z.enum(['FIFO', 'FEFO']).default('FIFO'),
   estoqueMinimoMil: z.number().int().min(0).default(0), pontoPedidoMil: z.number().int().min(0).default(0),
   leadTimeDias: z.number().int().min(0).max(730).default(0), loteMinimoMil: z.number().int().min(0).default(0), fornecedorPadraoId: z.string().nullish(),
-  precoBaseCents: cents.default(0), tipo: z.enum(['REVENDA', 'PRODUZIDO', 'INSUMO', 'SERVICO']).default('REVENDA'), ativo: z.boolean().default(true),
+  precoBaseCents: cents.default(0), custoMedioCents: cents.optional(), custosAdicionais: z.array(z.object({ nome: z.string().trim().min(1).max(60), valorCents: cents })).max(20).default([]).transform((l) => JSON.stringify(l)), tipo: z.enum(['REVENDA', 'PRODUZIDO', 'INSUMO', 'SERVICO']).default('REVENDA'), ativo: z.boolean().default(true),
 }).refine((p) => !p.controlaValidade || p.controlaLote, { message: 'Controle de validade exige controle de lote', path: ['controlaValidade'] });
 
 /** Saldo agregado por produto (físico, reservado, quarentena, disponível). */
@@ -40,14 +55,31 @@ produtosRouter.get('/', ah(async (req, res) => {
   const where = { orgId, ...(req.query.ativos === '1' ? { ativo: true } : {}), ...(q ? { OR: [{ nome: { contains: q } }, { sku: { contains: q.toUpperCase() } }, { codigoBarras: q }] } : {}) };
   const items = await prisma.erpProduto.findMany({ where, orderBy: { nome: 'asc' }, take: 300 });
   const saldos = await saldosPorProduto(orgId, items.map((i) => i.id));
-  res.json({ items: items.map((p) => { const s = saldos.get(p.id) ?? ZERO; return { ...p, saldo: s, abaixoMinimo: p.tipo !== 'SERVICO' && p.estoqueMinimoMil > 0 && s.disponivelMil < p.estoqueMinimoMil, noPontoPedido: p.tipo !== 'SERVICO' && p.pontoPedidoMil > 0 && s.disponivelMil <= p.pontoPedidoMil }; }) });
+  const xml = await comEntradaXml(orgId, items.map((p) => p.id));
+  res.json({ items: items.map((p) => { const s = saldos.get(p.id) ?? ZERO; return { ...p, custoPorXml: xml.has(p.id), custoTotalCents: custoTotal(p), saldo: s, abaixoMinimo: p.tipo !== 'SERVICO' && p.estoqueMinimoMil > 0 && s.disponivelMil < p.estoqueMinimoMil, noPontoPedido: p.tipo !== 'SERVICO' && p.pontoPedidoMil > 0 && s.disponivelMil <= p.pontoPedidoMil }; }) });
 }));
+
+/** EAN-13 com dígito verificador. */
+export function digitoEan13(doze: string) {
+  const soma = doze.split('').reduce((a, c, i) => a + Number(c) * (i % 2 ? 3 : 1), 0);
+  return String((10 - (soma % 10)) % 10);
+}
+/** Código de barras interno (EAN-13 com prefixo 2, faixa de uso interno da GS1), único na empresa. */
+export async function gerarCodigoBarras(orgId: string): Promise<string> {
+  for (let i = 0; i < 20; i++) {
+    const doze = `2${String(Math.floor(Math.random() * 1e11)).padStart(11, '0')}`;
+    const ean = doze + digitoEan13(doze);
+    if (!(await prisma.erpProduto.findFirst({ where: { orgId, codigoBarras: ean }, select: { id: true } }))) return ean;
+  }
+  throw badRequest('Não foi possível gerar o código de barras; tente de novo');
+}
 
 produtosRouter.post('/', ah(async (req, res) => {
   const orgId = orgOf(req);
   const b = produtoSchema.parse(req.body);
   if (await prisma.erpProduto.findUnique({ where: { orgId_sku: { orgId, sku: b.sku } } })) throw badRequest(`SKU ${b.sku} já existe`);
-  const p = await prisma.erpProduto.create({ data: { orgId, ...b } });
+  const codigoBarras = b.codigoBarras || await gerarCodigoBarras(orgId);
+  const p = await prisma.erpProduto.create({ data: { orgId, ...b, codigoBarras } });
   await auditar(req, 'produto.criar', 'erp_produto', p.id, null, { sku: p.sku, nome: p.nome });
   res.status(201).json(p);
 }));
@@ -124,7 +156,26 @@ produtosRouter.put('/:id', ah(async (req, res) => {
   if (b.sku !== antes.sku && (await prisma.erpProduto.findUnique({ where: { orgId_sku: { orgId, sku: b.sku } } }))) throw badRequest(`SKU ${b.sku} já existe`);
   const temSaldo = (await prisma.erpSaldo.count({ where: { orgId, produtoId: antes.id, fisicoMil: { gt: 0 } } })) > 0;
   if (temSaldo && b.controlaLote !== antes.controlaLote) throw badRequest('Não dá para mudar o controle de lote com saldo em estoque');
-  const p = await prisma.erpProduto.update({ where: { id: antes.id }, data: b });
+  // Código de barras: mantém o atual se o campo vier vazio; gera um interno se o produto ainda não tem.
+  const codigoBarras = b.codigoBarras || antes.codigoBarras || await gerarCodigoBarras(orgId);
+  const mudouCusto = b.custoMedioCents !== undefined && b.custoMedioCents !== antes.custoMedioCents;
+  const porXml = mudouCusto && (await comEntradaXml(orgId, [antes.id])).has(antes.id);
+  if (porXml) {
+    const senha = typeof req.body?.senhaCusto === 'string' ? req.body.senhaCusto : '';
+    if (!senha) throw new HttpError(403, 'Este custo veio da nota fiscal (XML). Informe sua senha para alterar.');
+    const u = await prisma.user.findUnique({ where: { id: req.auth!.userId }, select: { passwordHash: true } });
+    if (!u || !(await bcrypt.compare(senha, u.passwordHash))) throw new HttpError(403, 'Senha incorreta. O custo não foi alterado.');
+  }
+  const p = await prisma.erpProduto.update({ where: { id: antes.id }, data: { ...b, codigoBarras } });
+  if (mudouCusto) await auditar(req, porXml ? 'produto.custo_xml' : 'produto.custo', 'erp_produto', p.id, { custoMedioCents: antes.custoMedioCents }, { custoMedioCents: b.custoMedioCents, origem: porXml ? 'custo da NF-e alterado com senha' : 'manual' });
+  const mudouExtras = (antes.custosAdicionais ?? '[]') !== (p.custosAdicionais ?? '[]');
+  if (porXml || (mudouExtras && (await comEntradaXml(orgId, [antes.id])).has(antes.id))) {
+    const quem = await prisma.user.findUnique({ where: { id: req.auth!.userId }, select: { name: true, email: true } });
+    const r = (c: number) => `R$ ${(c / 100).toFixed(2).replace('.', ',')}`;
+    const linhas = [`Produto: ${p.sku} · ${p.nome}`, porXml ? `Custo da nota (XML): ${r(antes.custoMedioCents)} → ${r(p.custoMedioCents)}` : null, mudouExtras ? `Custo total com extras: ${r(custoTotal(antes))} → ${r(custoTotal(p))}` : null, `Alterado por: ${quem?.name ?? ''} (${quem?.email ?? ''})`, `Quando: ${new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}`].filter(Boolean).join('\n');
+    void notificarProprietario(orgId, 'Custo de produto alterado', linhas);
+  }
+  if (mudouExtras) await auditar(req, 'produto.custos_adicionais', 'erp_produto', p.id, { custosAdicionais: antes.custosAdicionais }, { custosAdicionais: p.custosAdicionais });
   await auditar(req, 'produto.editar', 'erp_produto', p.id, { precoBaseCents: antes.precoBaseCents, ativo: antes.ativo }, { precoBaseCents: p.precoBaseCents, ativo: p.ativo });
   res.json(p);
 }));

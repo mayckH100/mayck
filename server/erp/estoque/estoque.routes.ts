@@ -8,7 +8,7 @@ import { orgOf, requireRole } from '../../auth/session.js';
 import { auditar } from '../shared/auditoria.js';
 import { entrada, saidaDoSaldo, transferir, mudarStatusLote } from './servico.js';
 import { disponivel } from './saldo.js';
-import { zpl, type DadosEtiqueta } from './etiquetas.js';
+import { zpl, textoQr, type DadosEtiqueta } from './etiquetas.js';
 import { configDa } from '../produtos/produtos.routes.js';
 
 export const estoqueRouter = Router();
@@ -131,7 +131,8 @@ async function dadosEtiquetas(orgId: string, loteIds: string[]) {
   const P = new Map(prods.map((p) => [p.id, p])); const F = new Map(forns.map((f) => [f.id, f.fantasia || f.nome]));
   return loteIds.map((id) => lotes.find((l) => l.id === id)).filter(Boolean).map((l): DadosEtiqueta & { loteId: string } => {
     const p = P.get(l!.produtoId)!; const unico = l!.numero === 'UNICO';
-    return { loteId: l!.id, qr: unico ? p.sku : l!.numero, sku: p.sku, nome: p.nome, unidade: p.unidade, lote: unico ? null : l!.numero, loteFornecedor: l!.loteFornecedor, validade: dataBR(l!.validade), fabricacao: dataBR(l!.fabricacao), fornecedor: l!.fornecedorId ? F.get(l!.fornecedorId) ?? null : null };
+    const lote = unico ? null : l!.numero; const validadeIso = l!.validade ? l!.validade.toISOString().slice(0, 10) : null;
+    return { loteId: l!.id, barras: lote ?? (p.codigoBarras || p.sku), qr: textoQr({ lote, loteFornecedor: l!.loteFornecedor, validadeIso, sku: p.sku, nome: p.nome }), sku: p.sku, nome: p.nome, unidade: p.unidade, lote: unico ? null : l!.numero, loteFornecedor: l!.loteFornecedor, validade: dataBR(l!.validade), fabricacao: dataBR(l!.fabricacao), fornecedor: l!.fornecedorId ? F.get(l!.fornecedorId) ?? null : null };
   });
 }
 const etqSchema = z.object({ itens: z.array(z.object({ loteId: z.string(), copias: z.number().int().min(1).max(999).default(1) })).min(1).max(500) });

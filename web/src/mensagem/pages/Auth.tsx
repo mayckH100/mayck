@@ -18,7 +18,7 @@ export const MmForgot = () => <ForgotPassword app="mensagem" Wrap={AuthLayout} B
 export const MmReset = () => <ResetPassword app="mensagem" Wrap={AuthLayout} Brand={MmBrand} />;
 export const MmVerify = () => <VerifyEmail Wrap={AuthLayout} Brand={MmBrand} />;
 export const MmCompletar = () => <CompleteCadastro Wrap={AuthLayout} Brand={MmBrand} />;
-const PLAN_NAME: Record<string, string> = { MCKBOT: 'MCKBOT', MCKMENSAGEM: 'MCK Mensagens', COMBO: 'Combo MCKBOT + MCK Mensagens' };
+const PLAN_NAME: Record<string, string> = { MCKBOT: 'MCKBOT', MCKMENSAGEM: 'MCK Mensagens', COMBO: 'Plano Completo: MCK ERP + MCKBOT + MCK Mensagens' };
 
 function AuthLayout({ children }: { children: ReactNode }) {
   return (

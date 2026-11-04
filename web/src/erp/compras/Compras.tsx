@@ -58,7 +58,7 @@ function NovaCotacao({ solicitacao, onClose, onDone }: { solicitacao?: any; onCl
     <Modal title={solicitacao ? `Cotar solicitação ${solicitacao.numero}` : 'Nova cotação'} onClose={onClose}>
       {!solicitacao && <EditorItens itens={itens} setItens={setItens} />}
       <Field label="Fornecedores convidados">
-        <BuscaParceiro tipo="" onPick={(p) => !forn.some((f) => f.id === p.id) && setForn([...forn, p])} />
+        <BuscaParceiro tipo="fornecedor" onPick={(p) => !forn.some((f) => f.id === p.id) && setForn([...forn, p])} />
         <div className="row" style={{ flexWrap: 'wrap', gap: 4, marginTop: 4 }}>{forn.map((f) => <span key={f.id} className="badge">{f.fantasia || f.nome} <button className="btn ghost sm" onClick={() => setForn(forn.filter((x) => x.id !== f.id))} aria-label="Remover">✕</button></span>)}</div>
       </Field>
       <div className="row" style={{ justifyContent: 'flex-end' }}><button className="btn primary" disabled={busy || !forn.length || (!solicitacao && !itens.length)} onClick={async () => { if (await run(() => post('/erp/compras/cotacoes', { solicitacaoId: solicitacao?.id ?? null, itens: solicitacao ? undefined : itens.map((i) => ({ produtoId: i.produto.id, qtdMil: toMil(i.qtd) })), fornecedores: forn.map((f) => f.id) }), 'Cotação aberta')) onDone(); }}>Abrir cotação</button></div>
@@ -139,7 +139,7 @@ function NovoPedidoCompra({ onClose, onDone }: { onClose: () => void; onDone: (i
   const total = itens.reduce((a, i) => a + Math.round((toMil(i.qtd) * toCents(i.preco ?? '0')) / 1000), 0) + toCents(f.frete);
   return (
     <Modal title="Novo pedido de compra" onClose={onClose}>
-      <Field label="Fornecedor">{forn ? <div className="row between"><strong>{forn.fantasia || forn.nome}</strong><button className="btn ghost sm" onClick={() => setForn(null)}>Trocar</button></div> : <BuscaParceiro tipo="" onPick={setForn} />}</Field>
+      <Field label="Fornecedor">{forn ? <div className="row between"><strong>{forn.fantasia || forn.nome}</strong><button className="btn ghost sm" onClick={() => setForn(null)}>Trocar</button></div> : <BuscaParceiro tipo="fornecedor" onPick={setForn} />}</Field>
       <EditorItens itens={itens} setItens={setItens} comPreco />
       <div className="grid g2">
         <Field label="Frete (R$)"><input value={f.frete} onChange={(e) => setF({ ...f, frete: e.target.value })} inputMode="decimal" /></Field>

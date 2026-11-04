@@ -19,7 +19,7 @@ export const Reset = () => <ResetPassword app="mckbot" Wrap={AuthWrap} Brand={Br
 export const Verify = () => <VerifyEmail Wrap={AuthWrap} Brand={Brand} />;
 export const Completar = () => <CompleteCadastro Wrap={AuthWrap} Brand={Brand} />;
 
-const PLAN_NAME: Record<string, string> = { MCKBOT: 'MCKBOT', MCKMENSAGEM: 'MCK Mensagens', COMBO: 'Combo MCKBOT + MCK Mensagens' };
+const PLAN_NAME: Record<string, string> = { MCKBOT: 'MCKBOT', MCKMENSAGEM: 'MCK Mensagens', COMBO: 'Plano Completo: MCK ERP + MCKBOT + MCK Mensagens' };
 
 export function Login() {
   const { setMe } = useAuth();

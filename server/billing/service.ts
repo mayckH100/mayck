@@ -17,10 +17,10 @@ export type Prices = Record<PlanProduct, Record<Cycle, number>>;
 export const DEFAULT_PRICES: Prices = {
   MCKBOT: { MENSAL: 3990, ANUAL: 39900 },
   MCKMENSAGEM: { MENSAL: 4500, ANUAL: 45000 },
-  COMBO: { MENSAL: 6990, ANUAL: 69900 },
+  COMBO: { MENSAL: 10000, ANUAL: 100000 }, // Plano Completo (ERP + MCKBOT + Mensagens): R$ 100/mês
 };
 
-export const PRODUCT_LABEL: Record<PlanProduct, string> = { MCKBOT: 'MCKBOT', MCKMENSAGEM: 'MCKMENSAGEM', COMBO: 'Combo MCKBOT + MCKMENSAGEM' };
+export const PRODUCT_LABEL: Record<PlanProduct, string> = { MCKBOT: 'MCKBOT', MCKMENSAGEM: 'MCKMENSAGEM', COMBO: 'Plano Completo: MCK ERP + MCKBOT + MCK Mensagens' };
 
 const DAY = 24 * 60 * 60 * 1000;
 export const isProduct = (v: unknown): v is Product => typeof v === 'string' && (PRODUCTS as readonly string[]).includes(v);
@@ -38,7 +38,7 @@ async function loadSettingsRow() {
   const found = await prisma.platformSettings.findUnique({ where: { id: 'default' } });
   if (found) return found;
   try {
-    return await prisma.platformSettings.create({ data: { id: 'default' } });
+    return await prisma.platformSettings.create({ data: { id: 'default', pricesJson: JSON.stringify(DEFAULT_PRICES) } });
   } catch (e: any) {
     if (e?.code !== 'P2002') throw e;
     return prisma.platformSettings.findUniqueOrThrow({ where: { id: 'default' } });
