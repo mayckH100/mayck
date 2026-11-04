@@ -79,7 +79,7 @@ export async function replyWithAi(conv: Conversation, contact: Contact, text: st
     const r = await generateAiReply({ orgId: conv.orgId, conversationId: conv.id, text });
     if (r.failed || r.error) {
       console.warn('[ia-whatsapp] IA sem resposta útil: texto de falha enviado, sem transferir', { orgId: conv.orgId, conversationId: conv.id, reason: r.reason, error: r.error });
-      await internalNote(`IA não conseguiu responder (${r.reason ?? 'motivo desconhecido'}). Enviado o texto de falha; a conversa continua com a IA (só transfere se o cliente pedir um atendente).`);
+      await internalNote(`IA não conseguiu responder (${r.reason ?? 'motivo desconhecido'}). ${r.text ? 'Enviado o texto de falha' : 'Nada enviado ao cliente (ele já recebeu o aviso de instabilidade nesta meia hora)'}; a conversa continua com a IA (só transfere se o cliente pedir um atendente). O Proprietário é avisado (Perfil › Números de aviso › Falha da IA).`);
     }
     if (r.text) {
       const m = await sendOutbound({ conversation: conv, contact, payload: { type: 'text', text: r.text }, sender: 'ai' });

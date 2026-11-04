@@ -23,7 +23,7 @@ export const MAX_NOTIFY_TRIES = 3;
 
 export interface NotifyResult { phone: string; ok: boolean; self?: boolean; via?: string; error?: string }
 export interface DeliveryReport { ok: boolean; results: NotifyResult[]; emailed: number; detail: string }
-export interface NotifyStatus { at: string; ok: boolean; detail: string; kind: 'handoff' | 'reminder' | 'test' | 'meeting' | 'task' | 'order' }
+export interface NotifyStatus { at: string; ok: boolean; detail: string; kind: 'handoff' | 'reminder' | 'test' | 'meeting' | 'task' | 'order' | 'ai_failure' }
 
 const digits = (s: string | null | undefined) => String(s ?? '').replace(/\D/g, '');
 
@@ -103,10 +103,19 @@ export async function deliverStaffAlert(args: {
   orgId: string; channelId?: string | null; text: string; kind: NotifyStatus['kind'];
   email?: { subject: string; title: string; lines: string[]; url?: string };
   phones?: string[];
+  /** Manda o e-mail para Proprietário/Admin mesmo quando o WhatsApp foi entregue (ex.: falha da IA). */
+  alwaysEmail?: boolean;
 }): Promise<DeliveryReport> {
   const org = await prisma.organization.findUnique({ where: { id: args.orgId } });
   if (!org) return { ok: false, results: [], emailed: 0, detail: 'Organização não encontrada' };
   const phones = (args.phones ?? orgNotifyPhones(org)).slice(0, MAX_NOTIFY_PHONES);
+  if (!phones.length && args.alwaysEmail && args.email) {
+    let emailed = 0;
+    for (const u of await ownerAdminEmails(args.orgId)) {
+      if (await sendMail(handoffMail({ to: u.email, name: u.name, subject: args.email.subject, title: args.email.title, lines: args.email.lines, url: args.email.url })).catch(() => false)) emailed++;
+    }
+    return { ok: emailed > 0, results: [], emailed, detail: emailed ? `Sem número de aviso; enviado por e-mail para ${emailed} Proprietário/Admin` : 'Sem número de aviso e nenhum e-mail enviado' };
+  }
   if (!phones.length) {
     const r = { ok: false, results: [], emailed: 0, detail: 'Nenhum número de aviso configurado (Perfil › Organização › Números de aviso (WhatsApp))' };
     await saveNotifyStatus(args.orgId, { ok: false, detail: r.detail, kind: args.kind });
@@ -116,9 +125,9 @@ export async function deliverStaffAlert(args: {
   for (const p of phones) results.push(await sendToStaffNumber(args.orgId, args.channelId, p, args.text));
   const okCount = results.filter((r) => r.ok).length;
   let emailed = 0;
-  if (!okCount && args.email) {
+  if ((!okCount || args.alwaysEmail) && args.email) {
     for (const u of await ownerAdminEmails(args.orgId)) {
-      const sent = await sendMail(handoffMail({ to: u.email, name: u.name, subject: args.email.subject, title: args.email.title, lines: [...args.email.lines, `O aviso por WhatsApp não foi entregue: ${results.map((r) => `${r.phone} — ${r.error}`).join('; ')}`], url: args.email.url })).catch(() => false);
+      const sent = await sendMail(handoffMail({ to: u.email, name: u.name, subject: args.email.subject, title: args.email.title, lines: okCount ? args.email.lines : [...args.email.lines, `O aviso por WhatsApp não foi entregue: ${results.map((r) => `${r.phone} — ${r.error}`).join('; ')}`], url: args.email.url })).catch(() => false);
       if (sent) emailed++;
     }
   }
@@ -126,9 +135,10 @@ export async function deliverStaffAlert(args: {
   const detail = okCount
     ? `Enviado para ${results.filter((r) => r.ok).map((r) => r.phone).join(', ')}${failed.length ? `; falhou: ${failed.map((r) => `${r.phone} (${r.error})`).join('; ')}` : ''}`
     : `Falhou: ${failed.map((r) => `${r.phone} (${r.error})`).join('; ')}${emailed ? `; enviado por e-mail para ${emailed} Proprietário/Admin` : ''}`;
-  await saveNotifyStatus(args.orgId, { ok: okCount > 0, detail, kind: args.kind });
+  const detailFull = okCount && emailed ? `${detail}; e-mail para ${emailed} Proprietário/Admin` : detail;
+  await saveNotifyStatus(args.orgId, { ok: okCount > 0, detail: detailFull, kind: args.kind });
   if (!okCount) console.error('[aviso-atendimento] falhou', { orgId: args.orgId, kind: args.kind, detail });
-  return { ok: okCount > 0, results, emailed, detail };
+  return { ok: okCount > 0, results, emailed, detail: detailFull };
 }
 
 /** Texto do aviso da transferência. */

@@ -106,6 +106,7 @@ orgRouter.patch('/', requireRole('OWNER', 'ADMIN'), ah(async (req, res) => {
     alertMeeting: z.boolean().optional(),
     alertTask: z.boolean().optional(),
     alertOrder: z.boolean().optional(),
+    alertAiFailure: z.boolean().optional(),
   }).parse(req.body);
   const { handoffNotifyPhones, ...rest } = body;
   const data: Record<string, unknown> = { ...rest };
@@ -131,7 +132,7 @@ orgRouter.get('/handoff-notify', requireRole('OWNER', 'ADMIN'), ah(async (req, r
   res.json({
     phones: orgNotifyPhones(org),
     handoffAlertMinutes: org.handoffAlertMinutes,
-    alerts: { handoff: org.alertHandoff !== false, meeting: org.alertMeeting !== false, task: org.alertTask !== false, order: org.alertOrder !== false },
+    alerts: { handoff: org.alertHandoff !== false, meeting: org.alertMeeting !== false, task: org.alertTask !== false, order: org.alertOrder !== false, aiFailure: org.alertAiFailure !== false },
     status: parseJson(org.handoffNotifyStatus, null),
     channels: chans.map((c) => ({ id: c.id, label: labels.get(c.id)?.label ?? 'WhatsApp', phone: c.displayPhone, connected: c.status === 'CONNECTED' })),
     suggestion: me?.phone ? normalizeBrPhone(me.phone) : null,

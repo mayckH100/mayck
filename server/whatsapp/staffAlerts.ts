@@ -2,6 +2,7 @@ import { prisma } from '../db.js';
 import { appUrl } from '../lib/mailer.js';
 import { safeTz, zonedParts } from '../agenda/time.js';
 import { deliverStaffAlert, orgNotifyPhones, samePhone, conversationUrl, type DeliveryReport } from './handoffNotify.js';
+import { channelInfo } from './channelLabel.js';
 
 /**
  * Avisos de eventos para os "Números de aviso (WhatsApp)" do Perfil › Organização (os mesmos da transferência
@@ -17,13 +18,13 @@ import { deliverStaffAlert, orgNotifyPhones, samePhone, conversationUrl, type De
  *   se nenhum número recebeu, e-mail para Proprietário/Admin.
  */
 
-export type StaffEvent = 'handoff' | 'meeting' | 'task' | 'order';
+export type StaffEvent = 'handoff' | 'meeting' | 'task' | 'order' | 'ai_failure';
 
-type OrgFlags = { alertHandoff?: boolean | null; alertMeeting?: boolean | null; alertTask?: boolean | null; alertOrder?: boolean | null };
+type OrgFlags = { alertHandoff?: boolean | null; alertMeeting?: boolean | null; alertTask?: boolean | null; alertOrder?: boolean | null; alertAiFailure?: boolean | null };
 
 /** O tipo de aviso está ligado? (coluna ausente/nula = ligado). */
 export function alertEnabled(org: OrgFlags, ev: StaffEvent): boolean {
-  const v = { handoff: org.alertHandoff, meeting: org.alertMeeting, task: org.alertTask, order: org.alertOrder }[ev];
+  const v = { handoff: org.alertHandoff, meeting: org.alertMeeting, task: org.alertTask, order: org.alertOrder, ai_failure: org.alertAiFailure }[ev];
   return v !== false;
 }
 
@@ -90,7 +91,7 @@ export async function userName(userId: string | null | undefined): Promise<strin
 export const appLink = (path: string) => `${appUrl()}${path}`;
 export const linkFor = (conversationId: string | null | undefined, fallbackPath: string) => (conversationId ? conversationUrl(conversationId) : appLink(fallbackPath));
 
-const LABEL: Record<StaffEvent, string> = { handoff: 'Transferência', meeting: 'Nova reunião', task: 'Nova tarefa', order: 'Novo pedido' };
+const LABEL: Record<StaffEvent, string> = { handoff: 'Transferência', meeting: 'Nova reunião', task: 'Nova tarefa', order: 'Novo pedido', ai_failure: 'Falha da IA' };
 
 // Um aviso por evento (mesmo processo); limpa quando cresce demais.
 const sentKeys = new Set<string>();
@@ -148,4 +149,83 @@ export function notifyStaffEventInBackground(a: StaffEventArgs) {
 /** Testes: espera os avisos em andamento. */
 export async function flushStaffAlerts() {
   while (pending.size) await Promise.all([...pending]);
+}
+
+// ---------- Falha da IA (pedido do dono, 2026-11-04) ----------
+
+/** Intervalo mínimo (ms) entre alertas da mesma conversa. AI_FAILURE_ALERT_MIN; padrão 30 min. */
+export function aiFailureAlertWindowMs(): number {
+  const v = Number(process.env.AI_FAILURE_ALERT_MIN);
+  return (Number.isFinite(v) && v > 0 ? v : 30) * 60_000;
+}
+/** Intervalo mínimo (ms) entre alertas da mesma organização (agrupa quedas que pegam várias conversas). AI_FAILURE_ORG_ALERT_MIN; padrão 5 min. */
+export function aiFailureOrgWindowMs(): number {
+  const v = Number(process.env.AI_FAILURE_ORG_ALERT_MIN);
+  return (Number.isFinite(v) && v >= 0 ? v : 5) * 60_000;
+}
+
+const aiConvLast = new Map<string, number>();
+const aiOrgLast = new Map<string, { at: number; suppressed: number }>();
+/** Testes: zera o controle de repetição. */
+export function resetAiFailureAlerts() { aiConvLast.clear(); aiOrgLast.clear(); }
+
+/** Texto do alerta de falha da IA (WhatsApp; a 1ª linha vira o título do e-mail). Puro. */
+export function aiFailureAlertText(o: { org: string; who: string; when: string; reason: string; error?: string | null; via?: string | null; repeated?: boolean; others?: number; url: string }): string {
+  const err = o.error && !o.reason.includes(o.error) ? ` (${o.error.slice(0, 200)})` : '';
+  return [
+    '⚠️ A IA não conseguiu responder um cliente',
+    `Empresa: ${o.org}`,
+    `Contato: ${o.who}`,
+    `Quando: ${o.when}`,
+    `Motivo: ${o.reason}${err}`,
+    o.via ? `WhatsApp: ${o.via}` : '',
+    o.repeated ? 'Falhou de novo nesta conversa: o cliente recebeu o aviso de instabilidade com a opção de falar com um atendente.' : 'O cliente recebeu o texto de falha; a IA segue tentando nas próximas mensagens.',
+    o.others ? `Mais ${o.others} falha(s) da IA em outras conversas desde o último alerta.` : '',
+    'Responda pelo app se for urgente.',
+    `Abrir conversa: ${o.url}`,
+  ].filter(Boolean).join('\n');
+}
+
+export interface AiFailureArgs { orgId: string; conversationId: string; reason: string; error?: string | null; repeated?: boolean; now?: Date }
+
+/**
+ * Alerta o Proprietário quando a IA não consegue responder um cliente: WhatsApp nos números de aviso
+ * (deliverStaffAlert) E e-mail (Brevo) para Proprietário/Admin. No máximo 1 por conversa a cada 30 min e
+ * 1 por organização a cada 5 min (as falhas seguradas entram como contagem no próximo). Desligável no Perfil
+ * (Organization.alertAiFailure). Retorna null quando nada foi enviado. Nunca lança.
+ */
+export async function notifyAiFailure(a: AiFailureArgs): Promise<DeliveryReport | null> {
+  try {
+    const now = (a.now ?? new Date()).getTime();
+    const lastConv = aiConvLast.get(a.conversationId);
+    if (lastConv !== undefined && now - lastConv < aiFailureAlertWindowMs()) return null;
+    const org = await prisma.organization.findUnique({ where: { id: a.orgId } });
+    if (!org || !alertEnabled(org, 'ai_failure')) return null;
+    const ol = aiOrgLast.get(a.orgId);
+    if (ol && now - ol.at < aiFailureOrgWindowMs()) { ol.suppressed++; aiConvLast.set(a.conversationId, now); return null; }
+    aiConvLast.set(a.conversationId, now);
+    if (aiConvLast.size > 5000) aiConvLast.clear();
+    const others = ol?.suppressed ?? 0;
+    aiOrgLast.set(a.orgId, { at: now, suppressed: 0 });
+    const conv = await prisma.conversation.findFirst({ where: { id: a.conversationId, orgId: a.orgId }, select: { contactId: true, channelId: true } });
+    const who = (await contactLabel(a.orgId, conv?.contactId)) ?? 'Contato';
+    const via = conv?.channelId ? (await channelInfo(a.orgId, conv.channelId).catch(() => null))?.via ?? null : null;
+    const url = conversationUrl(a.conversationId);
+    const text = aiFailureAlertText({ org: org.name, who, when: formatWhen(new Date(now), org.timezone), reason: a.reason, error: a.error, via, repeated: a.repeated, others, url });
+    const [head, ...rest] = text.split('\n');
+    return await deliverStaffAlert({
+      orgId: a.orgId, channelId: conv?.channelId ?? null, kind: 'ai_failure', text, alwaysEmail: true,
+      email: { subject: `Falha da IA: ${who} (${org.name})`, title: head, lines: rest.filter((l) => !l.startsWith('Abrir conversa:')), url },
+    });
+  } catch (e) {
+    console.error('[aviso-ia-falha] erro inesperado', (e as Error).message);
+    return null;
+  }
+}
+
+/** Dispara o alerta de falha da IA sem esperar (não atrasa a resposta ao cliente). */
+export function notifyAiFailureInBackground(a: AiFailureArgs) {
+  const p = notifyAiFailure(a).catch(() => null);
+  pending.add(p);
+  p.finally(() => pending.delete(p));
 }

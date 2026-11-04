@@ -81,10 +81,10 @@ describe('Números de aviso (WhatsApp): reunião, tarefa, pedido e transferênci
 
   it('Perfil: opções ligadas por padrão, salvam e voltam no GET', async () => {
     const g = await owner.get('/api/org/handoff-notify');
-    expect(g.body.alerts).toEqual({ handoff: true, meeting: true, task: true, order: true });
+    expect(g.body.alerts).toEqual({ handoff: true, meeting: true, task: true, order: true, aiFailure: true });
     const r = await owner.patch('/api/org', { handoffNotifyPhones: [`+${AVISO}`, `+${AVISO2}`], alertTask: false });
     expect(r.status).toBe(200);
-    expect((await owner.get('/api/org/handoff-notify')).body.alerts).toEqual({ handoff: true, meeting: true, task: false, order: true });
+    expect((await owner.get('/api/org/handoff-notify')).body.alerts).toEqual({ handoff: true, meeting: true, task: false, order: true, aiFailure: true });
     expect((await agent.patch('/api/org', { alertTask: true })).status).toBe(403);
     expect((await owner.patch('/api/org', { alertTask: true })).status).toBe(200);
   });

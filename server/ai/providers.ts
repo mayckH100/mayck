@@ -17,10 +17,10 @@ export class AiProviderError extends Error {
   }
 }
 
-/** Tempo máximo de cada chamada ao provedor (ms). AI_TIMEOUT_MS no ambiente; padrão 20 s. */
+/** Tempo máximo de cada chamada ao provedor (ms). AI_TIMEOUT_MS no ambiente; padrão 18 s (com modelo reserva, 3 tentativas cabem no total). */
 export function aiTimeoutMs(): number {
   const v = Number(process.env.AI_TIMEOUT_MS);
-  return Number.isFinite(v) && v > 0 ? v : 20000;
+  return Number.isFinite(v) && v > 0 ? v : 18000;
 }
 
 /** Converte erros de rede/abort em AiProviderError com texto legível. */
@@ -139,22 +139,79 @@ export class GeminiProvider implements AiProvider {
 }
 
 /**
+ * Modelo reserva do Gemini (falha 2026-11-04: modelo principal sobrecarregado, HTTP 503 "high demand" e
+ * timeouts de 20 s). Escolhe, entre os modelos que a chave enxerga (ListModels, grátis), outro modelo Flash
+ * da mesma camada gratuita: se o principal é "lite", usa um Flash normal; senão, um Flash-Lite. Nunca "pro"
+ * (cota grátis mínima e mais lento). AI_FALLBACK_MODEL no ambiente força o modelo (vazio/"off" desliga).
+ * Puro, testável.
+ */
+export function pickGeminiFallbackModel(primary: string, available: string[]): string | null {
+  const clean = (m: string) => m.replace(/^models\//, '');
+  const prim = clean(primary);
+  const ver = (m: string) => Number(m.match(/^gemini-(\d+(?:\.\d+)?)/)?.[1] ?? 0);
+  const bad = /(pro|tts|image|imagen|live|audio|embedding|vision|thinking|computer|robotics|native|learnlm|aqa|gemma)/;
+  const cands = [...new Set(available.map(clean))].filter((m) => /^gemini-\d/.test(m) && m.includes('flash') && !bad.test(m) && m !== prim);
+  if (!cands.length) return null;
+  const wantLite = !/lite/.test(prim);
+  const score = (m: string) =>
+    (/lite/.test(m) === wantLite ? 1000 : 0) + // camada oposta (mais chance de não estar sobrecarregada)
+    (/(preview|exp)/.test(m) ? 0 : 200) + // estável antes de prévia
+    (/-\d{3}$|-\d{2}-\d{4}$/.test(m) ? 0 : 50) + // alias ("-latest"/sem data) antes de versão fixa
+    ver(m) * 10; // mais novo primeiro
+  return cands.sort((a, b) => score(b) - score(a) || a.localeCompare(b))[0];
+}
+
+const modelListCache = new Map<string, { at: number; models: string[] }>();
+/** Modelos do Gemini que a chave pode usar com generateContent (cache de 6 h). Nunca lança: erro → lista vazia. */
+export async function listGeminiModels(apiKey: string, baseUrl = 'https://generativelanguage.googleapis.com/v1beta'): Promise<string[]> {
+  const hit = modelListCache.get(apiKey);
+  if (hit && Date.now() - hit.at < 6 * 3600_000) return hit.models;
+  try {
+    const res = await httpFetch(`${baseUrl}/models?pageSize=1000`, { headers: { 'x-goog-api-key': apiKey }, signal: AbortSignal.timeout(5000) });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const json: any = await res.json();
+    const models = (Array.isArray(json?.models) ? json.models : [])
+      .filter((m: any) => !Array.isArray(m?.supportedGenerationMethods) || m.supportedGenerationMethods.includes('generateContent'))
+      .map((m: any) => String(m?.name ?? '').replace(/^models\//, '')).filter(Boolean);
+    modelListCache.set(apiKey, { at: Date.now(), models });
+    return models;
+  } catch (e) {
+    console.warn('[ia] não foi possível listar os modelos do Gemini (sem modelo reserva por agora)', (e as Error).message);
+    modelListCache.set(apiKey, { at: Date.now() - 5.5 * 3600_000, models: [] }); // tenta de novo em ~30 min
+    return [];
+  }
+}
+
+/** Modelo reserva para o provedor/modelo configurado (null = nenhum). Nunca lança. */
+export async function fallbackModelFor(provider: string, model: string, apiKey: string | null): Promise<string | null> {
+  const env = process.env.AI_FALLBACK_MODEL;
+  if (env !== undefined) {
+    const v = env.trim();
+    return !v || /^(off|nao|não|none|0)$/i.test(v) || v === model ? null : v;
+  }
+  if (provider !== 'gemini' || !apiKey) return null;
+  return pickGeminiFallbackModel(model, await listGeminiModels(apiKey));
+}
+
+/**
  * Provedor determinístico usado SOMENTE nos testes automatizados (NODE_ENV=test).
  * Responde com o trecho de contexto mais relevante; sem contexto, pede transferência.
  * Mensagens contendo "falhar" simulam erro do provedor; "inventar" simula preço inventado.
  */
 /** Só para testes: respostas roteirizadas (consumidas em ordem) e as conversas que a IA recebeu. */
-export const fakeAi: { script: string[]; calls: ChatMessage[][] } = { script: [], calls: [] };
+export const fakeAi: { script: string[]; calls: ChatMessage[][]; models: string[] } = { script: [], calls: [], models: [] };
 
 export class FakeProvider implements AiProvider {
   name = 'fake';
-  async chat(messages: ChatMessage[]): Promise<ChatResult> {
+  async chat(messages: ChatMessage[], opts?: ChatOptions): Promise<ChatResult> {
     fakeAi.calls.push(messages);
+    if (opts?.model) fakeAi.models.push(opts.model);
     const scripted = fakeAi.script.shift();
     // Roteiros especiais para simular falhas do provedor real.
     if (scripted === '__EMPTY__') throw new AiProviderError('empty', 'Gemini devolveu resposta vazia (STOP)', true);
     if (scripted === '__SAFETY__') throw new AiProviderError('blocked', 'Resposta bloqueada pelo filtro do Gemini (SAFETY)', true, 'SAFETY');
     if (scripted === '__HANG__') return new Promise<ChatResult>(() => undefined); // nunca responde
+    if (scripted === '__503__') throw new AiProviderError('http', 'This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.', true, '503');
     if (scripted !== undefined) return { text: scripted, promptTokens: 10, completionTokens: 10 };
     const user = [...messages].reverse().find((m) => m.role === 'user')?.content ?? '';
     const system = messages.find((m) => m.role === 'system')?.content ?? '';

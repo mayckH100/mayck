@@ -68,12 +68,13 @@ const samePhone = (a?: string | null, b?: string | null) => {
   return !!br(x) && br(x) === br(y);
 };
 
-type AlertKey = 'handoff' | 'meeting' | 'task' | 'order';
+type AlertKey = 'handoff' | 'meeting' | 'task' | 'order' | 'aiFailure';
 const ALERT_OPTIONS: [AlertKey, string, string][] = [
   ['handoff', 'Transferência para humano', 'a IA, o fluxo ou a qualificação passou o contato para um atendente'],
   ['meeting', 'Reunião marcada', 'pela IA/fluxo no WhatsApp ou pela equipe na Agenda'],
   ['task', 'Tarefa criada', 'tarefas da Agenda (também as criadas pelo Kanban)'],
   ['order', 'Pedido feito', 'pedido do cliente no WhatsApp e pedidos/vendas do MCK ERP'],
+  ['aiFailure', 'Falha da IA', 'a IA não conseguiu responder um cliente (ex.: provedor de IA fora do ar); vai também por e-mail, no máximo 1 por conversa a cada 30 min'],
 ];
 
 /** Números que recebem no WhatsApp os avisos (transferência, reunião, tarefa, pedido) + "Enviar teste". */
@@ -81,14 +82,14 @@ function HandoffNotifyCard({ onSaved }: { onSaved: () => void }) {
   const [data, setData] = useState<any>(null);
   const [phones, setPhones] = useState<string[]>(['']);
   const [result, setResult] = useState<any>(null);
-  const [alerts, setAlerts] = useState<Record<AlertKey, boolean>>({ handoff: true, meeting: true, task: true, order: true });
+  const [alerts, setAlerts] = useState<Record<AlertKey, boolean>>({ handoff: true, meeting: true, task: true, order: true, aiFailure: true });
   const { busy, run } = useAction();
   const load = async () => {
     const d = await get('/org/handoff-notify').catch(() => null);
     if (!d) return;
     setData(d);
     setPhones(d.phones.length ? d.phones : ['']);
-    if (d.alerts) setAlerts({ handoff: d.alerts.handoff !== false, meeting: d.alerts.meeting !== false, task: d.alerts.task !== false, order: d.alerts.order !== false });
+    if (d.alerts) setAlerts({ handoff: d.alerts.handoff !== false, meeting: d.alerts.meeting !== false, task: d.alerts.task !== false, order: d.alerts.order !== false, aiFailure: d.alerts.aiFailure !== false });
   };
   useEffect(() => { load(); }, []);
   // Atalhos da Visão geral/Inbox/Canais abrem /perfil#avisos-atendimento: rola até o cartão quando ele carrega.
@@ -99,7 +100,7 @@ function HandoffNotifyCard({ onSaved }: { onSaved: () => void }) {
   const selfOf = (p: string) => data?.channels?.find((c: any) => samePhone(c.phone, p));
   const st = data?.status;
   return (
-    <form id="avisos-atendimento" className="card stack" onSubmit={async (e) => { e.preventDefault(); if (await run(() => patch('/org', { handoffNotifyPhones: list, alertHandoff: alerts.handoff, alertMeeting: alerts.meeting, alertTask: alerts.task, alertOrder: alerts.order }), list.length ? 'Números de aviso salvos' : 'Avisos desligados')) { await load(); onSaved(); } }}>
+    <form id="avisos-atendimento" className="card stack" onSubmit={async (e) => { e.preventDefault(); if (await run(() => patch('/org', { handoffNotifyPhones: list, alertHandoff: alerts.handoff, alertMeeting: alerts.meeting, alertTask: alerts.task, alertOrder: alerts.order, alertAiFailure: alerts.aiFailure }), list.length ? 'Números de aviso salvos' : 'Avisos desligados')) { await load(); onSaved(); } }}>
       <h2>Números de aviso (WhatsApp)</h2>
       <p className="muted small" style={{ margin: 0 }}>Estes números recebem na hora uma mensagem no WhatsApp com o contato e o link para abrir no app. Pode ser o <strong>WhatsApp particular do proprietário</strong> ou o celular de quem atende — não use o número conectado no MCKBOT (o WhatsApp não avisa o próprio número).</p>
       {data && !data.phones.length && (

@@ -21,6 +21,16 @@ export type EntradaChangelog = {
 
 export const CHANGELOG: EntradaChangelog[] = [
   {
+    versao: '1.13.0',
+    data: '04/11/2026',
+    titulo: 'IA mais estável e aviso quando ela não consegue responder',
+    itens: [
+      'Quando o serviço de IA fica lento ou sobrecarregado, o atendimento tenta de novo e usa automaticamente outro modelo gratuito antes de desistir.',
+      'O cliente não recebe mais a mesma mensagem de falha duas vezes seguidas: na segunda vez, ele é avisado da instabilidade e pode pedir um atendente.',
+      'Nova opção "Falha da IA" nos Números de aviso (Perfil › Organização), ligada por padrão: você recebe no WhatsApp e por e-mail o contato, o horário, o motivo e o link da conversa, no máximo uma vez a cada 30 minutos por conversa.',
+    ],
+  },
+  {
     versao: '1.12.0',
     data: '04/11/2026',
     titulo: 'Número da versão e histórico de novidades',

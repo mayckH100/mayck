@@ -128,11 +128,13 @@ model Organization {
   handoffNotifyPhones String?
   /// Resultado do último aviso de atendimento (JSON: { at, ok, detail }), mostrado no Perfil.
   handoffNotifyStatus String?
-  /// O que os números de aviso recebem no WhatsApp (Perfil › Organização): transferência, reunião, tarefa, pedido.
+  /// O que os números de aviso recebem no WhatsApp (Perfil › Organização): transferência, reunião, tarefa, pedido, falha da IA.
   alertHandoff        Boolean      @default(true)
   alertMeeting        Boolean      @default(true)
   alertTask           Boolean      @default(true)
   alertOrder          Boolean      @default(true)
+  /// Falha da IA (não conseguiu responder um cliente): WhatsApp + e-mail ao Proprietário/Admin, máx. 1 por conversa a cada 30 min.
+  alertAiFailure      Boolean      @default(true)
   createdAt           DateTime     @default(now())
   memberships         Membership[]
 }

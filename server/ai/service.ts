@@ -1,10 +1,12 @@
 import { prisma } from '../db.js';
 import { decryptOrNull } from '../lib/crypto.js';
 import { parseJson } from '../lib/json.js';
-import { createProvider, aiTimeoutMs, AiProviderError, type ChatMessage, type ChatResult } from './providers.js';
+import { createProvider, aiTimeoutMs, fallbackModelFor, AiProviderError, type ChatMessage, type ChatResult } from './providers.js';
 import { rank, chunkText } from './rag.js';
 import { HANDOFF_TOKEN } from './guard.js';
 import { failureText, isExplicitHumanRequest, DEFAULT_FAILURE_TEXT } from './humanRequest.js';
+import { failureTextFor } from './failurePolicy.js';
+import { notifyAiFailureInBackground } from '../whatsapp/staffAlerts.js';
 import { knowledgePromptSection } from './siteKnowledge.js';
 import { kanbanPromptSection, applyKanbanTag } from './kanbanAuto.js';
 import { normalize } from '../flows/logic.js';
@@ -66,10 +68,21 @@ export function withTimeout<T>(p: Promise<T>, ms: number, onTimeout: () => Error
   return Promise.race([p, new Promise<T>((_, rej) => { t = setTimeout(() => rej(onTimeout()), ms); })]).finally(() => clearTimeout(t));
 }
 
-/** Tempo total (ms) para as duas tentativas somadas. AI_TOTAL_TIMEOUT_MS; padrão 45 s. */
+/** Tempo total (ms) para todas as tentativas somadas. AI_TOTAL_TIMEOUT_MS; padrão 50 s. */
 export function aiTotalBudgetMs(): number {
   const v = Number(process.env.AI_TOTAL_TIMEOUT_MS);
-  return Number.isFinite(v) && v > 0 ? v : 45000;
+  return Number.isFinite(v) && v > 0 ? v : 50000;
+}
+
+/** Falha passageira do provedor (vale trocar de modelo e tentar de novo): timeout, rede, HTTP 429/5xx. */
+const transient = (e: unknown) => e instanceof AiProviderError && (e.code === 'timeout' || e.code === 'network' || (e.code === 'http' && e.retryable));
+/** Sobrecarga/limite (HTTP 429/503): espera curta antes da próxima tentativa. */
+const overloaded = (e: unknown) => e instanceof AiProviderError && e.code === 'http' && (e.detail === '429' || e.detail === '503');
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+/** Espera curta (ms) após 429/503. AI_RETRY_BACKOFF_MS; padrão 1,5 s. */
+export function aiBackoffMs(): number {
+  const v = Number(process.env.AI_RETRY_BACKOFF_MS);
+  return Number.isFinite(v) && v >= 0 ? v : 1500;
 }
 
 /** Motivo legível (para o painel/teste e para o log) de uma falha do provedor. */
@@ -102,14 +115,22 @@ export async function generateAiReply(args: { orgId: string; conversationId: str
   // estouro do tempo total vira transferência com a mensagem de fallback, e o motivo vai para o log.
   const hard = aiTotalBudgetMs() + 15000;
   let fallback = DEFAULT_FALLBACK;
+  let r: AiReply;
   try {
-    return await withTimeout(generateAiReplyInner(args, (f) => { fallback = f; }), hard, () => new Error(`IA excedeu ${Math.round(hard / 1000)} s no total`));
+    r = await withTimeout(generateAiReplyInner(args, (f) => { fallback = f; }), hard, () => new Error(`IA excedeu ${Math.round(hard / 1000)} s no total`));
   } catch (e) {
     const msg = (e as Error).message;
     console.error('[ia] falha inesperada ao gerar resposta', { orgId: args.orgId, conversationId: args.conversationId || null, error: msg });
     await prisma.aiUsage.create({ data: { orgId: args.orgId, conversationId: args.conversationId || null, provider: '-', model: '-', success: false, handoff: false, error: msg.slice(0, 500) } }).catch(() => undefined);
-    return { text: fallback, handoff: false, failed: true, reason: 'Falha ao gerar a resposta da IA', error: msg, usedContext: false };
+    r = { text: fallback, handoff: false, failed: true, reason: 'Falha ao gerar a resposta da IA', error: msg, usedContext: false };
   }
+  // Falha numa conversa real (não no "Testar"): não repete o mesmo texto de falha e avisa o dono.
+  if (r.failed && r.text && args.conversationId) {
+    const text = await failureTextFor(args.orgId, args.conversationId, r.text);
+    notifyAiFailureInBackground({ orgId: args.orgId, conversationId: args.conversationId, reason: r.reason ?? 'IA não conseguiu responder', error: r.error, repeated: text !== r.text });
+    r = { ...r, text };
+  }
+  return r;
 }
 
 async function generateAiReplyInner(args: { orgId: string; conversationId: string; text: string; extraInstructions?: string }, setFallback: (f: string) => void): Promise<AiReply> {
@@ -170,18 +191,32 @@ async function generateAiReplyInner(args: { orgId: string; conversationId: strin
   const budget = aiTotalBudgetMs();
   let lastError = '';
   let lastErr: unknown = null;
-  for (let attempt = 1; attempt <= 2; attempt++) {
+  let firstErr: unknown = null;
+  // Tentativas (falha de 2026-11-04: Gemini sobrecarregado, 503 + timeouts): 1ª no modelo configurado;
+  // 2ª no modelo reserva (outro Flash grátis da mesma chave), se houver; 3ª de volta ao principal, só para
+  // falha passageira (timeout/rede/429/5xx) e se ainda couber no tempo total. Após 429/503, espera curta.
+  const apiKey = decryptOrNull(s.apiKeyEnc);
+  const reserve = await fallbackModelFor(s.provider, s.model, apiKey).catch(() => null);
+  const plan = reserve ? [s.model, reserve, s.model] : [s.model, s.model];
+  for (let attempt = 1; attempt <= plan.length; attempt++) {
+    const model = plan[attempt - 1];
+    if (attempt === 3 && !transient(firstErr)) break;
     try {
-      const provider = createProvider(s.provider, decryptOrNull(s.apiKeyEnc), s.baseUrl);
+      const provider = createProvider(s.provider, apiKey, s.baseUrl);
+      if (attempt > 1 && overloaded(lastErr)) await sleep(Math.min(aiBackoffMs(), Math.max(0, budget - (Date.now() - started) - 2000)));
       const remaining = budget - (Date.now() - started);
-      if (remaining < 1000) throw new AiProviderError('timeout', `Provedor de IA não respondeu em ${Math.round(budget / 1000)} s`, false);
+      if (remaining < (attempt === 1 ? 1000 : Math.min(3000, aiTimeoutMs() / 2))) {
+        if (attempt === 1) throw new AiProviderError('timeout', `Provedor de IA não respondeu em ${Math.round(budget / 1000)} s`, false);
+        break; // sem tempo para outra tentativa útil: fica o erro anterior
+      }
       const timeoutMs = Math.min(aiTimeoutMs(), remaining);
       // Timeout próprio além do do fetch: cobre qualquer provedor que não respeite o sinal.
       // Pesquisa no Google (grounding) só quando ligada, em modelo com cota grátis, e quando o cliente compara com concorrentes.
-      const search = s.webSearch && s.provider === 'gemini' && freeSearchModel(s.model) && mentionsCompetitor(text) && attempt === 1;
-      const r: ChatResult = await withTimeout(provider.chat(messages, { model: s.model, temperature: s.temperature, maxTokens: s.maxTokens, timeoutMs, googleSearch: search }), timeoutMs + 500,
+      const search = s.webSearch && s.provider === 'gemini' && freeSearchModel(model) && mentionsCompetitor(text) && attempt === 1;
+      const r: ChatResult = await withTimeout(provider.chat(messages, { model, temperature: s.temperature, maxTokens: s.maxTokens, timeoutMs, googleSearch: search }), timeoutMs + 500,
         () => new AiProviderError('timeout', `Provedor de IA não respondeu em ${Math.round(timeoutMs / 1000)} s`, true));
-      const base = { orgId, conversationId, provider: s.provider, model: s.model, promptTokens: r.promptTokens, completionTokens: r.completionTokens, latencyMs: Date.now() - started };
+      if (model !== s.model) console.warn('[ia] respondido pelo modelo reserva', { orgId, conversationId: conversationId || null, principal: s.model, reserva: model });
+      const base = { orgId, conversationId, provider: s.provider, model, promptTokens: r.promptTokens, completionTokens: r.completionTokens, latencyMs: Date.now() - started };
       if (!r.text?.trim()) throw new AiProviderError('empty', 'Provedor de IA devolveu resposta vazia', true);
       if (r.text.includes(HANDOFF_TOKEN)) {
         // A IA pediu transferência sem o cliente pedir: proibido. Manda o resto do texto (ou o texto de falha) e segue com a IA.
@@ -219,11 +254,14 @@ async function generateAiReplyInner(args: { orgId: string; conversationId: strin
       return { text: out, handoff: false, usedContext };
     } catch (e) {
       lastErr = e;
+      if (attempt === 1) firstErr = e;
       lastError = (e as Error).message;
       const code = e instanceof AiProviderError ? e.code : 'erro';
-      console.warn('[ia] tentativa falhou', { orgId, conversationId: conversationId || null, attempt, code, detail: e instanceof AiProviderError ? e.detail : undefined, error: lastError });
+      console.warn('[ia] tentativa falhou', { orgId, conversationId: conversationId || null, attempt, model, code, detail: e instanceof AiProviderError ? e.detail : undefined, error: lastError });
       if (/não configurada|desconhecido|não pode ser usado/.test(lastError)) break; // erro de configuração: não adianta repetir
-      if (e instanceof AiProviderError && !e.retryable) break;
+      // Erro definitivo (chave/modelo, 4xx) no modelo principal: não adianta repetir. No reserva (ex.: modelo
+      // inexistente para esta chave), ainda vale a 3ª tentativa no principal se a 1ª falha foi passageira.
+      if (e instanceof AiProviderError && !e.retryable && model === s.model) break;
     }
   }
   const reason = failureReason(lastErr);
