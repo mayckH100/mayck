@@ -99,3 +99,7 @@ Formato de cada atualização: data, quem fez, o que foi feito, o que foi passad
 - **Regra do Mayck**: toda etapa/módulo novo entra com modelo de planilha, importação e exportação.
 - **Passado**: Auto-Deploy do Render está On Commit, mas `8f8a8a1` não disparou sozinho (check do GitHub falhou 0/1). O start roda `prisma migrate deploy`: todo deploy aplica as migrações pendentes.
 - **Falta**: aplicar `0044_erp_alertas` (aditiva) com aprovação; TLS da SEFAZ (`SEFAZ_CA_PEM`) antes de nota real; homologação da NF-e; impressão em Zebra real; ver o check do GitHub; dois canais de WhatsApp pediram QR novo após o reinício.
+
+## Pendência (2026-11-03 22:55)
+- Deploy do commit c75347f parado: o Render espera o check `e2e`. Corrigido o runner (ubuntu-24.04, commit 44d0906). Agora falha só `tests/e2e/qualidade.spec.ts:43` (Master › Avisos: pop-up central não aparece para o cliente), provavelmente por causa do menu lateral novo. Próximo passo: rodar esse e2e localmente e corrigir, ou fazer Manual Deploy no Render.
+- Uso diário do Hark chegou a 96%: trabalho pausado até 2026-11-04 12:57.
