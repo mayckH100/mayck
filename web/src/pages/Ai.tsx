@@ -4,7 +4,7 @@ import { useAuth } from '../auth';
 import { useApi, Async, Empty, useAction, Modal, Field, fmtDate, fmtNum } from '../ui';
 
 // Padrão Gemini: modelo recomendado pelo Google para projetos novos (out/2026), disponível no plano gratuito.
-const MODELS: Record<string, string> = { gemini: 'gemini-3.5-flash-lite', openai: '' };
+const MODELS: Record<string, string> = { gemini: 'gemini-3.5-flash-lite', openai: '', mck: 'mck-ia' };
 
 export default function Ai() {
   const [tab, setTab] = useState<'config' | 'kb' | 'test' | 'usage'>('config');
@@ -48,11 +48,12 @@ function Config() {
       }}>
         <fieldset disabled={ro} className="card stack" style={{ margin: 0 }}>
           <h2>Provedor e modelo</h2>
-          {!s.hasApiKey && <div className="alert warn">Nenhuma chave configurada: a IA não responde até você salvar uma chave. O Google Gemini tem camada gratuita (crie a chave em aistudio.google.com).</div>}
-          <Field label="Provedor"><select value={f.provider} onChange={(e) => setF({ ...f, provider: e.target.value, model: MODELS[e.target.value] ?? f.model })}><option value="gemini">Google Gemini</option><option value="openai">OpenAI ou compatível (Groq, OpenRouter, etc.)</option></select></Field>
-          <Field label="Modelo" hint={f.provider === 'gemini' ? 'Ex.: gemini-3.5-flash-lite (gratuito) ou gemini-3.8-flash. Lista em ai.google.dev/gemini-api/docs/models' : 'Nome exato do modelo no seu provedor'}><input required value={f.model} onChange={(e) => setF({ ...f, model: e.target.value })} /></Field>
+          {f.provider === 'mck' && <div className={`alert ${s.mckIaReady ? 'info' : 'warn'}`}>{s.mckIaReady ? 'MCK IA: a IA própria da MCK DESENVOLVIMENTO. Não precisa de chave; se um provedor falhar, ela passa sozinha para o próximo.' : 'A MCK IA ainda não foi ativada na plataforma. Use o Google Gemini com a sua chave por enquanto.'}</div>}
+          {!s.hasApiKey && f.provider !== 'mck' && <div className="alert warn">Nenhuma chave configurada: a IA não responde até você salvar uma chave. O Google Gemini tem camada gratuita (crie a chave em aistudio.google.com).</div>}
+          <Field label="Provedor"><select value={f.provider} onChange={(e) => setF({ ...f, provider: e.target.value, model: MODELS[e.target.value] ?? f.model })}><option value="mck">MCK IA (inclusa, sem chave)</option><option value="gemini">Google Gemini</option><option value="openai">OpenAI ou compatível (Groq, OpenRouter, etc.)</option></select></Field>
+          {f.provider !== 'mck' && <Field label="Modelo" hint={f.provider === 'gemini' ? 'Ex.: gemini-3.5-flash-lite (gratuito) ou gemini-3.8-flash. Lista em ai.google.dev/gemini-api/docs/models' : 'Nome exato do modelo no seu provedor'}><input required value={f.model} onChange={(e) => setF({ ...f, model: e.target.value })} /></Field>}
           {f.provider === 'openai' && <Field label="URL base (opcional)" hint="Deixe vazio para api.openai.com. Para compatíveis, ex.: https://api.groq.com/openai/v1"><input type="url" value={f.baseUrl} onChange={(e) => setF({ ...f, baseUrl: e.target.value })} /></Field>}
-          <Field label="Chave de API" hint={s.hasApiKey ? `Chave salva (cifrada): ${s.apiKeyPreview}. Preencha só para trocar.` : 'Guardada cifrada (AES-256-GCM).'}><input type="password" autoComplete="off" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder={s.hasApiKey ? '••••••••' : 'Cole sua chave'} /></Field>
+          {f.provider !== 'mck' && <Field label="Chave de API" hint={s.hasApiKey ? `Chave salva (cifrada): ${s.apiKeyPreview}. Preencha só para trocar.` : 'Guardada cifrada (AES-256-GCM).'}><input type="password" autoComplete="off" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder={s.hasApiKey ? '••••••••' : 'Cole sua chave'} /></Field>}
           {s.hasApiKey && !ro && <button type="button" className="btn sm danger" disabled={busy} onClick={async () => { const r = await run(() => put('/ai/settings', { clearApiKey: true }), 'Chave removida'); if (r) state.setData(r); }}>Remover chave</button>}
           <div className="grid g2">
             <Field label="Temperatura"><input type="number" step="0.1" min={0} max={2} value={f.temperature} onChange={(e) => setF({ ...f, temperature: e.target.value })} /></Field>

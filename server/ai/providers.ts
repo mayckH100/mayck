@@ -1,6 +1,8 @@
 import { httpFetch } from '../lib/fetcher.js';
 import { safeFetch } from '../lib/ssrf.js';
 
+import { MckIaProvider } from './mckIa.js';
+
 export interface ChatMessage { role: 'system' | 'user' | 'assistant'; content: string }
 export interface ChatResult { text: string; promptTokens: number; completionTokens: number }
 export interface ChatOptions { model: string; temperature: number; maxTokens: number; timeoutMs?: number; /** Gemini: pesquisa Google (grounding). Se o provedor recusar, repete sem a pesquisa. */ googleSearch?: boolean }
@@ -243,6 +245,8 @@ export function createProvider(provider: string, apiKey: string | null, baseUrl?
     if (process.env.NODE_ENV !== 'test') throw new Error('Provedor de teste não pode ser usado fora dos testes');
     return new FakeProvider();
   }
+  // MCK IA: chaves da própria plataforma (sem chave do cliente).
+  if (provider === 'mck') return new MckIaProvider();
   if (!apiKey) throw new Error('Chave de API da IA não configurada');
   if (provider === 'gemini') return new GeminiProvider(apiKey);
   if (provider === 'openai') return new OpenAICompatibleProvider(apiKey, baseUrl || undefined);

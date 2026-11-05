@@ -21,6 +21,16 @@ export type EntradaChangelog = {
 
 export const CHANGELOG: EntradaChangelog[] = [
   {
+    versao: '1.15.0',
+    data: '05/11/2026',
+    titulo: 'MCK IA: a inteligência artificial própria da MCK, sem precisar de chave',
+    itens: [
+      'Nova opção "MCK IA" em Configurações da IA: a IA responde seus clientes sem você criar ou colar nenhuma chave.',
+      'Se um serviço de IA estiver fora do ar ou sem cota, a MCK IA passa sozinha para o próximo, e o atendimento continua.',
+      'Quem já usa a própria chave do Google Gemini ou de outro provedor continua do mesmo jeito.',
+    ],
+  },
+  {
     versao: '1.14.0',
     data: '05/11/2026',
     titulo: 'Indique e ganhe: 1 mês grátis por empresa indicada',

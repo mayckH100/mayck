@@ -3,6 +3,7 @@ import { channelLabels } from '../whatsapp/channelLabel.js';
 import { z } from 'zod';
 import { prisma } from '../db.js';
 import { ah } from '../lib/http.js';
+import { mckIaReady } from '../ai/mckIa.js';
 import { orgOf } from '../auth/session.js';
 
 export const dashboardRouter = Router();
@@ -53,7 +54,7 @@ dashboardRouter.get('/dashboard', ah(async (req, res) => {
     },
     integrations: {
       whatsapp: await (async () => { const labels = await channelLabels(orgId); return channels.map((c) => ({ ...c, label: labels.get(c.id)?.label ?? c.name })); })(),
-      ai: { enabled: !!ai?.enabled, autoReply: !!ai?.autoReply, provider: ai?.provider, model: ai?.model, configured: !!ai?.apiKeyEnc },
+      ai: { enabled: !!ai?.enabled, autoReply: !!ai?.autoReply, provider: ai?.provider, model: ai?.model, configured: !!ai?.apiKeyEnc || (ai?.provider === 'mck' && mckIaReady()) },
       partners: integrations,
     },
     aiUsage30d: { requests: aiUsage.reduce((a, u) => a + u._count._all, 0), errors: aiUsage.find((u) => !u.success)?._count._all ?? 0, tokens: (aiAgg._sum.promptTokens ?? 0) + (aiAgg._sum.completionTokens ?? 0) },

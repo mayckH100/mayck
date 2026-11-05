@@ -11,6 +11,7 @@ import { isProductActive } from '../billing/service.js';
 import { contactIdForPhone, mirrorLeadsToContacts } from './contactSync.js';
 import { parseCsv, detectDelimiter, mapHeaderCell, rowFromCells, MAX_PHONES_PER_ROW, type HeaderCol } from '../lib/contacts-import.js';
 import { nameKey, siblingsOf, otherNumbersCount } from '../lib/same-client.js';
+import { mckIaReady } from '../ai/mckIa.js';
 import { getLeadAiSettings, classifyLeadMessage, buildQualifyPrompt, DEFAULT_PROMPT_TEMPLATE, PROMPT_VARIABLES, lockedPromptTail } from './qualificacao.js';
 
 export const mckmensagemRouter = Router();
@@ -587,7 +588,7 @@ async function leadAiView(orgId: string) {
     prisma.lead.count({ where: { orgId, status: 'QUALIFICADO' } }),
   ]);
   return {
-    settings, flows, aiReady: !!(ai?.apiKeyEnc || ai?.provider === 'fake'), aiProvider: ai?.provider ?? null, aiModel: ai?.model ?? null,
+    settings, flows, aiReady: !!(ai?.apiKeyEnc || ai?.provider === 'fake' || (ai?.provider === 'mck' && mckIaReady())), aiProvider: ai?.provider ?? null, aiModel: ai?.model ?? null,
     counts: { aguardando, qualificados },
     defaultPromptTemplate: DEFAULT_PROMPT_TEMPLATE, promptVariables: PROMPT_VARIABLES, lockedPrompt: lockedPromptTail('(trechos da base de conhecimento)').trim(),
     prompt: buildQualifyPrompt(settings as any, { tone: ai?.tone ?? '', companyInstructions: ai?.instructions ?? '', knowledge: '(trechos da base de conhecimento encontrados para a mensagem do lead)', leadName: '{nome}', attempts: 0, maxAttempts: settings.maxAttempts }),

@@ -9,6 +9,7 @@ import { audit } from '../lib/audit.js';
 import { parseJson } from '../lib/json.js';
 import { generateAiReply, reindexDoc, retrieve } from '../ai/service.js';
 import { productsRouter } from './products.js';
+import { mckIaReady } from '../ai/mckIa.js';
 
 export const aiRouter = Router();
 const admins = requireRole('OWNER', 'ADMIN');
@@ -19,13 +20,13 @@ aiRouter.use('/products', productsRouter);
 async function settingsView(orgId: string) {
   const s = await prisma.aiSettings.upsert({ where: { orgId }, create: { orgId }, update: {} });
   const { apiKeyEnc, handoffKeywords, ...rest } = s;
-  return { ...rest, hasApiKey: !!apiKeyEnc, apiKeyPreview: maskSecret(decryptOrNull(apiKeyEnc)), handoffKeywords: parseJson<string[]>(handoffKeywords, []) };
+  return { ...rest, mckIaReady: mckIaReady(), hasApiKey: !!apiKeyEnc, apiKeyPreview: maskSecret(decryptOrNull(apiKeyEnc)), handoffKeywords: parseJson<string[]>(handoffKeywords, []) };
 }
 
 aiRouter.get('/settings', ah(async (req, res) => res.json(await settingsView(orgOf(req)))));
 
 aiRouter.put('/settings', admins, ah(async (req, res) => {
-  const providers = process.env.NODE_ENV === 'test' ? (['openai', 'gemini', 'fake'] as const) : (['openai', 'gemini'] as const);
+  const providers = process.env.NODE_ENV === 'test' ? (['openai', 'gemini', 'mck', 'fake'] as const) : (['openai', 'gemini', 'mck'] as const);
   const body = z.object({
     enabled: z.boolean().optional(), autoReply: z.boolean().optional(),
     provider: z.enum(providers as unknown as [string, ...string[]]).optional(),
