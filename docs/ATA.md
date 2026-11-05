@@ -1,8 +1,16 @@
 # ATA do projeto MCK (passagem de bastão entre agentes)
 
-Regra: todo agente (Hark, Daniel, Lucas) lê esta ATA na primeira mensagem de cada conversa, antes de agir, e atualiza ao terminar. Este repositório é PÚBLICO: nunca colocar senhas, tokens, chaves, códigos, cartões, endereço residencial ou dados de clientes aqui.
+Regra: todo agente (Leandro, Daniel, Lucas, Luiz) lê esta ATA na primeira mensagem de cada conversa, antes de agir, e atualiza ao terminar. Este repositório é PÚBLICO: nunca colocar senhas, tokens, chaves, códigos, cartões, endereço residencial ou dados de clientes aqui.
 
 Formato de cada atualização: data, quem fez, o que foi feito, o que foi passado, dificuldades, o que falta, o que melhorar.
+
+## Agentes (definido pelo Mayck em 05/11/2026)
+Cada agente é um Hark ligado a uma conta diferente do Mayck. Assine cada atualização com o SEU nome (não "Hark"):
+- **Leandro**: Hark da conta Google mayckalessandro.cf…@gmail.com.
+- **Daniel**: Hark da conta maycksilvacf@….
+- **Lucas**: Hark da conta mckdevbr@….
+- **Luiz**: Hark do telefone (11) 9****-3569.
+Entradas antigas assinadas "Hark" podem ser de qualquer um. Se não souber qual é a sua conta, pergunte ao Mayck antes de assinar.
 
 ## Caminhos
 - Código: este repositório (mayckH100/mayck), branch única `master`.
