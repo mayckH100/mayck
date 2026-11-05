@@ -145,3 +145,9 @@ Entradas antigas assinadas "Hark" podem ser de qualquer um. Se não souber qual 
 - **Testes:** typecheck; unit 366/366 (novo tests/unit/erp-balcao-menu.test.ts, falha sem a correção); integração ERP (balcão, estoque/vendas, BI, financeiro, alertas, compras/produção, fiscal, permissões, versão); e2e novo tests/e2e/erp-balcao.spec.ts + qualidade.spec.ts. Obs.: versao.spec.ts "logado" falha se rodar logo depois do qualidade.spec.ts (o pop-up do teste de Avisos cobre o menu); sozinho passa.
 - **Falta:** outras buscas do app (contatos etc.) também usam `contains` sem ignorar maiúsculas no Postgres; avaliar trocar por `contem()`.
 - **Deploy:** CI verde; Manual Deploy (Deploy latest commit) de 425ca57 no Render, Live às 21:22 BRT de 04/11 (sem migração pendente); /api/versao devolve 1.13.2 · 425ca57.
+
+## Atualização 2026-11-05 (madrugada) — Leandro: Google Search Console
+- **Pedido do dono:** deixar o site fácil de achar no Google.
+- **Feito:** propriedade "Prefixo do URL" https://mckbot.onrender.com/ criada e VERIFICADA (Tag HTML) na conta Google principal do Mayck. A meta fixa antiga do HTML não pertence a nenhuma conta acessível; a nova entra pela variável GOOGLE_SITE_VERIFICATION no Render (Save and deploy, sem rebuild; continuou 425ca57). Sitemap enviado: "Processado", 9 páginas.
+- **Dificuldades:** cota diária de "Solicitar indexação" esgotada na 1ª URL; login na outra conta Google barrado por captcha.
+- **Falta:** solicitar indexação de /, /empresa/mckbot.html e /empresa/mck-mensagens.html (cota renova no dia seguinte). Não remover GOOGLE_SITE_VERIFICATION do Render.
