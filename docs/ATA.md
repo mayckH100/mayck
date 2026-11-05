@@ -10,6 +10,7 @@ Cada agente é um Hark ligado a uma conta diferente do Mayck. Assine cada atuali
 - **Daniel**: Hark da conta maycksilvacf@….
 - **Lucas**: Hark da conta mckdevbr@….
 - **Luiz**: Hark do telefone (11) 9****-3569.
+Commits: e-mail do autor SEMPRE mayckalessandro.cf123456@gmail.com (definido pelo Mayck em 05/11/2026; ele não tem mais acesso ao mayckalessandro.123456) e nome do autor = seu nome (ex.: `git config user.email mayckalessandro.cf123456@gmail.com` e `git config user.name "Leandro (Hark)"`).
 Entradas antigas assinadas "Hark" podem ser de qualquer um. Se não souber qual é a sua conta, pergunte ao Mayck antes de assinar.
 
 ## Caminhos
