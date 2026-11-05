@@ -37,7 +37,7 @@ interface Settings {
 }
 
 const TABS = [
-  ['geral', 'Visão geral'], ['clientes', 'Clientes'], ['vencimentos', 'Vencimentos'], ['pagamentos', 'Pagamentos'], ['atividades', 'Atividades'], ['avisos', 'Avisos'], ['novidades', 'Novidades'], ['configuracoes', 'Configurações'],
+  ['geral', 'Visão geral'], ['clientes', 'Clientes'], ['vencimentos', 'Vencimentos'], ['pagamentos', 'Pagamentos'], ['atividades', 'Atividades'], ['avisos', 'Avisos'], ['novidades', 'Novidades'], ['indicacoes', 'Indicações'], ['configuracoes', 'Configurações'],
 ] as const;
 type Tab = (typeof TABS)[number][0];
 
@@ -562,7 +562,7 @@ function PlatformSettingsForm() {
 // ---------- Cupons de desconto ----------
 interface Coupon {
   id: string; code: string; partner: string | null; type: 'PERCENT' | 'FIXED'; value: number; product: string; cycles: string;
-  validUntil: string | null; maxUses: number | null; active: boolean; state: 'ATIVO' | 'INATIVO' | 'EXPIRADO' | 'ESGOTADO';
+  validUntil: string | null; maxUses: number | null; firstPaymentOnly?: boolean; active: boolean; state: 'ATIVO' | 'INATIVO' | 'EXPIRADO' | 'ESGOTADO';
   uses: number; revenueCents: number; discountCents: number; deletable: boolean; createdAt: string;
 }
 const COUPON_PRODUCT_LABEL: Record<string, string> = { ALL: 'Todos os planos', MCKBOT: 'MCKBOT', MCKMENSAGEM: 'MCK Mensagens', COMBO: 'Plano Completo' };
@@ -575,7 +575,7 @@ function CouponModal({ coupon, onClose, onSaved }: { coupon: Coupon | null; onCl
   const [f, setF] = useState({
     code: coupon?.code ?? '', partner: coupon?.partner ?? '', type: coupon?.type ?? 'PERCENT', value: coupon ? (coupon.type === 'PERCENT' ? String(coupon.value) : centsToInput(coupon.value)) : '',
     product: coupon?.product ?? 'ALL', cycles: coupon?.cycles ?? 'ALL', validUntil: coupon?.validUntil ? toDateInput(coupon.validUntil) : '',
-    maxUses: coupon?.maxUses ? String(coupon.maxUses) : '', active: coupon?.active ?? true,
+    maxUses: coupon?.maxUses ? String(coupon.maxUses) : '', firstPaymentOnly: coupon?.firstPaymentOnly ?? false, active: coupon?.active ?? true,
   });
   const [err, setErr] = useState('');
   const { busy, run } = useAction();
@@ -588,7 +588,7 @@ function CouponModal({ coupon, onClose, onSaved }: { coupon: Coupon | null; onCl
     if (f.type === 'FIXED' && (value === null || value <= 0)) return setErr('Valor fixo inválido. Use, por exemplo, 10,00.');
     const maxUses = f.maxUses.trim() ? Number(f.maxUses) : null;
     if (maxUses !== null && (!Number.isInteger(maxUses) || maxUses < 1)) return setErr('Limite de usos: número inteiro maior que zero, ou deixe em branco.');
-    const body = { code: f.code.trim().toUpperCase(), partner: f.partner.trim() || null, type: f.type, value, product: f.product, cycles: f.cycles, validUntil: f.validUntil || null, maxUses, active: f.active };
+    const body = { code: f.code.trim().toUpperCase(), partner: f.partner.trim() || null, type: f.type, value, product: f.product, cycles: f.cycles, validUntil: f.validUntil || null, maxUses, firstPaymentOnly: f.firstPaymentOnly, active: f.active };
     const r = await run(() => (coupon ? put(`/master/coupons/${coupon.id}`, body) : post('/master/coupons', body)), coupon ? 'Cupom salvo' : 'Cupom criado');
     if (r) { onSaved(); onClose(); }
   };
@@ -618,6 +618,7 @@ function CouponModal({ coupon, onClose, onSaved }: { coupon: Coupon | null; onCl
           <Field label="Validade (opcional)" hint="Vale até o fim do dia (Brasília). Em branco: sem prazo."><input type="date" value={f.validUntil} onChange={set('validUntil')} /></Field>
           <Field label="Limite de usos total (opcional)" hint="Conta só pagamentos confirmados."><input type="number" min={1} value={f.maxUses} onChange={set('maxUses')} /></Field>
         </div>
+        <label className="row small"><input type="checkbox" checked={f.firstPaymentOnly} onChange={(e) => setF({ ...f, firstPaymentOnly: e.target.checked })} /> Só no primeiro pagamento da empresa (ex.: 1º mês de parceiro)</label>
         <label className="row small"><input type="checkbox" checked={f.active} onChange={(e) => setF({ ...f, active: e.target.checked })} /> Cupom ativo</label>
         <div className="row" style={{ justifyContent: 'flex-end' }}>
           <button type="button" className="btn" onClick={onClose}>Cancelar</button>
@@ -653,7 +654,7 @@ function CouponsSection() {
                 <td style={{ whiteSpace: 'nowrap' }}><strong className="mono">{c.code}</strong></td>
                 <td>{c.partner ?? <span className="muted">—</span>}</td>
                 <td>{couponValue(c)}</td>
-                <td className="small">{COUPON_PRODUCT_LABEL[c.product] ?? c.product}<br /><span className="muted">{COUPON_CYCLE_LABEL[c.cycles] ?? c.cycles}</span></td>
+                <td className="small">{COUPON_PRODUCT_LABEL[c.product] ?? c.product}<br /><span className="muted">{COUPON_CYCLE_LABEL[c.cycles] ?? c.cycles}{c.firstPaymentOnly ? ' · só 1º pagamento' : ''}</span></td>
                 <td className="small">{c.validUntil ? fmtDay(c.validUntil) : <span className="muted">sem prazo</span>}</td>
                 <td>{fmtNum(c.uses)}{c.maxUses ? <span className="muted"> / {fmtNum(c.maxUses)}</span> : null}</td>
                 <td>{fmtBRL(c.revenueCents)}</td>
@@ -978,6 +979,47 @@ function SettingsTab() {
   );
 }
 
+
+// ---------- Indique e ganhe ----------
+interface ReferralRow { id: string; code: string; status: string; reason: string | null; rewardDays: number; referrerOrgId: string; referrerName: string | null; referredOrgId: string; referredName: string | null; createdAt: string; creditedAt: string | null; notifiedAt: string | null }
+const REFERRAL_STATUS: Record<string, [string, string]> = { PENDENTE: ['Aguardando pagamento', 'amber'], CREDITADO: ['Mês creditado', 'green'], RECUSADO: ['Recusada', ''], ESTORNADO: ['Estornada', ''] };
+const REFERRAL_REASON: Record<string, string> = { autoindicacao: 'autoindicação', pagamento_estornado: 'pagamento estornado' };
+function ReferralsTab() {
+  const state = useApi<{ totals: { total: number; pendentes: number; creditadas: number; recusadas: number; estornadas: number }; items: ReferralRow[] }>('/master/indicacoes');
+  return (
+    <Async state={state}>{(d) => (
+      <div className="stack">
+        <div className="grid g4">
+          <Stat label="Indicações" value={fmtNum(d.totals.total)} />
+          <Stat label="Aguardando pagamento" value={fmtNum(d.totals.pendentes)} />
+          <Stat label="Meses creditados" value={fmtNum(d.totals.creditadas)} />
+          <Stat label="Recusadas / estornadas" value={`${fmtNum(d.totals.recusadas)} / ${fmtNum(d.totals.estornadas)}`} />
+        </div>
+        <div className="card stack">
+          <div><h2 style={{ margin: 0 }}>Indique e ganhe</h2><p className="small muted" style={{ margin: 0 }}>Cada cliente tem o link /cadastro?indica=CODIGO. Quando a indicada faz o 1º pagamento aprovado, quem indicou ganha 30 dias (uma vez por indicada). Autoindicação (mesmo e-mail, celular ou CPF/CNPJ) é recusada.</p></div>
+          {d.items.length === 0 ? <Empty title="Nenhuma indicação ainda">As indicações aparecem aqui quando alguém se cadastra pelo link de um cliente.</Empty> : (
+            <div className="table-wrap">
+              <table>
+                <thead><tr><th>Data</th><th>Quem indicou</th><th>Empresa indicada</th><th>Código</th><th>Situação</th><th>Crédito</th></tr></thead>
+                <tbody>{d.items.map((r) => (
+                  <tr key={r.id}>
+                    <td className="small">{fmtDay(r.createdAt)}</td>
+                    <td><Link to={`/master/clientes/${r.referrerOrgId}`}>{r.referrerName ?? r.referrerOrgId}</Link></td>
+                    <td><Link to={`/master/clientes/${r.referredOrgId}`}>{r.referredName ?? r.referredOrgId}</Link></td>
+                    <td className="mono small">{r.code}</td>
+                    <td><span className={`badge ${REFERRAL_STATUS[r.status]?.[1] ?? ''}`}>{REFERRAL_STATUS[r.status]?.[0] ?? r.status}</span>{r.reason ? <div className="small muted">{REFERRAL_REASON[r.reason] ?? r.reason}</div> : null}</td>
+                    <td className="small">{r.creditedAt ? `+${r.rewardDays} dias em ${fmtDay(r.creditedAt)}` : <span className="muted">—</span>}</td>
+                  </tr>
+                ))}</tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </div>
+    )}</Async>
+  );
+}
+
 // ---------- Página ----------
 export default function Master() {
   const { me } = useAuth();
@@ -1021,6 +1063,7 @@ export default function Master() {
           {tab === 'atividades' && <Activity />}
           {tab === 'avisos' && <AnnouncementsSection />}
           {tab === 'novidades' && <NovidadesTab />}
+          {tab === 'indicacoes' && <ReferralsTab />}
           {tab === 'configuracoes' && <SettingsTab />}
         </>
       )}

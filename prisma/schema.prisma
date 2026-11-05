@@ -107,6 +107,8 @@ model PendingSignup {
   sends        Int      @default(1)
   /// E-mail já tem conta: nenhum código é enviado (o e-mail avisa "você já tem conta"); a resposta é igual para não vazar.
   existingUser Boolean  @default(false)
+  /// Código de indicação (?indica=) informado no cadastro; vira uma Referral quando a conta é criada.
+  referralCode String?
   expiresAt    DateTime
   lastSentAt   DateTime @default(now())
   ip           String?
@@ -135,6 +137,8 @@ model Organization {
   alertOrder          Boolean      @default(true)
   /// Falha da IA (não conseguiu responder um cliente): WhatsApp + e-mail ao Proprietário/Admin, máx. 1 por conversa a cada 30 min.
   alertAiFailure      Boolean      @default(true)
+  /// Programa de indicação: código do link /cadastro?indica=CODIGO (gerado na primeira vez que o link é pedido).
+  referralCode        String?      @unique
   createdAt           DateTime     @default(now())
   memberships         Membership[]
 }
@@ -678,20 +682,22 @@ model PlatformSettings {
 
 // ---------- Cupons de desconto (parcerias com influenciadores/empresas) ----------
 model Coupon {
-  id          String             @id @default(cuid())
-  code        String             @unique // MAIÚSCULO, ex.: INFLU10
-  partner     String? // influenciador ou empresa parceira
-  type        String // PERCENT | FIXED
-  value       Int // PERCENT: 1..99 (%); FIXED: centavos
-  product     String             @default("ALL") // ALL | MCKBOT | MCKMENSAGEM | COMBO
-  cycles      String             @default("ALL") // ALL | MENSAL | ANUAL
-  validUntil  DateTime?
-  maxUses     Int?
-  active      Boolean            @default(true)
-  createdBy   String?
-  createdAt   DateTime           @default(now())
-  updatedAt   DateTime           @updatedAt
-  redemptions CouponRedemption[]
+  id               String             @id @default(cuid())
+  code             String             @unique // MAIÚSCULO, ex.: INFLU10
+  partner          String? // influenciador ou empresa parceira
+  type             String // PERCENT | FIXED
+  value            Int // PERCENT: 1..99 (%); FIXED: centavos
+  product          String             @default("ALL") // ALL | MCKBOT | MCKMENSAGEM | COMBO
+  cycles           String             @default("ALL") // ALL | MENSAL | ANUAL
+  validUntil       DateTime?
+  maxUses          Int?
+  /// Só vale no primeiro pagamento da organização (cupom de parceria "primeiro mês").
+  firstPaymentOnly Boolean            @default(false)
+  active           Boolean            @default(true)
+  createdBy        String?
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+  redemptions      CouponRedemption[]
 }
 
 // Uso do cupom: gravado só quando o pagamento é confirmado (webhook/confirm do Mercado Pago).
@@ -2246,4 +2252,24 @@ model ErpNfeSaida {
   @@unique([orgId, serie, numero, ambiente])
   @@index([orgId, status])
   @@index([pedidoId])
+}
+
+/// Programa "Indique e ganhe": uma linha por empresa indicada (no máximo uma indicação por organização).
+/// Quando a indicada tem o primeiro pagamento aprovado, quem indicou ganha 30 dias a mais no plano (uma vez).
+model Referral {
+  id            String    @id @default(cuid())
+  referrerOrgId String
+  referredOrgId String    @unique
+  code          String
+  status        String    @default("PENDENTE") // PENDENTE | CREDITADO | RECUSADO | ESTORNADO
+  reason        String? // motivo da recusa (autoindicacao) ou do estorno
+  mpPaymentId   String?   @unique // pagamento da indicada que liberou o crédito
+  products      String? // JSON: produtos de quem indicou que ganharam os 30 dias
+  rewardDays    Int       @default(30)
+  creditedAt    DateTime?
+  notifiedAt    DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([referrerOrgId, status])
 }

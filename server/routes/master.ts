@@ -14,6 +14,7 @@ import { COUPON_CYCLES, COUPON_PRODUCTS, CODE_RE, MIN_FINAL_CENTS, normalizeCode
 import { DEFAULT_SITE, getSiteSettings, updateSiteSettings } from '../lib/site-settings.js';
 import { backupDestinations, backupFileName, createBackupFile, runBackup } from '../lib/backup.js';
 import { masterAnnouncementsRouter } from './announcements.js';
+import { masterReferralList } from '../billing/referrals.js';
 
 /**
  * Painel Master (superadmin da plataforma). Montado em /api/master com requireSuperAdmin.
@@ -339,7 +340,7 @@ masterRouter.put('/settings', ah(async (req, res) => {
 }));
 
 // ---------- Cupons de desconto ----------
-type CouponRow = { id: string; code: string; partner: string | null; type: string; value: number; product: string; cycles: string; validUntil: Date | null; maxUses: number | null; active: boolean; createdAt: Date; updatedAt: Date };
+type CouponRow = { id: string; code: string; partner: string | null; type: string; value: number; product: string; cycles: string; validUntil: Date | null; maxUses: number | null; firstPaymentOnly?: boolean; active: boolean; createdAt: Date; updatedAt: Date };
 async function couponStats(ids: string[]) {
   const rows = await prisma.couponRedemption.groupBy({
     by: ['couponId'], where: { couponId: { in: ids }, status: 'CONFIRMADO' },
@@ -355,11 +356,14 @@ function couponView(c: CouponRow, st?: { uses: number; revenueCents: number; dis
   const state = !c.active ? 'INATIVO' : c.validUntil && c.validUntil.getTime() < now ? 'EXPIRADO' : c.maxUses !== null && uses >= c.maxUses ? 'ESGOTADO' : 'ATIVO';
   return {
     id: c.id, code: c.code, partner: c.partner, type: c.type, value: c.value, product: c.product, cycles: c.cycles,
-    validUntil: iso(c.validUntil), maxUses: c.maxUses, active: c.active, state, uses,
+    validUntil: iso(c.validUntil), maxUses: c.maxUses, firstPaymentOnly: !!c.firstPaymentOnly, active: c.active, state, uses,
     revenueCents: st?.revenueCents ?? 0, discountCents: st?.discountCents ?? 0, deletable: !everUsed,
     createdAt: c.createdAt.toISOString(), updatedAt: c.updatedAt.toISOString(),
   };
 }
+
+// Indique e ganhe: todas as indicações (quem indicou, indicada, situação).
+masterRouter.get('/indicacoes', ah(async (_req, res) => { res.json(await masterReferralList()); }));
 
 masterRouter.get('/coupons', ah(async (_req, res) => {
   const items = await prisma.coupon.findMany({ orderBy: { createdAt: 'desc' } });
@@ -378,6 +382,8 @@ const couponSchema = z.object({
   // Data sem hora: vale até o fim do dia (horário de Brasília).
   validUntil: z.string().datetime({ offset: true }).or(z.string().regex(dateOnly)).nullable().optional(),
   maxUses: z.number().int().positive().max(10_000_000).nullable().optional(),
+  // Só no primeiro pagamento da organização (cupom de parceria "primeiro mês").
+  firstPaymentOnly: z.boolean().default(false),
   active: z.boolean().default(true),
 }).superRefine((v, ctx) => {
   if (v.type === 'PERCENT' && (v.value < 1 || v.value > 99)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['value'], message: 'Percentual entre 1 e 99' });
@@ -391,7 +397,7 @@ const toDate = (v: string | null | undefined) => {
 };
 const couponData = (b: z.infer<typeof couponSchema>) => ({
   code: b.code, partner: b.partner?.trim() || null, type: b.type, value: b.value, product: b.product, cycles: b.cycles,
-  validUntil: toDate(b.validUntil) ?? null, maxUses: b.maxUses ?? null, active: b.active,
+  validUntil: toDate(b.validUntil) ?? null, maxUses: b.maxUses ?? null, firstPaymentOnly: b.firstPaymentOnly, active: b.active,
 });
 
 masterRouter.post('/coupons', ah(async (req, res) => {

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { get, patch, post, put } from '../api';
 import { useAuth } from '../auth';
 import { useAction, Field } from '../ui';
+import { IndiqueGanheCard } from '../Indicacao';
 import { SecuritySection, PasswordCard, RenewalRemindersCard } from './Security';
 
 export default function Profile() {
@@ -22,6 +23,7 @@ export default function Profile() {
           <button className="btn primary" disabled={busy}>Salvar dados</button>
         </form>
         <PasswordCard app="mckbot" />
+        <IndiqueGanheCard />
         <RenewalRemindersCard />
         {can('OWNER', 'ADMIN') && (
           <div className="card stack">

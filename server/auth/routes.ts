@@ -22,6 +22,7 @@ import { needsCadastro } from './session.js';
 import { parseDocumento, normalizeCelular, maskDocumento, maskCelular, onlyDigits, isValidCpf, isValidCnpj } from '../lib/documento.js';
 import { checkSignupEmail } from '../lib/emailCheck.js';
 import { randomInt, timingSafeEqual } from 'node:crypto';
+import { registerReferral, validReferralCode } from '../billing/referrals.js';
 
 export const authRouter = Router();
 authRouter.use(securityRouter); // 2FA e sessões ativas
@@ -127,6 +128,8 @@ const signupBody = z.object({
   documento: z.string().max(30).optional(),
   celular: z.string().max(30).optional(),
   app: z.enum(['mckbot', 'mensagem']).optional(),
+  // Código do link "Indique e ganhe" (/cadastro?indica=CODIGO). Opcional; código inválido é ignorado.
+  indica: z.string().max(40).optional(),
 });
 
 authRouter.post('/register', registerIpLimiter, loginLimiter, signupEmailLimiter, ah(async (req, res) => {
@@ -148,7 +151,7 @@ authRouter.post('/register', registerIpLimiter, loginLimiter, signupEmailLimiter
     data: {
       tokenHash: sha256(signupToken), email: body.email, name: body.name, passwordHash, orgName: body.orgName,
       documento: doc.digits, celular, app: brandOf(body.app), codeHash: 'x', existingUser: !!existing,
-      expiresAt: new Date(Date.now() + SIGNUP_CODE_TTL_MS), ip: req.ip ?? null,
+      expiresAt: new Date(Date.now() + SIGNUP_CODE_TTL_MS), ip: req.ip ?? null, referralCode: validReferralCode(body.indica),
     },
   });
   // Conta existente: o hash guardado nunca bate com nenhum código (o dono recebe o aviso "você já tem conta").
@@ -198,6 +201,8 @@ authRouter.post('/register/confirm', loginIpLimiter, ah(async (req, res) => {
   }
   if (await ensureSuperAdmin(user)) await audit(req, 'auth.superadmin_bootstrap', { userId: user.id, meta: { email: user.email } });
   const org = await createOrganization(user.id, p.orgName);
+  // Indique e ganhe: grava quem indicou (recusa autoindicação). Nunca lança.
+  if (p.referralCode) await registerReferral(org.id, p.referralCode, { email: user.email, celular: user.celular, documento: user.documento });
   const csrf = await createSession(res, req, user.id, org.id);
   const app = brandOf(p.app);
   await trackDevice(req, res, user, org.id, app, false);

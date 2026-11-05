@@ -21,6 +21,18 @@ export type EntradaChangelog = {
 
 export const CHANGELOG: EntradaChangelog[] = [
   {
+    versao: '1.14.0',
+    data: '05/11/2026',
+    titulo: 'Indique e ganhe: 1 mês grátis por empresa indicada',
+    itens: [
+      'Novo cartão "Indique e ganhe" no Perfil do MCKBOT e na Assinatura do MCK Mensagens, com o seu link, botão para copiar e para compartilhar no WhatsApp.',
+      'Quando uma empresa indicada por você fizer o primeiro pagamento, você ganha 1 mês grátis no seu plano e recebe um aviso por WhatsApp e por e-mail.',
+      'O cartão mostra quantas empresas você indicou e quantos meses já ganhou.',
+      'Cupons de parceiros podem valer só no primeiro pagamento da empresa.',
+      'Novas páginas no site mostrando como o MCKBOT e o MCK Mensagens ajudam corretoras de seguros, salões e barbearias, clínicas, lojas, restaurantes e prestadores de serviço.',
+    ],
+  },
+  {
     versao: '1.13.2',
     data: '04/11/2026',
     titulo: 'Venda balcão agora aparece no menu do MCK ERP',

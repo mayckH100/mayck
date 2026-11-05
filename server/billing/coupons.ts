@@ -21,7 +21,7 @@ export const MIN_FINAL_CENTS = 100;
 export const CODE_RE = /^[A-Z0-9_-]{3,30}$/;
 
 export interface CouponRule { type: string; value: number; product: string; cycles: string }
-export interface CouponState extends CouponRule { active: boolean; validUntil: Date | null; maxUses: number | null }
+export interface CouponState extends CouponRule { active: boolean; validUntil: Date | null; maxUses: number | null; firstPaymentOnly?: boolean }
 export interface Quote { originalCents: number; discountCents: number; finalCents: number }
 
 export const normalizeCode = (code: unknown) => String(code ?? '').trim().toUpperCase().replace(/\s+/g, '');
@@ -45,7 +45,7 @@ export function quote(c: Pick<CouponRule, 'type' | 'value'>, priceCents: number)
   return { originalCents: priceCents, discountCents: d, finalCents: priceCents - d };
 }
 
-export type CouponProblem = 'inexistente' | 'inativo' | 'expirado' | 'esgotado' | 'produto' | 'valor';
+export type CouponProblem = 'inexistente' | 'inativo' | 'expirado' | 'esgotado' | 'produto' | 'valor' | 'primeiro';
 export const PROBLEM_TEXT: Record<CouponProblem, string> = {
   inexistente: 'Cupom não encontrado. Confira o código.',
   inativo: 'Este cupom não está ativo.',
@@ -53,6 +53,7 @@ export const PROBLEM_TEXT: Record<CouponProblem, string> = {
   esgotado: 'Este cupom atingiu o limite de usos.',
   produto: 'Este cupom não vale para o plano escolhido.',
   valor: 'O desconto deste cupom é maior que o valor do plano escolhido.',
+  primeiro: 'Este cupom vale só para o primeiro pagamento da empresa.',
 };
 
 /** Validade geral do cupom (ativo, dentro da data, abaixo do limite). */
@@ -78,20 +79,30 @@ export const confirmedUses = (couponId: string) => prisma.couponRedemption.count
 
 export class CouponError extends Error { constructor(public problem: CouponProblem) { super(PROBLEM_TEXT[problem]); } }
 
-/** Busca e valida o cupom (sem plano específico). Lança CouponError. */
-export async function loadValidCoupon(code: unknown) {
+/** A organização já tem pagamento aprovado pelo Mercado Pago que não foi estornado? */
+export async function orgHasPaid(orgId: string) {
+  const [paid, reverted] = await Promise.all([
+    prisma.billingEvent.count({ where: { orgId, kind: 'MP' } }),
+    prisma.billingEvent.count({ where: { orgId, kind: 'MP_ESTORNO' } }),
+  ]);
+  return paid - reverted > 0;
+}
+
+/** Busca e valida o cupom (sem plano específico). Com orgId, confere também a regra "só no primeiro pagamento". Lança CouponError. */
+export async function loadValidCoupon(code: unknown, orgId?: string) {
   const norm = normalizeCode(code);
   if (!CODE_RE.test(norm)) throw new CouponError('inexistente');
   const c = await prisma.coupon.findUnique({ where: { code: norm } });
   if (!c) throw new CouponError('inexistente');
   const problem = couponAvailability(c, await confirmedUses(c.id));
   if (problem) throw new CouponError(problem);
+  if (c.firstPaymentOnly && orgId && (await orgHasPaid(orgId))) throw new CouponError('primeiro');
   return c;
 }
 
 /** Valida o cupom para um plano/ciclo e devolve o preço final calculado no servidor. */
-export async function priceWithCoupon(code: unknown, product: PlanProduct, cycle: Cycle) {
-  const c = await loadValidCoupon(code);
+export async function priceWithCoupon(code: unknown, product: PlanProduct, cycle: Cycle, orgId?: string) {
+  const c = await loadValidCoupon(code, orgId);
   if (!couponMatches(c, product, cycle)) throw new CouponError('produto');
   const { prices } = await getSettings();
   const q = quote(c, prices[product][cycle]);
@@ -100,6 +111,6 @@ export async function priceWithCoupon(code: unknown, product: PlanProduct, cycle
 }
 
 /** Dados do cupom que podem ir para o cliente (sem parceiro, sem contagem de usos). */
-export const publicCouponView = (c: { code: string; type: string; value: number; product: string; cycles: string; validUntil: Date | null }) => ({
-  code: c.code, type: c.type, value: c.value, product: c.product, cycles: c.cycles, validUntil: c.validUntil ? c.validUntil.toISOString() : null,
+export const publicCouponView = (c: { code: string; type: string; value: number; product: string; cycles: string; validUntil: Date | null; firstPaymentOnly?: boolean }) => ({
+  code: c.code, type: c.type, value: c.value, product: c.product, cycles: c.cycles, validUntil: c.validUntil ? c.validUntil.toISOString() : null, firstPaymentOnly: !!c.firstPaymentOnly,
 });

@@ -11,7 +11,7 @@ export const PRODUCT_LABEL: Record<PlanProduct, string> = { MCKBOT: 'MCKBOT', MC
 export const CYCLE_LABEL: Record<string, string> = { MENSAL: 'Mensal', ANUAL: 'Anual' };
 export const STATUS_LABEL: Record<SubStatus, string> = { ATIVA: 'Ativa', TRIAL: 'Em teste', VENCIDA: 'Vencida', BLOQUEADA: 'Bloqueada' };
 export const STATUS_CLS: Record<SubStatus, string> = { ATIVA: 'green', TRIAL: 'blue', VENCIDA: 'amber', BLOQUEADA: 'red' };
-export const KIND_LABEL: Record<string, string> = { MP: 'Pagamento Mercado Pago', MANUAL: 'Ajuste manual', TRIAL: 'Início do teste', BLOCK: 'Bloqueio', UNBLOCK: 'Desbloqueio' };
+export const KIND_LABEL: Record<string, string> = { MP: 'Pagamento Mercado Pago', MANUAL: 'Ajuste manual', TRIAL: 'Início do teste', BLOCK: 'Bloqueio', UNBLOCK: 'Desbloqueio', MP_ESTORNO: 'Estorno Mercado Pago', INDICACAO: 'Indique e ganhe: +30 dias', INDICACAO_ESTORNO: 'Indique e ganhe: crédito estornado' };
 export const SOURCE_LABEL: Record<string, string> = { MP: 'Mercado Pago', MANUAL: 'Manual', TRIAL: 'Período de teste' };
 
 const BRL = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -48,7 +48,7 @@ export const subOf = (subs: SubscriptionView[] | undefined, p: string) => subs?.
 // ---------- Cupom de desconto ----------
 export interface CouponQuote { originalCents: number; discountCents: number; finalCents: number }
 export interface AppliedCoupon {
-  coupon: { code: string; type: 'PERCENT' | 'FIXED'; value: number; product: string; cycles: string; validUntil: string | null };
+  coupon: { code: string; type: 'PERCENT' | 'FIXED'; value: number; product: string; cycles: string; validUntil: string | null; firstPaymentOnly?: boolean };
   quotes: Partial<Record<PlanProduct, Partial<Record<Cycle, CouponQuote>>>>;
 }
 const COUPON_KEY = 'mck_cupom';
@@ -63,3 +63,22 @@ export function rememberCouponFromUrl(search = typeof window !== 'undefined' ? w
 export const storedCoupon = () => { try { return localStorage.getItem(COUPON_KEY) || ''; } catch { return ''; } };
 export const clearStoredCoupon = () => { try { localStorage.removeItem(COUPON_KEY); } catch { /* ignore */ } };
 export const couponLabel = (c: AppliedCoupon['coupon']) => (c.type === 'PERCENT' ? `${c.value}% de desconto` : `${fmtBRL(c.value)} de desconto`);
+
+// ---------- Indique e ganhe ----------
+const REFERRAL_KEY = 'mck_indica';
+const REFERRAL_TTL_MS = 60 * 24 * 60 * 60 * 1000; // o link vale por 60 dias neste navegador
+export const normalizeReferral = (v: string | null | undefined) => String(v ?? '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+/** Guarda o ?indica= do link de indicação (sobrevive até o cadastro, mesmo se a pessoa navegar antes). */
+export function rememberReferralFromUrl(search = typeof window !== 'undefined' ? window.location.search : '') {
+  try {
+    const c = normalizeReferral(new URLSearchParams(search).get('indica'));
+    if (/^[A-Z0-9]{6,12}$/.test(c)) localStorage.setItem(REFERRAL_KEY, JSON.stringify({ c, at: Date.now() }));
+  } catch { /* sem localStorage */ }
+}
+export function storedReferral(): string {
+  try {
+    const v = JSON.parse(localStorage.getItem(REFERRAL_KEY) || 'null');
+    if (v && typeof v.c === 'string' && Date.now() - Number(v.at) < REFERRAL_TTL_MS) return v.c;
+  } catch { /* ignore */ }
+  return '';
+}

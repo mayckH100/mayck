@@ -5,6 +5,7 @@ import { useAuth } from '../../auth';
 import { useApi, Async, Loading } from '../../ui';
 import { ProductCard, CurrentPlan, CouponBox, comboView, reasonText, useCoupon, type BillingStatus, type ConfirmResult } from '../../pages/Plan';
 import { clearStoredCoupon } from '../../billing';
+import { IndiqueGanheCard } from '../../Indicacao';
 
 export default function MmSubscription() {
   const state = useApi<BillingStatus>('/billing/status');
@@ -61,6 +62,7 @@ export default function MmSubscription() {
             </div>
             <p className="small muted">Com a assinatura inativa você continua consultando e exportando seus contatos e métricas, mas não pode criar, importar nem disparar campanhas. Ao renovar antes do vencimento, o novo período é somado ao que resta. Novos clientes têm {b.trialDays} dia(s) de teste grátis.</p>
             </>}
+            <IndiqueGanheCard />
           </div>
         );
       }}</Async>

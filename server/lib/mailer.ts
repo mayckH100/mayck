@@ -354,6 +354,18 @@ export function waDownMail(o: { to: string; name: string; app: AppBrand; channel
   return { to: o.to, subject: o.reminder ? `Lembrete: ${o.channel} continua desconectado` : `WhatsApp desconectado: ${o.channel}`, html, text, kind: o.reminder ? 'wa_down_reminder' : 'wa_down' };
 }
 
+/** "Indique e ganhe": quem indicou ganhou 1 mês grátis (a empresa indicada fez o primeiro pagamento). */
+export function referralRewardMail(o: { to: string; name: string; orgName: string; referredName: string; days: number; until: string | null; link: string }): MailMessage {
+  const title = 'Você ganhou 1 mês grátis!';
+  const { html, text } = layout('mckbot', undefined, title, [
+    `Olá, ${esc(o.name)}!`,
+    `A empresa <strong>${esc(o.referredName)}</strong>, que você indicou, fez o primeiro pagamento. Como agradecimento, somamos <strong>${o.days} dias</strong> ao plano da organização <strong>${esc(o.orgName)}</strong>${o.until ? `, que agora vale até <strong>${esc(o.until)}</strong>` : ''}.`,
+    'Cada nova empresa que assinar pelo seu link vale mais 1 mês grátis.',
+  ], { label: 'Copiar meu link de indicação', url: o.link },
+  'Você recebe este e-mail porque é Proprietário ou Administrador da organização.');
+  return { to: o.to, subject: `${title} Uma empresa que você indicou assinou`, html, text, kind: 'referral_reward' };
+}
+
 /** Aviso de atendimento humano por e-mail (reserva quando o WhatsApp para os números de aviso falhou). */
 export function handoffMail(o: { to: string; name: string; subject: string; title: string; lines: string[]; url?: string }): MailMessage {
   const { html, text } = layout('mckbot', undefined, o.title, [`Olá, ${esc(o.name)}.`, ...o.lines.map(esc)],

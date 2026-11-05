@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { post } from '../api';
 import { useAuth, type Me } from '../auth';
 import { Field } from '../ui';
+import { storedReferral } from '../billing';
 import { maskDocumento, maskCelular, isValidDocumento, isValidCelular, onlyDigits, normalizeDocumento } from '../lib/documento';
 
 type App = 'mckbot' | 'mensagem';
@@ -17,6 +18,7 @@ export function SignupFlow({ app, Brand, notices, onDone }: { app: App; Brand: (
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [pending, setPending] = useState<Pending | null>(null);
+  const [indica] = useState(() => storedReferral());
   const set = (k: keyof typeof f, mask?: (v: string) => string) => (e: React.ChangeEvent<HTMLInputElement>) => setF({ ...f, [k]: mask ? mask(e.target.value) : e.target.value });
   const submit = async (e: FormEvent) => {
     e.preventDefault();
@@ -24,7 +26,7 @@ export function SignupFlow({ app, Brand, notices, onDone }: { app: App; Brand: (
     if (!isValidDocumento(f.documento)) return setError('CPF/CNPJ inválido. Confira os números digitados.');
     if (!isValidCelular(f.celular)) return setError('Celular inválido. Informe DDD + número, ex.: (11) 91234-5678.');
     setBusy(true);
-    try { setPending(await post<Pending>('/auth/register', { ...f, app })); } catch (err) { setError((err as Error).message); } finally { setBusy(false); }
+    try { setPending(await post<Pending>('/auth/register', { ...f, app, ...(indica ? { indica } : {}) })); } catch (err) { setError((err as Error).message); } finally { setBusy(false); }
   };
   if (pending) return <SignupCode pending={pending} Brand={Brand} onBack={() => setPending(null)} onDone={onDone} />;
   const docLen = normalizeDocumento(f.documento).length;
@@ -33,6 +35,7 @@ export function SignupFlow({ app, Brand, notices, onDone }: { app: App; Brand: (
       <Brand />
       <h2 style={{ textAlign: 'center' }}>Criar conta</h2>
       {notices}
+      {indica && <div className="alert info" data-testid="aviso-indicacao">Você chegou por uma indicação. Crie sua conta e comece o teste grátis.</div>}
       {error && <div className="alert err" role="alert">{error}</div>}
       <Field label="Seu nome"><input required minLength={2} value={f.name} onChange={set('name')} autoComplete="name" /></Field>
       <Field label="E-mail" hint="Enviaremos um código para confirmar que o e-mail é seu"><input type="email" required value={f.email} onChange={set('email')} autoComplete="email" /></Field>

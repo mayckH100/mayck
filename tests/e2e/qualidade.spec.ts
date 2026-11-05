@@ -40,6 +40,32 @@ test.describe.serial('Telas críticas: cadastro, renovação e avisos', () => {
     await expect(page.getByRole('button', { name: 'Entrar' })).toBeVisible();
   });
 
+  test('Indique e ganhe: link no Perfil, cadastro pelo link grava a indicação e a contagem aparece', async ({ page, request, browser }) => {
+    const quem = await signup(page, request, { org: 'Indicadora E2E' });
+    await page.goto('/perfil');
+    const card = page.getByTestId('indique-ganhe');
+    await expect(card.getByRole('heading', { name: /Indique e ganhe/ })).toBeVisible();
+    const link = await card.getByLabel('Seu link de indicação').inputValue();
+    expect(link).toMatch(/\/cadastro\?indica=[A-Z2-9]{8}$/);
+    await expect(card.getByRole('button', { name: 'Copiar link' })).toBeVisible();
+    await expect(card.getByRole('link', { name: 'Compartilhar no WhatsApp' })).toHaveAttribute('href', /^https:\/\/wa\.me\/\?text=/);
+    await expect(card.getByTestId('indicados')).toHaveText('0');
+    // Outra pessoa abre o link em outro navegador e se cadastra.
+    const ctx = await browser.newContext();
+    const p2 = await ctx.newPage();
+    await p2.goto(new URL(link).pathname + new URL(link).search);
+    await expect(p2.getByTestId('aviso-indicacao')).toBeVisible();
+    const indicada = await signup(p2, ctx.request, { org: 'Indicada E2E' });
+    await ctx.close();
+    const u = await db.user.findUniqueOrThrow({ where: { email: indicada.email }, include: { memberships: true } });
+    const ref = await db.referral.findUnique({ where: { referredOrgId: u.memberships[0].orgId } });
+    expect(ref?.status).toBe('PENDENTE');
+    const dono = await db.user.findUniqueOrThrow({ where: { email: quem.email }, include: { memberships: true } });
+    expect(ref?.referrerOrgId).toBe(dono.memberships[0].orgId);
+    await page.reload();
+    await expect(page.getByTestId('indique-ganhe').getByTestId('indicados')).toHaveText('1');
+  });
+
   test('Master › Avisos: envia imagem e o cliente vê o pop-up central uma única vez', async ({ page, request, browser }) => {
     // Master: cadastra, sai e entra de novo (promoção a superadmin acontece no login).
     const master = await signup(page, request, { email: MASTER_EMAIL, org: 'Plataforma E2E' });

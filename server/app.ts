@@ -14,6 +14,7 @@ import { announcementsRouter } from './routes/announcements.js';
 import { mckmensagemRouter } from './mckmensagem/routes.js';
 import { automacoesRouter } from './mckmensagem/automacoes/routes.js';
 import { billingRouter, billingWebhookRouter } from './billing/routes.js';
+import { referralRouter, publicReferralRouter } from './billing/referrals.js';
 import { requireMckbotForWrites } from './billing/guard.js';
 import { authRouter } from './auth/routes.js';
 import { requireModule } from './lib/permissions.js';
@@ -114,6 +115,7 @@ export function createApp() {
   app.use('/api', loadSession, csrfProtection);
 
   app.use('/api/auth', authRouter);
+  app.use('/api/public/indica', publicReferralRouter); // programa de indicação: o código existe? (sem login)
   app.use('/api/public/plans', publicPlansRouter); // vitrine de planos, sem login
   app.use('/api/public/site', publicSiteRouter); // site oficial /empresa: contato, Facebook, promoção, tutoriais (sem login, só leitura)
   app.use('/api/public/agenda', publicAgendaRouter); // evento (.ics/página "Adicionar à agenda") e feed webcal por URL secreta
@@ -135,6 +137,7 @@ export function createApp() {
   app.use('/api/conversations', requireOrg, requireModule('inbox'), conversationsRouter);
   app.use('/api/team', requireOrg, requireModule('equipe', [{ method: 'GET', path: /^\/$/, anyOf: ['agenda', 'inbox'] }]), teamRouter);
   app.use('/api/plans', requireOrg, requireModule('plano'), plansRouter);
+  app.use('/api/indicacao', requireOrg, referralRouter); // Indique e ganhe: link, contagem e meses ganhos da organização
   app.use('/api/billing', requireOrg, requireModule('plano', [{ method: 'GET', path: /^\/status$/ }]), billingRouter);
   app.use('/api/agenda', requireOrg, requireModule('agenda'), requireMckbotForWrites, agendaRouter);
   app.use('/api/integrations', requireOrg, requireModule('integracoes'), requireMckbotForWrites, integrationsRouter);

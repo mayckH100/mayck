@@ -6,6 +6,7 @@ import path from 'node:path';
 const WEB = path.resolve(__dirname, '../../web');
 const EMPRESA = path.join(WEB, 'public/empresa');
 const pages = readdirSync(EMPRESA).filter((f) => f.endsWith('.html'));
+const SEGMENTOS = ['whatsapp-para-corretora-de-seguros', 'whatsapp-para-salao-de-beleza-e-barbearia', 'whatsapp-para-clinicas-e-consultorios', 'whatsapp-para-lojas-e-comercio', 'whatsapp-para-restaurantes-e-delivery', 'whatsapp-para-prestadores-de-servico'];
 
 function jsonLd(html: string): any[] {
   return [...html.matchAll(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/g)].map((m) => JSON.parse(m[1]));
@@ -15,7 +16,7 @@ function types(html: string): string[] {
 }
 
 describe('site /empresa: SEO', () => {
-  it('tem as 7 páginas', () => expect(pages.sort()).toEqual(['ajuda.html', 'contato.html', 'index.html', 'mck-mensagens.html', 'mckbot.html', 'novidades.html', 'planos.html']));
+  it('tem as 7 páginas + 6 páginas por segmento', () => expect(pages.sort()).toEqual(['ajuda.html', 'contato.html', 'index.html', 'mck-mensagens.html', 'mckbot.html', 'novidades.html', 'planos.html', ...SEGMENTOS.map((s) => `${s}.html`)].sort()));
 
   for (const f of pages) {
     it(`${f}: title, description, canonical e JSON-LD válido com Organization e WebSite`, () => {
@@ -64,6 +65,24 @@ describe('raiz do app: SEO sem quebrar o React', () => {
   it('mensagem.html é noindex,follow', () => {
     expect(readFileSync(path.join(WEB, 'mensagem.html'), 'utf8')).toContain('<meta name="robots" content="noindex,follow" />');
   });
+  it('páginas por segmento: FAQPage e Service no JSON-LD, preços ao vivo, teste grátis em /cadastro, links na home e no sitemap', () => {
+    const home = readFileSync(path.join(EMPRESA, 'index.html'), 'utf8');
+    const xml = readFileSync(path.join(WEB, 'public/sitemap.xml'), 'utf8');
+    for (const s of SEGMENTOS) {
+      const html = readFileSync(path.join(EMPRESA, `${s}.html`), 'utf8');
+      const graph = jsonLd(html)[0]['@graph'];
+      const faq = graph.find((n: any) => n['@type'] === 'FAQPage');
+      expect(faq.mainEntity.length).toBe((html.match(/<details><summary>/g) ?? []).length);
+      expect(graph.some((n: any) => n['@type'] === 'Service')).toBe(true);
+      expect(html).toContain('id="plans"'); // preenchido pelo site.js com /api/public/plans
+      expect(html).toContain('href="/cadastro"');
+      expect(html).toContain(`<link rel="canonical" href="https://mckbot.onrender.com/empresa/${s}.html">`);
+      expect(html).not.toMatch(/R\$\s?\d/); // preço só ao vivo, nada fixo no HTML
+      expect(home).toContain(`href="/empresa/${s}.html"`);
+      expect(xml).toContain(`<loc>https://mckbot.onrender.com/empresa/${s}.html</loc>`);
+    }
+  });
+
   it('sitemap tem lastmod em todas as URLs e robots aponta para ele', () => {
     const xml = readFileSync(path.join(WEB, 'public/sitemap.xml'), 'utf8');
     expect((xml.match(/<url>/g) ?? []).length).toBe((xml.match(/<lastmod>\d{4}-\d{2}-\d{2}<\/lastmod>/g) ?? []).length);

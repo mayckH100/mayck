@@ -79,11 +79,11 @@ export function signupCodeFor(email: string): string | null {
   return null;
 }
 
-export interface SignupData { name?: string; email?: string; password?: string; orgName?: string; documento?: string; celular?: string; app?: string }
+export interface SignupData { name?: string; email?: string; password?: string; orgName?: string; documento?: string; celular?: string; app?: string; indica?: string }
 export function signupData(opts: SignupData = {}) {
   return {
     name: opts.name ?? 'Usuário Teste', email: opts.email ?? `${uniq()}@teste.dev`, password: opts.password ?? 'senhaSegura123',
-    orgName: opts.orgName ?? uniq('Org '), documento: opts.documento ?? fakeCpf(), celular: opts.celular ?? fakeCelular(), ...(opts.app ? { app: opts.app } : {}),
+    orgName: opts.orgName ?? uniq('Org '), documento: opts.documento ?? fakeCpf(), celular: opts.celular ?? fakeCelular(), ...(opts.app ? { app: opts.app } : {}), ...(opts.indica ? { indica: opts.indica } : {}),
   };
 }
 

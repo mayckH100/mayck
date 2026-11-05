@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, beforeEach, afterAll, vi } from 'vites
 import request from 'supertest';
 import { app, registerClient, Client, createTestChannel, installGraphMock, graph, sendInbound, prisma } from '../helpers.js';
 import { hmacSha256Hex } from '../../server/lib/crypto.js';
-import { block, unblock, isProductActive, renew, revokePayment, updateSettings, effectiveStatus } from '../../server/billing/service.js';
+import { block, unblock, isProductActive, renew, revokePayment, updateSettings, effectiveStatus, getSettings } from '../../server/billing/service.js';
 import { verifySignature, buildManifest } from '../../server/billing/mercadopago.js';
 import { sendOutbound } from '../../server/whatsapp/messaging.js';
 import { tick, resetDispatcherState, setRandom } from '../../server/mckmensagem/dispatcher.js';
@@ -154,7 +154,9 @@ describe('Cobrança Mercado Pago por produto', () => {
     const ck = await c.post('/api/billing/checkout', { product: 'COMBO', cycle: 'ANUAL' });
     expect(ck.status).toBe(200);
     expect(mp.prefs.at(-1).body.external_reference).toBe(`mckbot|${oid}|COMBO|ANUAL`);
-    const id = newPay({ status: 'approved', external_reference: `mckbot|${oid}|COMBO|ANUAL`, transaction_amount: 699 });
+    // Valor = preço configurado do COMBO anual (o preço mudou; antes estava fixo em R$ 699 aqui).
+    const comboAnual = (await getSettings()).prices.COMBO.ANUAL / 100;
+    const id = newPay({ status: 'approved', external_reference: `mckbot|${oid}|COMBO|ANUAL`, transaction_amount: comboAnual });
     // confirmação manual pelo retorno (back_url) — mesma validação do webhook
     const r = await c.post('/api/billing/confirm', { paymentId: id });
     expect(r.status).toBe(200);

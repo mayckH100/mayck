@@ -90,7 +90,7 @@ export async function sendToStaffNumber(orgId: string, preferredChannelId: strin
 }
 
 /** Proprietário e Administradores ativos (destino do e-mail de reserva). */
-async function ownerAdminEmails(orgId: string) {
+export async function ownerAdminEmails(orgId: string) {
   const ms = await prisma.membership.findMany({ where: { orgId, role: { in: ['OWNER', 'ADMIN'] }, user: { disabledAt: null } }, include: { user: { select: { email: true, name: true } } } });
   return ms.map((m) => m.user);
 }

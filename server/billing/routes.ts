@@ -9,6 +9,7 @@ import { CouponError, MIN_FINAL_CENTS, loadValidCoupon, priceWithCoupon, publicC
 import { billingConfigured, createPreference, getPayment, MpError, mpFriendly, parseReference, verifySignature } from './mercadopago.js';
 
 import { appUrl } from '../lib/mailer.js';
+import { creditReferralForPayment, revokeReferralForPayment } from './referrals.js';
 // URL pública fixa (APP_URL/RENDER_EXTERNAL_URL) para o aviso e o retorno do Mercado Pago; o cabeçalho Host só vale fora de produção.
 const baseUrlOf = (req: Request) => appUrl(req);
 
@@ -27,6 +28,8 @@ export async function processPayment(paymentId: string, expectedOrgId?: string):
     const rv = await revokePayment(String(pay.id), pay.status);
     // Cupom: pagamento estornado deixa de contar como uso.
     await prisma.couponRedemption.updateMany({ where: { mpPaymentId: String(pay.id), status: 'CONFIRMADO' }, data: { status: 'ESTORNADO' } });
+    // Indique e ganhe: o mês grátis liberado por este pagamento é desfeito.
+    await revokeReferralForPayment(String(pay.id));
     if (rv.revoked) await audit(null, 'billing.mp.estornado', { orgId: ref.orgId, entity: 'payment', entityId: String(pay.id), meta: { status: pay.status } });
     return { ok: true, renewed: false, revoked: rv.revoked, reason: `status_${pay.status}`, orgId: ref.orgId };
   }
@@ -54,6 +57,8 @@ export async function processPayment(paymentId: string, expectedOrgId?: string):
       await prisma.couponRedemption.create({ data: { couponId: coupon.id, orgId: ref.orgId, product: ref.product, cycle: ref.cycle, mpPaymentId: String(pay.id), originalCents: basePrice, discountCents: discount, finalCents: paidCents } });
     } catch (e: any) { if (e?.code !== 'P2002') throw e; }
   }
+  // Indique e ganhe: primeiro pagamento aprovado da indicada libera 30 dias para quem indicou (uma vez; nunca lança).
+  await creditReferralForPayment(ref.orgId, String(pay.id));
   if (!r.duplicated) await audit(null, 'billing.mp.renovado', { orgId: ref.orgId, entity: 'payment', entityId: pay.id, meta: { product: ref.product, cycle: ref.cycle, paidCents, ...(coupon ? { coupon: coupon.code, discountCents: discount } : {}) } });
   return { ok: true, renewed: !r.duplicated, duplicated: r.duplicated, orgId: ref.orgId };
 }
@@ -80,7 +85,7 @@ billingRouter.post('/checkout', ah(async (req, res) => {
   let applied: { id: string; code: string; discountCents: number } | null = null;
   if (couponCode) {
     try {
-      const { coupon, quote } = await priceWithCoupon(couponCode, product, cycle);
+      const { coupon, quote } = await priceWithCoupon(couponCode, product, cycle, orgId);
       amountCents = quote.finalCents;
       applied = { id: coupon.id, code: coupon.code, discountCents: quote.discountCents };
     } catch (e) {
@@ -106,7 +111,7 @@ billingRouter.post('/checkout', ah(async (req, res) => {
 billingRouter.post('/coupon', ah(async (req, res) => {
   const { code } = z.object({ code: z.string().trim().min(1).max(40) }).parse(req.body);
   try {
-    const c = await loadValidCoupon(code);
+    const c = await loadValidCoupon(code, orgOf(req));
     const { prices } = await getSettings();
     const quotes = quotesFor(c, prices);
     if (Object.keys(quotes).length === 0) throw new CouponError('valor');
