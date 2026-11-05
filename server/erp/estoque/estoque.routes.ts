@@ -3,6 +3,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import QRCode from 'qrcode';
 import { prisma } from '../../db.js';
+import { contem } from '../../lib/busca.js';
 import { ah, badRequest, notFound } from '../../lib/http.js';
 import { orgOf, requireRole } from '../../auth/session.js';
 import { auditar } from '../shared/auditoria.js';
@@ -162,7 +163,7 @@ estoqueRouter.post('/etiquetas/zpl', ah(async (req, res) => {
 estoqueRouter.get('/lotes', ah(async (req, res) => {
   const orgId = orgOf(req);
   const q = typeof req.query.q === 'string' ? req.query.q.trim().toUpperCase().slice(0, 40) : '';
-  const lotes = await prisma.erpLote.findMany({ where: { orgId, numero: { not: 'UNICO' }, ...(q ? { OR: [{ numero: { contains: q } }, { loteFornecedor: { contains: q } }] } : {}) }, orderBy: { createdAt: 'desc' }, take: 200 });
+  const lotes = await prisma.erpLote.findMany({ where: { orgId, numero: { not: 'UNICO' }, ...(q ? { OR: [{ numero: contem(q) }, { loteFornecedor: contem(q) }] } : {}) }, orderBy: { createdAt: 'desc' }, take: 200 });
   const prods = await prisma.erpProduto.findMany({ where: { id: { in: lotes.map((l) => l.produtoId) } }, select: { id: true, sku: true, nome: true } });
   const P = new Map(prods.map((p) => [p.id, p]));
   res.json(lotes.map((l) => ({ ...l, produto: P.get(l.produtoId) })));

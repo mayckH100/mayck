@@ -1,8 +1,10 @@
 /** Submenu do MCK ERP: cada módulo entra aqui conforme as etapas forem liberadas. */
 import { NavLink } from 'react-router-dom';
 
-export const ERP_ITENS = [
+export const ERP_ITENS: { to: string; label: string; end?: boolean; module?: string }[] = [
   { to: '/erp', label: 'Painel CRM', end: true },
+  // Venda balcão (PDV) com entrada própria no menu: antes ficava só como botão dentro de Pedidos e o cliente não achava.
+  { to: '/erp/balcao', label: 'Venda balcão (PDV)', module: 'erp_vendas' },
   { to: '/erp/funil', label: 'Funil de vendas' },
   { to: '/erp/clientes', label: 'Clientes' },
   { to: '/erp/fornecedores', label: 'Fornecedores' },

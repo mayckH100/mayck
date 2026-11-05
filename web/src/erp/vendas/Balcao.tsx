@@ -32,6 +32,8 @@ export default function VendaBalcao({ onClose, onDone }: { onClose: () => void; 
     const exato = r.find((p) => p.codigoBarras === q || p.sku === q.toUpperCase()) ?? (r.length === 1 ? r[0] : null);
     if (exato) add(exato); else setOps(r.slice(0, 8));
   };
+  // Aviso antes de finalizar: o servidor recusa a venda sem estoque ("Sem estoque disponível").
+  const semEstoque = (x: { produto: any; qtd: string }) => x.produto.tipo !== 'SERVICO' && !!x.produto.saldo && x.produto.saldo.disponivelMil < toMil(x.qtd);
   const linha = (x: { qtd: string; preco: string }) => Math.round((toMil(x.qtd) * toCents(x.preco)) / 1000);
   const subtotal = itens.reduce((a, x) => a + linha(x), 0);
   const total = Math.max(0, subtotal - toCents(desconto));
@@ -64,7 +66,7 @@ export default function VendaBalcao({ onClose, onDone }: { onClose: () => void; 
       </Field>
       {itens.length > 0 && <div className="table-wrap"><table><thead><tr><th>Produto</th><th>Qtd</th><th>Preço (R$)</th><th>Total</th><th></th></tr></thead><tbody>
         {itens.map((x, i) => <tr key={x.produto.id}>
-          <td className="small">{x.produto.nome}</td>
+          <td className="small">{x.produto.nome}{semEstoque(x) && <div style={{ color: '#dc2626' }}>Sem estoque suficiente ({(x.produto.saldo?.disponivelMil ?? 0) / 1000} disp.): dê entrada em Estoque antes de vender.</div>}</td>
           <td><input style={{ width: 64 }} value={x.qtd} inputMode="decimal" aria-label="Quantidade" onChange={(e) => setItens(itens.map((y, k) => (k === i ? { ...y, qtd: e.target.value } : y)))} /></td>
           <td><input style={{ width: 80 }} value={x.preco} inputMode="decimal" aria-label="Preço" onChange={(e) => setItens(itens.map((y, k) => (k === i ? { ...y, preco: e.target.value } : y)))} /></td>
           <td>{brl(linha(x))}</td>

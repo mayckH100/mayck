@@ -2,6 +2,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { prisma } from '../../db.js';
+import { contem } from '../../lib/busca.js';
 import { ah, badRequest, notFound } from '../../lib/http.js';
 import { orgOf, requireRole } from '../../auth/session.js';
 import { isValidCnpj, isValidCpf, onlyDigits, normalizeCelular } from '../../lib/documento.js';
@@ -47,7 +48,7 @@ parceirosRouter.get('/', ah(async (req, res) => {
   const digits = onlyDigits(q);
   const where = {
     orgId, ...tipo, ...(status ? { status } : {}),
-    ...(q ? { OR: [{ nome: { contains: q } }, { fantasia: { contains: q } }, ...(digits.length >= 3 ? [{ documento: { contains: digits } }] : []), { email: { contains: q.toLowerCase() } }] } : {}),
+    ...(q ? { OR: [{ nome: contem(q) }, { fantasia: contem(q) }, ...(digits.length >= 3 ? [{ documento: { contains: digits } }] : []), { email: contem(q.toLowerCase()) }] } : {}),
   };
   const [items, total] = await Promise.all([
     prisma.erpParceiro.findMany({ where, orderBy: { nome: 'asc' }, take: 200 }),

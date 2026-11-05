@@ -24,6 +24,29 @@ describe('ERP · venda balcão e planilhas', () => {
     expect((await owner.get('/api/erp/produtos?q=BAL-1')).body.items[0].saldo.fisicoMil).toBe(3_000);
   });
 
+  it('venda balcão aparece na lista de pedidos (Todos, Vendas balcão e Encerrados) e a busca ignora maiúsculas', async () => {
+    const venda = await owner.post('/api/erp/vendas/balcao', { forma: 'PIX', itens: [{ produtoId: prodId, qtdMil: 1_000 }] });
+    expect(venda.status).toBe(201);
+    const cli = (await owner.post('/api/erp/crm/parceiros', { documento: fakeCnpj(), nome: 'Cliente Orçamento', ehCliente: true })).body;
+    const orc = await owner.post('/api/erp/vendas/pedidos', { parceiroId: cli.id, itens: [{ produtoId: prodId, qtdMil: 1_000 }] });
+    expect(orc.status).toBe(201);
+    const todos = (await owner.get('/api/erp/vendas/pedidos?status=')).body as any[];
+    expect(todos.find((p) => p.id === venda.body.id)).toMatchObject({ balcao: true, statusOperacional: 'ENTREGUE' });
+    expect(todos.find((p) => p.id === orc.body.id)).toMatchObject({ balcao: false });
+    const bal = (await owner.get('/api/erp/vendas/pedidos?status=&origem=balcao')).body as any[];
+    expect(bal.map((p) => p.id)).toContain(venda.body.id);
+    expect(bal.map((p) => p.id)).not.toContain(orc.body.id);
+    expect(bal.every((p) => p.balcao)).toBe(true);
+    const ped = (await owner.get('/api/erp/vendas/pedidos?origem=pedido')).body as any[];
+    expect(ped.map((p) => p.id)).toContain(orc.body.id);
+    expect(ped.map((p) => p.id)).not.toContain(venda.body.id);
+    const enc = (await owner.get('/api/erp/vendas/pedidos?status=ENTREGUE,DEVOLVIDO,CANCELADO')).body as any[];
+    expect(enc.map((p) => p.id)).toContain(venda.body.id);
+    // PDV: digitar em minúsculas acha o produto (no Postgres o "contains" diferenciava maiúsculas)
+    expect((await owner.get('/api/erp/produtos?ativos=1&q=balc')).body.items.map((p: any) => p.id)).toContain(prodId);
+    expect((await owner.get('/api/erp/produtos?ativos=1&q=bal-1')).body.items.map((p: any) => p.id)).toContain(prodId);
+  });
+
   it('modelo, importação com simulação e exportação', async () => {
     const m = await owner.get('/api/erp/io/fornecedores/modelo');
     expect(m.text).toContain('CPF/CNPJ *;Nome / Razão social *');

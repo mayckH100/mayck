@@ -51,7 +51,7 @@ type NavItem = { to: string; label: string; icon?: string; roles?: Role[]; super
 /** Menu por categoria: os três produtos primeiro (MCK ERP, MCKBOT, MCK Mensagens), depois gestão e conta. */
 const NAV_GROUPS: { id: string; label: string; icon: string; items: NavItem[] }[] = [
   { id: 'erp', label: 'MCK ERP', icon: '◆', items: [
-    ...ERP_ITENS.map((i) => ({ ...i, module: 'erp_crm' })),
+    ...ERP_ITENS.map((i) => ({ module: 'erp_crm', ...i })),
     { to: '/erp/relatorios', label: 'Relatórios', module: 'erp_relatorios' },
     { to: '/erp/funcionarios', label: 'Funcionários', module: 'equipe', roles: ['OWNER', 'ADMIN'] },
   ] },
@@ -325,7 +325,8 @@ export default function App() {
             <Route path="/erp/alertas" element={<ErpAlertas />} />
             <Route path="/erp/produtos" element={<ErpProdutos />} />
             <Route path="/erp/estoque" element={<ErpEstoque />} />
-            <Route path="/erp/pedidos" element={<ErpPedidos />} />
+            <Route path="/erp/pedidos" element={<ErpPedidos key="pedidos" />} />
+            <Route path="/erp/balcao" element={<ErpPedidos key="balcao" balcao />} />
             <Route path="/erp/pedidos/:id" element={<ErpPedido />} />
             <Route path="/erp/compras" element={<ErpCompras />} />
             <Route path="/erp/producao" element={<ErpProducao />} />

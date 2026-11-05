@@ -22,6 +22,10 @@ import { avisarPedidoErp } from './avisoPedido.js';
 type Tx = Prisma.TransactionClient;
 export const pedidosRouter = Router();
 
+/** Venda balcão (PDV) sai faturada com a "nota" BALCAO-<nº>: é assim que a lista separa balcão de pedido. */
+export const PREFIXO_BALCAO = 'BALCAO-';
+export const ehBalcao = (p: { nfNumero?: string | null }) => !!p.nfNumero?.startsWith(PREFIXO_BALCAO);
+
 export const itemSchema = z.object({ produtoId: z.string(), qtdMil: z.number().int().min(1).max(2_000_000_000), precoUnitCents: z.number().int().min(0).max(2_000_000_000).optional(), descontoBp: z.number().int().min(0).max(10_000).default(0) });
 const pedidoSchema = z.object({
   parceiroId: z.string(), oportunidadeId: z.string().nullish(), tabelaPrecoId: z.string().nullish(), condicaoPagamentoId: z.string().nullish(),
@@ -48,15 +52,16 @@ export async function montarItens(tx: Tx, orgId: string, b: Pick<z.infer<typeof 
 
 pedidosRouter.get('/', ah(async (req, res) => {
   const orgId = orgOf(req);
-  const f = z.object({ status: z.string().optional(), parceiroId: z.string().optional(), q: z.string().max(60).optional() }).parse(req.query);
+  const f = z.object({ status: z.string().optional(), origem: z.enum(['balcao', 'pedido']).optional().catch(undefined), parceiroId: z.string().optional(), q: z.string().max(60).optional() }).parse(req.query);
   const num = f.q && /^\d+$/.test(f.q) ? Number(f.q) : null;
+  const origem = f.origem === 'balcao' ? { nfNumero: { startsWith: PREFIXO_BALCAO } } : f.origem === 'pedido' ? { OR: [{ nfNumero: null }, { NOT: { nfNumero: { startsWith: PREFIXO_BALCAO } } }] } : {};
   const items = await prisma.erpPedidoVenda.findMany({
-    where: { orgId, ...(f.status ? { statusOperacional: { in: f.status.split(',') } } : {}), ...(f.parceiroId ? { parceiroId: f.parceiroId } : {}), ...(num ? { numero: num } : {}) },
+    where: { orgId, ...(f.status ? { statusOperacional: { in: f.status.split(',') } } : {}), ...origem, ...(f.parceiroId ? { parceiroId: f.parceiroId } : {}), ...(num ? { numero: num } : {}) },
     orderBy: { numero: 'desc' }, take: 300,
   });
   const parceiros = await prisma.erpParceiro.findMany({ where: { id: { in: [...new Set(items.map((i) => i.parceiroId))] } }, select: { id: true, nome: true, fantasia: true } });
   const M = new Map(parceiros.map((p) => [p.id, p]));
-  res.json(items.map((i) => ({ ...i, parceiro: M.get(i.parceiroId) })));
+  res.json(items.map((i) => ({ ...i, parceiro: M.get(i.parceiroId), balcao: ehBalcao(i) })));
 }));
 
 pedidosRouter.get('/:id', ah(async (req, res) => {

@@ -13,7 +13,7 @@ import { despacharEmBreve, emitir } from '../shared/events.js';
 import { auditar } from '../shared/auditoria.js';
 import { baixarReservas, reservarPedido } from '../estoque/servico.js';
 import { titulosDoPedido, recalcularTitulo } from '../financeiro/servico.js';
-import { aplicar, itemSchema, montarItens } from './pedidos.routes.js';
+import { aplicar, itemSchema, montarItens, PREFIXO_BALCAO } from './pedidos.routes.js';
 import { configDa } from '../produtos/produtos.routes.js';
 import { avisarPedidoErp } from './avisoPedido.js';
 
@@ -83,7 +83,7 @@ balcaoRouter.post('/', ah(async (req, res) => {
     for (const i of p.itens) await tx.erpPedidoItem.update({ where: { id: i.id }, data: { separadoMil: i.qtdMil } });
     p = await tx.erpPedidoVenda.findUniqueOrThrow({ where: { id: p.id }, include: { itens: true } });
     p = await aplicar(tx, p, 'CONFERIR', { tudoSeparado: true });
-    const nf = `BALCAO-${numero}`;
+    const nf = `${PREFIXO_BALCAO}${numero}`;
     p = await aplicar(tx, p, 'FATURAR', { nfNumero: nf }, { nfNumero: nf });
     await baixarReservas(tx, { orgId, pedidoId: p.id, motivo: `Venda balcão ${numero}`, userId: userId ?? undefined, correlationId });
     p = await aplicar(tx, p, 'ENTREGAR', {}, { entregueEm: new Date() });

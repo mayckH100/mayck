@@ -2,6 +2,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { prisma } from '../../db.js';
+import { contem } from '../../lib/busca.js';
 import { ah, badRequest, notFound } from '../../lib/http.js';
 import { orgOf, requireRole } from '../../auth/session.js';
 import { auditar } from '../shared/auditoria.js';
@@ -52,7 +53,7 @@ const ZERO = { fisicoMil: 0, reservadoMil: 0, quarentenaMil: 0, disponivelMil: 0
 produtosRouter.get('/', ah(async (req, res) => {
   const orgId = orgOf(req);
   const q = typeof req.query.q === 'string' ? req.query.q.trim().slice(0, 100) : '';
-  const where = { orgId, ...(req.query.ativos === '1' ? { ativo: true } : {}), ...(q ? { OR: [{ nome: { contains: q } }, { sku: { contains: q.toUpperCase() } }, { codigoBarras: q }] } : {}) };
+  const where = { orgId, ...(req.query.ativos === '1' ? { ativo: true } : {}), ...(q ? { OR: [{ nome: contem(q) }, { sku: contem(q.toUpperCase()) }, { codigoBarras: q }] } : {}) };
   const items = await prisma.erpProduto.findMany({ where, orderBy: { nome: 'asc' }, take: 300 });
   const saldos = await saldosPorProduto(orgId, items.map((i) => i.id));
   const xml = await comEntradaXml(orgId, items.map((p) => p.id));

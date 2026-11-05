@@ -21,6 +21,17 @@ export type EntradaChangelog = {
 
 export const CHANGELOG: EntradaChangelog[] = [
   {
+    versao: '1.13.2',
+    data: '04/11/2026',
+    titulo: 'Venda balcão agora aparece no menu do MCK ERP',
+    itens: [
+      'Novo item "Venda balcão (PDV)" no menu do MCK ERP: abre direto a tela de venda na hora.',
+      'As vendas feitas no balcão aparecem na lista de Pedidos com a etiqueta "Balcão" e no novo filtro "Vendas balcão".',
+      'A busca de produtos e clientes na venda balcão encontra o item mesmo digitando em letras minúsculas.',
+      'A venda balcão avisa antes de finalizar quando o produto não tem estoque suficiente.',
+    ],
+  },
+  {
     versao: '1.13.1',
     data: '04/11/2026',
     titulo: 'Alerta de falha da IA agora chega na primeira falha de cada conversa',
