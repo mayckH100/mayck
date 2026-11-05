@@ -43,7 +43,7 @@ export class MckIaProvider implements AiProvider {
   constructor(private chain: MckIaLink[] = mckIaChain(), private make: (l: MckIaLink) => AiProvider = defaultMake) {}
 
   async chat(messages: ChatMessage[], opts: ChatOptions): Promise<ChatResult> {
-    if (!this.chain.length) throw new AiProviderError('http', 'MCK IA não configurada na plataforma', false);
+    if (!this.chain.length) throw new AiProviderError('http', 'MCK IA não configurada', false);
     const total = opts.timeoutMs ?? aiTimeoutMs();
     const started = Date.now();
     let last: unknown = null;
@@ -62,7 +62,9 @@ export class MckIaProvider implements AiProvider {
         console.warn('[mck-ia] provedor falhou, tentando o próximo', { provider: link.name, error: (e as Error).message });
       }
     }
-    if (last instanceof AiProviderError) throw new AiProviderError(last.code, `MCK IA: todos os provedores falharam (último: ${last.message})`, last.retryable, last.detail);
-    throw new AiProviderError('timeout', 'MCK IA: nenhum provedor respondeu a tempo', true);
+    // Para o cliente, só "MCK IA indisponível": quais provedores existem e qual falhou fica no log do servidor.
+    console.warn('[mck-ia] nenhum provedor respondeu', { error: (last as Error | null)?.message ?? 'sem tempo' });
+    if (last instanceof AiProviderError) throw new AiProviderError(last.code, 'MCK IA indisponível no momento', last.retryable, last.detail);
+    throw new AiProviderError('timeout', 'MCK IA indisponível no momento', true);
   }
 }

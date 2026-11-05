@@ -31,7 +31,7 @@ describe('MCK IA', () => {
 
   it('falha clara quando todos falham ou nada está configurado', async () => {
     const make = (): AiProvider => ({ name: 'x', chat: async () => { throw new AiProviderError('http', 'erro 503', true, '503'); } });
-    await expect(new MckIaProvider([{ name: 'gemini', key: 'a', model: 'g' }], make).chat(msgs, opts)).rejects.toThrow(/todos os provedores falharam/);
+    await expect(new MckIaProvider([{ name: 'gemini', key: 'a', model: 'g' }], make).chat(msgs, opts)).rejects.toThrow(/^MCK IA indisponível no momento$/);
     await expect(new MckIaProvider([], make).chat(msgs, opts)).rejects.toThrow(/não configurada/);
   });
 

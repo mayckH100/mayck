@@ -48,7 +48,7 @@ function Config() {
       }}>
         <fieldset disabled={ro} className="card stack" style={{ margin: 0 }}>
           <h2>Provedor e modelo</h2>
-          {f.provider === 'mck' && <div className={`alert ${s.mckIaReady ? 'info' : 'warn'}`}>{s.mckIaReady ? 'MCK IA: a IA própria da MCK DESENVOLVIMENTO. Não precisa de chave; se um provedor falhar, ela passa sozinha para o próximo.' : 'A MCK IA ainda não foi ativada na plataforma. Use o Google Gemini com a sua chave por enquanto.'}</div>}
+          {f.provider === 'mck' && <div className={`alert ${s.mckIaReady ? 'info' : 'warn'}`}>{s.mckIaReady ? 'MCK IA: a inteligência artificial própria da MCK DESENVOLVIMENTO. Não precisa de chave.' : 'A MCK IA ainda não foi ativada na plataforma. Use o Google Gemini com a sua chave por enquanto.'}</div>}
           {!s.hasApiKey && f.provider !== 'mck' && <div className="alert warn">Nenhuma chave configurada: a IA não responde até você salvar uma chave. O Google Gemini tem camada gratuita (crie a chave em aistudio.google.com).</div>}
           <Field label="Provedor"><select value={f.provider} onChange={(e) => setF({ ...f, provider: e.target.value, model: MODELS[e.target.value] ?? f.model })}><option value="mck">MCK IA (inclusa, sem chave)</option><option value="gemini">Google Gemini</option><option value="openai">OpenAI ou compatível (Groq, OpenRouter, etc.)</option></select></Field>
           {f.provider !== 'mck' && <Field label="Modelo" hint={f.provider === 'gemini' ? 'Ex.: gemini-3.5-flash-lite (gratuito) ou gemini-3.8-flash. Lista em ai.google.dev/gemini-api/docs/models' : 'Nome exato do modelo no seu provedor'}><input required value={f.model} onChange={(e) => setF({ ...f, model: e.target.value })} /></Field>}
