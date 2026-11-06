@@ -8,6 +8,8 @@ import { failureText, isExplicitHumanRequest, DEFAULT_FAILURE_TEXT } from './hum
 import { failureTextFor } from './failurePolicy.js';
 import { notifyAiFailureInBackground } from '../whatsapp/staffAlerts.js';
 import { knowledgePromptSection } from './siteKnowledge.js';
+import { MckIaProvider } from './mckIa.js';
+import { mckQuotaStatus, mckQuotaHitToday, MCK_QUOTA_REASON } from './mckQuota.js';
 import { kanbanPromptSection, applyKanbanTag } from './kanbanAuto.js';
 import { normalize } from '../flows/logic.js';
 import { aiNotesPromptSection, contactIdOfConversation } from './contactNotes.js';
@@ -21,6 +23,8 @@ export interface AiReply {
   handoff: boolean;
   /** A IA não conseguiu responder (texto de falha enviado, sem transferir). */
   failed?: boolean;
+  /** Falha já avisada ao Proprietário (ex.: cota diária da MCK IA): não manda outro alerta. */
+  quiet?: boolean;
   reason?: string;
   error?: string;
   usedContext: boolean;
@@ -127,7 +131,7 @@ export async function generateAiReply(args: { orgId: string; conversationId: str
   // Falha numa conversa real (não no "Testar"): não repete o mesmo texto de falha e avisa o dono.
   if (r.failed && r.text && args.conversationId) {
     const text = await failureTextFor(args.orgId, args.conversationId, r.text);
-    notifyAiFailureInBackground({ orgId: args.orgId, conversationId: args.conversationId, reason: r.reason ?? 'IA não conseguiu responder', error: r.error, repeated: text !== r.text });
+    if (!r.quiet) notifyAiFailureInBackground({ orgId: args.orgId, conversationId: args.conversationId, reason: r.reason ?? 'IA não conseguiu responder', error: r.error, repeated: text !== r.text });
     r = { ...r, text };
   }
   return r;
@@ -157,6 +161,17 @@ async function generateAiReplyInner(args: { orgId: string; conversationId: strin
     await prisma.aiUsage.create({ data: { orgId, conversationId, provider: s.provider, model: s.model, success: false, handoff: false, error: 'Limite de uso da IA atingido' } });
     console.warn('[ia] limite de uso atingido: texto de falha enviado, sem transferir', { orgId, conversationId: conversationId || null });
     return { text: fail, handoff: false, failed: true, reason: 'Limite de uso da IA atingido', usedContext: false };
+  }
+
+  // MCK IA: cota diária por plano. Estourou: não chama provedor nenhum e segue a política de falha.
+  if (s.provider === 'mck') {
+    const q = await mckQuotaStatus(orgId);
+    if (q.reached) {
+      const already = await mckQuotaHitToday(orgId).catch(() => false);
+      await prisma.aiUsage.create({ data: { orgId, conversationId: conversationId || null, provider: 'mck', model: s.model, success: false, handoff: false, error: MCK_QUOTA_REASON } });
+      console.warn('[ia] cota diária da MCK IA atingida: texto de falha enviado, sem chamar provedor', { orgId, conversationId: conversationId || null, tier: q.tier, limit: q.limit });
+      return { text: fail, handoff: false, failed: true, quiet: already, reason: MCK_QUOTA_REASON, usedContext: false };
+    }
   }
 
   const hits = await retrieve(orgId, text, 3);
@@ -216,7 +231,9 @@ async function generateAiReplyInner(args: { orgId: string; conversationId: strin
       const r: ChatResult = await withTimeout(provider.chat(messages, { model, temperature: s.temperature, maxTokens: s.maxTokens, timeoutMs, googleSearch: search }), timeoutMs + 500,
         () => new AiProviderError('timeout', `Provedor de IA não respondeu em ${Math.round(timeoutMs / 1000)} s`, true));
       if (model !== s.model) console.warn('[ia] respondido pelo modelo reserva', { orgId, conversationId: conversationId || null, principal: s.model, reserva: model });
-      const base = { orgId, conversationId, provider: s.provider, model, promptTokens: r.promptTokens, completionTokens: r.completionTokens, latencyMs: Date.now() - started };
+      // MCK IA: guarda qual provedor respondeu (só o Master vê; a tela do cliente mostra apenas "MCK IA").
+      const usedModel = provider instanceof MckIaProvider && provider.lastUsed ? `${s.model}/${provider.lastUsed}` : model;
+      const base = { orgId, conversationId, provider: s.provider, model: usedModel, promptTokens: r.promptTokens, completionTokens: r.completionTokens, latencyMs: Date.now() - started };
       if (!r.text?.trim()) throw new AiProviderError('empty', 'Provedor de IA devolveu resposta vazia', true);
       if (r.text.includes(HANDOFF_TOKEN)) {
         // A IA pediu transferência sem o cliente pedir: proibido. Manda o resto do texto (ou o texto de falha) e segue com a IA.

@@ -37,7 +37,7 @@ interface Settings {
 }
 
 const TABS = [
-  ['geral', 'Visão geral'], ['clientes', 'Clientes'], ['vencimentos', 'Vencimentos'], ['pagamentos', 'Pagamentos'], ['atividades', 'Atividades'], ['avisos', 'Avisos'], ['novidades', 'Novidades'], ['indicacoes', 'Indicações'], ['configuracoes', 'Configurações'],
+  ['geral', 'Visão geral'], ['clientes', 'Clientes'], ['vencimentos', 'Vencimentos'], ['pagamentos', 'Pagamentos'], ['atividades', 'Atividades'], ['avisos', 'Avisos'], ['novidades', 'Novidades'], ['indicacoes', 'Indicações'], ['mckia', 'MCK IA'], ['configuracoes', 'Configurações'],
 ] as const;
 type Tab = (typeof TABS)[number][0];
 
@@ -57,6 +57,7 @@ const ACTION_LABEL: Record<string, string> = {
   'master.announcement.activate': 'Master: aviso ativado', 'master.announcement.deactivate': 'Master: aviso desativado', 'master.announcement.delete': 'Master: aviso excluído',
   'billing.renewal_reminder.sent': 'Lembrete de vencimento enviado (e-mail)', 'billing.renewal_reminder.failed': 'Lembrete de vencimento falhou',
   'profile.renewal_reminders': 'Lembretes de vencimento alterados',
+  'report.weekly.sent': 'Resumo semanal enviado (e-mail)', 'profile.weekly_report': 'Resumo semanal por e-mail alterado',
   'master.social.connect': 'Master: rede social conectada', 'master.social.connect_failed': 'Master: falha ao conectar rede social', 'master.social.disconnect': 'Master: rede social desconectada',
   'master.social.post_create': 'Master: novidade criada', 'master.social.post_publish': 'Master: novidade aprovada e publicada', 'master.social.post_delete': 'Master: novidade excluída',
   'backup.success': 'Backup do banco concluído', 'backup.failed': 'Backup do banco falhou', 'backup.download': 'Backup baixado pelo Master',
@@ -1020,6 +1021,51 @@ function ReferralsTab() {
   );
 }
 
+// ---------- MCK IA: uso por empresa (só superadmin; provedores aparecem apenas aqui) ----------
+interface MckIaRow {
+  orgId: string; orgName: string; usesMckIa: boolean; tierLabel: string; limit: number;
+  today: { responses: number; failures: number; quotaBlocks: number; percent: number | null };
+  week: { responses: number; failures: number; quotaBlocks: number };
+  providers: Record<string, number>; lastError: string | null; lastAt: string | null;
+}
+function MckIaTab() {
+  const state = useApi<{ providersActive: string[]; limits: { teste: number; pago: number; completo: number }; totals: { today: number; todayFailures: number; week: number; weekFailures: number; atLimit: number }; items: MckIaRow[] }>('/master/mck-ia');
+  const lim = (n: number) => (n ? fmtNum(n) : 'sem limite');
+  return (
+    <Async state={state}>{(d) => (
+      <div className="stack">
+        <div className="grid g4">
+          <Stat label="Respostas hoje" value={fmtNum(d.totals.today)} sub={`${fmtNum(d.totals.todayFailures)} falha(s)`} />
+          <Stat label="Respostas (7 dias)" value={fmtNum(d.totals.week)} sub={`${fmtNum(d.totals.weekFailures)} falha(s)`} />
+          <Stat label="Empresas no limite hoje" value={fmtNum(d.totals.atLimit)} />
+          <Stat label="Provedores ativos" value={d.providersActive.length ? d.providersActive.join(' → ') : 'nenhum'} sub="Ordem de tentativa (só visível no Master)" />
+        </div>
+        <div className="card stack">
+          <div><h2 style={{ margin: 0 }}>Uso da MCK IA por empresa</h2><p className="small muted" style={{ margin: 0 }}>Cota diária de respostas (zera à meia-noite de Brasília): teste {lim(d.limits.teste)} · plano pago {lim(d.limits.pago)} · Plano Completo {lim(d.limits.completo)}. Variáveis MCK_IA_DAILY_TRIAL, MCK_IA_DAILY_PAID e MCK_IA_DAILY_COMBO.</p></div>
+          {d.items.length === 0 ? <Empty title="Nenhuma empresa usando a MCK IA">As empresas aparecem aqui quando escolhem a MCK IA em Configurações da IA.</Empty> : (
+            <div className="table-wrap">
+              <table>
+                <thead><tr><th>Empresa</th><th>Plano</th><th>Hoje</th><th>% da cota</th><th>7 dias</th><th>Provedores (7 dias)</th><th>Última falha</th></tr></thead>
+                <tbody>{d.items.map((r) => (
+                  <tr key={r.orgId}>
+                    <td><Link to={`/master/clientes/${r.orgId}`}>{r.orgName}</Link>{!r.usesMckIa && <div className="small muted">não usa mais a MCK IA</div>}</td>
+                    <td className="small">{r.tierLabel}<div className="muted">{r.limit ? `${fmtNum(r.limit)}/dia` : 'sem limite'}</div></td>
+                    <td>{fmtNum(r.today.responses)} <span className="small muted">resp.</span>{r.today.failures ? <div className="small">{fmtNum(r.today.failures)} falha(s)</div> : null}{r.today.quotaBlocks ? <div className="small">{fmtNum(r.today.quotaBlocks)} bloqueada(s) pela cota</div> : null}</td>
+                    <td>{r.today.percent === null ? <span className="muted">—</span> : <span className={`badge ${r.today.percent >= 100 ? 'red' : r.today.percent >= 80 ? 'amber' : 'green'}`}>{r.today.percent}%</span>}</td>
+                    <td>{fmtNum(r.week.responses)} <span className="small muted">resp.</span>{r.week.failures ? <div className="small">{fmtNum(r.week.failures)} falha(s)</div> : null}</td>
+                    <td className="small">{Object.keys(r.providers).length ? Object.entries(r.providers).map(([p, n]) => `${p}: ${fmtNum(n)}`).join(' · ') : <span className="muted">—</span>}</td>
+                    <td className="small">{r.lastError ? <span title={r.lastError}>{r.lastError.slice(0, 80)}</span> : <span className="muted">—</span>}</td>
+                  </tr>
+                ))}</tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </div>
+    )}</Async>
+  );
+}
+
 // ---------- Página ----------
 export default function Master() {
   const { me } = useAuth();
@@ -1064,6 +1110,7 @@ export default function Master() {
           {tab === 'avisos' && <AnnouncementsSection />}
           {tab === 'novidades' && <NovidadesTab />}
           {tab === 'indicacoes' && <ReferralsTab />}
+          {tab === 'mckia' && <MckIaTab />}
           {tab === 'configuracoes' && <SettingsTab />}
         </>
       )}

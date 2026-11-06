@@ -203,6 +203,22 @@ function WaitingAlerts() {
   );
 }
 
+
+/** Tela de carregamento amigável enquanto o app abre (no Render grátis, o 1º acesso do dia pode levar ~1 min). */
+function AppSplash() {
+  const [slow, setSlow] = useState(false);
+  useEffect(() => { const t = setTimeout(() => setSlow(true), 5000); return () => clearTimeout(t); }, []);
+  return (
+    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24, textAlign: 'center' }}>
+      <div style={{ maxWidth: 420 }} role="status" aria-live="polite">
+        <img src="/logo-192.png" width={64} height={64} alt="" style={{ borderRadius: 14, display: 'block', margin: '0 auto 16px' }} />
+        <Loading text="Abrindo o MCKBOT…" />
+        {slow && <p className="small muted" style={{ marginTop: 12 }}>Está demorando um pouco mais que o normal. Na primeira vez do dia pode levar até 1 minuto. Não feche esta página.</p>}
+      </div>
+    </div>
+  );
+}
+
 function Shell({ children }: { children: ReactNode }) {
   const { me, setMe, logout, can, hasModule } = useAuth();
   const [open, setOpen] = useState(false);
@@ -264,7 +280,7 @@ function Shell({ children }: { children: ReactNode }) {
 
 export default function App() {
   const { me, loading } = useAuth();
-  if (loading) return <Loading text="Carregando MCKBOT…" />;
+  if (loading) return <AppSplash />;
   if (!me) {
     return (
       <Routes>

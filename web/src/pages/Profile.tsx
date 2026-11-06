@@ -41,6 +41,21 @@ export default function Profile() {
                 <span className="muted" style={{ display: 'block' }}>Depois de 5 minutos fora do ar (reconexões rápidas e reinícios do servidor não contam), com o link para reconectar e um lembrete se continuar fora depois de 24 h. O aviso no app aparece sempre.</span>
               </span>
             </label>
+            {can('OWNER') && (
+              <label className="row small" style={{ gap: 8, alignItems: 'flex-start', cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  style={{ width: 'auto' }}
+                  checked={me?.user.weeklyReport !== false}
+                  disabled={busy}
+                  onChange={async (e) => { const v = e.target.checked; if (await run(() => put('/profile/relatorio-semanal', { enabled: v }), v ? 'Você vai receber o resumo semanal' : 'Resumo semanal desligado')) refresh(); }}
+                />
+                <span>
+                  <strong>Resumo semanal por e-mail</strong>
+                  <span className="muted" style={{ display: 'block' }}>Toda segunda-feira às 8h: conversas atendidas, respostas da IA, transferências para humano e leads qualificados da semana anterior.</span>
+                </span>
+              </label>
+            )}
           </div>
         )}
         {can('OWNER', 'ADMIN') && (

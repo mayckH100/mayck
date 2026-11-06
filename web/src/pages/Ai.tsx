@@ -1,4 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
+import { AI_TEMPLATES, aiTemplateById } from '../lib/aiTemplates';
 import { post, put, del } from '../api';
 import { useAuth } from '../auth';
 import { useApi, Async, Empty, useAction, Modal, Field, fmtDate, fmtNum } from '../ui';
@@ -7,7 +9,8 @@ import { useApi, Async, Empty, useAction, Modal, Field, fmtDate, fmtNum } from '
 const MODELS: Record<string, string> = { gemini: 'gemini-3.5-flash-lite', openai: '', mck: 'mck-ia' };
 
 export default function Ai() {
-  const [tab, setTab] = useState<'config' | 'kb' | 'test' | 'usage'>('config');
+  const [sp0] = useSearchParams();
+  const [tab, setTab] = useState<'config' | 'kb' | 'test' | 'usage'>(sp0.get('aba') === 'testar' ? 'test' : 'config');
   return (
     <>
       <div className="page-head"><div><h1>Inteligência artificial</h1><p className="muted">Instruções, tom de voz, base de conhecimento, provedor/modelo, limites e transferência para humano.</p></div></div>
@@ -28,7 +31,21 @@ function Config() {
   const superAdmin = !!me?.user.isSuperAdmin;
   const [f, setF] = useState<any>(null);
   const [apiKey, setApiKey] = useState('');
+  const [tpl, setTpl] = useState('');
+  const [tplApplied, setTplApplied] = useState('');
+  const [sp] = useSearchParams();
+  const wantTemplate = sp.get('modelo') === '1';
+  const tplRef = useRef<HTMLSelectElement>(null);
   const { busy, run } = useAction();
+  // Vindo dos "Primeiros passos" (?modelo=1): leva direto ao seletor de modelos.
+  useEffect(() => { if (wantTemplate && f && tplRef.current) { tplRef.current.scrollIntoView({ block: 'center' }); tplRef.current.focus(); } }, [wantTemplate, !!f]);
+  const applyTemplate = () => {
+    const t = aiTemplateById(tpl);
+    if (!t) return;
+    if (f.instructions?.trim() && f.instructions.trim() !== t.text && !confirm('Substituir as Instruções atuais pelo modelo? O texto atual será trocado (só vale depois de Salvar).')) return;
+    setF({ ...f, instructions: t.text });
+    setTplApplied(t.label);
+  };
   useEffect(() => { if (state.data) setF({ ...state.data, handoffKeywords: state.data.handoffKeywords.join(', '), baseUrl: state.data.baseUrl ?? '' }); }, [state.data]);
   const ro = !can('OWNER', 'ADMIN');
   return (
@@ -49,6 +66,7 @@ function Config() {
         <fieldset disabled={ro} className="card stack" style={{ margin: 0 }}>
           <h2>Provedor e modelo</h2>
           {f.provider === 'mck' && <div className={`alert ${s.mckIaReady ? 'info' : 'warn'}`}>{s.mckIaReady ? 'MCK IA: a inteligência artificial própria da MCK DESENVOLVIMENTO. Não precisa de chave.' : 'A MCK IA ainda não foi ativada na plataforma. Use o Google Gemini com a sua chave por enquanto.'}</div>}
+          {f.provider === 'mck' && s.provider === 'mck' && s.mckQuota && <MckQuotaInfo q={s.mckQuota} />}
           {!s.hasApiKey && f.provider !== 'mck' && <div className="alert warn">Nenhuma chave configurada: a IA não responde até você salvar uma chave. O Google Gemini tem camada gratuita (crie a chave em aistudio.google.com).</div>}
           <Field label="Provedor"><select value={f.provider} onChange={(e) => setF({ ...f, provider: e.target.value, model: MODELS[e.target.value] ?? f.model })}><option value="mck">MCK IA (inclusa, sem chave)</option><option value="gemini">Google Gemini</option><option value="openai">OpenAI ou compatível (Groq, OpenRouter, etc.)</option></select></Field>
           {f.provider !== 'mck' && <Field label="Modelo" hint={f.provider === 'gemini' ? 'Ex.: gemini-3.5-flash-lite (gratuito) ou gemini-3.8-flash. Lista em ai.google.dev/gemini-api/docs/models' : 'Nome exato do modelo no seu provedor'}><input required value={f.model} onChange={(e) => setF({ ...f, model: e.target.value })} /></Field>}
@@ -66,7 +84,17 @@ function Config() {
           <h2>Comportamento</h2>
           <label className="row"><input type="checkbox" checked={f.enabled} onChange={(e) => setF({ ...f, enabled: e.target.checked })} /> IA ativada (permite o bloco "Resposta com IA" nos fluxos)</label>
           <label className="row"><input type="checkbox" checked={f.autoReply} onChange={(e) => setF({ ...f, autoReply: e.target.checked })} /> Responder automaticamente quando nenhum fluxo for acionado</label>
-          <Field label="Instruções" hint="Quem é a empresa, o que vende, preços e como atender. A IA também usa a base de conhecimento."><textarea rows={6} value={f.instructions} onChange={(e) => setF({ ...f, instructions: e.target.value })} /></Field>
+          <Field label="Usar modelo do meu segmento" hint="Preenche as Instruções com um texto pronto para editar. Troque cada [preencha] pelos dados da sua empresa (preços, horários, endereço) e clique em Salvar.">
+            <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+              <select ref={tplRef} value={tpl} onChange={(e) => setTpl(e.target.value)} style={{ flex: 1, minWidth: 200 }} aria-label="Segmento">
+                <option value="">Escolha o seu segmento…</option>
+                {AI_TEMPLATES.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
+              </select>
+              <button type="button" className="btn sm" disabled={!tpl} onClick={applyTemplate}>Usar modelo</button>
+            </div>
+          </Field>
+          {tplApplied && <div className="alert info small" role="status">Modelo "{tplApplied}" colocado nas Instruções. Troque os [preencha] pelos seus dados e clique em <strong>Salvar configurações</strong>.</div>}
+          <Field label="Instruções" hint="Quem é a empresa, o que vende, preços e como atender. A IA também usa a base de conhecimento."><textarea rows={tplApplied ? 14 : 6} value={f.instructions} onChange={(e) => setF({ ...f, instructions: e.target.value })} /></Field>
           <Field label="Tom de voz"><input value={f.tone} onChange={(e) => setF({ ...f, tone: e.target.value })} /></Field>
           <div className="alert info small">A IA só transfere para um atendente quando o <strong>cliente pede</strong> (ex.: "quero falar com um atendente", "humano", "pessoa"). Se ela não souber responder ou falhar, manda o texto de falha abaixo e continua atendendo. Transferências que você colocou nos fluxos (bloco "Transferir para humano") continuam valendo.</div>
           <Field label="Palavras que pedem humano" hint="Separadas por vírgula. Valem em mensagens curtas ou em pedidos (ex.: 'quero atendente'); 'pessoa jurídica' não transfere."><input value={f.handoffKeywords} onChange={(e) => setF({ ...f, handoffKeywords: e.target.value })} /></Field>
@@ -83,6 +111,12 @@ function Config() {
       </form>
     )}</Async>
   );
+}
+
+/** Cota diária da MCK IA: uso de hoje e aviso simples quando atinge o limite. */
+export function MckQuotaInfo({ q }: { q: { limit: number; used: number; reached: boolean; tierLabel: string } }) {
+  if (q.reached) return <div className="alert warn" role="status"><strong>Limite diário da MCK IA atingido.</strong> Volta amanhã ou use sua própria chave (Google Gemini ou OpenAI) no campo Provedor.</div>;
+  return <div className="small muted">Respostas da MCK IA hoje: <strong>{fmtNum(q.used)}</strong>{q.limit ? ` de ${fmtNum(q.limit)} (${q.tierLabel})` : ' (sem limite diário)'}.</div>;
 }
 
 function Knowledge() {
@@ -190,7 +224,7 @@ function Usage() {
           <h2>Últimas chamadas</h2>
           {u.recent.length === 0 ? <Empty title="Nenhuma chamada de IA ainda" /> : (
             <table><thead><tr><th>Quando</th><th>Modelo</th><th>Tokens</th><th>Resultado</th></tr></thead>
-              <tbody>{u.recent.map((r: any) => <tr key={r.id}><td>{fmtDate(r.createdAt)}</td><td>{r.provider}/{r.model}</td><td>{r.promptTokens + r.completionTokens}</td><td>{r.success ? <span className="badge green">ok</span> : <span className="badge red">erro</span>} {r.handoff && <span className="badge blue">transferiu</span>} <span className="small muted">{r.error}</span></td></tr>)}</tbody></table>
+              <tbody>{u.recent.map((r: any) => <tr key={r.id}><td>{fmtDate(r.createdAt)}</td><td>{r.model ? `${r.provider}/${r.model}` : r.provider}</td><td>{r.promptTokens + r.completionTokens}</td><td>{r.success ? <span className="badge green">ok</span> : <span className="badge red">erro</span>} {r.handoff && <span className="badge blue">transferiu</span>} <span className="small muted">{r.error}</span></td></tr>)}</tbody></table>
           )}
         </div>
       </div>

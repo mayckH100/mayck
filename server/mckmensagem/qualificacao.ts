@@ -1,4 +1,5 @@
 import { prisma } from '../db.js';
+import { mckQuotaStatus, MCK_QUOTA_REASON } from '../ai/mckQuota.js';
 import { decryptOrNull } from '../lib/crypto.js';
 import { createProvider, type ChatMessage } from '../ai/providers.js';
 import { retrieve } from '../ai/service.js';
@@ -142,6 +143,11 @@ export async function classifyLeadMessage(orgId: string, lead: Pick<Lead, 'name'
   const ai = await prisma.aiSettings.findUnique({ where: { orgId } });
   const s = await getLeadAiSettings(orgId);
   if (!ai) throw new Error('Configure a IA (provedor e chave) no MCKBOT > IA antes de usar a qualificação.');
+  // MCK IA: mesma cota diária por plano do MCKBOT (estourou: não chama provedor).
+  if (ai.provider === 'mck' && (await mckQuotaStatus(orgId)).reached) {
+    await prisma.aiUsage.create({ data: { orgId, conversationId: conversationId ?? null, provider: 'mck', model: ai.model, success: false, error: MCK_QUOTA_REASON } }).catch(() => undefined);
+    throw new Error(MCK_QUOTA_REASON);
+  }
   const hits = await retrieve(orgId, text, 3);
   const knowledge = hits.map((h) => `[${h.item.title}]\n${h.item.text}`).join('\n\n');
   const system = buildQualifyPrompt(s as any, {

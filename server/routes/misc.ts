@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { WEEKLY_PREF_ACTION } from '../lib/weeklyReport.js';
 import { z } from 'zod';
 import bcrypt from 'bcryptjs';
 import { prisma } from '../db.js';
@@ -56,6 +57,13 @@ profileRouter.put('/reminders', ah(async (req, res) => {
   await prisma.user.update({ where: { id: req.auth!.userId }, data: { renewalReminders: enabled } });
   await audit(req, 'profile.renewal_reminders', { meta: { enabled } });
   res.json({ renewalReminders: enabled });
+}));
+
+/** Resumo semanal por e-mail (Proprietário, segunda 8h). Sem migração: a escolha fica no registro de auditoria. */
+profileRouter.put('/relatorio-semanal', ah(async (req, res) => {
+  const { enabled } = z.object({ enabled: z.boolean() }).parse(req.body);
+  await audit(req, WEEKLY_PREF_ACTION, { meta: { enabled } });
+  res.json({ weeklyReport: enabled });
 }));
 
 /** Alerta de WhatsApp desconectado por e-mail (Proprietário/Administrador). Padrão: ligado. */

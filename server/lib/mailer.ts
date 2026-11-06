@@ -395,3 +395,18 @@ export function inviteMail(o: { to: string; inviterName: string; orgName: string
   ], { label: 'Aceitar convite', url: o.url }, 'Se você não esperava este convite, ignore este e-mail: nada acontece sem você aceitar.');
   return { to: o.to, subject: `${o.inviterName} convidou você para a equipe ${o.orgName} no MCKBOT`, html, text, kind: 'team_invite' };
 }
+
+/** Relatório semanal ao Proprietário (segunda 8h, Brasília): números da semana anterior, sem dados de clientes. */
+export function weeklyReportMail(o: { to: string; name: string; orgName: string; periodLabel: string; conversas: number; respostasIa: number; transferencias: number; leadsQualificados: number }): MailMessage {
+  const n = (v: number) => v.toLocaleString('pt-BR');
+  const title = `Resumo da semana · ${o.orgName}`;
+  const { html, text } = layout('mckbot', undefined, title, [
+    `Olá, ${esc(o.name)}! Veja como foi o atendimento da <strong>${esc(o.orgName)}</strong> de ${esc(o.periodLabel)}:`,
+    `💬 Conversas atendidas: <strong>${n(o.conversas)}</strong>`,
+    `🤖 Respostas da IA: <strong>${n(o.respostasIa)}</strong>`,
+    `🙋 Transferências para humano: <strong>${n(o.transferencias)}</strong>`,
+    `⭐ Leads qualificados: <strong>${n(o.leadsQualificados)}</strong>`,
+  ], { label: 'Abrir a Visão geral', url: appPath('mckbot', '/') },
+  'Você recebe este resumo toda segunda-feira por ser Proprietário da organização. Para não receber mais, desligue em Perfil › Alertas › Resumo semanal por e-mail.');
+  return { to: o.to, subject: `Resumo da semana: ${n(o.conversas)} conversas e ${n(o.respostasIa)} respostas da IA`, html, text, kind: 'weekly_report' };
+}

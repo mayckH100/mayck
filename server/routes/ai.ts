@@ -10,6 +10,7 @@ import { parseJson } from '../lib/json.js';
 import { generateAiReply, reindexDoc, retrieve } from '../ai/service.js';
 import { productsRouter } from './products.js';
 import { mckIaReady } from '../ai/mckIa.js';
+import { mckQuotaStatus, clientUsageRow } from '../ai/mckQuota.js';
 
 export const aiRouter = Router();
 const admins = requireRole('OWNER', 'ADMIN');
@@ -20,7 +21,9 @@ aiRouter.use('/products', productsRouter);
 async function settingsView(orgId: string) {
   const s = await prisma.aiSettings.upsert({ where: { orgId }, create: { orgId }, update: {} });
   const { apiKeyEnc, handoffKeywords, ...rest } = s;
-  return { ...rest, mckIaReady: mckIaReady(), hasApiKey: !!apiKeyEnc, apiKeyPreview: maskSecret(decryptOrNull(apiKeyEnc)), handoffKeywords: parseJson<string[]>(handoffKeywords, []) };
+  // Cota diária da MCK IA (só quando a organização usa a MCK IA): o Proprietário vê o uso de hoje e o aviso ao atingir.
+  const mckQuota = s.provider === 'mck' ? await mckQuotaStatus(orgId).catch(() => null) : null;
+  return { ...rest, mckIaReady: mckIaReady(), mckQuota, hasApiKey: !!apiKeyEnc, apiKeyPreview: maskSecret(decryptOrNull(apiKeyEnc)), handoffKeywords: parseJson<string[]>(handoffKeywords, []) };
 }
 
 aiRouter.get('/settings', ah(async (req, res) => res.json(await settingsView(orgOf(req)))));
@@ -85,7 +88,9 @@ aiRouter.get('/usage', ah(async (req, res) => {
     prisma.aiUsage.count({ where: { orgId, createdAt: { gte: since }, handoff: true } }),
     prisma.aiUsage.findMany({ where: { orgId }, orderBy: { createdAt: 'desc' }, take: 20 }),
   ]);
-  res.json({ total, failed, handoffs, promptTokens: agg._sum.promptTokens ?? 0, completionTokens: agg._sum.completionTokens ?? 0, avgLatencyMs: Math.round(agg._avg.latencyMs ?? 0), recent });
+  // Na MCK IA o cliente nunca vê qual provedor/modelo respondeu (só o Master, no painel de uso).
+  const rows = req.auth?.isSuperAdmin ? recent : recent.map(clientUsageRow);
+  res.json({ total, failed, handoffs, promptTokens: agg._sum.promptTokens ?? 0, completionTokens: agg._sum.completionTokens ?? 0, avgLatencyMs: Math.round(agg._avg.latencyMs ?? 0), recent: rows });
 }));
 
 // ---- Base de conhecimento ----

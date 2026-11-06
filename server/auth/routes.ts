@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { weeklyReportPref } from '../lib/weeklyReport.js';
 import bcrypt from 'bcryptjs';
 import { z } from 'zod';
 import rateLimit from 'express-rate-limit';
@@ -73,6 +74,7 @@ export async function meResponse(userId: string, orgId: string | null, csrfToken
       documento: maskDocumento(user.documento), celular: maskCelular(user.celular),
       renewalReminders: user.renewalReminders,
       waDownEmail: user.waDownEmail,
+      weeklyReport: await weeklyReportPref(user.id).catch(() => true),
     },
     // Titular sem CPF/CNPJ ou celular: o app mostra a tela única de completar cadastro antes de qualquer outra.
     cadastroPendente: needsCadastro(user, (current?.role ?? null) as never) ? { documento: !user.documento, celular: !user.celular } : null,

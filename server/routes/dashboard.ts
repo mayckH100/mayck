@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { prisma } from '../db.js';
 import { ah } from '../lib/http.js';
 import { mckIaReady } from '../ai/mckIa.js';
+import { mckQuotaStatus } from '../ai/mckQuota.js';
 import { orgOf } from '../auth/session.js';
 
 export const dashboardRouter = Router();
@@ -60,8 +61,29 @@ dashboardRouter.get('/dashboard', ah(async (req, res) => {
     aiUsage30d: { requests: aiUsage.reduce((a, u) => a + u._count._all, 0), errors: aiUsage.find((u) => !u.success)?._count._all ?? 0, tokens: (aiAgg._sum.promptTokens ?? 0) + (aiAgg._sum.completionTokens ?? 0) },
     contacts,
     avgFirstResponseSeconds: avgFirst,
+    mckQuota: ai?.provider === 'mck' ? await mckQuotaStatus(orgId).catch(() => null) : null,
   });
 }));
+
+/**
+ * Primeiros passos (conta nova): estado real de cada passo.
+ * - whatsapp: algum canal já conectou (QR ou API oficial com webhook recebido);
+ * - instrucoes: Instruções da IA preenchidas, sem campos [preencha] do modelo sobrando;
+ * - teste: a IA já respondeu pelo menos uma vez (no "Testar" ou numa conversa).
+ */
+export async function primeirosPassos(orgId: string) {
+  const [canais, ai, respostas] = await Promise.all([
+    prisma.channel.count({ where: { orgId, OR: [{ status: 'CONNECTED' }, { connectedAt: { not: null } }, { waUpSeenAt: { not: null } }, { lastWebhookAt: { not: null } }] } }),
+    prisma.aiSettings.findUnique({ where: { orgId }, select: { instructions: true } }),
+    prisma.aiUsage.count({ where: { orgId, success: true } }),
+  ]);
+  const instr = (ai?.instructions ?? '').trim();
+  const placeholders = (instr.match(/\[preencha/gi) ?? []).length;
+  const steps = { whatsapp: canais > 0, instrucoes: instr.length >= 20 && placeholders === 0, teste: respostas > 0 };
+  return { steps, placeholders, done: steps.whatsapp && steps.instrucoes && steps.teste };
+}
+
+dashboardRouter.get('/dashboard/primeiros-passos', ah(async (req, res) => { res.json(await primeirosPassos(orgOf(req))); }));
 
 dashboardRouter.get('/reports', ah(async (req, res) => {
   const { days } = z.object({ days: z.coerce.number().int().refine((d) => [7, 30, 90].includes(d)).default(30) }).parse(req.query);

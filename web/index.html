@@ -31,12 +31,24 @@
     <title>MCK DESENVOLVIMENTO · MCKBOT, atendimento no WhatsApp com IA</title>
   </head>
   <body>
-    <div id="root"><!-- Conteúdo estático para buscadores e para quem ainda está carregando: o React substitui tudo ao montar. -->
+    <style>
+      /* Tela de carregamento (antes do React montar): leve, sem depender do CSS do app. */
+      @keyframes mck-spin { to { transform: rotate(360deg); } }
+      @keyframes mck-show { to { opacity: 1; } }
+      .mck-splash-spin { width: 34px; height: 34px; border-radius: 50%; border: 3px solid rgba(255,255,255,.18); border-top-color: #d90429; animation: mck-spin .9s linear infinite; margin: 18px auto 14px; }
+      .mck-splash-slow { opacity: 0; animation: mck-show .4s ease 5s forwards; }
+      @media (prefers-reduced-motion: reduce) { .mck-splash-spin { animation-duration: 2.5s; } .mck-splash-slow { animation-delay: 0s; } }
+    </style>
+    <div id="root"><!-- Conteúdo estático para buscadores e tela de carregamento enquanto o app abre: o React substitui tudo ao montar. -->
       <div style="min-height:100vh;display:flex;align-items:center;justify-content:center;background:#0a0a0b;color:#e6e6ea;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;padding:24px;text-align:center">
         <div style="max-width:560px">
+          <img src="/logo-192.png" width="64" height="64" alt="" style="border-radius:14px;display:block;margin:0 auto 14px" />
           <p style="font-size:13px;letter-spacing:.14em;text-transform:uppercase;color:#d90429;font-weight:700;margin:0 0 8px">MCK DESENVOLVIMENTO</p>
           <h1 style="font-size:26px;line-height:1.25;margin:0 0 12px;color:#fff">MCKBOT · atendimento no WhatsApp com IA</h1>
-          <p style="margin:0 0 18px;line-height:1.55">O MCKBOT é um software da MCK Desenvolvimento, empresa brasileira que cria ferramentas de atendimento e vendas no WhatsApp. Carregando o aplicativo…</p>
+          <p style="margin:0;line-height:1.55">O MCKBOT é um software da MCK Desenvolvimento, empresa brasileira que cria ferramentas de atendimento e vendas no WhatsApp.</p>
+          <div class="mck-splash-spin" role="status" aria-label="Carregando o aplicativo"></div>
+          <p style="margin:0 0 6px;color:#fff;font-weight:600">Abrindo o aplicativo…</p>
+          <p class="mck-splash-slow" style="margin:0 0 18px;font-size:14px;color:#a1a1aa;line-height:1.5">Está demorando um pouco mais que o normal. Na primeira vez do dia pode levar até 1 minuto. Não feche esta página.</p>
           <nav aria-label="Site da MCK DESENVOLVIMENTO" style="display:flex;flex-wrap:wrap;gap:8px 16px;justify-content:center;font-size:15px">
             <a href="/empresa/" style="color:#fff">Conheça a MCK Desenvolvimento</a>
             <a href="/empresa/mckbot.html" style="color:#fff">MCKBOT</a>

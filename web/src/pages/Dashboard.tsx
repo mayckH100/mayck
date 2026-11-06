@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom';
 import AvisoNumeroBanner from '../AvisoNumeroBanner';
+import PrimeirosPassos from '../PrimeirosPassos';
 import { useApi, Async, fmtNum, fmtDate, fmtDuration, StatusBadge, Empty } from '../ui';
 
 function Stat({ label, value, sub, to }: { label: string; value: string; sub?: string; to?: string }) {
@@ -15,9 +16,11 @@ export default function Dashboard() {
         <div><h1>Visão geral</h1><p className="muted">Indicadores calculados em tempo real a partir do banco de dados.</p></div>
         <button className="btn" onClick={state.reload} disabled={state.loading}>{state.loading ? 'Atualizando…' : 'Atualizar'}</button>
       </div>
+      <PrimeirosPassos />
       <AvisoNumeroBanner />
       <Async state={state}>{(d) => (
         <div className="stack">
+          {d.mckQuota?.reached && <div className="alert warn" role="status"><strong>Limite diário da MCK IA atingido.</strong> Volta amanhã ou use sua própria chave em <Link to="/ia">Inteligência artificial</Link>.</div>}
           <div className="grid g4">
             <Stat label="Conversas abertas" value={fmtNum(d.conversations.open)} to="/inbox" />
             <Stat label="Aguardando humano" value={fmtNum(d.conversations.pending)} sub="Transferidas pelo robô/IA" to="/inbox" />

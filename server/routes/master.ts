@@ -15,6 +15,8 @@ import { DEFAULT_SITE, getSiteSettings, updateSiteSettings } from '../lib/site-s
 import { backupDestinations, backupFileName, createBackupFile, runBackup } from '../lib/backup.js';
 import { masterAnnouncementsRouter } from './announcements.js';
 import { masterReferralList } from '../billing/referrals.js';
+import { mckUsageReport } from '../ai/mckQuota.js';
+import { mckIaProviders } from '../ai/mckIa.js';
 
 /**
  * Painel Master (superadmin da plataforma). Montado em /api/master com requireSuperAdmin.
@@ -363,6 +365,9 @@ function couponView(c: CouponRow, st?: { uses: number; revenueCents: number; dis
 }
 
 // Indique e ganhe: todas as indicações (quem indicou, indicada, situação).
+// MCK IA: uso por empresa (hoje e 7 dias) e provedores ativos. Só o superadmin vê provedores.
+masterRouter.get('/mck-ia', ah(async (_req, res) => { res.json({ ...(await mckUsageReport()), providersActive: mckIaProviders() }); }));
+
 masterRouter.get('/indicacoes', ah(async (_req, res) => { res.json(await masterReferralList()); }));
 
 masterRouter.get('/coupons', ah(async (_req, res) => {

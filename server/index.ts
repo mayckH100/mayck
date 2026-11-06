@@ -16,6 +16,8 @@ import { tickAlertasErp } from './erp/alertas/alertas.js';
 import { tickRelatorioDiario } from './erp/relatorios/relatorio.js';
 import { tickRenewalReminders } from './billing/reminders.js';
 import { tickDownAlerts, maybeDownDigest } from './whatsapp/downAlerts.js';
+import { tickWeeklyReport } from './lib/weeklyReport.js';
+import { startKeepAlive } from './lib/keepAlive.js';
 
 const app = createApp();
 const server = app.listen(config.PORT, () => {
@@ -64,6 +66,13 @@ if (config.ENABLE_SCHEDULER === 'true') {
   };
   setTimeout(reminderTick, 3 * 60_000).unref();
   setInterval(reminderTick, 15 * 60_000).unref();
+  // Resumo semanal por e-mail ao Proprietário: segunda a partir das 8h (Brasília), uma vez por semana (a cada 15 min).
+  let weeklyRunning = false;
+  setInterval(() => {
+    if (weeklyRunning) return;
+    weeklyRunning = true;
+    tickWeeklyReport().catch((e) => console.error('[relatorio-semanal]', (e as Error).message)).finally(() => { weeklyRunning = false; });
+  }, 15 * 60_000).unref();
   // Alerta de WhatsApp desconectado (> 5 min, ignora reinício/deploy) + resumo diário para o superadmin (a cada minuto).
   let downRunning = false;
   setInterval(() => {
@@ -119,14 +128,9 @@ if (config.ENABLE_WHATSAPP_QR === 'true') {
     .catch((e) => console.error('[whatsapp-qr] falha ao restaurar sessões', e));
 }
 
-// Render Free hiberna após ~15 min sem tráfego de entrada e derruba o socket do WhatsApp.
-// Um ping no próprio endereço público a cada 10 min mantém a instância (e o QR) sempre conectada.
-const keepAliveBase = (process.env.PUBLIC_URL || process.env.RENDER_EXTERNAL_URL || '').replace(/\/$/, '');
-if (config.ENABLE_WHATSAPP_QR === 'true' && keepAliveBase && process.env.NODE_ENV === 'production') {
-  setInterval(() => {
-    fetch(`${keepAliveBase}/api/health`).catch(() => undefined);
-  }, 10 * 60 * 1000).unref?.();
-}
+// App acordado: ping no próprio endereço público a cada 10 min em produção (com ou sem WhatsApp por QR).
+// O Render Free hiberna após ~15 min sem tráfego e derruba o socket do WhatsApp. KEEP_ALIVE=false desliga.
+startKeepAlive();
 
 // Desligamento limpo (SIGTERM no deploy do Render): primeiro fecha o WhatsApp e espera as chaves do
 // Signal serem gravadas e a trava da sessão ser liberada (no máximo 15 s); só depois fecha o banco.

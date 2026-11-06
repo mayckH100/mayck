@@ -21,6 +21,18 @@ export type EntradaChangelog = {
 
 export const CHANGELOG: EntradaChangelog[] = [
   {
+    versao: '1.16.0',
+    data: '05/11/2026',
+    titulo: 'Primeiros passos, modelos de Instruções por segmento e resumo semanal por e-mail',
+    itens: [
+      'Conta nova: o cartão "Primeiros passos" na Visão geral mostra o que falta (conectar o WhatsApp, preencher as Instruções da IA e testar uma conversa) e some quando tudo estiver pronto.',
+      'Modelos prontos de Instruções da IA para corretora de seguros, salão e barbearia, clínicas e consultórios, lojas, restaurantes e delivery e prestadores de serviço: é só escolher o segmento e completar os campos [preencha].',
+      'Resumo semanal por e-mail para o Proprietário toda segunda às 8h: conversas atendidas, respostas da IA, transferências para humano e leads qualificados. Dá para desligar no Perfil.',
+      'MCK IA com limite diário de respostas conforme o plano. Ao atingir, você recebe o aviso e ela volta no dia seguinte (ou use sua própria chave).',
+      'O aplicativo fica acordado e abre mais rápido, com uma tela de carregamento mais clara.',
+    ],
+  },
+  {
     versao: '1.15.1',
     data: '05/11/2026',
     titulo: 'MCK IA: a inteligência artificial própria da MCK, sem precisar de chave',
