@@ -21,6 +21,21 @@ export type EntradaChangelog = {
 
 export const CHANGELOG: EntradaChangelog[] = [
   {
+    versao: '1.21.0',
+    data: '07/11/2026',
+    titulo: 'SDR com IA mais inteligente: aba Inteligência',
+    itens: [
+      'Escolha o método de qualificação: o seu (perguntas próprias), BANT ou SPIN. Em cada lead você vê por que a pontuação é essa: o que puxou para cima, o que puxou para baixo, o que falta saber e o próximo passo sugerido.',
+      'Biblioteca de objeções ("está caro", "já tenho fornecedor", "agora não", "manda por e-mail"...) com respostas que você edita; quando ligada, a IA usa as suas orientações e o histórico mostra a objeção.',
+      'Resumo para o vendedor em cada lead, no aviso de lead quente e no cartão do Kanban: dor, orçamento, prazo, quem decide e próximo passo.',
+      'Dados da empresa pelo CNPJ (Receita Federal): razão social, atividade, situação e cidade, sem travar nada se a consulta falhar.',
+      'Follow-ups personalizados pela IA com o que o lead já disse e envio no horário em que ele mais responde, sempre dentro do seu horário comercial.',
+      'Reuniões: próximos horários livres da Agenda no lead, a IA pode propor esses horários e o botão "Não compareceu" oferece novos horários a quem faltou.',
+      'Intenção e tom de cada resposta (preço, reunião, sem interesse...) e entendimento de pedidos para sair escritos de outro jeito ("não quero mais receber"), que param as mensagens automáticas.',
+      'Quem já usa o SDR não tem nenhuma mudança nas mensagens: os recursos novos ficam desligados até você ligar na aba Inteligência.',
+    ],
+  },
+  {
     versao: '1.20.0',
     data: '07/11/2026',
     titulo: 'IA de qualificação e SDR com IA agora são um só: o SDR com IA',

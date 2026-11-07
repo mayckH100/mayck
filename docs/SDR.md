@@ -1,4 +1,4 @@
-# SDR com IA (v1.18.0; v2 na v1.19.0; unificado com a qualificação do MCK Mensagens na v1.20.0)
+# SDR com IA (v1.18.0; v2 na v1.19.0; unificado com a qualificação do MCK Mensagens na v1.20.0; fase 2 "inteligência" na v1.21.0)
 
 Pré-vendas automática dentro do MCKBOT (menu **SDR com IA**, rota `/sdr`). Evolui o funil de leads automático
 existente: o lead do SDR (`SdrLead`) liga-se ao contato do MCKBOT (`Contact`) e ao lead do MCK Mensagens (`Lead`)
@@ -102,6 +102,39 @@ Um só produto para o cliente: **SDR com IA** (MCKBOT `/sdr` e MCK Mensagens `/m
   `/api/mckmensagem/ia-leads*` continuam (mesmas funções) para apps abertos antes do deploy.
 - Testes: `tests/unit/sdr-qualificacao.test.ts` (mapeamento), `tests/integration/sdr-qualificacao.test.ts` (config antiga,
   fonte única, fluxo antigo, ponte para o SDR, acesso), `tests/integration/lead-ia.test.ts` (fluxo antigo).
+
+## Fase 2 — Inteligência (v1.21.0, sem migração)
+Aba **SDR › Inteligência** (`web/src/pages/sdr/Inteligencia.tsx`; bloco do lead `LeadInteligencia`). Rotas `GET/PUT /api/sdr/inteligencia`,
+`GET /api/sdr/inteligencia/leads/:id` (explicação, resumo, CNPJ, intenção, melhor horário, horários livres),
+`POST /api/sdr/inteligencia/leads/:id/cnpj`, `POST /api/sdr/inteligencia/leads/:id/noshow` (`server/sdr/intelRoutes.ts`, montado no sdrRouter: mesmo acesso do SDR).
+- **Configuração** (`server/sdr/intelConfig.ts`): AuditLog `sdr.intel.config` (a mais recente vale). **Sem registro = tudo desligado**
+  (empresas que já usam não mudam nada). Ao ligar o SDR pela 1ª vez (`PUT /api/sdr/config` com enabled false→true), `seedIntelForNewSetup`
+  grava os padrões de configuração nova: liga só o que não envia nada sozinho (`cnpj`, `resumo`, `sentimento`, `optOutAuto`).
+  Desligados sempre até a empresa ligar: `objecoes`, `followupIa`, `melhorHorario`, `reuniao.ofertaHorarios`, `reuniao.noShow`; `metodo` = PADRAO.
+- **1) Método** (`server/sdr/intel.ts`): PADRAO (perguntas da empresa) | BANT (necessidade, orçamento, decisor, prazo) | SPIN (situação,
+  problema, implicação, necessidade). `questionsFor` substitui `questionsOf` no prompt, na extração e na tela do lead. A extração pede também
+  `motivo` por resposta (guardado no answersJson). `explainScore`: pontos por resposta (peso × nota / soma dos pesos), fortes (≥ 70),
+  fracos (< 40), faltas e próxima ação.
+- **2) Objeções**: biblioteca padrão (preço, fornecedor, agora não, manda por e-mail, vou pensar, não conheço), editável (até 20; gatilhos por
+  vírgula). Ligada: orientações no prompt do SDR + a objeção da última mensagem do lead; evento `OBJECAO` no histórico.
+- **3) CNPJ** (`server/sdr/cnpj.ts`): reaproveita `consultarCnpj` do ERP (BrasilAPI). Fontes: mensagem do lead, campo empresa do formulário e do
+  cadastro manual, botão no lead. Cache em memória 24 h (falha 1 h, máx. 500), segundo plano, falha silenciosa. Evento `CNPJ` com JSON só da
+  empresa (sem e-mail/telefone da Receita); preenche `company` se vazia.
+- **4) Resumo do handoff** (`server/sdr/handoff.ts`): dor (necessidade/problema/implicação), orçamento, prazo, decisor, próximo passo. No lead,
+  no aviso de lead quente (linhas extras no WhatsApp/e-mail da equipe) e no Kanban (`GET /api/kanban` → `contacts[].sdr`).
+- **5) Follow-up pela IA** (`server/sdr/followup.ts`): `sendStep(..., { personalize })` reescreve o texto do passo com as últimas 12 mensagens e o
+  resumo; respeita a cota diária da MCK IA; qualquer falha/texto ruim (placeholder, longo) = texto padrão; histórico "(personalizado pela IA)".
+  **Melhor horário**: `bestSendHour` = hora em que o lead mais respondeu (mín. 2 respostas; senão 10h) dentro do horário comercial, no fuso da
+  empresa (padrão America/Sao_Paulo); `runStep` adia para a próxima ocorrência em dia útil, no máximo ~1 dia depois da data do passo.
+- **6) Reunião** (`server/sdr/meeting.ts`): `nextFreeSlots` (Agenda `freeSlots`, 7 dias, 3 horários); ligado, a IA propõe esses horários a leads
+  mornos/quentes. "Não compareceu" (a Agenda não tem esse status): limpa `appointmentId`, evento `NOSHOW`, volta para Qualificado e, com a
+  recuperação ligada, envia UMA mensagem (`{horarios}` + variáveis da cadência) pelo canal permitido (WhatsApp ou e-mail).
+- **7) Intenção/sentimento e opt-out**: `detectIntent` (OPTOUT, SEM_INTERESSE, REUNIAO, COMPRA, PRECO, DUVIDA, OUTRO; POSITIVO/NEUTRO/NEGATIVO)
+  por palavras, sem IA; evento `INTENCAO` só quando muda. `isOptOutPhrase` no inbound do WhatsApp quando `optOutAuto`: mesmo caminho do SAIR
+  (contato optOut, lead do MCK Mensagens, automações do ERP e SDR).
+- Testes: `tests/unit/sdr-intel.test.ts`, `tests/integration/sdr-intel.test.ts`.
+- Fora desta fase: status "não compareceu" na própria Agenda (precisaria de tela da Agenda) e recuperação automática sem o vendedor marcar;
+  classificação de intenção por IA (hoje por palavras, para não gastar cota).
 
 ## Para a v3
 Modelos aprovados da Meta para WhatsApp fora da janela de 24 h; teste A/B de textos (dependem de aprovação externa /
