@@ -677,6 +677,8 @@ model PlatformSettings {
   mpWebhookSecretEnc String?
   siteJson           String   @default("{}") // Site oficial (/empresa): contato, Facebook, tutoriais públicos, promoção em destaque
   waDigestDay        String? // último dia (AAAA-MM-DD, Brasília) do resumo diário de WhatsApp desconectado para o superadmin
+  /// SDR com IA: em quais planos o módulo vem liberado (Painel Master). JSON { COMBO, MCKBOT, MCKMENSAGEM }.
+  sdrPlansJson       String   @default("{\"COMBO\":true,\"MCKBOT\":false,\"MCKMENSAGEM\":false}")
   updatedAt          DateTime @updatedAt
 }
 
@@ -2272,4 +2274,112 @@ model Referral {
   updatedAt     DateTime  @updatedAt
 
   @@index([referrerOrgId, status])
+}
+
+// ---------- SDR com IA (v1.18.0) ----------
+// Evolui o funil de leads automático: o lead do SDR liga-se ao Contact (MCKBOT) e ao Lead (MCK Mensagens) da mesma
+// pessoa; opt-out e consentimento continuam valendo nos dois lados. Lead só com e-mail (prospecção fria) também cabe aqui.
+
+/// Configuração do SDR por empresa. Linha criada na primeira vez que a tela/serviço lê (padrões abaixo).
+model SdrSettings {
+  orgId           String   @id
+  /// SDR ligado na empresa (um clique; tudo já vem configurado).
+  enabled         Boolean  @default(false)
+  /// Modo automático: cadência, qualificação, funil e agendamento sem aprovação de cada passo.
+  autoMode        Boolean  @default(true)
+  /// Captura automática de quem chama no WhatsApp (contato novo vira lead).
+  captureWhatsapp Boolean  @default(true)
+  /// A IA pode marcar a reunião sozinha na Agenda (com confirmação do lead).
+  autoBook        Boolean  @default(true)
+  /// Segmento padrão (escolhe a cadência pronta).
+  segment         String   @default("geral")
+  /// Perguntas de qualificação: JSON [{ id, pergunta, peso }].
+  questionsJson   String   @default("[]")
+  warmScore       Int      @default(40)
+  hotScore        Int      @default(70)
+  workStart       String   @default("09:00")
+  workEnd         String   @default("18:00")
+  workDays        String   @default("1,2,3,4,5")
+  dailyLimit      Int      @default(40)
+  /// Horas sem resposta para começar o acompanhamento de quem chamou no WhatsApp.
+  silenceHours    Int      @default(3)
+  /// Formulário público: token do link /f/<token>.
+  formToken       String?  @unique
+  formEnabled     Boolean  @default(true)
+  formTitle       String   @default("Fale com a gente")
+  alertHot        Boolean  @default(true)
+  updatedAt       DateTime @updatedAt
+}
+
+/// Cadência: passos com atraso em dias a partir da entrada (JSON [{ dia, canal: WHATSAPP|EMAIL, assunto?, texto }]).
+model SdrCadence {
+  id        String   @id @default(cuid())
+  orgId     String
+  name      String
+  segment   String   @default("geral")
+  stepsJson String   @default("[]")
+  active    Boolean  @default(true)
+  /// Cadência padrão pronta (criada pelo sistema; pode ser editada).
+  builtIn   Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([orgId, segment])
+}
+
+model SdrLead {
+  id               String    @id @default(cuid())
+  orgId            String
+  name             String?
+  company          String?
+  segment          String?
+  phone            String? // E.164
+  email            String?
+  source           String    @default("MANUAL") // MANUAL | IMPORTACAO | WHATSAPP | FORMULARIO
+  stage            String    @default("NOVO") // NOVO | CONTATADO | RESPONDEU | QUALIFICADO | REUNIAO | GANHO | PERDIDO
+  score            Int       @default(0)
+  temperature      String    @default("FRIO") // FRIO | MORNO | QUENTE
+  ownerUserId      String?
+  consentAt        DateTime?
+  consentSource    String?
+  optOutAt         DateTime?
+  /// Token do link de descadastro do e-mail (/descadastro/<token>).
+  unsubToken       String    @unique
+  contactId        String?
+  leadId           String?
+  answersJson      String    @default("{}")
+  aiSummary        String?
+  cadenceId        String?
+  cadenceStep      Int       @default(0)
+  /// ESPERA (aguardando silêncio do WhatsApp) | ATIVA | APROVACAO | PARADA | CONCLUIDA | SEM
+  cadenceStatus    String    @default("SEM")
+  cadenceStartedAt DateTime?
+  nextStepAt       DateTime?
+  stopReason       String?
+  lastContactAt    DateTime?
+  lastReplyAt      DateTime?
+  hotAlertAt       DateTime?
+  appointmentId    String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@unique([orgId, phone])
+  @@unique([orgId, email])
+  @@index([orgId, stage])
+  @@index([orgId, contactId])
+  @@index([cadenceStatus, nextStepAt])
+}
+
+/// Histórico do lead (entrada, envios, respostas, qualificação, reunião, avisos). Base das métricas.
+model SdrEvent {
+  id        String   @id @default(cuid())
+  orgId     String
+  leadId    String
+  type      String // CRIADO | ETAPA | ENVIO | PULO | RESPOSTA | QUALIFICACAO | QUENTE | REUNIAO | PARADA | OPTOUT | NOTA
+  channel   String?
+  detail    String?
+  createdAt DateTime @default(now())
+
+  @@index([orgId, leadId, createdAt])
+  @@index([orgId, type, createdAt])
 }

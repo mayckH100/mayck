@@ -17,6 +17,7 @@ import { tickRelatorioDiario } from './erp/relatorios/relatorio.js';
 import { tickRenewalReminders } from './billing/reminders.js';
 import { tickDownAlerts, maybeDownDigest } from './whatsapp/downAlerts.js';
 import { tickWeeklyReport } from './lib/weeklyReport.js';
+import { tickSdr } from './sdr/service.js';
 import { startKeepAlive } from './lib/keepAlive.js';
 
 const app = createApp();
@@ -79,6 +80,13 @@ if (config.ENABLE_SCHEDULER === 'true') {
     if (downRunning) return;
     downRunning = true;
     tickDownAlerts().then(() => maybeDownDigest()).catch((e) => console.error('[whatsapp-alerta]', (e as Error).message)).finally(() => { downRunning = false; });
+  }, 60_000).unref();
+  // SDR com IA: passos de cadência vencidos (horário comercial, limite diário e consentimento conferidos no envio).
+  let sdrRunning = false;
+  setInterval(() => {
+    if (sdrRunning) return;
+    sdrRunning = true;
+    tickSdr().catch((e) => console.error('[sdr]', (e as Error).message)).finally(() => { sdrRunning = false; });
   }, 60_000).unref();
   setInterval(() => {
     prisma.session.deleteMany({ where: { expiresAt: { lt: new Date() } } }).catch(() => undefined);

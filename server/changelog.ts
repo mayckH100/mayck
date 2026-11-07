@@ -21,6 +21,20 @@ export type EntradaChangelog = {
 
 export const CHANGELOG: EntradaChangelog[] = [
   {
+    versao: '1.18.0',
+    data: '07/11/2026',
+    titulo: 'Novo: SDR com IA, a pré-vendas que trabalha sozinha',
+    itens: [
+      'Novo menu "SDR com IA" (no Plano Completo e no teste do Plano Completo): quem chama no seu WhatsApp, preenche o seu formulário ou entra pela planilha vira lead, com nome, empresa, segmento, telefone, e-mail, origem, etapa, pontuação e dono.',
+      'Modo automático ligado por padrão: a IA faz as perguntas de qualificação na conversa (necessidade, porte, prazo e orçamento, que você pode mudar), dá uma nota de 0 a 100 e classifica o lead em frio, morno ou quente.',
+      'Lead quente gera um aviso no seu WhatsApp de aviso e no painel. A conversa continua com a IA: ela só passa para uma pessoa quando o cliente pede.',
+      'Cadências prontas por segmento: quem para de responder recebe acompanhamento educado por WhatsApp e e-mail, só em horário comercial e dentro do limite diário. Tudo para sozinho quando o lead responde, marca reunião ou pede para sair (SAIR ou PARAR).',
+      'WhatsApp só para quem chamou você ou autorizou o contato; planilha sem autorização recebe só e-mail, sempre com o link de descadastro. Quem pediu para sair nunca volta a receber.',
+      'A IA marca a reunião ou demonstração sozinha na sua Agenda, com confirmação e lembrete para o cliente.',
+      'Painel com funil em quadros, lista com filtros e pontuação, próximas ações, histórico de cada lead e números de contatados, respostas, qualificados, reuniões e conversão. Prefere aprovar cada envio? É só desligar o modo automático.',
+    ],
+  },
+  {
     versao: '1.17.0',
     data: '07/11/2026',
     titulo: 'MCK ERP agora faz parte do Plano Completo',

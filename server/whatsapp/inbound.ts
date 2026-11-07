@@ -12,6 +12,7 @@ import type { WAMessage, WAMessageUpdate } from '@whiskeysockets/baileys';
 import type { Channel } from '@prisma/client';
 import { onLeadInbound, onLeadOptOut } from '../mckmensagem/hooks.js';
 import { qualifyLeadInbound } from '../mckmensagem/qualificacao.js';
+import { sdrOnInboundInBackground } from '../sdr/ai.js';
 import { autoReplyModeOf } from './autoReplyMode.js';
 import { openConversationFor, redirectIfActiveElsewhere } from './multiCanal.js';
 import { safeSyncContactsToLeads, safeOnContactUpdated } from '../mckmensagem/contactSync.js';
@@ -147,6 +148,8 @@ export async function handleInboundMessage(channel: Channel, m: InboundMessage, 
       await prisma.message.create({ data: { orgId, conversationId: conv.id, direction: 'INTERNAL', sender: 'system', type: 'note', body: 'Contato pediu para não receber mensagens automáticas (opt-out).', status: 'NOTE' } });
       return 'ok' as const;
     }
+    // SDR com IA (segundo plano): captura quem chamou, para a cadência quando o lead responde e qualifica pela IA.
+    if (!contact.optOut) sdrOnInboundInBackground({ conv, contact, text: m.type === 'text' ? m.text ?? '' : '', isFirst, autoReplySkipped: skipAutoReply });
     if (conv.mode === 'HUMAN' || contact.optOut || skipAutoReply) return 'ok' as const;
     // Cliente já em atendimento por outro WhatsApp da organização: não abre atendimento paralelo aqui.
     if (await redirectIfActiveElsewhere(conv, contact, channel, now)) return 'ok' as const;

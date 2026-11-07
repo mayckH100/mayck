@@ -23,7 +23,7 @@ export const MAX_NOTIFY_TRIES = 3;
 
 export interface NotifyResult { phone: string; ok: boolean; self?: boolean; via?: string; error?: string }
 export interface DeliveryReport { ok: boolean; results: NotifyResult[]; emailed: number; detail: string }
-export interface NotifyStatus { at: string; ok: boolean; detail: string; kind: 'handoff' | 'reminder' | 'test' | 'meeting' | 'task' | 'order' | 'ai_failure' }
+export interface NotifyStatus { at: string; ok: boolean; detail: string; kind: 'handoff' | 'reminder' | 'test' | 'meeting' | 'task' | 'order' | 'ai_failure' | 'sdr_hot' }
 
 const digits = (s: string | null | undefined) => String(s ?? '').replace(/\D/g, '');
 

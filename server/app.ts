@@ -40,6 +40,9 @@ import { erpRouter } from './erp/routes.js';
 import { CADASTRO_META, loadHtml, rootWantsApp, withPageMeta } from './lib/siteHtml.js';
 import { versaoInfo } from './lib/versao.js';
 import { trustProxySetting } from './lib/clientIp.js';
+import { sdrRouter, sdrMasterRouter } from './sdr/routes.js';
+import { sdrPublicRouter } from './sdr/public.js';
+import { requireSdr } from './sdr/access.js';
 
 export function createApp() {
   const app = express();
@@ -105,6 +108,9 @@ export function createApp() {
   });
 
   // Ganchos dos testes de tela (Playwright): só com E2E_TEST_HOOKS=1 e nunca em produção.
+  // SDR com IA: formulário público /f/<token> e descadastro /descadastro/<token> (HTML puro, fora de /api).
+  app.use(sdrPublicRouter);
+
   if (e2eHooksEnabled()) {
     console.warn('[e2e] ganchos de teste LIGADOS (E2E_TEST_HOOKS=1): e-mails ficam em memória. Nunca use em produção.');
     app.use('/api/__e2e__', e2eRouter(outbox));
@@ -126,6 +132,7 @@ export function createApp() {
   // Daqui em diante: titular sem CPF/CNPJ ou celular só usa /api/auth (tela única de completar cadastro).
   app.use('/api', requireCadastroCompleto);
   app.use('/api/profile', profileRouter);
+  app.use('/api/master/sdr', requireSuperAdmin, sdrMasterRouter); // SDR com IA por plano (interruptor do Master)
   app.use('/api/master', requireSuperAdmin, masterRouter);
   app.use('/api/announcements', announcementsRouter); // avisos do Master para os clientes (pop-up com imagem)
   app.use('/api/social', requireSuperAdmin, socialRouter); // Novidades: redes sociais do Painel Master
@@ -149,6 +156,8 @@ export function createApp() {
   app.use('/api/mckmensagem', requireOrg, requireRole('OWNER', 'ADMIN'), requireModule('mensagens'), mckmensagemRouter);
   // MCK ERP: módulo próprio nas permissões da equipe; só com o Plano Completo ativo/teste (exportar os dados continua liberado).
   app.use('/api/erp', requireOrg, requireModule('erp_crm'), requirePlanoCompletoErp, erpRouter);
+  // SDR com IA (v1.18.0): Plano Completo (ou plano liberado no Master), empresa da MCK e superadmin.
+  app.use('/api/sdr', requireOrg, requireModule('sdr'), requireSdr, sdrRouter);
   app.use('/api/reports', requireOrg, requireModule('relatorios'));
   app.use('/api', requireOrg, dashboardRouter);
   app.use('/api', (_req, res) => res.status(404).json({ error: 'Rota não encontrada' }));

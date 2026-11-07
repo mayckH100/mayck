@@ -5,6 +5,7 @@ import { useAuth, type SubscriptionView, type SubStatus } from '../auth';
 import { useApi, Async, Empty, Field, Loading, Modal, fmtDate, fmtNum, useAction } from '../ui';
 import { TwoFactorCard } from './Security';
 import NovidadesTab from './MasterNovidades';
+import MasterSdr from './MasterSdr';
 import {
   CYCLES, CYCLE_LABEL, KIND_LABEL, PLAN_PRODUCTS, PRODUCTS, PRODUCT_LABEL, SOURCE_LABEL, STATUSES, STATUS_LABEL,
   SubBadge, centsToInput, daysLeft, fmtBRL, fmtDay, fmtMonth, parseBRL, toDateInput, type Cycle, type PlanProduct,
@@ -37,7 +38,7 @@ interface Settings {
 }
 
 const TABS = [
-  ['geral', 'Visão geral'], ['clientes', 'Clientes'], ['vencimentos', 'Vencimentos'], ['pagamentos', 'Pagamentos'], ['atividades', 'Atividades'], ['avisos', 'Avisos'], ['novidades', 'Novidades'], ['indicacoes', 'Indicações'], ['mckia', 'MCK IA'], ['configuracoes', 'Configurações'],
+  ['geral', 'Visão geral'], ['clientes', 'Clientes'], ['vencimentos', 'Vencimentos'], ['pagamentos', 'Pagamentos'], ['atividades', 'Atividades'], ['avisos', 'Avisos'], ['novidades', 'Novidades'], ['indicacoes', 'Indicações'], ['mckia', 'MCK IA'], ['sdr', 'SDR com IA'], ['configuracoes', 'Configurações'],
 ] as const;
 type Tab = (typeof TABS)[number][0];
 
@@ -1111,6 +1112,7 @@ export default function Master() {
           {tab === 'novidades' && <NovidadesTab />}
           {tab === 'indicacoes' && <ReferralsTab />}
           {tab === 'mckia' && <MckIaTab />}
+          {tab === 'sdr' && <MasterSdr />}
           {tab === 'configuracoes' && <SettingsTab />}
         </>
       )}

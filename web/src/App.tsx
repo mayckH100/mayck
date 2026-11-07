@@ -37,6 +37,7 @@ import ErpProducao from './erp/producao/Producao';
 import ErpFinanceiro from './erp/financeiro/Financeiro';
 import ErpFiscal from './erp/fiscal/Fiscal';
 import ErpBi from './erp/bi/Bi';
+import Sdr from './pages/Sdr';
 import ErpAlertas from './erp/alertas/Alertas';
 import { ERP_ITENS } from './erp/ErpNav';
 import ErpGate from './erp/ErpGate';
@@ -60,6 +61,7 @@ const NAV_GROUPS: { id: string; label: string; icon: string; items: NavItem[] }[
     { to: '/', label: 'Visão geral', icon: '◧', end: true },
     { to: '/inbox', module: 'inbox', label: 'Inbox', icon: '✉', sub: 'Atendimento' },
     { to: '/kanban', module: 'kanban', label: 'Kanban', icon: '▦' },
+    { to: '/sdr', module: 'sdr', label: 'SDR com IA', icon: '🎯' },
     { to: '/agenda', module: 'agenda', label: 'Agenda', icon: '📅' },
     { to: '/contatos', module: 'contatos', label: 'Contatos', icon: '☺' },
     { to: '/fluxos', module: 'fluxos', label: 'Fluxos', icon: '⇄', sub: 'Automação' },
@@ -333,6 +335,7 @@ export default function App() {
             <Route path="/produtos" element={<Products />} />
             <Route path="/canais" element={<Channels />} />
             <Route path="/integracoes" element={<Integrations />} />
+            <Route path="/sdr" element={<Sdr />} />
             <Route path="/erp" element={<ErpPainel />} />
             <Route path="/erp/funil" element={<ErpFunil />} />
             <Route path="/erp/clientes" element={<ErpClientes key="c" />} />

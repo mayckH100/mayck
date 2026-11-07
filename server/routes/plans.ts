@@ -31,7 +31,7 @@ plansRouter.get('/', ah(async (req, res) => {
 export const PUBLIC_PLAN_INFO: Record<PlanProduct, { label: string; desc: string; features: string[] }> = {
   MCKBOT: { label: 'MCKBOT', desc: 'Atendimento automatizado no WhatsApp com fluxos e IA.', features: ['Conexão por QR code ou Cloud API', 'Fluxos e automações', 'Inbox e Kanban', 'IA com a sua própria chave'] },
   MCKMENSAGEM: { label: 'MCK Mensagens', desc: 'Campanhas no WhatsApp para contatos com consentimento.', features: ['Contatos com origem do consentimento', 'Mensagens personalizadas com {nome}', 'Limites seguros e janela de horário', 'Opt-out automático'] },
-  COMBO: { label: 'Plano Completo: MCK ERP + MCKBOT + MCK Mensagens', desc: 'Tudo incluso: ERP, atendimento no WhatsApp e campanhas. Uma só cobrança. O MCK ERP só vem neste plano.', features: ['MCK ERP: vendas, estoque, compras, financeiro, fiscal e BI', 'Tudo do MCKBOT', 'Tudo do MCK Mensagens', 'Uma só cobrança'] },
+  COMBO: { label: 'Plano Completo: MCK ERP + MCKBOT + MCK Mensagens', desc: 'Tudo incluso: ERP, atendimento no WhatsApp e campanhas. Uma só cobrança. O MCK ERP só vem neste plano.', features: ['MCK ERP: vendas, estoque, compras, financeiro, fiscal e BI', 'SDR com IA: pré-vendas automática (qualifica, acompanha e marca reuniões)', 'Tudo do MCKBOT', 'Tudo do MCK Mensagens', 'Uma só cobrança'] },
 };
 
 export const publicPlansRouter = Router();

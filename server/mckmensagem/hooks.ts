@@ -1,4 +1,5 @@
 import { prisma } from '../db.js';
+import { onSdrOptOut } from '../sdr/service.js';
 
 /** Variações de telefone que podem identificar o lead a partir do waId do contato. */
 function phoneOf(waId: string): string | null {
@@ -29,6 +30,8 @@ export async function onLeadOptOut(orgId: string, contact: { id: string; waId: s
     const orCli: any[] = [{ contactId: contact.id }];
     if (phone) orCli.push({ whatsapp: phone }, { telefone: phone });
     await prisma.cliente.updateMany({ where: { orgId, marketingOptOutAt: null, OR: orCli }, data: { marketingOptOutAt: at } });
+    // SDR com IA: para a cadência e nunca mais envia (WhatsApp nem e-mail).
+    await onSdrOptOut(orgId, contact, at);
   } catch (e) {
     console.error('[mckmensagem] falha ao registrar opt-out do lead', e);
   }

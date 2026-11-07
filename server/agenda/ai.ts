@@ -11,10 +11,10 @@ export const AGENDAR_ALL_RE = /\[AGENDAR:[\s\S]*?\]/gi;
 const DIAS = ['domingo', 'segunda', 'terça', 'quarta', 'quinta', 'sexta', 'sábado'];
 
 /** Trecho do prompt com os horários livres e a regra de agendamento (só quando a empresa liga a opção). */
-export async function agendaPromptSection(orgId: string, now = new Date()): Promise<string> {
+export async function agendaPromptSection(orgId: string, now = new Date(), opts: { force?: boolean } = {}): Promise<string> {
   const s = await getSettings(orgId);
-  // Modo "Pedido" (só pedidos): a IA não agenda reuniões.
-  if (!s.aiBooking || !handlesMeetings(s)) return '';
+  // Modo "Pedido" (só pedidos): a IA não agenda reuniões. force = SDR em modo automático marca reunião com o lead.
+  if ((!s.aiBooking && !opts.force) || !handlesMeetings(s)) return '';
   const tz = await orgTz(orgId);
   const slots = await freeSlots(orgId, { days: 10, max: 16, now });
   const p = zonedParts(now, tz);
@@ -137,12 +137,12 @@ function confirmationText(a: Appointment, confirm: string) {
  * Google Agenda se conectado) e troca o marcador pelo link "Adicionar à agenda" — sempre um só link,
  * o da reunião que esta mensagem confirma.
  */
-export async function applyAgendaTag(args: { orgId: string; conversationId: string; text: string; clientText?: string }): Promise<{ text: string; appointmentId?: string; conflict?: boolean; reused?: boolean; needsConfirmation?: boolean }> {
+export async function applyAgendaTag(args: { orgId: string; conversationId: string; text: string; clientText?: string; force?: boolean }): Promise<{ text: string; appointmentId?: string; conflict?: boolean; reused?: boolean; needsConfirmation?: boolean }> {
   const m = AGENDAR_RE.exec(args.text);
   const clean = cleanAiText(args.text);
   if (!m) return { text: clean };
   const s = await getSettings(args.orgId);
-  if (!s.aiBooking || !handlesMeetings(s) || !args.conversationId) return { text: clean };
+  if ((!s.aiBooking && !args.force) || !handlesMeetings(s) || !args.conversationId) return { text: clean };
   const conv = await prisma.conversation.findFirst({ where: { id: args.conversationId, orgId: args.orgId } });
   if (!conv) return { text: clean };
   let data: any;

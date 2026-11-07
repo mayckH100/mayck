@@ -361,6 +361,7 @@ export async function createAppointment(input: AppointmentInput, ctx: Ctx): Prom
     },
   });
   if (kind === 'MEETING' && a.contactId) await moveToMeetingStage(ctx.orgId, a.contactId);
+  if (kind === 'MEETING' && a.contactId) await (await import('../sdr/service.js')).onSdrMeeting(ctx.orgId, a.contactId, a.id); // SDR: etapa Reunião + para a cadência
   await audit(ctx.req ?? null, ctx.source === 'AI' ? 'agenda.ai_create' : 'agenda.create', { orgId: ctx.orgId, userId: ctx.userId ?? null, entity: 'appointment', entityId: a.id, meta: { kind, startAt: a.startAt, contactId: a.contactId, source: a.source } });
   const wantMeet = input.generateMeet ?? kind === 'MEETING';
   const synced = await syncGoogle(a, { meet: wantMeet });

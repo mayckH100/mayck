@@ -24,6 +24,7 @@ export const MODULES = [
   { id: 'auditoria', label: 'Auditoria', app: 'MCKBOT' },
   { id: 'mensagens', label: 'MCK Mensagens: leads, campanhas/disparos e IA', app: 'MCKMENSAGEM' },
   { id: 'automacoes', label: 'MCK Mensagens: automações e cobranças', app: 'MCKMENSAGEM' },
+  { id: 'sdr', label: 'SDR com IA: leads, cadências e funil de pré-vendas', app: 'MCKBOT' },
   { id: 'erp_crm', label: 'MCK ERP: acesso (clientes, fornecedores e CRM)', app: 'MCKERP' },
   { id: 'erp_vendas', label: 'MCK ERP: vendas, pedidos e venda balcão', app: 'MCKERP' },
   { id: 'erp_estoque', label: 'MCK ERP: produtos, estoque e etiquetas', app: 'MCKERP' },
@@ -40,7 +41,7 @@ export const moduleLabel = (id: string) => MODULES.find((m) => m.id === id)?.lab
 export const ROLE_MODULES: Record<Role, ModuleId[]> = {
   OWNER: MODULE_IDS,
   ADMIN: MODULE_IDS,
-  AGENT: ['inbox', 'kanban', 'agenda', 'contatos', 'fluxos', 'ia', 'canais', 'relatorios', 'equipe', 'plano', 'automacoes', 'erp_crm', 'erp_vendas', 'erp_estoque', 'erp_compras', 'erp_financeiro', 'erp_relatorios'],
+  AGENT: ['inbox', 'kanban', 'agenda', 'contatos', 'fluxos', 'ia', 'canais', 'relatorios', 'equipe', 'plano', 'automacoes', 'sdr', 'erp_crm', 'erp_vendas', 'erp_estoque', 'erp_compras', 'erp_financeiro', 'erp_relatorios'],
 };
 /** Pré-seleção do formulário de convite. */
 export const DEFAULT_MODULES: Record<'ADMIN' | 'AGENT', ModuleId[]> = {

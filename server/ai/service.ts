@@ -15,6 +15,7 @@ import { normalize } from '../flows/logic.js';
 import { aiNotesPromptSection, contactIdOfConversation } from './contactNotes.js';
 import { agendaPromptSection, applyAgendaTag, cleanAiText, stripJsonMarkers, stripSystemLinks } from '../agenda/ai.js';
 import { productsPromptSection } from './products.js';
+import { sdrPromptSection, sdrForcesBooking } from '../sdr/ai.js';
 import { applyOrderTag, intentFromText, ordersPromptSection, tagConversation } from '../agenda/orders.js';
 
 export interface AiReply {
@@ -186,7 +187,10 @@ async function generateAiReplyInner(args: { orgId: string; conversationId: strin
     orderBy: { createdAt: 'desc' }, take: 10,
   });
   // Agenda: horários livres + regra do marcador [AGENDAR:{...}] (só se a empresa ligou o agendamento pela IA).
-  const agenda = await agendaPromptSection(orgId).catch(() => '');
+  // SDR com IA: perguntas de qualificação que faltam e, no modo automático, agenda pela IA para o lead.
+  const sdrBook = await sdrForcesBooking(orgId, conversationId).catch(() => false);
+  const sdr = await sdrPromptSection(orgId, conversationId).catch(() => '');
+  const agenda = await agendaPromptSection(orgId, new Date(), { force: sdrBook }).catch(() => '');
   // Pedidos e classificação (Agenda › Configurações › "O que a IA atende": Reunião / Pedido / Os dois).
   const pedidos = await ordersPromptSection(orgId).catch(() => '');
   // Notas para a IA deixadas pelos vendedores neste contato (escopo da organização).
@@ -196,7 +200,7 @@ async function generateAiReplyInner(args: { orgId: string; conversationId: strin
   // Kanban automático (desligado por padrão): etapas e o marcador [ETAPA:nome].
   const kanban = s.kanbanAuto ? await kanbanPromptSection(orgId, conversationId).catch(() => '') : '';
   const messages: ChatMessage[] = [
-    { role: 'system', content: buildSystemPrompt({ instructions: [s.instructions, args.extraInstructions, agenda, pedidos, prod.rules, site, kanban].filter(Boolean).join('\n'), tone: s.tone }, context, contactNotes) },
+    { role: 'system', content: buildSystemPrompt({ instructions: [s.instructions, args.extraInstructions, agenda, pedidos, prod.rules, site, kanban, sdr].filter(Boolean).join('\n'), tone: s.tone }, context, contactNotes) },
     // Links da agenda/Meet já enviados saem do histórico: a IA não deve copiá-los numa nova resposta.
     ...history.reverse().slice(0, -1).map((m) => ({ role: (m.direction === 'IN' ? 'user' : 'assistant') as 'user' | 'assistant', content: m.direction === 'IN' ? m.body ?? '' : stripSystemLinks(m.body ?? '') })),
     { role: 'user', content: text },
@@ -249,7 +253,7 @@ async function generateAiReplyInner(args: { orgId: string; conversationId: strin
       // Marcador de agendamento: cria o compromisso (com checagem de conflito) e troca pelo link da agenda.
       // O marcador de pedido sai antes (o JSON dele tem colchetes) e é processado depois.
       const noOrder = stripJsonMarkers(r.text, 'PEDIDO');
-      let booked: { text: string; appointmentId?: string } = await applyAgendaTag({ orgId, conversationId, text: noOrder, clientText: text }).catch((e) => {
+      let booked: { text: string; appointmentId?: string } = await applyAgendaTag({ orgId, conversationId, text: noOrder, clientText: text, force: sdrBook }).catch((e) => {
         console.error('[agenda-ia]', (e as Error).message);
         return { text: cleanAiText(r.text) };
       });
