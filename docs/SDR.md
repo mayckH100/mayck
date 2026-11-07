@@ -1,4 +1,4 @@
-# SDR com IA (v1.18.0)
+# SDR com IA (v1.18.0; v2 na v1.19.0)
 
 Pré-vendas automática dentro do MCKBOT (menu **SDR com IA**, rota `/sdr`). Evolui o funil de leads automático
 existente: o lead do SDR (`SdrLead`) liga-se ao contato do MCKBOT (`Contact`) e ao lead do MCK Mensagens (`Lead`)
@@ -44,7 +44,35 @@ da mesma pessoa; opt-out e consentimento valem nos dois lados. Lead só com e-ma
 - Públicas (fora de /api, HTML sem JS): `GET/POST /f/:token`, `GET/POST /descadastro/:token` (limite por IP,
   campo-isca, origem conferida, tudo escapado).
 
-## Para a v2
-Resposta por e-mail (IMAP/webhook de entrada) para parar a cadência sozinha; modelos aprovados da Meta para
-WhatsApp fora da janela de 24 h; formulário incorporável em outros sites; teste A/B de textos; distribuição
-automática de leads por dono (rodízio); sincronizar a etapa com o Kanban do MCKBOT; relatórios por cadência/passo.
+## v2 (v1.19.0, sem migração)
+Configurações novas guardadas no AuditLog da empresa (ação `sdr.v2.config`, a mais recente vale; `server/sdr/v2config.ts`),
+editáveis em SDR › Configuração (`PUT /api/sdr/config` com `kanbanSync`, `rodizio`, `embedDomains`).
+1. **Kanban do MCKBOT ↔ SDR** (`kanbanSync`, padrão ligado; `server/sdr/kanbanSync.ts`, `onKanbanStageChanged`):
+   etapas casam pelo nome (Novo, Contatado/Em contato, Respondeu/Interessado, Qualificado, Reunião…/Demonstração,
+   Ganho/Venda fechada, Perdido/Cancelado). SDR → Kanban em toda mudança de etapa do lead com contato ligado; automação
+   só anda para a frente e nunca tira de Ganho/Perdido nem de "Aguardando atendente"; mudança manual no SDR pode voltar.
+   Reunião sem etapa correspondente usa "Reunião agendada" (a da Agenda). Kanban → SDR quando a equipe arrasta no Kanban
+   ou edita o contato (manual) e quando um fluxo muda a etapa (só para a frente). Nunca cria etapa. Histórico: evento KANBAN.
+2. **Rodízio de leads** (`rodizio: { enabled, members }`): lead novo sem responsável (qualquer origem) recebe o próximo
+   membro da lista, na ordem; o último dono do rodízio vem do evento `DONO`/`RODIZIO` (marca interna `[u:<id>]`, escondida
+   na tela). Membro que saiu da equipe é pulado. `POST /api/sdr/rodizio/distribuir` reparte os leads abertos sem dono (500).
+3. **Relatórios** (aba Relatórios; `GET /api/sdr/relatorio?dias=N` e `/relatorio.csv`, CSV com `;`, BOM e proteção contra
+   fórmula): por cadência e por passo — leads, enviados, respondidos, agendados, descadastros, taxa de resposta. Resposta,
+   reunião e descadastro contam uma vez por lead e cadência, para o último passo enviado antes. Envios gravam a marca
+   `[c:<cadência>#<passo>]` no histórico; envios antigos (v1.18) usam a cadência atual do lead e o "dia N".
+4. **Resposta por e-mail** (`server/sdr/inbound.ts`): `POST /api/public/sdr/email` no formato do Inbound parsing do Brevo
+   (`{ items: [{ From, To, Recipients, Cc, Subject, ExtractedMarkdownMessage, RawTextBody, Headers, SpamScore }] }`).
+   Desligado (404) sem `SDR_INBOUND_SECRET` (≥ 16 caracteres). Segredo por `Authorization: Bearer`, Basic (senha), cabeçalho
+   `x-sdr-secret` ou `?token=`. Com `SDR_INBOUND_DOMAIN`, o e-mail do SDR sai com "Responder para"
+   `sdr-<unsubToken>@<domínio>` e a resposta acha o lead pelo token; sem token, pelo remetente que já recebeu e-mail do SDR.
+   Ignora resposta automática, falha de entrega e spam ≥ 5. "Descadastrar/remover/não quero mais receber" = opt-out.
+   Para ligar (Mayck): domínio próprio com subdomínio de resposta (MX `inbound1/2.sendinblue.com`), webhook `inbound` no
+   Brevo apontando para `https://<app>/api/public/sdr/email` com o segredo, e as duas variáveis no Render.
+5. **Formulário incorporável**: `/f/<token>?embed=1` (código `<iframe>` copiável na Configuração). Só essa resposta troca
+   `frame-ancestors 'none'` pelos sites permitidos (`embedDomains`; vazio = `https:`, qualquer site com HTTPS) e tira o
+   X-Frame-Options; CSP sem script continua; mesma origem conferida no POST, campo-isca e limite por IP (10 envios/10 min).
+
+## Para a v3
+Modelos aprovados da Meta para WhatsApp fora da janela de 24 h; teste A/B de textos (dependem de aprovação externa /
+ficaram fora da v2). Se o rodízio ou os relatórios ficarem pesados, levar a configuração do AuditLog para colunas próprias
+numa migração aditiva.
