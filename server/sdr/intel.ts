@@ -83,3 +83,63 @@ export function explainScore(questions: Question[], answers: Answers, score: num
   else proximaAcao = faltam.length >= questions.length ? 'Ainda sem informações: deixe a IA conversar ou faça a primeira abordagem.' : 'Baixa prioridade: mantenha na cadência de acompanhamento.';
   return { titulo: `${TEMP_LABEL[temperature][0].toUpperCase()}${TEMP_LABEL[temperature].slice(1)} · ${score}/100`, porque: partes.join(' '), fatores, faltam, proximaAcao };
 }
+
+// ---------- 2) Biblioteca de objeções ----------
+export interface Objecao { id: string; titulo: string; gatilhos: string[]; resposta: string }
+
+export const DEFAULT_OBJECOES: Objecao[] = [
+  { id: 'preco', titulo: 'Preço / está caro', gatilhos: ['caro', 'preço alto', 'muito alto', 'sem dinheiro', 'fora do orçamento', 'não cabe no bolso', 'tá puxado'],
+    resposta: 'Reconheça a preocupação, pergunte com o que está comparando e mostre o valor (o que ganha ou economiza). Ofereça a opção de entrada ou o teste. Nunca invente desconto.' },
+  { id: 'fornecedor', titulo: 'Já tenho fornecedor', gatilhos: ['já tenho fornecedor', 'já uso', 'já trabalho com', 'já temos', 'já tenho um', 'já tenho uma'],
+    resposta: 'Respeite a escolha. Pergunte o que mais gosta no atual e o que poderia ser melhor; se houver um ponto fraco, mostre como resolvemos, sem falar mal do concorrente.' },
+  { id: 'agora_nao', titulo: 'Agora não / sem tempo', gatilhos: ['agora não', 'não é o momento', 'mais pra frente', 'mais para frente', 'sem tempo', 'depois eu vejo', 'outro momento', 'ano que vem'],
+    resposta: 'Pergunte quando seria um bom momento e o que precisa acontecer até lá. Ofereça retomar na data que ele disser.' },
+  { id: 'email', titulo: 'Manda por e-mail', gatilhos: ['manda por e-mail', 'manda por email', 'envia por e-mail', 'envia por email', 'manda o material', 'manda uma proposta', 'me manda as informações'],
+    resposta: 'Aceite e confirme o e-mail. Antes, faça uma pergunta para personalizar (qual o principal objetivo) e proponha uma conversa rápida para explicar o material.' },
+  { id: 'pensar', titulo: 'Vou pensar / falar com o sócio', gatilhos: ['vou pensar', 'preciso pensar', 'falar com meu sócio', 'falar com minha sócia', 'ver com meu chefe', 'ver com a diretoria', 'consultar'],
+    resposta: 'Pergunte qual ponto ainda gera dúvida e quem mais participa da decisão. Ofereça incluir essa pessoa numa conversa rápida.' },
+  { id: 'confianca', titulo: 'Não conheço vocês', gatilhos: ['não conheço', 'é confiável', 'é golpe', 'nunca ouvi falar', 'é seguro'],
+    resposta: 'Apresente a empresa com fatos (tempo de mercado, clientes, garantias) e ofereça um teste ou uma referência.' },
+];
+
+const norm = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
+
+export function normalizeObjecoes(list: unknown): Objecao[] {
+  if (!Array.isArray(list)) return DEFAULT_OBJECOES;
+  const out: Objecao[] = [];
+  const seen = new Set<string>();
+  for (const o of list.slice(0, 20)) {
+    const titulo = String((o as any)?.titulo ?? '').trim().slice(0, 80);
+    const resposta = String((o as any)?.resposta ?? '').trim().slice(0, 600);
+    const gatilhos = (Array.isArray((o as any)?.gatilhos) ? (o as any).gatilhos : String((o as any)?.gatilhos ?? '').split(/[,;\n]/))
+      .map((g: unknown) => String(g ?? '').trim().slice(0, 60)).filter(Boolean).slice(0, 15) as string[];
+    if (!titulo || !resposta || !gatilhos.length) continue;
+    let id = String((o as any)?.id ?? '').replace(/[^a-z0-9_]/gi, '').toLowerCase().slice(0, 30) || norm(titulo).replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '').slice(0, 30) || `obj${out.length + 1}`;
+    while (seen.has(id)) id = `${id}_${out.length + 1}`;
+    seen.add(id);
+    out.push({ id, titulo, gatilhos, resposta });
+  }
+  return out;
+}
+
+/** Objeção na mensagem do lead (por palavras-gatilho, sem acento e sem diferenciar maiúsculas). */
+export function detectObjecao(text: string, itens: Objecao[]): Objecao | null {
+  const t = ` ${norm(text || '').replace(/[^\p{L}\p{N} ]/gu, ' ').replace(/\s+/g, ' ')} `;
+  if (t.trim().length < 2) return null;
+  for (const o of itens) {
+    for (const g of o.gatilhos) {
+      const n = norm(g).replace(/[^\p{L}\p{N} ]/gu, ' ').replace(/\s+/g, ' ').trim();
+      if (n && t.includes(` ${n} `)) return o;
+    }
+  }
+  return null;
+}
+
+/** Trecho do prompt: respostas aprovadas pela empresa para cada objeção (e a que o lead acabou de levantar). */
+export function objecoesPromptLines(itens: Objecao[], atual: Objecao | null): string[] {
+  if (!itens.length) return [];
+  const lines = ['OBJEÇÕES (orientações aprovadas pela empresa; responda com suas palavras, curto e com empatia; nunca invente preço, desconto ou condição):'];
+  for (const o of itens) lines.push(`- Se o cliente disser algo como ${o.gatilhos.slice(0, 3).map((g) => `"${g}"`).join(', ')} (${o.titulo}): ${o.resposta}`);
+  if (atual) lines.push(`- A última mensagem do cliente é a objeção "${atual.titulo}": trate-a agora seguindo a orientação acima.`);
+  return lines;
+}

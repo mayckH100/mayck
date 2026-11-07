@@ -9,7 +9,7 @@ import { answeredCount, computeScore, mergeAnswers, parseExtraction, temperature
 import { sdrLiberadoCached } from './access.js';
 import { getQualificacao, qualiPromptLines } from './qualificacao.js';
 import { getIntelConfig, questionsFor } from './intelConfig.js';
-import { metodoPromptLine } from './intel.js';
+import { metodoPromptLine, detectObjecao, objecoesPromptLines } from './intel.js';
 import { alertHot, getSdrSettings, registerReply, setStage, upsertLead, logEvent } from './service.js';
 
 /**
@@ -54,6 +54,10 @@ export async function sdrPromptSection(orgId: string, conversationId: string): P
     lines.push(...qualiPromptLines((await getQualificacao(orgId)).config));
     const metodo = metodoPromptLine(intel.metodo); // v1.21.0: BANT/SPIN (vazio no Padrão)
     if (metodo) lines.push(metodo);
+    if (intel.objecoes.enabled) {
+      const last = await prisma.message.findFirst({ where: { orgId, conversationId, direction: 'IN' }, orderBy: { createdAt: 'desc' }, select: { body: true } });
+      lines.push(...objecoesPromptLines(intel.objecoes.itens, detectObjecao(last?.body ?? '', intel.objecoes.itens)));
+    }
     if (missing.length) lines.push('Ainda falta saber:', ...missing.map((q) => `- ${q.pergunta}`));
     else lines.push('- Todas as informações já foram coletadas: foque em ajudar e no próximo passo.');
     if (c.s.autoMode && c.s.autoBook && c.lead.stage !== 'REUNIAO' && c.lead.temperature !== 'FRIO') {
@@ -157,6 +161,11 @@ export async function sdrOnInbound(args: { conv: Conversation; contact: Contact;
     lead = await registerReply(lead, 'WHATSAPP', s, now);
   }
   if (lead.optOutAt || ['GANHO', 'PERDIDO'].includes(lead.stage) || conv.mode === 'HUMAN' || !args.text?.trim()) return lead;
+  const intel = await getIntelConfig(orgId);
+  if (intel.objecoes.enabled) {
+    const obj = detectObjecao(args.text, intel.objecoes.itens);
+    if (obj) await logEvent(orgId, lead.id, 'OBJECAO', 'WHATSAPP', obj.titulo);
+  }
   // Economia de IA: tudo respondido e lead já quente → não precisa extrair de novo.
   const qs = await questionsFor(orgId, s);
   const cur = parseJson<Answers>(lead.answersJson, {});

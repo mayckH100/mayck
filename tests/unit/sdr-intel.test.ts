@@ -27,3 +27,21 @@ describe('SDR inteligência — 1) método e explicação', () => {
     expect(explainScore(qs, ans, 80, 'QUENTE').proximaAcao).toMatch(/Priorize/);
   });
 });
+
+import { DEFAULT_OBJECOES, detectObjecao, normalizeObjecoes, objecoesPromptLines } from '../../server/sdr/intel.js';
+describe('SDR inteligência — 2) objeções', () => {
+  it('detecta por gatilho sem acento/maiúsculas e monta o prompt', () => {
+    expect(detectObjecao('Achei MUITO caro, viu', DEFAULT_OBJECOES)?.id).toBe('preco');
+    expect(detectObjecao('Ja tenho fornecedor pra isso', DEFAULT_OBJECOES)?.id).toBe('fornecedor');
+    expect(detectObjecao('me manda por email por favor', DEFAULT_OBJECOES)?.id).toBe('email');
+    expect(detectObjecao('Quero sim, vamos marcar', DEFAULT_OBJECOES)).toBeNull();
+    expect(detectObjecao('caroline aqui', DEFAULT_OBJECOES)).toBeNull(); // palavra inteira
+    const lines = objecoesPromptLines(DEFAULT_OBJECOES, DEFAULT_OBJECOES[0]);
+    expect(lines.join('\n')).toMatch(/nunca invente preço/);
+    expect(lines.at(-1)).toContain('Preço');
+  });
+  it('normaliza itens editados (gatilhos por vírgula, descarta incompletos)', () => {
+    const r = normalizeObjecoes([{ titulo: 'Prazo de entrega', gatilhos: 'demora, prazo longo', resposta: 'Informe o prazo real.' }, { titulo: 'x', gatilhos: '', resposta: 'y' }]);
+    expect(r).toEqual([{ id: 'prazo_de_entrega', titulo: 'Prazo de entrega', gatilhos: ['demora', 'prazo longo'], resposta: 'Informe o prazo real.' }]);
+  });
+});

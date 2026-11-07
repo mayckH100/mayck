@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll } from 'vitest';
-import { registerClient, Client, prisma } from '../helpers.js';
+import { registerClient, Client, prisma, createTestChannel } from '../helpers.js';
 import { applyExtraction } from '../../server/sdr/ai.js';
 import { getSdrSettings } from '../../server/sdr/service.js';
 import { getIntelConfig } from '../../server/sdr/intelConfig.js';
@@ -40,5 +40,28 @@ describe('SDR inteligência', () => {
     // Vendedor (não admin) não muda a configuração; outra empresa não lê o lead.
     expect((await b.get(`/api/sdr/inteligencia/leads/${r.body.id}`)).status).not.toBe(200);
     expect((await a.put('/api/sdr/inteligencia', { metodo: 'PADRAO' })).body.metodo).toBe('PADRAO');
+  });
+
+  it('2) biblioteca de objeções: desligada por padrão, editável e usada no prompt da IA', async () => {
+    const g = await a.get('/api/sdr/inteligencia');
+    expect(g.body.objecoes.enabled).toBe(false);
+    expect(g.body.objecoes.itens.length).toBeGreaterThanOrEqual(5);
+    const itens = [...g.body.objecoes.itens, { titulo: 'Prazo de entrega', gatilhos: 'demora muito, prazo longo', resposta: 'Diga o prazo real e ofereça acompanhar o pedido.' }];
+    const p = await a.put('/api/sdr/inteligencia', { objecoes: { enabled: true, itens } });
+    expect(p.status).toBe(200);
+    expect(p.body.objecoes.itens.at(-1)).toMatchObject({ id: 'prazo_de_entrega', gatilhos: ['demora muito', 'prazo longo'] });
+    // Prompt da IA para um lead do WhatsApp que acabou de dizer "demora muito".
+    const { sdrPromptSection } = await import('../../server/sdr/ai.js');
+    const { ch } = await createTestChannel(orgA());
+    const waId = phone();
+    const contact = await prisma.contact.create({ data: { orgId: orgA(), waId, phone: '+' + waId, name: 'Rui' } as any });
+    const conv = await prisma.conversation.create({ data: { orgId: orgA(), contactId: contact.id, channelId: ch.id } as any });
+    await prisma.sdrLead.create({ data: { orgId: orgA(), name: 'Rui', phone: '+' + waId, source: 'WHATSAPP', contactId: contact.id, unsubToken: 'tok' + waId } });
+    await prisma.message.create({ data: { orgId: orgA(), conversationId: conv.id, direction: 'IN', sender: 'contact', type: 'text', body: 'Gostei, mas demora muito?', status: 'RECEIVED' } as any });
+    const prompt = await sdrPromptSection(orgA(), conv.id);
+    expect(prompt).toContain('OBJEÇÕES');
+    expect(prompt).toContain('A última mensagem do cliente é a objeção "Prazo de entrega"');
+    expect((await a.put('/api/sdr/inteligencia', { objecoes: { enabled: false } })).body.objecoes.itens.at(-1).titulo).toBe('Prazo de entrega');
+    expect(await sdrPromptSection(orgA(), conv.id)).not.toContain('OBJEÇÕES');
   });
 });

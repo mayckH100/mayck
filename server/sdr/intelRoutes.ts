@@ -7,7 +7,7 @@ import { audit } from '../lib/audit.js';
 import { parseJson } from '../lib/json.js';
 import { getSdrSettings, questionsOf } from './service.js';
 import { getIntelConfig, setIntelConfig, questionsFor, type IntelConfig } from './intelConfig.js';
-import { explainScore, METODOS, METODO_LABEL, METODO_QUESTIONS } from './intel.js';
+import { explainScore, METODOS, METODO_LABEL, METODO_QUESTIONS, DEFAULT_OBJECOES } from './intel.js';
 import type { Answers, Temperature } from './core.js';
 
 /** SDR com IA › Inteligência (v1.21.0): `/api/sdr/inteligencia` (montado dentro do sdrRouter: mesmo acesso do SDR). */
@@ -19,6 +19,7 @@ async function intelView(orgId: string) {
   const { salvo: _s, ...cfg } = c;
   return {
     ...cfg,
+    objecoesPadrao: DEFAULT_OBJECOES,
     metodos: METODOS.map((id) => ({ id, label: METODO_LABEL[id], perguntas: id === 'PADRAO' ? questionsOf(s) : METODO_QUESTIONS[id] })),
   };
 }
@@ -27,6 +28,10 @@ sdrIntelRouter.get('/', ah(async (req, res) => res.json(await intelView(orgOf(re
 
 const schema = z.object({
   metodo: z.enum(METODOS).optional(),
+  objecoes: z.object({
+    enabled: z.boolean().optional(),
+    itens: z.array(z.object({ id: z.string().max(40).optional(), titulo: z.string().max(80), gatilhos: z.union([z.array(z.string().max(60)).max(15), z.string().max(900)]), resposta: z.string().max(600) })).max(20).optional(),
+  }).optional(),
 });
 
 sdrIntelRouter.put('/', admins, ah(async (req, res) => {

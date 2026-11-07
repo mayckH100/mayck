@@ -1,7 +1,7 @@
 import { prisma } from '../db.js';
 import { parseJson } from '../lib/json.js';
 import type { SdrSettings } from '@prisma/client';
-import { normalizeMetodo, questionsForMetodo, type Metodo } from './intel.js';
+import { normalizeMetodo, normalizeObjecoes, questionsForMetodo, DEFAULT_OBJECOES, type Metodo, type Objecao } from './intel.js';
 import { questionsOf } from './service.js';
 import type { Question } from './core.js';
 
@@ -16,15 +16,20 @@ export const SDR_INTEL_ACTION = 'sdr.intel.config';
 export interface IntelConfig {
   /** Método de qualificação: PADRAO usa as perguntas da empresa (comportamento de antes). */
   metodo: Metodo;
+  /** Biblioteca de objeções: a IA usa as respostas da empresa (muda as respostas aos leads: desligada por padrão). */
+  objecoes: { enabled: boolean; itens: Objecao[] };
 }
 
-export const DEFAULT_INTEL: IntelConfig = { metodo: 'PADRAO' };
+export const DEFAULT_INTEL: IntelConfig = { metodo: 'PADRAO', objecoes: { enabled: false, itens: DEFAULT_OBJECOES } };
 /** Padrões de quem liga o SDR pela primeira vez (nada aqui envia mensagem sozinho). */
 export const NEW_SETUP_INTEL: IntelConfig = { ...DEFAULT_INTEL };
 
 export function normalizeIntel(raw: unknown): IntelConfig {
   const r = (raw && typeof raw === 'object' ? raw : {}) as any;
-  return { metodo: normalizeMetodo(r.metodo) };
+  return {
+    metodo: normalizeMetodo(r.metodo),
+    objecoes: { enabled: r.objecoes?.enabled === true, itens: r.objecoes?.itens === undefined ? DEFAULT_OBJECOES : normalizeObjecoes(r.objecoes.itens) },
+  };
 }
 
 export async function getIntelConfig(orgId: string): Promise<IntelConfig & { salvo: boolean }> {
