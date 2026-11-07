@@ -16,7 +16,7 @@ export interface ConfirmResult { ok: boolean; renewed: boolean; duplicated?: boo
 const DESC: Record<PlanProduct, string> = {
   MCKBOT: 'Automação de atendimento no WhatsApp: Inbox, fluxos, Kanban e IA.',
   MCKMENSAGEM: 'Envio de mensagens e campanhas pelo MCKMENSAGEM.',
-  COMBO: 'Os dois produtos juntos, com desconto. Renova MCKBOT e MCKMENSAGEM de uma vez.',
+  COMBO: 'MCK ERP + MCKBOT + MCKMENSAGEM juntos, com desconto. O MCK ERP só vem neste plano. Renova tudo de uma vez.',
 };
 
 export function reasonText(r: ConfirmResult): { kind: 'ok' | 'warn' | 'err'; text: string } {

@@ -39,7 +39,8 @@ export async function api<T = any>(path: string, opts: { method?: string; body?:
   if (!res.ok) {
     if (res.status === 401 && !path.startsWith('/auth/')) window.dispatchEvent(new Event('mck:unauthorized'));
     // 402 = assinatura inativa (vencida/bloqueada): avisa o app para mostrar o banner e levar à Assinatura.
-    if (res.status === 402) window.dispatchEvent(new CustomEvent('mck:payment-required', { detail: data?.error ?? null }));
+    // ERP fora do Plano Completo (code ERP_PLANO_COMPLETO) não é assinatura vencida: a tela do ERP mostra o próprio aviso.
+    if (res.status === 402 && data?.code !== 'ERP_PLANO_COMPLETO') window.dispatchEvent(new CustomEvent('mck:payment-required', { detail: data?.error ?? null }));
     const details = data?.details;
     let msg = data?.error ?? FRIENDLY[res.status] ?? `Erro ${res.status}`;
     if (Array.isArray(details) && details.length) msg += ': ' + details.join('; ');
@@ -72,7 +73,8 @@ export async function upload<T = any>(path: string, file: File | Blob, name?: st
   }
   const data = await res.json().catch(() => null);
   if (!res.ok) {
-    if (res.status === 402) window.dispatchEvent(new CustomEvent('mck:payment-required', { detail: data?.error ?? null }));
+    // ERP fora do Plano Completo (code ERP_PLANO_COMPLETO) não é assinatura vencida: a tela do ERP mostra o próprio aviso.
+    if (res.status === 402 && data?.code !== 'ERP_PLANO_COMPLETO') window.dispatchEvent(new CustomEvent('mck:payment-required', { detail: data?.error ?? null }));
     throw new ApiError(data?.error ?? FRIENDLY[res.status] ?? `Erro ${res.status}`, res.status, data?.details);
   }
   return data as T;

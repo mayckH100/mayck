@@ -39,6 +39,7 @@ import ErpFiscal from './erp/fiscal/Fiscal';
 import ErpBi from './erp/bi/Bi';
 import ErpAlertas from './erp/alertas/Alertas';
 import { ERP_ITENS } from './erp/ErpNav';
+import ErpGate from './erp/ErpGate';
 import Tutorials from './Tutorials';
 import SubscriptionGate from './SubscriptionGate';
 import Announcements from './Announcements';
@@ -272,7 +273,7 @@ function Shell({ children }: { children: ReactNode }) {
         <SubscriptionGate app="mckbot" />
         <Announcements app="mckbot" />
         <NovidadeBanner />
-        <main className="content">{children}</main>
+        <main className="content">{loc.pathname.startsWith('/erp') ? <ErpGate>{children}</ErpGate> : children}</main>
       </div>
     </div>
   );

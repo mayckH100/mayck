@@ -114,6 +114,26 @@ export async function isProductActive(orgId: string, product: Product): Promise<
   return st === 'TRIAL' || st === 'ATIVA';
 }
 
+/**
+ * Plano Completo (MCK ERP + MCKBOT + MCK Mensagens) ativo ou em teste: os DOIS produtos em TRIAL ou ATIVA.
+ * O COMBO renova os dois juntos; o teste começa com os dois em TRIAL. Só MCKBOT ou só MCK Mensagens não basta.
+ * Assinatura que ainda não existe só é criada (teste sob demanda, como no resto do app) quando a empresa
+ * nunca pagou nada (todas as existentes são de teste): assim quem pagou só um produto não ganha um "teste" do
+ * outro só por abrir o ERP.
+ */
+export async function planoCompletoAtivo(orgId: string, now = new Date()): Promise<boolean> {
+  let subs = await prisma.subscription.findMany({ where: { orgId, product: { in: [...PRODUCTS] } } });
+  if (subs.length < PRODUCTS.length && subs.every((s) => s.source === 'TRIAL')) {
+    subs = await Promise.all(PRODUCTS.map((p) => getSubscription(orgId, p)));
+  }
+  return PRODUCTS.every((p) => {
+    const s = subs.find((x) => x.product === p);
+    if (!s) return false;
+    const st = effectiveStatus(s, now);
+    return st === 'TRIAL' || st === 'ATIVA';
+  });
+}
+
 function addCycle(from: Date, cycle: Cycle): Date {
   const d = new Date(from.getTime());
   if (cycle === 'ANUAL') d.setFullYear(d.getFullYear() + 1);

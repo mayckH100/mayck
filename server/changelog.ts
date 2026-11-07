@@ -21,6 +21,16 @@ export type EntradaChangelog = {
 
 export const CHANGELOG: EntradaChangelog[] = [
   {
+    versao: '1.17.0',
+    data: '07/11/2026',
+    titulo: 'MCK ERP agora faz parte do Plano Completo',
+    itens: [
+      'O MCK ERP (vendas, estoque, compras, financeiro, fiscal e BI) passa a ser exclusivo do Plano Completo: MCK ERP + MCKBOT + MCK Mensagens, ativo ou em período de teste.',
+      'Quem tem só o MCKBOT ou só o MCK Mensagens vê no menu do ERP o aviso "O ERP faz parte do Plano Completo", com o botão para fazer o upgrade.',
+      'Seus dados do ERP continuam guardados: clientes, fornecedores, produtos, pedidos e as notas fiscais emitidas podem ser baixados a qualquer momento, mesmo sem o Plano Completo.',
+    ],
+  },
+  {
     versao: '1.16.1',
     data: '07/11/2026',
     titulo: 'Mais proteção para a sua conta',

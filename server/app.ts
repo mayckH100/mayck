@@ -15,7 +15,7 @@ import { mckmensagemRouter } from './mckmensagem/routes.js';
 import { automacoesRouter } from './mckmensagem/automacoes/routes.js';
 import { billingRouter, billingWebhookRouter } from './billing/routes.js';
 import { referralRouter, publicReferralRouter } from './billing/referrals.js';
-import { requireMckbotForWrites, requireAnyProductForWrites } from './billing/guard.js';
+import { requireMckbotForWrites, requirePlanoCompletoErp } from './billing/guard.js';
 import { authRouter } from './auth/routes.js';
 import { requireModule } from './lib/permissions.js';
 import { tutorialsRouter } from './tutorials/routes.js';
@@ -147,8 +147,8 @@ export function createApp() {
   // Automações e Cobranças (MCK Mensagens): OWNER/ADMIN alteram; AGENT só lê (checado dentro do router).
   app.use('/api/mckmensagem/automacoes', requireOrg, requireModule('automacoes'), automacoesRouter);
   app.use('/api/mckmensagem', requireOrg, requireRole('OWNER', 'ADMIN'), requireModule('mensagens'), mckmensagemRouter);
-  // MCK ERP (etapa 1: core + CRM). Módulo próprio nas permissões da equipe.
-  app.use('/api/erp', requireOrg, requireModule('erp_crm'), requireAnyProductForWrites, erpRouter);
+  // MCK ERP: módulo próprio nas permissões da equipe; só com o Plano Completo ativo/teste (exportar os dados continua liberado).
+  app.use('/api/erp', requireOrg, requireModule('erp_crm'), requirePlanoCompletoErp, erpRouter);
   app.use('/api/reports', requireOrg, requireModule('relatorios'));
   app.use('/api', requireOrg, dashboardRouter);
   app.use('/api', (_req, res) => res.status(404).json({ error: 'Rota não encontrada' }));

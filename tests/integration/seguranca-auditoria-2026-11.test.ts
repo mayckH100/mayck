@@ -13,15 +13,17 @@ describe('Auditoria de segurança 2026-11 · MCK ERP exige assinatura ativa para
     orgId = (await owner.get('/api/auth/me')).body.org.id;
   });
 
-  it('com teste ativo grava; com MCKBOT e MCK Mensagens vencidos → 402 na escrita e leitura liberada', async () => {
+  it('com teste ativo grava; com MCKBOT e MCK Mensagens vencidos → 402 (v1.17.0: também na leitura)', async () => {
     expect((await owner.post('/api/erp/produtos', { sku: 'SEG-1', nome: 'Produto', precoBaseCents: 100 })).status).toBe(201);
     await owner.get('/api/billing/status'); // garante as assinaturas criadas
     await prisma.subscription.updateMany({ where: { orgId }, data: { status: 'ATIVA', validUntil: new Date(Date.now() - DAY) } });
     const w = await owner.post('/api/erp/produtos', { sku: 'SEG-2', nome: 'Produto 2', precoBaseCents: 100 });
     expect(w.status).toBe(402);
-    expect((await owner.get('/api/erp/produtos')).status).toBe(200);
-    // Um produto ativo basta (o ERP vem no Plano Completo, que renova os dois).
+    expect((await owner.get('/api/erp/produtos')).status).toBe(402);
+    // v1.17.0: um produto só não basta mais; o ERP exige o Plano Completo (os dois ativos) — ver erp-plano-completo.test.ts.
     await prisma.subscription.update({ where: { orgId_product: { orgId, product: 'MCKMENSAGEM' } }, data: { validUntil: new Date(Date.now() + DAY) } });
+    expect((await owner.post('/api/erp/produtos', { sku: 'SEG-3', nome: 'Produto 3', precoBaseCents: 100 })).status).toBe(402);
+    await prisma.subscription.updateMany({ where: { orgId }, data: { validUntil: new Date(Date.now() + DAY) } });
     expect((await owner.post('/api/erp/produtos', { sku: 'SEG-3', nome: 'Produto 3', precoBaseCents: 100 })).status).toBe(201);
   });
 });

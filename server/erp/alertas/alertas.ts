@@ -4,6 +4,7 @@
  * e produtos com saldo sem saída há N dias. Um envio por dia, a partir da hora escolhida (fuso da organização).
  */
 import { prisma } from '../../db.js';
+import { planoCompletoAtivo } from '../../billing/service.js';
 import { parseJson } from '../../lib/json.js';
 import { sendToStaffNumber, type NotifyResult } from '../../whatsapp/handoffNotify.js';
 
@@ -101,6 +102,7 @@ export async function tickAlertasErp(now = new Date()) {
     const org = await prisma.organization.findUnique({ where: { id: c.orgId }, select: { timezone: true } });
     const { dia, hora } = agoraLocal(org?.timezone || 'America/Sao_Paulo', now);
     if (hora < c.alertaHora || c.alertaUltimoDia === dia) continue;
+    if (!(await planoCompletoAtivo(c.orgId, now))) continue; // ERP só no Plano Completo: sem ele, não envia (e não gasta o dia)
     // Reserva o dia de forma atômica (evita envio duplicado com mais de uma instância).
     const claim = await prisma.erpConfig.updateMany({ where: { orgId: c.orgId, alertaAtivo: true, OR: [{ alertaUltimoDia: null }, { alertaUltimoDia: { not: dia } }] }, data: { alertaUltimoDia: dia } });
     if (!claim.count) continue;
