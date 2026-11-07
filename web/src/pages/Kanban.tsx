@@ -56,6 +56,12 @@ export default function Kanban() {
                         {c.unread > 0 && <span className="badge green">{c.unread}</span>}
                       </div>
                       <div className="small muted">{c.phone}</div>
+                      {c.sdr && (
+                        <details className="small" style={{ marginTop: 4 }}>
+                          <summary>SDR: {c.sdr.temperature === 'QUENTE' ? '🔥 quente' : c.sdr.temperature === 'MORNO' ? 'morno' : 'frio'} · {c.sdr.score}/100</summary>
+                          {c.sdr.resumo.map((t: string) => <div key={t}>{t}</div>)}
+                        </details>
+                      )}
                       <div className="row" style={{ marginTop: 4 }}>{c.tags.length ? c.tags.map((t: string) => <span key={t} className="badge">{t}</span>) : <span className="small muted">Sem etiquetas</span>}</div>
                       <div className="row between small" style={{ marginTop: 6 }}>
                         <span className="muted">{fmtDate(c.lastMessageAt)}</span>

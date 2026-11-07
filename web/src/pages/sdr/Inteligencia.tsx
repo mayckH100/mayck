@@ -34,7 +34,8 @@ function Form({ v, onSaved }: { v: any; onSaved: () => void }) {
       </div>
       <Objecoes f={f} setF={setF} padrao={v.objecoesPadrao} />
       <div className="card stack">
-        <h3 style={{ margin: 0 }}>Dados da empresa do lead</h3>
+        <h3 style={{ margin: 0 }}>Para o vendedor</h3>
+        <Toggle checked={!!f.resumo} onChange={(x) => setF({ ...f, resumo: x })} label="Resumo para o vendedor no aviso de lead quente e no Kanban" hint="Dor, orçamento, prazo, decisor e próximo passo. Vai só para a sua equipe, nunca para o lead." />
         <Toggle checked={!!f.cnpj} onChange={(x) => setF({ ...f, cnpj: x })} label="Completar pelo CNPJ (Receita Federal, grátis)" hint="Quando o lead informa o CNPJ (na conversa, no formulário ou no cadastro), buscamos razão social, atividade, situação, regime e cidade. Não envia nada ao lead; se a consulta falhar, nada muda." />
       </div>
       <div><button className="btn primary" disabled={busy} onClick={save}>Salvar</button></div>
@@ -46,6 +47,7 @@ function bodyOf(f: any) {
   return {
     metodo: f.metodo,
     cnpj: !!f.cnpj,
+    resumo: !!f.resumo,
     objecoes: { enabled: !!f.objecoes.enabled, itens: f.objecoes.itens.map((o: any) => ({ id: o.id, titulo: o.titulo, resposta: o.resposta, gatilhos: Array.isArray(o.gatilhos) ? o.gatilhos : String(o.gatilhos).split(',') })) },
   };
 }
@@ -102,6 +104,13 @@ export function LeadInteligencia({ id }: { id: string }) {
   return (
     <Async state={state}>{(d) => (
       <>
+      <div className="card stack">
+        <strong>Resumo para o vendedor</strong>
+        <div className="small">
+          {[['Dor', d.resumo.dor], ['Orçamento', d.resumo.orcamento], ['Prazo', d.resumo.prazo], ['Decisor', d.resumo.decisor]].map(([k, val]) => <div key={k}><span className="muted">{k}:</span> {val ?? <em className="muted">não informado</em>}</div>)}
+          <div><span className="muted">Próximo passo:</span> <strong>{d.resumo.proximoPasso}</strong></div>
+        </div>
+      </div>
       <div className="card stack">
         <strong>Empresa do lead</strong>
         {d.empresa ? (

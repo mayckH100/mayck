@@ -56,3 +56,16 @@ describe('SDR inteligência — 3) CNPJ', () => {
     expect(findCnpjIn(null)).toBeNull();
   });
 });
+
+import { buildHandoff, handoffLines } from '../../server/sdr/intel.js';
+import { hotAlertText } from '../../server/sdr/service.js';
+describe('SDR inteligência — 4) resumo do handoff', () => {
+  it('monta dor/orçamento/prazo/decisor/próximo passo de qualquer método', () => {
+    const h = buildHandoff({ problema: { resposta: 'perde leads', nota: 80 }, implicacao: { resposta: 'R$ 5 mil/mês', nota: 90 }, prazo: { resposta: 'já', nota: 90 } }, { stage: 'QUALIFICADO', temperature: 'QUENTE', aiSummary: 'quer automatizar', score: 80 }, 'Priorize');
+    expect(h).toMatchObject({ dor: 'perde leads — R$ 5 mil/mês', orcamento: null, prazo: 'já', decisor: null, proximoPasso: 'Priorize', resumo: 'quer automatizar' });
+    expect(handoffLines(h)).toEqual(['Dor: perde leads — R$ 5 mil/mês', 'Orçamento: não informado', 'Prazo: já', 'Decisor: não informado', 'Próximo passo: Priorize']);
+    expect(buildHandoff({}, { stage: 'REUNIAO', temperature: 'MORNO', aiSummary: null, score: 50 }, 'x').proximoPasso).toMatch(/Reunião marcada/);
+    const t = hotAlertText({ name: 'Ana', company: null, score: 80, summary: null, url: 'u', extra: ['Dor: x'] });
+    expect(t.split('\n')).toEqual(['🔥 Lead quente (80/100): Ana', 'Dor: x', 'A IA continua a conversa normalmente; nada foi transferido.', 'Abrir: u']);
+  });
+});

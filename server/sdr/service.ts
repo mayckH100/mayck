@@ -323,10 +323,11 @@ export async function onCampaignQualified(orgId: string, contact: { id: string; 
 }
 
 // ---------- Aviso de lead quente (nunca transfere a conversa) ----------
-export function hotAlertText(o: { name: string | null; company: string | null; score: number; summary: string | null; url: string }) {
+export function hotAlertText(o: { name: string | null; company: string | null; score: number; summary: string | null; url: string; extra?: string[] }) {
   return [
     `🔥 Lead quente (${o.score}/100): ${o.name || 'sem nome'}${o.company ? ` · ${o.company}` : ''}`,
     o.summary ? `Resumo: ${o.summary}` : null,
+    ...(o.extra ?? []),
     'A IA continua a conversa normalmente; nada foi transferido.',
     `Abrir: ${o.url}`,
   ].filter(Boolean).join('\n');
@@ -338,7 +339,9 @@ export async function alertHot(lead: SdrLead, s: SdrSettings): Promise<void> {
   if (claimed.count !== 1) return;
   await logEvent(lead.orgId, lead.id, 'QUENTE', null, `Pontuação ${lead.score}`);
   const url = `${appUrl()}/sdr?lead=${lead.id}`;
-  const text = hotAlertText({ name: lead.name, company: lead.company, score: lead.score, summary: lead.aiSummary, url });
+  // v1.21.0: resumo para o vendedor (dor, orçamento, prazo, decisor, próximo passo) quando ligado na Inteligência.
+  const { hotAlertHandoffLines } = await import('./handoff.js');
+  const text = hotAlertText({ name: lead.name, company: lead.company, score: lead.score, summary: lead.aiSummary, url, extra: await hotAlertHandoffLines(lead, s) });
   const r = await deliverStaffAlert({
     orgId: lead.orgId, kind: 'sdr_hot', text,
     email: { subject: `Lead quente: ${lead.name || 'novo lead'}`, title: `🔥 Lead quente (${lead.score}/100)`, lines: text.split('\n').slice(1, -1), url },

@@ -7,7 +7,7 @@ import { audit } from '../lib/audit.js';
 import { parseJson } from '../lib/json.js';
 import { getSdrSettings, questionsOf } from './service.js';
 import { getIntelConfig, setIntelConfig, questionsFor, type IntelConfig } from './intelConfig.js';
-import { explainScore, METODOS, METODO_LABEL, METODO_QUESTIONS, DEFAULT_OBJECOES } from './intel.js';
+import { buildHandoff, explainScore, METODOS, METODO_LABEL, METODO_QUESTIONS, DEFAULT_OBJECOES } from './intel.js';
 import type { Answers, Temperature } from './core.js';
 import { enrichLead, leadEmpresa } from './cnpj.js';
 import { isValidCnpj, onlyDigits } from '../lib/documento.js';
@@ -35,6 +35,7 @@ const schema = z.object({
     itens: z.array(z.object({ id: z.string().max(40).optional(), titulo: z.string().max(80), gatilhos: z.union([z.array(z.string().max(60)).max(15), z.string().max(900)]), resposta: z.string().max(600) })).max(20).optional(),
   }).optional(),
   cnpj: z.boolean().optional(),
+  resumo: z.boolean().optional(),
 });
 
 sdrIntelRouter.put('/', admins, ah(async (req, res) => {
@@ -57,7 +58,8 @@ sdrIntelRouter.get('/leads/:id', ah(async (req, res) => {
   const s = await getSdrSettings(l.orgId);
   const qs = await questionsFor(l.orgId, s);
   const explicacao = explainScore(qs, parseJson<Answers>(l.answersJson, {}), l.score, l.temperature as Temperature, s.warmScore, s.hotScore);
-  res.json({ metodo: (await getIntelConfig(l.orgId)).metodo, explicacao, empresa: await leadEmpresa(l.orgId, l.id) });
+  const resumo = buildHandoff(parseJson<Answers>(l.answersJson, {}), l, explicacao.proximaAcao);
+  res.json({ metodo: (await getIntelConfig(l.orgId)).metodo, explicacao, resumo, empresa: await leadEmpresa(l.orgId, l.id) });
 }));
 
 /** Enriquecer pelo CNPJ informado pela equipe. Falha silenciosa: responde 200 com `empresa: null` e um aviso. */

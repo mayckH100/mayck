@@ -143,3 +143,28 @@ export function objecoesPromptLines(itens: Objecao[], atual: Objecao | null): st
   if (atual) lines.push(`- A última mensagem do cliente é a objeção "${atual.titulo}": trate-a agora seguindo a orientação acima.`);
   return lines;
 }
+
+// ---------- 4) Resumo para o vendedor no handoff ----------
+export interface Handoff { dor: string | null; orcamento: string | null; prazo: string | null; decisor: string | null; proximoPasso: string; resumo: string | null }
+const pick = (answers: Answers, ...ids: string[]) => ids.map((id) => answers[id]?.resposta).filter(Boolean).join(' — ') || null;
+
+/** Dor, orçamento, prazo, decisor e próximo passo, a partir das respostas (qualquer método) e do resumo da IA. */
+export function buildHandoff(answers: Answers, lead: { stage: string; temperature: string; aiSummary: string | null; score: number }, proximaAcao: string): Handoff {
+  const proximoPasso = lead.stage === 'REUNIAO' ? 'Reunião marcada: prepare a apresentação com a dor e o prazo acima.'
+    : lead.stage === 'GANHO' ? 'Venda fechada: faça o pós-venda.'
+    : lead.stage === 'PERDIDO' ? 'Perdido: registre o motivo e retome no futuro.' : proximaAcao;
+  return {
+    dor: pick(answers, 'necessidade', 'problema', 'implicacao'),
+    orcamento: pick(answers, 'orcamento'),
+    prazo: pick(answers, 'prazo'),
+    decisor: pick(answers, 'decisor'),
+    proximoPasso,
+    resumo: lead.aiSummary,
+  };
+}
+
+/** Linhas do resumo (aviso de lead quente e cartão do Kanban). */
+export function handoffLines(h: Handoff): string[] {
+  const v = (s: string | null) => s ?? 'não informado';
+  return [`Dor: ${v(h.dor)}`, `Orçamento: ${v(h.orcamento)}`, `Prazo: ${v(h.prazo)}`, `Decisor: ${v(h.decisor)}`, `Próximo passo: ${h.proximoPasso}`];
+}

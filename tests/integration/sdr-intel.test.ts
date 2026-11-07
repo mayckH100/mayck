@@ -103,4 +103,23 @@ describe('SDR inteligência', () => {
       expect((await lead(r3.body.id)).company).toBeNull();
     } finally { resetFetch(); }
   });
+
+  it('4) resumo para o vendedor: no lead, no aviso de lead quente e no Kanban (quando ligado)', async () => {
+    const { hotAlertHandoffLines } = await import('../../server/sdr/handoff.js');
+    expect((await a.put('/api/sdr/inteligencia', { resumo: true, metodo: 'BANT' })).body.resumo).toBe(true);
+    const r = await a.post('/api/sdr/leads', { name: 'Duda', phone: phone(), consent: true });
+    const s = await getSdrSettings(orgA());
+    const l = await applyExtraction(await lead(r.body.id), s, { respostas: { necessidade: { resposta: 'atender 24h', nota: 90 }, orcamento: { resposta: 'até R$ 300/mês', nota: 80 } }, resumo: 'loja quer atender 24h' });
+    const d = await a.get(`/api/sdr/inteligencia/leads/${r.body.id}`);
+    expect(d.body.resumo).toMatchObject({ dor: 'atender 24h', orcamento: 'até R$ 300/mês', prazo: null, decisor: null });
+    expect(await hotAlertHandoffLines(l, s)).toContain('Orçamento: até R$ 300/mês');
+    const k = await a.get('/api/kanban');
+    const card = k.body.contacts.find((c: any) => c.id === l.contactId);
+    expect(card.sdr).toMatchObject({ leadId: l.id, score: l.score });
+    expect(card.sdr.resumo[0]).toBe('Dor: atender 24h');
+    // Desligado: nada no Kanban nem no aviso.
+    await a.put('/api/sdr/inteligencia', { resumo: false, metodo: 'PADRAO' });
+    expect((await a.get('/api/kanban')).body.contacts.find((c: any) => c.id === l.contactId).sdr).toBeNull();
+    expect(await hotAlertHandoffLines(l, s)).toEqual([]);
+  });
 });

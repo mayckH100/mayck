@@ -20,11 +20,13 @@ export interface IntelConfig {
   objecoes: { enabled: boolean; itens: Objecao[] };
   /** Enriquecimento por CNPJ (BrasilAPI): não envia nada; ligado em configuração nova. */
   cnpj: boolean;
+  /** Resumo para o vendedor (dor, orçamento, prazo, decisor, próximo passo) no aviso de lead quente e no Kanban. */
+  resumo: boolean;
 }
 
-export const DEFAULT_INTEL: IntelConfig = { metodo: 'PADRAO', objecoes: { enabled: false, itens: DEFAULT_OBJECOES }, cnpj: false };
+export const DEFAULT_INTEL: IntelConfig = { metodo: 'PADRAO', objecoes: { enabled: false, itens: DEFAULT_OBJECOES }, cnpj: false, resumo: false };
 /** Padrões de quem liga o SDR pela primeira vez (nada aqui envia mensagem sozinho). */
-export const NEW_SETUP_INTEL: IntelConfig = { ...DEFAULT_INTEL, cnpj: true };
+export const NEW_SETUP_INTEL: IntelConfig = { ...DEFAULT_INTEL, cnpj: true, resumo: true };
 
 export function normalizeIntel(raw: unknown): IntelConfig {
   const r = (raw && typeof raw === 'object' ? raw : {}) as any;
@@ -32,6 +34,7 @@ export function normalizeIntel(raw: unknown): IntelConfig {
     metodo: normalizeMetodo(r.metodo),
     objecoes: { enabled: r.objecoes?.enabled === true, itens: r.objecoes?.itens === undefined ? DEFAULT_OBJECOES : normalizeObjecoes(r.objecoes.itens) },
     cnpj: r.cnpj === true,
+    resumo: r.resumo === true,
   };
 }
 

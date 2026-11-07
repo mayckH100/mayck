@@ -1,3 +1,4 @@
+import { sdrKanbanCards } from '../sdr/handoff.js';
 import { Router } from 'express';
 import { z } from 'zod';
 import { prisma } from '../db.js';
@@ -23,11 +24,12 @@ kanbanRouter.get('/', ah(async (req, res) => {
   if (q.q) where.OR = [{ name: { contains: q.q } }, { phone: { contains: q.q } }];
   const contacts = await prisma.contact.findMany({ where, orderBy, take: 500 });
   const open = await prisma.conversation.findMany({ where: { orgId, status: { not: 'CLOSED' }, contactId: { in: contacts.map((c) => c.id) } }, select: { id: true, contactId: true, unreadCount: true } });
+  const sdr = await sdrKanbanCards(orgId, contacts.map((c) => c.id)); // v1.21.0: resumo do SDR no cartão
   res.json({
     stages,
     contacts: contacts.map((c) => {
       const conv = open.find((o) => o.contactId === c.id);
-      return { id: c.id, name: c.name, phone: c.phone, stageId: c.stageId, tags: parseJson<string[]>(c.tags, []), lastMessageAt: c.lastMessageAt, createdAt: c.createdAt, conversationId: conv?.id ?? null, unread: conv?.unreadCount ?? 0 };
+      return { sdr: sdr.get(c.id) ?? null, id: c.id, name: c.name, phone: c.phone, stageId: c.stageId, tags: parseJson<string[]>(c.tags, []), lastMessageAt: c.lastMessageAt, createdAt: c.createdAt, conversationId: conv?.id ?? null, unread: conv?.unreadCount ?? 0 };
     }),
   });
 }));
