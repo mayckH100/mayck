@@ -4,6 +4,7 @@ import type { SdrSettings } from '@prisma/client';
 import { normalizeMetodo, normalizeObjecoes, questionsForMetodo, DEFAULT_OBJECOES, type Metodo, type Objecao } from './intel.js';
 import { questionsOf } from './service.js';
 import type { Question } from './core.js';
+import { DEFAULT_NOSHOW_TEXT } from './meeting.js';
 
 /**
  * Configuração da inteligência do SDR (v1.21.0) SEM migração: a versão mais recente fica no AuditLog da empresa
@@ -26,9 +27,11 @@ export interface IntelConfig {
   followupIa: boolean;
   /** Envia o passo da cadência no horário em que o lead mais responde (dentro do horário comercial; desligado por padrão). */
   melhorHorario: boolean;
+  /** Reunião: IA propõe horários livres da Agenda; recuperação de quem não compareceu (os dois mudam mensagens: desligados). */
+  reuniao: { ofertaHorarios: boolean; noShow: boolean; noShowTexto: string };
 }
 
-export const DEFAULT_INTEL: IntelConfig = { metodo: 'PADRAO', objecoes: { enabled: false, itens: DEFAULT_OBJECOES }, cnpj: false, resumo: false, followupIa: false, melhorHorario: false };
+export const DEFAULT_INTEL: IntelConfig = { metodo: 'PADRAO', objecoes: { enabled: false, itens: DEFAULT_OBJECOES }, cnpj: false, resumo: false, followupIa: false, melhorHorario: false, reuniao: { ofertaHorarios: false, noShow: false, noShowTexto: DEFAULT_NOSHOW_TEXT } };
 /** Padrões de quem liga o SDR pela primeira vez (nada aqui envia mensagem sozinho). */
 export const NEW_SETUP_INTEL: IntelConfig = { ...DEFAULT_INTEL, cnpj: true, resumo: true };
 
@@ -41,6 +44,11 @@ export function normalizeIntel(raw: unknown): IntelConfig {
     resumo: r.resumo === true,
     followupIa: r.followupIa === true,
     melhorHorario: r.melhorHorario === true,
+    reuniao: {
+      ofertaHorarios: r.reuniao?.ofertaHorarios === true,
+      noShow: r.reuniao?.noShow === true,
+      noShowTexto: String(r.reuniao?.noShowTexto ?? '').trim().slice(0, 600) || DEFAULT_NOSHOW_TEXT,
+    },
   };
 }
 

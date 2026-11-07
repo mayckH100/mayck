@@ -8,6 +8,7 @@ import { parseJson } from '../lib/json.js';
 import { getSdrSettings, questionsOf } from './service.js';
 import { getIntelConfig, setIntelConfig, questionsFor, type IntelConfig } from './intelConfig.js';
 import { replyDatesOf } from './followupTiming.js';
+import { markNoShow, nextFreeSlots } from './meeting.js';
 import { bestSendHour, buildHandoff, explainScore, METODOS, METODO_LABEL, METODO_QUESTIONS, DEFAULT_OBJECOES } from './intel.js';
 import type { Answers, Temperature } from './core.js';
 import { enrichLead, leadEmpresa } from './cnpj.js';
@@ -39,6 +40,7 @@ const schema = z.object({
   resumo: z.boolean().optional(),
   followupIa: z.boolean().optional(),
   melhorHorario: z.boolean().optional(),
+  reuniao: z.object({ ofertaHorarios: z.boolean().optional(), noShow: z.boolean().optional(), noShowTexto: z.string().max(600).optional() }).optional(),
 });
 
 sdrIntelRouter.put('/', admins, ah(async (req, res) => {
@@ -64,7 +66,7 @@ sdrIntelRouter.get('/leads/:id', ah(async (req, res) => {
   const resumo = buildHandoff(parseJson<Answers>(l.answersJson, {}), l, explicacao.proximaAcao);
   const tz = (await prisma.organization.findUnique({ where: { id: l.orgId }, select: { timezone: true } }))?.timezone ?? 'America/Sao_Paulo';
   const melhor = bestSendHour(await replyDatesOf(l), s, tz);
-  res.json({ metodo: (await getIntelConfig(l.orgId)).metodo, explicacao, resumo, melhorHorario: { ...melhor, fuso: tz }, empresa: await leadEmpresa(l.orgId, l.id) });
+  res.json({ stage: l.stage, horariosLivres: await nextFreeSlots(l.orgId), metodo: (await getIntelConfig(l.orgId)).metodo, explicacao, resumo, melhorHorario: { ...melhor, fuso: tz }, empresa: await leadEmpresa(l.orgId, l.id) });
 }));
 
 /** Enriquecer pelo CNPJ informado pela equipe. Falha silenciosa: responde 200 com `empresa: null` e um aviso. */
@@ -74,4 +76,13 @@ sdrIntelRouter.post('/leads/:id/cnpj', ah(async (req, res) => {
   if (cnpj.length !== 14 || !isValidCnpj(cnpj)) return res.json({ empresa: null, aviso: 'CNPJ inválido' });
   const empresa = await enrichLead(l, cnpj);
   res.json({ empresa, aviso: empresa ? null : 'Não foi possível consultar agora. O lead segue normalmente.' });
+}));
+
+/** Vendedor marca "não compareceu": volta para Qualificado e, se ligado, envia a recuperação com novos horários. */
+sdrIntelRouter.post('/leads/:id/noshow', ah(async (req, res) => {
+  const l = await leadOf(req);
+  const c = await getIntelConfig(l.orgId);
+  const r = await markNoShow(l, { recover: c.reuniao.noShow, texto: c.reuniao.noShowTexto });
+  await audit(req, 'sdr.lead.noshow', { orgId: l.orgId, entity: 'sdr_lead', entityId: l.id, meta: { enviado: r.enviado } });
+  res.json({ enviado: r.enviado, motivo: r.motivo ?? null, stage: r.lead.stage });
 }));

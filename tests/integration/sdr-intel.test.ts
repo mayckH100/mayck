@@ -163,4 +163,32 @@ describe('SDR inteligência', () => {
     expect(v.body.melhorHorario).toMatchObject({ hora: 10, fuso: 'America/Sao_Paulo' });
     await a.put('/api/sdr/inteligencia', { melhorHorario: false });
   });
+
+  it('6) horários livres no lead e recuperação de quem não compareceu', async () => {
+    const { outbox } = await import('../../server/lib/mailer.js');
+    const email = `fabi${Date.now()}@exemplo.com`;
+    const r = await a.post('/api/sdr/leads', { name: 'Fabi', email, consent: true });
+    const v = await a.get(`/api/sdr/inteligencia/leads/${r.body.id}`);
+    expect(v.body.horariosLivres.length).toBeGreaterThan(0);
+    expect((await a.post(`/api/sdr/leads/${r.body.id}/reuniao`, { inicio: v.body.horariosLivres[0].inicio })).status).toBe(201);
+    expect((await lead(r.body.id)).stage).toBe('REUNIAO');
+    const mails = () => outbox.filter((m: any) => m.kind === 'sdr' && m.to === email).length;
+    const before = mails();
+    // Recuperação desligada (padrão): só registra e volta para Qualificado.
+    const n1 = await a.post(`/api/sdr/inteligencia/leads/${r.body.id}/noshow`, {});
+    expect(n1.body).toMatchObject({ enviado: false, stage: 'QUALIFICADO' });
+    expect(mails()).toBe(before);
+    expect((await lead(r.body.id)).appointmentId).toBeNull();
+    // Ligada: uma mensagem com novos horários.
+    await a.put('/api/sdr/inteligencia', { reuniao: { noShow: true, noShowTexto: 'Oi {primeiro_nome}, vamos remarcar? {horarios}' } });
+    await a.patch(`/api/sdr/leads/${r.body.id}`, { stage: 'REUNIAO' });
+    const n2 = await a.post(`/api/sdr/inteligencia/leads/${r.body.id}/noshow`, {});
+    expect(n2.body).toMatchObject({ enviado: true, stage: 'QUALIFICADO' });
+    const m = outbox.filter((x: any) => x.kind === 'sdr' && x.to === email).at(-1)!;
+    expect(m.text).toMatch(/Oi Fabi, vamos remarcar\? \S+, \d{2}\/\d{2} às/);
+    expect(await prisma.sdrEvent.count({ where: { leadId: r.body.id, type: 'NOSHOW' } })).toBe(3);
+    // Oferta de horários no prompt da IA só quando ligada.
+    expect((await a.put('/api/sdr/inteligencia', { reuniao: { ofertaHorarios: true, noShow: false } })).body.reuniao).toMatchObject({ ofertaHorarios: true, noShow: false, noShowTexto: 'Oi {primeiro_nome}, vamos remarcar? {horarios}' });
+    await a.put('/api/sdr/inteligencia', { reuniao: { ofertaHorarios: false } });
+  });
 });

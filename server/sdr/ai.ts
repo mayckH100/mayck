@@ -10,6 +10,7 @@ import { sdrLiberadoCached } from './access.js';
 import { getQualificacao, qualiPromptLines } from './qualificacao.js';
 import { getIntelConfig, questionsFor } from './intelConfig.js';
 import { enrichLeadInBackground, findCnpjIn } from './cnpj.js';
+import { nextFreeSlots, offerSlotsLine } from './meeting.js';
 import { metodoPromptLine, detectObjecao, objecoesPromptLines } from './intel.js';
 import { alertHot, getSdrSettings, registerReply, setStage, upsertLead, logEvent } from './service.js';
 
@@ -61,6 +62,10 @@ export async function sdrPromptSection(orgId: string, conversationId: string): P
     }
     if (missing.length) lines.push('Ainda falta saber:', ...missing.map((q) => `- ${q.pergunta}`));
     else lines.push('- Todas as informações já foram coletadas: foque em ajudar e no próximo passo.');
+    if (intel.reuniao.ofertaHorarios && c.lead.stage !== 'REUNIAO' && c.lead.temperature !== 'FRIO') {
+      const line = offerSlotsLine(await nextFreeSlots(orgId)); // v1.21.0: horários livres já configurados na Agenda
+      if (line) lines.push(line);
+    }
     if (c.s.autoMode && c.s.autoBook && c.lead.stage !== 'REUNIAO' && c.lead.temperature !== 'FRIO') {
       lines.push('- O cliente já mostrou interesse: ofereça marcar uma conversa/demonstração usando os HORÁRIOS LIVRES da agenda (se houver).');
     }

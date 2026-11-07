@@ -39,6 +39,12 @@ function Form({ v, onSaved }: { v: any; onSaved: () => void }) {
         <Toggle checked={!!f.melhorHorario} onChange={(x) => setF({ ...f, melhorHorario: x })} label="Enviar no horário em que o lead mais responde" hint="Sempre dentro do seu horário comercial (fuso da empresa, padrão Brasília). Sem histórico, envia às 10h. Adia no máximo um dia." />
       </div>
       <div className="card stack">
+        <h3 style={{ margin: 0 }}>Reuniões</h3>
+        <Toggle checked={!!f.reuniao.ofertaHorarios} onChange={(x) => setF({ ...f, reuniao: { ...f.reuniao, ofertaHorarios: x } })} label="A IA propõe horários livres da Agenda a leads mornos e quentes" hint="Usa os horários de atendimento já configurados na Agenda. Muda as respostas da IA." />
+        <Toggle checked={!!f.reuniao.noShow} onChange={(x) => setF({ ...f, reuniao: { ...f.reuniao, noShow: x } })} label="Recuperar quem não compareceu" hint='Ao marcar "Não compareceu" no lead, envia uma mensagem com novos horários (só para quem pode receber).' />
+        {f.reuniao.noShow && <Field label="Mensagem de recuperação ({horarios} = próximos horários livres)"><textarea rows={2} maxLength={600} value={f.reuniao.noShowTexto} onChange={(e) => setF({ ...f, reuniao: { ...f.reuniao, noShowTexto: e.target.value } })} /></Field>}
+      </div>
+      <div className="card stack">
         <h3 style={{ margin: 0 }}>Para o vendedor</h3>
         <Toggle checked={!!f.resumo} onChange={(x) => setF({ ...f, resumo: x })} label="Resumo para o vendedor no aviso de lead quente e no Kanban" hint="Dor, orçamento, prazo, decisor e próximo passo. Vai só para a sua equipe, nunca para o lead." />
         <Toggle checked={!!f.cnpj} onChange={(x) => setF({ ...f, cnpj: x })} label="Completar pelo CNPJ (Receita Federal, grátis)" hint="Quando o lead informa o CNPJ (na conversa, no formulário ou no cadastro), buscamos razão social, atividade, situação, regime e cidade. Não envia nada ao lead; se a consulta falhar, nada muda." />
@@ -55,6 +61,7 @@ function bodyOf(f: any) {
     resumo: !!f.resumo,
     followupIa: !!f.followupIa,
     melhorHorario: !!f.melhorHorario,
+    reuniao: f.reuniao,
     objecoes: { enabled: !!f.objecoes.enabled, itens: f.objecoes.itens.map((o: any) => ({ id: o.id, titulo: o.titulo, resposta: o.resposta, gatilhos: Array.isArray(o.gatilhos) ? o.gatilhos : String(o.gatilhos).split(',') })) },
   };
 }
@@ -118,6 +125,17 @@ export function LeadInteligencia({ id }: { id: string }) {
           <div><span className="muted">Próximo passo:</span> <strong>{d.resumo.proximoPasso}</strong></div>
           <div><span className="muted">Melhor horário para falar:</span> {d.melhorHorario.hora}h–{d.melhorHorario.hora + 2}h{d.melhorHorario.base < 2 ? ' (padrão; ainda sem histórico de respostas)' : ` (com base em ${d.melhorHorario.base} respostas)`}</div>
         </div>
+      </div>
+      <div className="card stack">
+        <strong>Reunião</strong>
+        {d.stage === 'REUNIAO' ? (
+          <div className="row"><button className="btn sm" disabled={busy} onClick={async () => { const r: any = await run(() => post(`/sdr/inteligencia/leads/${id}/noshow`, {}), 'Registrado'); if (r) { if (r.motivo) alert(`Mensagem de recuperação não enviada: ${r.motivo}`); state.reload(); } }}>Não compareceu</button></div>
+        ) : d.horariosLivres.length ? (
+          <div className="row" style={{ flexWrap: 'wrap' }}>
+            <span className="small muted">Próximos horários livres:</span>
+            {d.horariosLivres.map((h: any) => <button key={h.inicio} className="btn sm ghost" disabled={busy} onClick={async () => { if (await run(() => post(`/sdr/leads/${id}/reuniao`, { inicio: h.inicio }), 'Reunião marcada na Agenda')) state.reload(); }}>{h.texto}</button>)}
+          </div>
+        ) : <span className="small muted">Sem horários livres nos próximos 7 dias na Agenda.</span>}
       </div>
       <div className="card stack">
         <strong>Empresa do lead</strong>

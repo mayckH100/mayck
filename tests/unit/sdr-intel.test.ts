@@ -94,3 +94,14 @@ describe('SDR inteligência — 5) follow-up e melhor horário', () => {
     expect(cleanFollowup('', wa)).toBeNull();
   });
 });
+
+import { noShowMessage, offerSlotsLine, DEFAULT_NOSHOW_TEXT } from '../../server/sdr/meeting.js';
+describe('SDR inteligência — 6) reunião', () => {
+  it('mensagem de recuperação e linha de horários', () => {
+    const slots = [{ texto: 'segunda, 09/11 às 10:00' }, { texto: 'segunda, 09/11 às 14:00' }];
+    expect(noShowMessage(DEFAULT_NOSHOW_TEXT, slots)).toContain('segunda, 09/11 às 10:00; segunda, 09/11 às 14:00');
+    expect(noShowMessage('Remarcar? {horarios}', [])).toBe('Remarcar? é só me dizer o melhor dia e horário');
+    expect(offerSlotsLine(slots)).toContain('sem inventar outros');
+    expect(offerSlotsLine([])).toBe('');
+  });
+});
