@@ -16,7 +16,7 @@ import {
   assignByRotation, getSdrSettings, questionsOf, ensureCadences, stepsOf, upsertLead, leadView, logEvent, setStage, stopCadence, enroll, runStep, newToken,
 } from './service.js';
 import { parseCsv } from './csv.js';
-import { getV2Config, setV2Config, normalizeDomains, type SdrV2Config } from './v2config.js';
+import { getV2Config, setV2Config, normalizeDomains, sdrReplyTo, type SdrV2Config } from './v2config.js';
 import { contem } from '../lib/busca.js';
 import { startOfDayIn } from './time.js';
 
@@ -51,7 +51,7 @@ sdrRouter.get('/acesso', ah(async (req, res) => {
 
 function settingsView(s: Awaited<ReturnType<typeof getSdrSettings>>, req: Request, v2: SdrV2Config) {
   return {
-    kanbanSync: v2.kanbanSync, rodizio: v2.rodizio, embedDomains: v2.embedDomains,
+    kanbanSync: v2.kanbanSync, rodizio: v2.rodizio, embedDomains: v2.embedDomains, emailReplies: !!sdrReplyTo('x'.repeat(24)),
     enabled: s.enabled, autoMode: s.autoMode, captureWhatsapp: s.captureWhatsapp, autoBook: s.autoBook, segment: s.segment,
     questions: questionsOf(s), warmScore: s.warmScore, hotScore: s.hotScore, workStart: s.workStart, workEnd: s.workEnd, workDays: s.workDays,
     dailyLimit: s.dailyLimit, silenceHours: s.silenceHours, formEnabled: s.formEnabled, formTitle: s.formTitle, alertHot: s.alertHot,

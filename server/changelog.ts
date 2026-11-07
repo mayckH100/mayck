@@ -28,6 +28,7 @@ export const CHANGELOG: EntradaChangelog[] = [
       'O SDR e o Kanban do MCKBOT andam juntos: quando o lead muda de etapa no SDR, o contato muda no Kanban, e quando você arrasta o contato no Kanban (para Qualificado, Ganho ou Perdido, por exemplo), o lead acompanha. Dá para desligar na Configuração do SDR.',
       'Rodízio de leads: escolha quem da equipe recebe os leads e cada lead novo sem responsável vai para o próximo da lista, um de cada vez. Também dá para distribuir de uma vez os leads que ainda estão sem responsável.',
       'Nova aba Relatórios no SDR: veja, por cadência e por passo, quantas mensagens foram enviadas, quantos responderam, quantos marcaram reunião e quantos pediram para sair, e baixe tudo em planilha (CSV).',
+      'Quando o lead responde o seu e-mail, o acompanhamento para sozinho e a resposta aparece no histórico do lead. Se ele pedir para ser descadastrado na resposta, ele sai da lista na hora. Respostas automáticas, como aviso de férias, não contam.',
     ],
   },
   {

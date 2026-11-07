@@ -52,3 +52,15 @@ export async function setV2Config(orgId: string, patch: Partial<SdrV2Config>, ct
   await prisma.auditLog.create({ data: { orgId, userId: ctx.userId ?? null, action: SDR_V2_ACTION, entity: 'sdr_settings', entityId: orgId, meta: JSON.stringify(next), ip: ctx.ip ?? null } });
   return next;
 }
+
+// ---------- Caixa de entrada do SDR (resposta por e-mail) ----------
+export const MIN_INBOUND_SECRET = 16;
+/** Webhook de entrada ligado só com SDR_INBOUND_SECRET (≥ 16 caracteres). */
+export const inboundEnabled = () => (process.env.SDR_INBOUND_SECRET ?? '').length >= MIN_INBOUND_SECRET;
+
+/** "Responder para" dos e-mails do SDR (`sdr-<token>@SDR_INBOUND_DOMAIN`) ou undefined quando não configurado. */
+export function sdrReplyTo(unsubToken: string): string | undefined {
+  const d = (process.env.SDR_INBOUND_DOMAIN ?? '').trim().toLowerCase().replace(/^@/, '');
+  if (!inboundEnabled() || !d || !/^[a-z0-9.-]+\.[a-z]{2,24}$/.test(d)) return undefined;
+  return `sdr-${unsubToken}@${d}`;
+}

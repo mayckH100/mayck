@@ -118,4 +118,55 @@ describe('SDR v2', () => {
     expect(csv.text).toContain('Corretora de seguros;Total;;;1;1;1;0;0;100');
     expect((await request(app).get('/api/sdr/relatorio.csv')).status).toBe(401);
   });
+
+  it('4) resposta por e-mail (webhook de entrada do Brevo) para a cadência; desligado sem segredo', async () => {
+    const SECRET = 'segredo-de-teste-123456';
+    const post = (body: unknown, auth?: string) => { const r = request(app).post('/api/public/sdr/email').send(body as object); return auth ? r.set('Authorization', auth) : r; };
+    delete process.env.SDR_INBOUND_SECRET;
+    expect((await post({ items: [] })).status).toBe(404);
+    process.env.SDR_INBOUND_SECRET = SECRET;
+    process.env.SDR_INBOUND_DOMAIN = 'resposta.exemplo.com.br';
+    try {
+      expect((await post({ items: [] })).status).toBe(401);
+      expect((await post({ items: [] }, 'Bearer errado-errado-errado-errado')).status).toBe(401);
+      expect((await post({ items: [] }, `Bearer ${SECRET}`)).status).toBe(200);
+      expect((await request(app).post(`/api/public/sdr/email?token=${SECRET}`).send({ items: [] })).status).toBe(200);
+      expect((await a.get('/api/sdr/config')).body.emailReplies).toBe(true);
+      // E-mail do SDR sai com "Responder para" ligado ao lead.
+      const mk = async (tag: string) => {
+        const email = `${uniq(tag)}@cliente.com.br`;
+        const r = await a.post('/api/sdr/leads', { name: tag, email, consent: true });
+        await tickSdr(new Date(Date.now() + DAY + 1000));
+        const l = await lead(r.body.id);
+        const m = outbox.filter((x) => x.to === email).at(-1)!;
+        expect(m.replyTo).toBe(`sdr-${l.unsubToken}@resposta.exemplo.com.br`);
+        expect(l.cadenceStatus).toBe('ATIVA');
+        return { l, email, replyTo: m.replyTo! };
+      };
+      const x = await mk('resp');
+      // Resposta automática (férias) é ignorada.
+      const auto = await post({ items: [{ From: { Address: x.email }, To: [{ Address: x.replyTo }], Subject: 'Resposta automática: estou de férias', Headers: { 'Auto-Submitted': 'auto-replied' }, ExtractedMarkdownMessage: 'Volto dia 20.' }] }, `Bearer ${SECRET}`);
+      expect(auto.body.itens).toEqual(['ignorado']);
+      expect((await lead(x.l.id)).cadenceStatus).toBe('ATIVA');
+      // Resposta de verdade: cadência para e o texto fica no histórico.
+      const ok = await post({ items: [{ From: { Name: 'Resp', Address: 'outro-endereco@cliente.com.br' }, To: [{ Address: x.replyTo }], Subject: 'Re: posso te ajudar?', ExtractedMarkdownMessage: 'Tenho interesse, me liga amanhã.', RawTextBody: 'Tenho interesse\n> citação' }] }, `Bearer ${SECRET}`);
+      expect(ok.body.itens).toEqual(['resposta']);
+      expect(await lead(x.l.id)).toMatchObject({ cadenceStatus: 'PARADA', stopReason: 'RESPONDEU', stage: 'RESPONDEU' });
+      expect((await prisma.sdrEvent.findFirstOrThrow({ where: { leadId: x.l.id, type: 'NOTA', channel: 'EMAIL' } })).detail).toContain('Tenho interesse');
+      // Sem token no endereço: vale o remetente que já recebeu e-mail do SDR; "descadastrar" = pedido para sair.
+      const y = await mk('desc');
+      const un = await post({ items: [{ From: { Address: y.email }, To: [{ Address: 'contato@outra.com.br' }], Subject: 'Re: oi', ExtractedMarkdownMessage: 'Por favor, me descadastre.' }] }, `Bearer ${SECRET}`);
+      expect(un.body.itens).toEqual(['descadastro']);
+      const ly = await lead(y.l.id);
+      expect(ly.optOutAt).toBeTruthy();
+      expect(ly).toMatchObject({ cadenceStatus: 'PARADA', stopReason: 'SAIU' });
+      // Remetente desconhecido ou nunca contatado por e-mail: nada muda.
+      const nada = await post({ items: [{ From: { Address: `${uniq('x')}@nada.com.br` }, ExtractedMarkdownMessage: 'oi' }, { From: { Address: 'MAILER-DAEMON@x.com' }, Subject: 'Undeliverable' }] }, 'Basic ' + Buffer.from(`brevo:${SECRET}`).toString('base64'));
+      expect(nada.body.itens).toEqual(['sem_lead', 'ignorado']);
+    } finally {
+      delete process.env.SDR_INBOUND_SECRET;
+      delete process.env.SDR_INBOUND_DOMAIN;
+    }
+    expect((await a.get('/api/sdr/config')).body.emailReplies).toBe(false);
+  });
 });

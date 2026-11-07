@@ -453,6 +453,7 @@ function Config({ onSaved }: { onSaved: () => void }) {
           <Field label="Limite por dia"><input type="number" min={1} max={1000} value={v.dailyLimit} onChange={(e) => setV({ ...v, dailyLimit: e.target.value })} /></Field>
         </div>
         <Field label="Dias (0=domingo … 6=sábado)" hint="Ex.: 1,2,3,4,5"><input value={v.workDays} onChange={(e) => setV({ ...v, workDays: e.target.value })} /></Field>
+        <p className="small muted">{v.emailReplies ? '✉ Resposta por e-mail ligada: quando o lead responde o e-mail, a cadência para sozinha (e "descadastrar" na resposta vale como pedido para sair).' : '✉ Resposta por e-mail ainda não ligada no servidor: quando o lead responder um e-mail, marque como "Respondeu" no funil para parar a cadência.'}</p>
         <Field label="Horas sem resposta para começar o acompanhamento de quem chamou no WhatsApp"><input type="number" min={1} max={23} value={v.silenceHours} onChange={(e) => setV({ ...v, silenceHours: e.target.value })} style={{ width: 90 }} /></Field>
       </div>
       <div className="card stack">

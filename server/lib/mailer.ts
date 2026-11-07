@@ -12,7 +12,7 @@ import { isTest } from '../config.js';
  */
 
 export interface MailAttachment { filename: string; content: Buffer; contentType?: string }
-export interface MailMessage { to: string; subject: string; html: string; text: string; kind: string; attachments?: MailAttachment[] }
+export interface MailMessage { to: string; subject: string; html: string; text: string; kind: string; attachments?: MailAttachment[]; /** Responder para (ex.: caixa de entrada do SDR). */ replyTo?: string }
 
 /** Caixa de saída em memória — usada só nos testes automatizados (vitest e ganchos E2E_TEST_HOOKS fora de produção). */
 export const outbox: MailMessage[] = [];
@@ -38,13 +38,14 @@ export function parseFrom(from: string): { name?: string; email: string } {
 }
 
 /** Envia pela API transacional do Brevo. Devolve o messageId ou lança erro com o motivo real. */
-async function sendViaBrevo(msg: { to: string; subject: string; text: string; html?: string; attachments?: MailAttachment[] }): Promise<string> {
+async function sendViaBrevo(msg: { to: string; subject: string; text: string; html?: string; attachments?: MailAttachment[]; replyTo?: string }): Promise<string> {
   const body: Record<string, unknown> = {
     sender: parseFrom(process.env.MAIL_FROM!),
     to: [{ email: msg.to }],
     subject: msg.subject,
     textContent: msg.text,
     ...(msg.html ? { htmlContent: msg.html } : {}),
+    ...(msg.replyTo ? { replyTo: { email: msg.replyTo } } : {}),
     ...(msg.attachments?.length ? { attachment: msg.attachments.map((a) => ({ name: a.filename, content: a.content.toString('base64') })) } : {}),
   };
   const res = await httpFetch('https://api.brevo.com/v3/smtp/email', {
@@ -109,7 +110,7 @@ export async function deliverMail(msg: MailMessage): Promise<DeliveryResult> {
     return { ok: false, reason: 'not_configured', error: 'Nenhum provedor de e-mail configurado' };
   }
   try {
-    await t.sendMail({ from: process.env.MAIL_FROM, to: msg.to, subject: msg.subject, html: msg.html, text: msg.text });
+    await t.sendMail({ from: process.env.MAIL_FROM, to: msg.to, subject: msg.subject, html: msg.html, text: msg.text, ...(msg.replyTo ? { replyTo: msg.replyTo } : {}) });
     console.info(`[mail] "${msg.kind}" enviado para ${maskEmail(msg.to)}`);
     return { ok: true, provider: 'smtp' };
   } catch (e) {

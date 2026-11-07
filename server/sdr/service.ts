@@ -8,7 +8,7 @@ import {
   kanbanNameToStage, stepTag, type Stage, type Step, type Question, type Answers, type Source,
 } from './core.js';
 import { syncSdrStageToKanban } from './kanbanSync.js';
-import { getV2Config } from './v2config.js';
+import { getV2Config, sdrReplyTo } from './v2config.js';
 import { syncContactsToLeads, leadPhoneOfWaId } from '../mckmensagem/contactSync.js';
 import { sendOutbound } from '../whatsapp/messaging.js';
 import { openConversationFor } from '../whatsapp/multiCanal.js';
@@ -359,6 +359,7 @@ export async function sendStep(lead: SdrLead, step: Step): Promise<SendResult> {
     to: lead.email!, kind: 'sdr', subject: renderTemplate(step.assunto || 'Contato da {minha_empresa}', vars),
     text: `${text}\n\n—\nNão quer receber mais e-mails de ${minha}? Descadastre-se: ${unsubUrl}`,
     html: emailHtml(text, unsubUrl, minha),
+    replyTo: sdrReplyTo(lead.unsubToken), // resposta volta pelo webhook e para a cadência (v1.19.0)
   });
   if (!r.ok) return { ok: false, reason: r.reason === 'not_configured' ? 'e-mail não configurado no servidor' : 'falha no envio do e-mail', retry: r.reason === 'failed' };
   return { ok: true };

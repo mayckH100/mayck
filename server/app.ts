@@ -42,6 +42,7 @@ import { versaoInfo } from './lib/versao.js';
 import { trustProxySetting } from './lib/clientIp.js';
 import { sdrRouter, sdrMasterRouter } from './sdr/routes.js';
 import { sdrPublicRouter } from './sdr/public.js';
+import { sdrInboundRouter } from './sdr/inbound.js';
 import { requireSdr } from './sdr/access.js';
 
 export function createApp() {
@@ -72,6 +73,8 @@ export function createApp() {
 
   // Webhook antes do JSON parser: precisa do corpo bruto para validar a assinatura.
   app.use('/api/webhooks', webhookRouter);
+  // SDR: resposta do lead por e-mail (Inbound parsing do Brevo). Desligado sem SDR_INBOUND_SECRET; segredo conferido na rota.
+  app.use('/api/public/sdr/email', sdrInboundRouter);
   // Webhook do Mercado Pago: público (sem sessão/CSRF), validado por assinatura + consulta à API.
   app.use('/api/billing/mp/webhook', rateLimit({ windowMs: 60 * 1000, limit: 120, standardHeaders: 'draft-7', legacyHeaders: false }), billingWebhookRouter);
 
