@@ -21,6 +21,15 @@ export type EntradaChangelog = {
 
 export const CHANGELOG: EntradaChangelog[] = [
   {
+    versao: '1.16.1',
+    data: '07/11/2026',
+    titulo: 'Mais proteção para a sua conta',
+    itens: [
+      'A proteção contra tentativas repetidas de entrar na conta agora reconhece cada visitante corretamente, sem bloquear quem não tem nada a ver com o ataque.',
+      'Com o plano ou o teste vencido, o MCK ERP continua aberto para consulta; para cadastrar e alterar dados é preciso renovar, como nos outros aplicativos.',
+    ],
+  },
+  {
     versao: '1.16.0',
     data: '05/11/2026',
     titulo: 'Primeiros passos, modelos de Instruções por segmento e resumo semanal por e-mail',

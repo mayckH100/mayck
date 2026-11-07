@@ -15,7 +15,7 @@ import { mckmensagemRouter } from './mckmensagem/routes.js';
 import { automacoesRouter } from './mckmensagem/automacoes/routes.js';
 import { billingRouter, billingWebhookRouter } from './billing/routes.js';
 import { referralRouter, publicReferralRouter } from './billing/referrals.js';
-import { requireMckbotForWrites } from './billing/guard.js';
+import { requireMckbotForWrites, requireAnyProductForWrites } from './billing/guard.js';
 import { authRouter } from './auth/routes.js';
 import { requireModule } from './lib/permissions.js';
 import { tutorialsRouter } from './tutorials/routes.js';
@@ -39,10 +39,11 @@ import { socialRouter, socialCallbackRouter, publicNovidadesRouter } from './soc
 import { erpRouter } from './erp/routes.js';
 import { CADASTRO_META, loadHtml, rootWantsApp, withPageMeta } from './lib/siteHtml.js';
 import { versaoInfo } from './lib/versao.js';
+import { trustProxySetting } from './lib/clientIp.js';
 
 export function createApp() {
   const app = express();
-  app.set('trust proxy', 1); // Render/Proxies: IP real para rate limit
+  app.set('trust proxy', trustProxySetting()); // IP real do visitante atrás do Cloudflare + Render (ver lib/clientIp.ts)
   app.disable('x-powered-by');
   app.use(helmet({
     contentSecurityPolicy: {
@@ -147,7 +148,7 @@ export function createApp() {
   app.use('/api/mckmensagem/automacoes', requireOrg, requireModule('automacoes'), automacoesRouter);
   app.use('/api/mckmensagem', requireOrg, requireRole('OWNER', 'ADMIN'), requireModule('mensagens'), mckmensagemRouter);
   // MCK ERP (etapa 1: core + CRM). Módulo próprio nas permissões da equipe.
-  app.use('/api/erp', requireOrg, requireModule('erp_crm'), erpRouter);
+  app.use('/api/erp', requireOrg, requireModule('erp_crm'), requireAnyProductForWrites, erpRouter);
   app.use('/api/reports', requireOrg, requireModule('relatorios'));
   app.use('/api', requireOrg, dashboardRouter);
   app.use('/api', (_req, res) => res.status(404).json({ error: 'Rota não encontrada' }));
