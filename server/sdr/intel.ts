@@ -3,6 +3,7 @@
  *  1) qualificação por método (Padrão, BANT ou SPIN) e explicação da pontuação para o vendedor.
  */
 import type { Answers, Question, Temperature } from './core.js';
+import { safeTz, zonedParts, zonedToUtc } from '../agenda/time.js';
 
 // ---------- 1) Métodos de qualificação ----------
 export const METODOS = ['PADRAO', 'BANT', 'SPIN'] as const;
@@ -167,4 +168,45 @@ export function buildHandoff(answers: Answers, lead: { stage: string; temperatur
 export function handoffLines(h: Handoff): string[] {
   const v = (s: string | null) => s ?? 'não informado';
   return [`Dor: ${v(h.dor)}`, `Orçamento: ${v(h.orcamento)}`, `Prazo: ${v(h.prazo)}`, `Decisor: ${v(h.decisor)}`, `Próximo passo: ${h.proximoPasso}`];
+}
+
+// ---------- 5) Melhor horário de envio (horário comercial, fuso da empresa — padrão Brasília) ----------
+const hmin = (s: string) => { const m = /^(\d{1,2}):(\d{2})$/.exec(s || ''); return m ? Number(m[1]) * 60 + Number(m[2]) : NaN; };
+
+/**
+ * Hora (cheia) em que o lead mais responde, dentro do horário comercial. Sem histórico (menos de 2 respostas no
+ * horário comercial): 10h, ou a 1ª hora cheia do expediente se ele começar depois. Empate: a mais cedo.
+ */
+export function bestSendHour(replies: Date[], s: { workStart: string; workEnd: string }, tz?: string | null): { hora: number; base: number } {
+  const z = safeTz(tz ?? undefined);
+  const a = hmin(s.workStart), b = hmin(s.workEnd);
+  const first = Number.isFinite(a) ? Math.ceil(a / 60) : 9, last = Number.isFinite(b) ? Math.floor((b - 1) / 60) : 17;
+  const fallback = Math.min(Math.max(10, first), Math.max(first, last));
+  const count = new Map<number, number>();
+  for (const d of replies) {
+    const h = zonedParts(d, z).hour;
+    if (h >= first && h <= last) count.set(h, (count.get(h) ?? 0) + 1);
+  }
+  const base = [...count.values()].reduce((x, y) => x + y, 0);
+  if (base < 2) return { hora: fallback, base };
+  const hora = [...count.entries()].sort((x, y) => y[1] - x[1] || x[0] - y[0])[0][0];
+  return { hora, base };
+}
+
+/** Próximo instante (≥ agora) na hora `hora` de um dia útil configurado; null se não houver nos próximos 8 dias. */
+export function nextAtHour(now: Date, hora: number, s: { workDays: string }, tz?: string | null): Date | null {
+  const z = safeTz(tz ?? undefined);
+  const days = String(s.workDays || '').split(',').map((d) => Number(d.trim()));
+  for (let i = 0; i < 9; i++) {
+    const p = zonedParts(new Date(now.getTime() + i * 86400e3), z);
+    const at = zonedToUtc(p.year, p.month, p.day, hora, 0, z);
+    if (at.getTime() >= now.getTime() - 60e3 && days.includes(zonedParts(at, z).weekday)) return at;
+  }
+  return null;
+}
+
+/** Envio na janela de 2 h a partir do melhor horário? */
+export function inBestWindow(now: Date, hora: number, tz?: string | null): boolean {
+  const h = zonedParts(now, safeTz(tz ?? undefined)).hour;
+  return h >= hora && h < hora + 2;
 }

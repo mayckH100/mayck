@@ -22,9 +22,13 @@ export interface IntelConfig {
   cnpj: boolean;
   /** Resumo para o vendedor (dor, orçamento, prazo, decisor, próximo passo) no aviso de lead quente e no Kanban. */
   resumo: boolean;
+  /** Follow-up da cadência reescrito pela IA com o histórico (muda mensagens: desligado por padrão). */
+  followupIa: boolean;
+  /** Envia o passo da cadência no horário em que o lead mais responde (dentro do horário comercial; desligado por padrão). */
+  melhorHorario: boolean;
 }
 
-export const DEFAULT_INTEL: IntelConfig = { metodo: 'PADRAO', objecoes: { enabled: false, itens: DEFAULT_OBJECOES }, cnpj: false, resumo: false };
+export const DEFAULT_INTEL: IntelConfig = { metodo: 'PADRAO', objecoes: { enabled: false, itens: DEFAULT_OBJECOES }, cnpj: false, resumo: false, followupIa: false, melhorHorario: false };
 /** Padrões de quem liga o SDR pela primeira vez (nada aqui envia mensagem sozinho). */
 export const NEW_SETUP_INTEL: IntelConfig = { ...DEFAULT_INTEL, cnpj: true, resumo: true };
 
@@ -35,6 +39,8 @@ export function normalizeIntel(raw: unknown): IntelConfig {
     objecoes: { enabled: r.objecoes?.enabled === true, itens: r.objecoes?.itens === undefined ? DEFAULT_OBJECOES : normalizeObjecoes(r.objecoes.itens) },
     cnpj: r.cnpj === true,
     resumo: r.resumo === true,
+    followupIa: r.followupIa === true,
+    melhorHorario: r.melhorHorario === true,
   };
 }
 

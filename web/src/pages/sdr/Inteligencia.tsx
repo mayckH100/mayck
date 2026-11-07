@@ -34,6 +34,11 @@ function Form({ v, onSaved }: { v: any; onSaved: () => void }) {
       </div>
       <Objecoes f={f} setF={setF} padrao={v.objecoesPadrao} />
       <div className="card stack">
+        <h3 style={{ margin: 0 }}>Acompanhamento (cadências)</h3>
+        <Toggle checked={!!f.followupIa} onChange={(x) => setF({ ...f, followupIa: x })} label="A IA personaliza cada follow-up com o que o lead já disse" hint="Muda as mensagens das cadências. Usa a cota diária da IA; se a IA não responder, sai o texto padrão do passo." />
+        <Toggle checked={!!f.melhorHorario} onChange={(x) => setF({ ...f, melhorHorario: x })} label="Enviar no horário em que o lead mais responde" hint="Sempre dentro do seu horário comercial (fuso da empresa, padrão Brasília). Sem histórico, envia às 10h. Adia no máximo um dia." />
+      </div>
+      <div className="card stack">
         <h3 style={{ margin: 0 }}>Para o vendedor</h3>
         <Toggle checked={!!f.resumo} onChange={(x) => setF({ ...f, resumo: x })} label="Resumo para o vendedor no aviso de lead quente e no Kanban" hint="Dor, orçamento, prazo, decisor e próximo passo. Vai só para a sua equipe, nunca para o lead." />
         <Toggle checked={!!f.cnpj} onChange={(x) => setF({ ...f, cnpj: x })} label="Completar pelo CNPJ (Receita Federal, grátis)" hint="Quando o lead informa o CNPJ (na conversa, no formulário ou no cadastro), buscamos razão social, atividade, situação, regime e cidade. Não envia nada ao lead; se a consulta falhar, nada muda." />
@@ -48,6 +53,8 @@ function bodyOf(f: any) {
     metodo: f.metodo,
     cnpj: !!f.cnpj,
     resumo: !!f.resumo,
+    followupIa: !!f.followupIa,
+    melhorHorario: !!f.melhorHorario,
     objecoes: { enabled: !!f.objecoes.enabled, itens: f.objecoes.itens.map((o: any) => ({ id: o.id, titulo: o.titulo, resposta: o.resposta, gatilhos: Array.isArray(o.gatilhos) ? o.gatilhos : String(o.gatilhos).split(',') })) },
   };
 }
@@ -109,6 +116,7 @@ export function LeadInteligencia({ id }: { id: string }) {
         <div className="small">
           {[['Dor', d.resumo.dor], ['Orçamento', d.resumo.orcamento], ['Prazo', d.resumo.prazo], ['Decisor', d.resumo.decisor]].map(([k, val]) => <div key={k}><span className="muted">{k}:</span> {val ?? <em className="muted">não informado</em>}</div>)}
           <div><span className="muted">Próximo passo:</span> <strong>{d.resumo.proximoPasso}</strong></div>
+          <div><span className="muted">Melhor horário para falar:</span> {d.melhorHorario.hora}h–{d.melhorHorario.hora + 2}h{d.melhorHorario.base < 2 ? ' (padrão; ainda sem histórico de respostas)' : ` (com base em ${d.melhorHorario.base} respostas)`}</div>
         </div>
       </div>
       <div className="card stack">

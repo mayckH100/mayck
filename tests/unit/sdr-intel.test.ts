@@ -69,3 +69,28 @@ describe('SDR inteligência — 4) resumo do handoff', () => {
     expect(t.split('\n')).toEqual(['🔥 Lead quente (80/100): Ana', 'Dor: x', 'A IA continua a conversa normalmente; nada foi transferido.', 'Abrir: u']);
   });
 });
+
+import { bestSendHour, nextAtHour, inBestWindow } from '../../server/sdr/intel.js';
+import { cleanFollowup } from '../../server/sdr/followup.js';
+describe('SDR inteligência — 5) follow-up e melhor horário', () => {
+  const S = { workStart: '09:00', workEnd: '18:00', workDays: '1,2,3,4,5' };
+  const brt = (iso: string) => new Date(`${iso}-03:00`);
+  it('melhor horário: hora em que mais responde, dentro do expediente (fuso de Brasília)', () => {
+    expect(bestSendHour([], S, 'America/Sao_Paulo')).toEqual({ hora: 10, base: 0 });
+    const r = [brt('2026-11-02T14:10:00'), brt('2026-11-03T14:50:00'), brt('2026-11-04T09:05:00'), brt('2026-11-04T22:00:00')];
+    expect(bestSendHour(r, S, 'America/Sao_Paulo')).toEqual({ hora: 14, base: 3 });
+    expect(bestSendHour(r, { workStart: '12:30', workEnd: '13:30' }, 'America/Sao_Paulo').hora).toBe(13);
+    // Sábado 03:00 → segunda 14:00 (dias úteis).
+    expect(nextAtHour(brt('2026-11-07T03:00:00'), 14, S, 'America/Sao_Paulo')?.toISOString()).toBe(brt('2026-11-09T14:00:00').toISOString());
+    expect(inBestWindow(brt('2026-11-09T15:59:00'), 14, 'America/Sao_Paulo')).toBe(true);
+    expect(inBestWindow(brt('2026-11-09T16:00:00'), 14, 'America/Sao_Paulo')).toBe(false);
+  });
+  it('texto da IA: descarta vazio, placeholder e longo demais', () => {
+    const wa = { dia: 3, canal: 'WHATSAPP' as const, texto: 'x' };
+    expect(cleanFollowup('"Oi Ana, conseguiu ver a proposta?"', wa)).toBe('Oi Ana, conseguiu ver a proposta?');
+    expect(cleanFollowup('Oi {nome}, tudo bem?', wa)).toBeNull();
+    expect(cleanFollowup('Oi [Nome do cliente], tudo bem?', wa)).toBeNull();
+    expect(cleanFollowup('a'.repeat(700), wa)).toBeNull();
+    expect(cleanFollowup('', wa)).toBeNull();
+  });
+});

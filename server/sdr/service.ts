@@ -359,7 +359,7 @@ export function emailHtml(body: string, unsubUrl: string, org: string) {
   return `<div style="font-family:Arial,sans-serif;font-size:15px;color:#1f2937;max-width:560px">${paras}<hr style="border:none;border-top:1px solid #e5e7eb;margin:22px 0 10px"><p style="font-size:12px;color:#6b7280;margin:0">Você recebeu este e-mail de ${escHtml(org)}. Não quer receber mais? <a href="${escHtml(unsubUrl)}">Descadastrar</a>.</p></div>`;
 }
 
-export type SendResult = { ok: true } | { ok: false; reason: string; retry?: boolean };
+export type SendResult = { ok: true; personalized?: boolean } | { ok: false; reason: string; retry?: boolean };
 
 /** Escolhe a conversa do contato (a mais recente com WhatsApp) ou abre uma no primeiro WhatsApp conectado. */
 async function conversationFor(orgId: string, contact: Contact) {
@@ -369,11 +369,21 @@ async function conversationFor(orgId: string, contact: Contact) {
   return ch ? openConversationFor(orgId, contact.id, ch.id) : null;
 }
 
-export async function sendStep(lead: SdrLead, step: Step): Promise<SendResult> {
+export async function sendStep(lead: SdrLead, step: Step, opts: { personalize?: boolean } = {}): Promise<SendResult> {
   const allowed = channelAllowed(lead, step.canal);
   if (!allowed.ok) return { ok: false, reason: allowed.reason! };
   const minha = await orgName(lead.orgId);
   const vars = { nome: lead.name, empresa: lead.company, segmento: lead.segment, minhaEmpresa: minha };
+  // v1.21.0: follow-up personalizado pela IA (opcional); qualquer falha mantém o texto do passo.
+  let personalized = false;
+  const textOf = async () => {
+    const base = renderTemplate(step.texto, vars);
+    if (!opts.personalize) return base;
+    const { personalizeStep } = await import('./followup.js');
+    const t = await personalizeStep(lead, step, base);
+    personalized = !!t;
+    return t ?? base;
+  };
   if (step.canal === 'WHATSAPP') {
     const l = lead.contactId ? lead : await linkContact(lead);
     const contact = l.contactId ? await prisma.contact.findFirst({ where: { id: l.contactId, orgId: lead.orgId } }) : null;
@@ -382,12 +392,12 @@ export async function sendStep(lead: SdrLead, step: Step): Promise<SendResult> {
     const conv = await conversationFor(lead.orgId, contact);
     if (!conv) return { ok: false, reason: 'nenhum WhatsApp conectado', retry: true };
     if (conv.mode === 'HUMAN') return { ok: false, reason: 'atendente cuidando da conversa' };
-    const msg = await sendOutbound({ conversation: conv, contact, payload: { type: 'text', text: renderTemplate(step.texto, vars) }, sender: 'bot' });
+    const msg = await sendOutbound({ conversation: conv, contact, payload: { type: 'text', text: await textOf() }, sender: 'bot' });
     if (msg.status === 'FAILED') return { ok: false, reason: (msg.error || 'falha no envio').slice(0, 160), retry: !/janela de 24|opt-out|Assinatura/.test(msg.error ?? '') };
-    return { ok: true };
+    return { ok: true, personalized };
   }
   const unsubUrl = `${appUrl()}/descadastro/${lead.unsubToken}`;
-  const text = renderTemplate(step.texto, vars);
+  const text = await textOf();
   const r = await deliverMail({
     to: lead.email!, kind: 'sdr', subject: renderTemplate(step.assunto || 'Contato da {minha_empresa}', vars),
     text: `${text}\n\n—\nNão quer receber mais e-mails de ${minha}? Descadastre-se: ${unsubUrl}`,
@@ -395,7 +405,7 @@ export async function sendStep(lead: SdrLead, step: Step): Promise<SendResult> {
     replyTo: sdrReplyTo(lead.unsubToken), // resposta volta pelo webhook e para a cadência (v1.19.0)
   });
   if (!r.ok) return { ok: false, reason: r.reason === 'not_configured' ? 'e-mail não configurado no servidor' : 'falha no envio do e-mail', retry: r.reason === 'failed' };
-  return { ok: true };
+  return { ok: true, personalized };
 }
 
 export async function sentToday(orgId: string, now = new Date(), tz = 'America/Sao_Paulo'): Promise<number> {
@@ -442,8 +452,25 @@ export async function runStep(lead: SdrLead, s: SdrSettings, now = new Date(), o
     return { lead: cur, sent: false, waiting: 'aprovação' };
   }
   if (!opts.approved && !inBusinessHours(s, now, opts.tz)) return { lead: cur, sent: false, waiting: 'horário comercial' };
+  // v1.21.0: inteligência (follow-up pela IA e melhor horário), só quando ligados na aba Inteligência.
+  const { getIntelConfig } = await import('./intelConfig.js');
+  const intel = await getIntelConfig(cur.orgId);
+  if (!opts.approved && intel.melhorHorario) {
+    const { bestSendHour, inBestWindow, nextAtHour } = await import('./intel.js');
+    const { replyDatesOf } = await import('./followupTiming.js');
+    const best = bestSendHour(await replyDatesOf(cur), s, opts.tz);
+    if (!inBestWindow(now, best.hora, opts.tz)) {
+      const at = nextAtHour(now, best.hora, s, opts.tz);
+      const due = cur.nextStepAt ?? now;
+      // Adia no máximo ~1 dia em relação à data do passo; depois disso, envia no horário comercial normal.
+      if (at && at > now && at.getTime() - due.getTime() < DAY_MS) {
+        cur = await prisma.sdrLead.update({ where: { id: cur.id }, data: { nextStepAt: at } });
+        return { lead: cur, sent: false, waiting: 'melhor horário' };
+      }
+    }
+  }
   if ((await sentToday(cur.orgId, now, opts.tz)) >= s.dailyLimit) return { lead: cur, sent: false, waiting: 'limite diário' };
-  const r = await sendStep(cur, step);
+  const r = await sendStep(cur, step, { personalize: intel.followupIa });
   if (!r.ok) {
     const dueAt = cur.nextStepAt ?? now;
     if (r.retry && now.getTime() - dueAt.getTime() < DAY_MS) {
@@ -455,7 +482,7 @@ export async function runStep(lead: SdrLead, s: SdrSettings, now = new Date(), o
     if (fresh.optOutAt || fresh.cadenceStatus === 'PARADA') return { lead: fresh, sent: false };
     return { lead: await advance(fresh, steps, fresh.cadenceStep), sent: false };
   }
-  await logEvent(cur.orgId, cur.id, 'ENVIO', step.canal, `${stepTag(cur.cadenceId, cur.cadenceStep)}Passo do dia ${step.dia}${opts.approved ? ' (aprovado)' : ''}`);
+  await logEvent(cur.orgId, cur.id, 'ENVIO', step.canal, `${stepTag(cur.cadenceId, cur.cadenceStep)}Passo do dia ${step.dia}${opts.approved ? ' (aprovado)' : ''}${r.personalized ? ' (personalizado pela IA)' : ''}`);
   cur = await prisma.sdrLead.update({ where: { id: cur.id }, data: { lastContactAt: now } });
   cur = await setStage(cur, 'CONTATADO');
   return { lead: await advance(cur, steps, cur.cadenceStep), sent: true };

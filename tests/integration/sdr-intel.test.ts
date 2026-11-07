@@ -122,4 +122,45 @@ describe('SDR inteligência', () => {
     expect((await a.get('/api/kanban')).body.contacts.find((c: any) => c.id === l.contactId).sdr).toBeNull();
     expect(await hotAlertHandoffLines(l, s)).toEqual([]);
   });
+
+  it('5) follow-up personalizado pela IA (com volta ao texto padrão) e melhor horário de envio', async () => {
+    const { fakeAi } = await import('../../server/ai/providers.js');
+    const { runStep } = await import('../../server/sdr/service.js');
+    const { outbox } = await import('../../server/lib/mailer.js');
+    expect((await a.put('/api/ai/settings', { provider: 'fake', model: 'fake-1', enabled: true, autoReply: false })).status).toBe(200);
+    const s = await getSdrSettings(orgA());
+    const email = `eva${Date.now()}@exemplo.com`;
+    const r = await a.post('/api/sdr/leads', { name: 'Eva', email, consent: true });
+    const cad = await prisma.sdrCadence.findFirstOrThrow({ where: { id: (await lead(r.body.id)).cadenceId! } });
+    const emailStep = JSON.parse(cad.stepsJson).findIndex((x: any) => x.canal === 'EMAIL');
+    const prep = (now: Date) => prisma.sdrLead.update({ where: { id: r.body.id }, data: { cadenceStatus: 'ATIVA', cadenceStep: emailStep, cadenceStartedAt: new Date(now.getTime() - 3 * 86400e3), nextStepAt: now } });
+    const mails = () => outbox.filter((m: any) => m.kind === 'sdr' && m.to === email);
+    // Desligado: texto padrão, sem chamar a IA.
+    const calls0 = fakeAi.calls.length;
+    let now = new Date('2026-11-09T13:30:00-03:00');
+    expect((await runStep(await prep(now), s, now, { tz: 'America/Sao_Paulo' })).sent).toBe(true);
+    expect(fakeAi.calls.length).toBe(calls0);
+    // Ligado: texto da IA; falha da IA → texto padrão (o lead não vê erro).
+    await a.put('/api/sdr/inteligencia', { followupIa: true });
+    fakeAi.script.push('Olá, Eva! Lembrei da sua dúvida sobre atendimento 24h. Posso te mostrar como funciona?');
+    expect((await runStep(await prep(now), s, now, { tz: 'America/Sao_Paulo' })).sent).toBe(true);
+    expect(mails().at(-1)!.text).toContain('Lembrei da sua dúvida sobre atendimento 24h');
+    expect(await prisma.sdrEvent.count({ where: { leadId: r.body.id, type: 'ENVIO', detail: { contains: 'personalizado pela IA' } } })).toBe(1);
+    fakeAi.script.push('__503__');
+    expect((await runStep(await prep(now), s, now, { tz: 'America/Sao_Paulo' })).sent).toBe(true);
+    expect(mails().at(-1)!.text).toContain('Eva');
+    expect(mails().at(-1)!.text).not.toContain('Lembrei da sua dúvida');
+    await a.put('/api/sdr/inteligencia', { followupIa: false });
+    // Melhor horário (sem histórico: 10h de Brasília): às 03h adia para 10h; às 10h30 envia.
+    await a.put('/api/sdr/inteligencia', { melhorHorario: true });
+    now = new Date('2026-11-09T03:00:00-03:00');
+    const w = await runStep(await prep(now), s, now, { tz: 'America/Sao_Paulo' });
+    expect(w).toMatchObject({ sent: false, waiting: 'melhor horário' });
+    expect(w.lead.nextStepAt!.toISOString()).toBe(new Date('2026-11-09T10:00:00-03:00').toISOString());
+    now = new Date('2026-11-09T10:30:00-03:00');
+    expect((await runStep(w.lead, s, now, { tz: 'America/Sao_Paulo' })).sent).toBe(true);
+    const v = await a.get(`/api/sdr/inteligencia/leads/${r.body.id}`);
+    expect(v.body.melhorHorario).toMatchObject({ hora: 10, fuso: 'America/Sao_Paulo' });
+    await a.put('/api/sdr/inteligencia', { melhorHorario: false });
+  });
 });
