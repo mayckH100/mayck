@@ -21,6 +21,8 @@ import { parseCsv } from './csv.js';
 import { getV2Config, setV2Config, normalizeDomains, sdrReplyTo, type SdrV2Config } from './v2config.js';
 import { contem } from '../lib/busca.js';
 import { startOfDayIn } from './time.js';
+import { sdrIntelRouter } from './intelRoutes.js';
+import { questionsFor, seedIntelForNewSetup } from './intelConfig.js';
 
 export const sdrRouter = Router();
 const admins = requireRole('OWNER', 'ADMIN');
@@ -31,6 +33,8 @@ const writeLimiter = rateLimit({
   skip: (req) => req.method === 'GET',
 });
 sdrRouter.use(writeLimiter);
+// v1.21.0: inteligência (método BANT/SPIN, explicação da pontuação, objeções, CNPJ, resumo, follow-up, reunião, intenção).
+sdrRouter.use('/inteligencia', sdrIntelRouter);
 
 async function findLead(req: Request, id: string): Promise<SdrLead> {
   const l = await prisma.sdrLead.findFirst({ where: { id, orgId: orgOf(req) } });
@@ -110,7 +114,7 @@ sdrRouter.put('/config', admins, ah(async (req, res) => {
   if (questions) data.questionsJson = JSON.stringify(normalizeQuestions(questions));
   if (newFormLink) data.formToken = newToken();
   const s = await prisma.sdrSettings.update({ where: { orgId }, data });
-  if (b.enabled && !cur.enabled) await ensureCadences(orgId);
+  if (b.enabled && !cur.enabled) { await ensureCadences(orgId); await seedIntelForNewSetup(orgId, { userId: req.auth?.userId, ip: req.ip }); }
   await audit(req, 'sdr.config', { orgId, entity: 'sdr_settings', entityId: orgId, meta: { enabled: s.enabled, autoMode: s.autoMode, autoBook: s.autoBook, newFormLink: !!newFormLink } });
   res.json({ ...settingsView(s, req, v2), team: await teamOf(orgId) });
 }));
@@ -221,7 +225,7 @@ sdrRouter.get('/leads/:id', ah(async (req, res) => {
   const conv = l.contactId ? await prisma.conversation.findFirst({ where: { orgId: l.orgId, contactId: l.contactId }, orderBy: { lastMessageAt: 'desc' }, select: { id: true } }) : null;
   res.json({
     ...leadView(l, { ownerName: l.ownerUserId ? owners.get(l.ownerUserId) ?? null : null, cadenceName: cad?.name ?? null }),
-    questions: questionsOf(s), steps: stepsOf(cad), conversationId: conv?.id ?? null,
+    questions: await questionsFor(l.orgId, s), steps: stepsOf(cad), conversationId: conv?.id ?? null,
     events: events.map((e) => ({ id: e.id, type: e.type, channel: e.channel, detail: cleanEventDetail(e.detail), createdAt: e.createdAt })),
   });
 }));

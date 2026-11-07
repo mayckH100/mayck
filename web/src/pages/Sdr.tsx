@@ -4,6 +4,7 @@ import { post, put, patch } from '../api';
 import { useAuth } from '../auth';
 import { useApi, Async, useAction, fmtDate, Modal, Field, Empty, copy, useToast } from '../ui';
 import QualificacaoCampanhas from './sdr/Qualificacao';
+import Inteligencia, { LeadInteligencia } from './sdr/Inteligencia';
 
 /** SDR com IA (v1.18.0; tela única com a qualificação do MCK Mensagens na v1.20.0): leads, qualificação, cadências, reuniões e funil. */
 type Lead = {
@@ -27,7 +28,7 @@ function Temp({ t, score }: { t: string; score?: number }) {
 }
 
 type App = 'mckbot' | 'mensagem';
-const TABS: [string, string][] = [['painel', 'Painel'], ['funil', 'Funil'], ['leads', 'Leads'], ['qualificacao', 'Qualificação'], ['cadencias', 'Cadências'], ['relatorios', 'Relatórios'], ['config', 'Configuração']];
+const TABS: [string, string][] = [['painel', 'Painel'], ['funil', 'Funil'], ['leads', 'Leads'], ['qualificacao', 'Qualificação'], ['cadencias', 'Cadências'], ['relatorios', 'Relatórios'], ['inteligencia', 'Inteligência'], ['config', 'Configuração']];
 
 /**
  * SDR com IA — tela única (v1.20.0) do MCKBOT (/sdr) e do MCK Mensagens (/mensagem/sdr; o antigo menu "IA de
@@ -92,6 +93,7 @@ export default function Sdr({ app = 'mckbot' }: { app?: App }) {
                 {tab === 'qualificacao' && <Qualificacao full={full && a.enabled} readOnly={!quali.liberado} goConfig={() => setTab('config')} />}
                 {tab === 'cadencias' && <Cadencias />}
                 {tab === 'relatorios' && <Relatorios />}
+                {tab === 'inteligencia' && <Inteligencia />}
                 {tab === 'config' && <Config onSaved={acesso.reload} />}
               </div>
             )}
@@ -316,6 +318,7 @@ function LeadModal({ id, app, onClose }: { id: string; app: App; onClose: () => 
             <Field label="Etapa"><select value={l.stage} onChange={(e) => upd({ stage: e.target.value })}>{STAGES.map(([k, n]) => <option key={k} value={k}>{n}</option>)}</select></Field>
             <Field label="Dono"><select value={l.ownerUserId ?? ''} onChange={(e) => upd({ ownerUserId: e.target.value || null })}><option value="">Sem dono</option>{(team.data?.members ?? []).map((m: any) => <option key={m.user.id} value={m.user.id}>{m.user.name}</option>)}</select></Field>
           </div>
+          <LeadInteligencia id={id} />
           <div className="card stack">
             <strong>Qualificação</strong>
             {l.questions.map((q: any) => <div key={q.id} className="small"><span className="muted">{q.pergunta}</span><br />{l.answers[q.id]?.resposta ?? <em className="muted">ainda não respondeu</em>}</div>)}

@@ -8,7 +8,9 @@ import { leadPhoneOfWaId } from '../mckmensagem/contactSync.js';
 import { answeredCount, computeScore, mergeAnswers, parseExtraction, temperatureOf, OPT_OUT_WORDS, type Answers, type Question } from './core.js';
 import { sdrLiberadoCached } from './access.js';
 import { getQualificacao, qualiPromptLines } from './qualificacao.js';
-import { alertHot, getSdrSettings, questionsOf, registerReply, setStage, upsertLead, logEvent } from './service.js';
+import { getIntelConfig, questionsFor } from './intelConfig.js';
+import { metodoPromptLine } from './intel.js';
+import { alertHot, getSdrSettings, registerReply, setStage, upsertLead, logEvent } from './service.js';
 
 /**
  * SDR com IA no WhatsApp. Não substitui a IA do MCKBOT (que continua respondendo com Instruções, base, agenda e a
@@ -39,7 +41,8 @@ export async function sdrPromptSection(orgId: string, conversationId: string): P
   try {
     const c = await ctxFor(orgId, conversationId);
     if (!c) return '';
-    const qs = questionsOf(c.s);
+    const intel = await getIntelConfig(orgId);
+    const qs = await questionsFor(orgId, c.s);
     const answers = parseJson<Answers>(c.lead.answersJson, {});
     const missing = qs.filter((q) => !answers[q.id]?.resposta);
     const lines = [
@@ -49,6 +52,8 @@ export async function sdrPromptSection(orgId: string, conversationId: string): P
     ];
     // v1.20.0: abordagem e próximo passo da etapa de qualificação (antiga IA de qualificação do MCK Mensagens).
     lines.push(...qualiPromptLines((await getQualificacao(orgId)).config));
+    const metodo = metodoPromptLine(intel.metodo); // v1.21.0: BANT/SPIN (vazio no Padrão)
+    if (metodo) lines.push(metodo);
     if (missing.length) lines.push('Ainda falta saber:', ...missing.map((q) => `- ${q.pergunta}`));
     else lines.push('- Todas as informações já foram coletadas: foque em ajudar e no próximo passo.');
     if (c.s.autoMode && c.s.autoBook && c.lead.stage !== 'REUNIAO' && c.lead.temperature !== 'FRIO') {
@@ -74,12 +79,12 @@ export function extractionPrompt(questions: Question[], answers: Answers): strin
   return [
     'Você analisa uma conversa de WhatsApp entre uma empresa (assistente) e um possível cliente (lead).',
     'Extraia SOMENTE o que o LEAD disse sobre cada pergunta abaixo. Não invente: sem informação, deixe a resposta vazia.',
-    'Para cada resposta dê uma nota de 0 a 100 de quanto ela indica um bom cliente agora (necessidade clara, porte compatível, prazo curto, orçamento compatível = notas altas; sem interesse, sem prazo, sem orçamento = notas baixas).',
+    'Para cada resposta dê uma nota de 0 a 100 de quanto ela indica um bom cliente agora (necessidade clara, porte compatível, prazo curto, orçamento compatível = notas altas; sem interesse, sem prazo, sem orçamento = notas baixas) e o motivo da nota em até 12 palavras (para o vendedor).',
     'Perguntas (id: pergunta):',
     ...questions.map((q) => `- ${q.id}: ${q.pergunta}`),
     `Respostas já registradas (mantenha se a conversa não mudar): ${JSON.stringify(answers)}`,
     'Responda SOMENTE com JSON válido em uma linha:',
-    '{"respostas":{"<id>":{"resposta":"texto curto","nota":0}},"resumo":"até 15 palavras sobre o lead e o que ele quer"}',
+    '{"respostas":{"<id>":{"resposta":"texto curto","nota":0,"motivo":"por que essa nota"}},"resumo":"até 15 palavras sobre o lead e o que ele quer"}',
   ].join('\n');
 }
 
@@ -106,7 +111,7 @@ export async function extractAnswers(orgId: string, conversationId: string, ques
 
 /** Aplica a extração: respostas, pontuação, temperatura, funil e aviso de lead quente. */
 export async function applyExtraction(lead: SdrLead, s: SdrSettings, ex: { respostas: Record<string, unknown>; resumo: string }): Promise<SdrLead> {
-  const qs = questionsOf(s);
+  const qs = await questionsFor(lead.orgId, s);
   const old = parseJson<Answers>(lead.answersJson, {});
   const answers = mergeAnswers(qs, old, ex.respostas);
   const score = computeScore(qs, answers);
@@ -153,7 +158,7 @@ export async function sdrOnInbound(args: { conv: Conversation; contact: Contact;
   }
   if (lead.optOutAt || ['GANHO', 'PERDIDO'].includes(lead.stage) || conv.mode === 'HUMAN' || !args.text?.trim()) return lead;
   // Economia de IA: tudo respondido e lead já quente → não precisa extrair de novo.
-  const qs = questionsOf(s);
+  const qs = await questionsFor(orgId, s);
   const cur = parseJson<Answers>(lead.answersJson, {});
   if (answeredCount(qs, cur) >= qs.length && lead.temperature === 'QUENTE') return lead;
   const ex = await extractAnswers(orgId, conv.id, qs, cur);

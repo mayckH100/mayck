@@ -233,3 +233,7 @@ Entradas antigas assinadas "Hark" podem ser de qualquer um. Se não souber qual 
 - **Testes:** typecheck servidor e web, build da web; novos tests/unit/sdr-qualificacao.test.ts e tests/integration/sdr-qualificacao.test.ts; lead-ia, sdr, sdr-v2, mckmensagem, site/spa/tutoriais/versão; suíte completa `npx vitest run` antes do push final: 123 arquivos / 986 testes, todos passaram.
 - **Produção:** sem deploy, sem mudança no Render, nenhuma mensagem enviada. Sem migração (deploy simples quando o Mayck aprovar).
 - **Fora (próxima fase, outra tarefa):** funções novas de inteligência do SDR; campanha criar lead/cadência no SDR automaticamente (evitado para não mandar mensagens em dobro); trocar o motor das campanhas pelo do SDR; conferir as telas no navegador depois do deploy.
+
+## Atualização 2026-11-07 (noite) — Leandro: SDR fase 2 "inteligência" — v1.21.0 (em andamento)
+- **Pedido do Mayck:** SDR profissional e inteligente, em partes pequenas (commit + push + linha aqui a cada parte). Sem migração (config no AuditLog `sdr.intel.config`, `server/sdr/intelConfig.ts`); sem registro salvo = tudo desligado (quem já usa não muda nada); ao ligar o SDR pela 1ª vez grava padrões que não enviam nada sozinhos. Aba nova SDR › Inteligência. Sem deploy.
+- 1) Método de qualificação (Padrão/BANT/SPIN) + "por que esta pontuação" no lead (pontos por resposta, fortes/fracos/faltas, próximo passo; `server/sdr/intel.ts`, `GET /api/sdr/inteligencia/leads/:id`). Testes tests/unit/sdr-intel.test.ts e tests/integration/sdr-intel.test.ts.

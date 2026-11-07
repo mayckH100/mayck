@@ -50,7 +50,7 @@ export function normalizeQuestions(list: unknown): Question[] {
   return out;
 }
 
-export interface Answer { resposta: string; nota: number }
+export interface Answer { resposta: string; nota: number; motivo?: string }
 export type Answers = Record<string, Answer>;
 
 /** Pontuação 0–100: média das notas (0–100) das respostas, ponderada pelo peso; pergunta sem resposta vale 0. */
@@ -79,7 +79,8 @@ export function mergeAnswers(questions: Question[], old: Answers, fresh: Record<
   for (const q of questions) {
     const n = fresh?.[q.id] as any;
     const resposta = typeof n === 'object' && n ? String(n.resposta ?? '').trim().slice(0, 300) : '';
-    if (resposta) out[q.id] = { resposta, nota: Math.min(100, Math.max(0, Math.round(Number(n.nota) || 0))) };
+    const motivo = typeof n === 'object' && n ? String(n.motivo ?? '').trim().slice(0, 140) : '';
+    if (resposta) out[q.id] = { resposta, nota: Math.min(100, Math.max(0, Math.round(Number(n.nota) || 0))), ...(motivo ? { motivo } : {}) };
     else if (old[q.id]?.resposta) out[q.id] = old[q.id];
   }
   return out;
