@@ -21,6 +21,18 @@ export type EntradaChangelog = {
 
 export const CHANGELOG: EntradaChangelog[] = [
   {
+    versao: '1.20.0',
+    data: '07/11/2026',
+    titulo: 'IA de qualificação e SDR com IA agora são um só: o SDR com IA',
+    itens: [
+      'A "IA de qualificação" do MCK Mensagens agora faz parte do SDR com IA. No MCK Mensagens, o menu passou a se chamar "SDR com IA" e abre a mesma tela do MCKBOT, com uma só configuração.',
+      'Nova aba Qualificação no SDR: as perguntas e a pontuação de 0 a 100 (frio, morno ou quente) e, logo abaixo, como a IA trata quem responde às suas campanhas (interesse, sem interesse, dúvida, novas tentativas e etiquetas).',
+      'Quem já usava a qualificação não precisa fazer nada: a sua configuração foi mantida e as campanhas continuam funcionando do mesmo jeito.',
+      'Quem tem o MCK Mensagens continua com a qualificação das respostas das campanhas, mesmo sem o Plano Completo. Os demais recursos do SDR (captura de leads, cadências, reuniões, rodízio e relatórios) seguem no Plano Completo.',
+      'Quando alguém responde a uma campanha e também é um lead do SDR, a resposta aparece no histórico do lead e ele avança no funil (por exemplo, para Qualificado).',
+    ],
+  },
+  {
     versao: '1.19.0',
     data: '07/11/2026',
     titulo: 'SDR com IA: Kanban junto, rodízio de leads, relatórios e formulário no seu site',

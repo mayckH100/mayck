@@ -1,4 +1,4 @@
-# SDR com IA (v1.18.0; v2 na v1.19.0)
+# SDR com IA (v1.18.0; v2 na v1.19.0; unificado com a qualificação do MCK Mensagens na v1.20.0)
 
 Pré-vendas automática dentro do MCKBOT (menu **SDR com IA**, rota `/sdr`). Evolui o funil de leads automático
 existente: o lead do SDR (`SdrLead`) liga-se ao contato do MCKBOT (`Contact`) e ao lead do MCK Mensagens (`Lead`)
@@ -9,6 +9,12 @@ da mesma pessoa; opt-out e consentimento valem nos dois lados. Lead só com e-ma
   plano ligado (padrão ligado). Só MCKBOT / só MCK Mensagens: desligado por padrão (Painel Master › SDR com IA).
 - Sempre: empresa com um superadmin na equipe (empresa da MCK) ou listada em `SDR_ORG_IDS`, e o superadmin.
 - Sem acesso: `/api/sdr` responde 402 com `code: SDR_PLANO` (exceto `/api/sdr/acesso`). Módulo de equipe: `sdr`.
+- **Etapa de qualificação (v1.20.0, `qualificacaoAccess`):** quem tem o SDR (regra acima) **ou** o MCK Mensagens ativo/em
+  teste configura e usa a qualificação das respostas de campanha, mesmo sem o Plano Completo (ninguém perde o que tinha).
+  MCK Mensagens vencido/bloqueado: só consulta (salvar = 402, como antes). Sem nenhum dos dois: 402 `SDR_PLANO`.
+  Proprietário/Admin com o módulo `sdr` **ou** `mensagens`. Os extras do SDR (captura, cadências, e-mail, reunião,
+  rodízio, relatórios) seguem a regra do SDR. `/api/sdr/acesso` aceita também o módulo `mensagens` e devolve
+  `qualificacao: { liberado, leitura, motivo }` e `modulo` (tem o módulo `sdr`).
 
 ## Como funciona (modo automático, padrão)
 1. **Entrada:** quem chama pela 1ª vez no WhatsApp (contato novo, não salvo na agenda do celular quando o canal
@@ -71,6 +77,31 @@ editáveis em SDR › Configuração (`PUT /api/sdr/config` com `kanbanSync`, `r
 5. **Formulário incorporável**: `/f/<token>?embed=1` (código `<iframe>` copiável na Configuração). Só essa resposta troca
    `frame-ancestors 'none'` pelos sites permitidos (`embedDomains`; vazio = `https:`, qualquer site com HTTPS) e tira o
    X-Frame-Options; CSP sem script continua; mesma origem conferida no POST, campo-isca e limite por IP (10 envios/10 min).
+
+## Unificação com a "IA de qualificação" do MCK Mensagens (v1.20.0, sem migração)
+Um só produto para o cliente: **SDR com IA** (MCKBOT `/sdr` e MCK Mensagens `/mensagem/sdr`, mesmo componente
+`web/src/pages/Sdr.tsx` com `app`). O menu antigo `/mensagem/ia-leads` redireciona para `/mensagem/sdr?aba=qualificacao`.
+- **Aba Qualificação:** resumo das perguntas/pontuação 0–100 (editadas em Configuração) + "Respostas das campanhas"
+  (`web/src/pages/sdr/Qualificacao.tsx`, ex-LeadAi.tsx). Quem tem só o MCK Mensagens vê só essa aba + convite ao Plano Completo.
+- **Fonte única da configuração** (`server/sdr/qualificacao.ts`): AuditLog da empresa, ação `sdr.qualificacao.config`
+  (a mais recente vale; formato do SDR: `campanhas, abordagem, proximoPasso, persona, positivo, negativo, duvida,
+  tentativas, etiquetas`). Sem ela, a linha antiga `LeadAiSettings` é convertida em código (`fromLegacy`, lazy, nada é
+  gravado); sem linha, os padrões de antes. Salvar (`PUT /api/sdr/qualificacao` ou a rota antiga
+  `PUT /api/mckmensagem/ia-leads`) grava no AuditLog e **espelha** na `LeadAiSettings` daquela empresa, para uma volta
+  de versão continuar igual. Nenhum campo/tabela antigo foi apagado. Mexer direto na `LeadAiSettings` pelo banco não
+  vale mais depois que a empresa salvou pelo SDR.
+- **Motor:** o das campanhas (`server/mckmensagem/qualificacao.ts`: POSITIVO/NEGATIVO/DÚVIDA/SAIR, ações, novas
+  tentativas, etiquetas, prompt editável) foi mantido por baixo, lendo da fonte única (`getLeadAiSettings` →
+  `getLegacyView`). Motivo: é um trabalho diferente do motor do SDR (responde campanha com intenção e ação vs. extração
+  de respostas/pontuação e cadência) e há empresa em produção dependendo das mesmas mensagens; trocar o motor mudaria o
+  que os leads recebem. Ligações novas: o resultado da campanha vai para o lead do SDR da mesma pessoa
+  (`onCampaignQualified`: histórico QUALIFICACAO + etapa Qualificado/Respondeu, não cria lead nem envia nada), e a
+  abordagem/próximo passo entram no prompt do SDR (`qualiPromptLines`). `setStage` automático compara com a etapa
+  atual do banco (evita a corrida entre a qualificação da campanha e a resposta no WhatsApp).
+- Rotas: `GET/PUT /api/sdr/qualificacao`, `POST /api/sdr/qualificacao/testar` (`server/sdr/qualificacaoRoutes.ts`);
+  `/api/mckmensagem/ia-leads*` continuam (mesmas funções) para apps abertos antes do deploy.
+- Testes: `tests/unit/sdr-qualificacao.test.ts` (mapeamento), `tests/integration/sdr-qualificacao.test.ts` (config antiga,
+  fonte única, fluxo antigo, ponte para o SDR, acesso), `tests/integration/lead-ia.test.ts` (fluxo antigo).
 
 ## Para a v3
 Modelos aprovados da Meta para WhatsApp fora da janela de 24 h; teste A/B de textos (dependem de aprovação externa /
