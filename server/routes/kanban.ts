@@ -6,6 +6,7 @@ import { orgOf, requireRole } from '../auth/session.js';
 import { audit } from '../lib/audit.js';
 import { parseJson } from '../lib/json.js';
 import { visibleContactIds } from './contacts.js';
+import { onKanbanStageChanged } from '../sdr/service.js';
 
 export const kanbanRouter = Router();
 
@@ -39,6 +40,7 @@ kanbanRouter.post('/move', ah(async (req, res) => {
   if (!c || (visible && !visible.includes(c.id))) throw notFound('Contato');
   if (stageId && !(await prisma.kanbanStage.findFirst({ where: { id: stageId, orgId } }))) throw notFound('Etapa');
   await prisma.contact.update({ where: { id: c.id }, data: { stageId } });
+  if (stageId !== c.stageId) await onKanbanStageChanged(orgId, c.id, stageId, { manual: true }); // SDR acompanha (v1.19.0)
   await audit(req, 'kanban.move', { entity: 'contact', entityId: c.id, meta: { from: c.stageId, to: stageId } });
   res.json({ ok: true });
 }));

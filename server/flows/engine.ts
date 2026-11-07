@@ -1,4 +1,5 @@
 import { prisma } from '../db.js';
+import { onKanbanStageChanged } from '../sdr/service.js';
 import { config } from '../config.js';
 import { parseJson, getPath } from '../lib/json.js';
 import { renderTemplate, renderDeep } from '../lib/template.js';
@@ -188,7 +189,10 @@ async function executeNode(node: FlowNode, run: FlowRun, runVars: Record<string,
       await prisma.contact.update({ where: { id: contact.id }, data: { tags: contact.tags } });
       if (d.stageId) {
         const st = await prisma.kanbanStage.findFirst({ where: { id: d.stageId, orgId: conv.orgId } });
-        if (st) await prisma.contact.update({ where: { id: contact.id }, data: { stageId: st.id } });
+        if (st) {
+          await prisma.contact.update({ where: { id: contact.id }, data: { stageId: st.id } });
+          await onKanbanStageChanged(conv.orgId, contact.id, st.id); // SDR acompanha, só para a frente (v1.19.0)
+        }
       }
       return { kind: 'next', handle: 'next', detail: `${d.action === 'remove' ? 'removida' : 'adicionada'}: ${tag}` };
     }

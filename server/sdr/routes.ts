@@ -16,6 +16,7 @@ import {
   getSdrSettings, questionsOf, ensureCadences, stepsOf, upsertLead, leadView, logEvent, setStage, stopCadence, enroll, runStep, newToken,
 } from './service.js';
 import { parseCsv } from './csv.js';
+import { getV2Config, setV2Config, normalizeDomains, type SdrV2Config } from './v2config.js';
 import { contem } from '../lib/busca.js';
 import { startOfDayIn } from './time.js';
 
@@ -48,8 +49,9 @@ sdrRouter.get('/acesso', ah(async (req, res) => {
   res.json({ ...a, enabled: !!s?.enabled, autoMode: s?.autoMode ?? true });
 }));
 
-function settingsView(s: Awaited<ReturnType<typeof getSdrSettings>>, req: Request) {
+function settingsView(s: Awaited<ReturnType<typeof getSdrSettings>>, req: Request, v2: SdrV2Config) {
   return {
+    kanbanSync: v2.kanbanSync, rodizio: v2.rodizio, embedDomains: v2.embedDomains,
     enabled: s.enabled, autoMode: s.autoMode, captureWhatsapp: s.captureWhatsapp, autoBook: s.autoBook, segment: s.segment,
     questions: questionsOf(s), warmScore: s.warmScore, hotScore: s.hotScore, workStart: s.workStart, workEnd: s.workEnd, workDays: s.workDays,
     dailyLimit: s.dailyLimit, silenceHours: s.silenceHours, formEnabled: s.formEnabled, formTitle: s.formTitle, alertHot: s.alertHot,
@@ -57,7 +59,7 @@ function settingsView(s: Awaited<ReturnType<typeof getSdrSettings>>, req: Reques
   };
 }
 
-sdrRouter.get('/config', ah(async (req, res) => res.json(settingsView(await getSdrSettings(orgOf(req)), req))));
+sdrRouter.get('/config', ah(async (req, res) => res.json(settingsView(await getSdrSettings(orgOf(req)), req, await getV2Config(orgOf(req))))));
 
 const HHMM = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/);
 const configSchema = z.object({
@@ -69,6 +71,10 @@ const configSchema = z.object({
   dailyLimit: z.number().int().min(1).max(1000).optional(), silenceHours: z.number().int().min(1).max(23).optional(),
   formEnabled: z.boolean().optional(), formTitle: z.string().min(2).max(80).optional(), alertHot: z.boolean().optional(),
   newFormLink: z.boolean().optional(),
+  // v1.19.0 (sem migração; guardado no AuditLog):
+  kanbanSync: z.boolean().optional(),
+  rodizio: z.object({ enabled: z.boolean(), members: z.array(z.string().max(40)).max(50) }).optional(),
+  embedDomains: z.array(z.string().max(200)).max(20).optional(),
 });
 
 sdrRouter.put('/config', admins, ah(async (req, res) => {
@@ -77,14 +83,25 @@ sdrRouter.put('/config', admins, ah(async (req, res) => {
   const cur = await getSdrSettings(orgId);
   const warm = b.warmScore ?? cur.warmScore, hot = b.hotScore ?? cur.hotScore;
   if (warm >= hot) throw badRequest('A nota de "quente" precisa ser maior que a de "morno"');
-  const { questions, newFormLink, ...rest } = b;
+  const { questions, newFormLink, kanbanSync, rodizio, embedDomains, ...rest } = b;
+  if (rodizio) {
+    const ok = await prisma.membership.findMany({ where: { orgId, userId: { in: rodizio.members } }, select: { userId: true } });
+    if (ok.length !== new Set(rodizio.members).size) throw badRequest('Algum membro do rodízio não faz parte da equipe');
+    if (rodizio.enabled && !rodizio.members.length) throw badRequest('Escolha pelo menos um membro para o rodízio');
+  }
+  let v2 = await getV2Config(orgId);
+  const v2patch: Partial<SdrV2Config> = {};
+  if (kanbanSync !== undefined && kanbanSync !== v2.kanbanSync) v2patch.kanbanSync = kanbanSync;
+  if (rodizio && JSON.stringify(rodizio) !== JSON.stringify(v2.rodizio)) v2patch.rodizio = rodizio;
+  if (embedDomains && JSON.stringify(normalizeDomains(embedDomains)) !== JSON.stringify(v2.embedDomains)) v2patch.embedDomains = embedDomains;
+  if (Object.keys(v2patch).length) v2 = await setV2Config(orgId, v2patch, { userId: req.auth?.userId, ip: req.ip });
   const data: Prisma.SdrSettingsUpdateInput = { ...rest };
   if (questions) data.questionsJson = JSON.stringify(normalizeQuestions(questions));
   if (newFormLink) data.formToken = newToken();
   const s = await prisma.sdrSettings.update({ where: { orgId }, data });
   if (b.enabled && !cur.enabled) await ensureCadences(orgId);
   await audit(req, 'sdr.config', { orgId, entity: 'sdr_settings', entityId: orgId, meta: { enabled: s.enabled, autoMode: s.autoMode, autoBook: s.autoBook, newFormLink: !!newFormLink } });
-  res.json(settingsView(s, req));
+  res.json(settingsView(s, req, v2));
 }));
 
 // ---------- Cadências ----------

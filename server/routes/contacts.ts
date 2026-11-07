@@ -9,6 +9,7 @@ import { parseJson } from '../lib/json.js';
 import { listContactAiNotes, AI_NOTE_MAX_LEN } from '../ai/contactNotes.js';
 import { IMPORT_MAX_BYTES, templateCsv, decodeCsv, readSheet, checkRows, annotateSameClient, type CheckedRow } from '../lib/contacts-import.js';
 import { nameKey, siblingsOf, otherNumbersCount } from '../lib/same-client.js';
+import { onKanbanStageChanged } from '../sdr/service.js';
 import { safeSyncContactsToLeads, safeOnContactUpdated, leadIdsOfContact, contactDeletionOps } from '../mckmensagem/contactSync.js';
 
 export const contactsRouter = Router();
@@ -269,6 +270,7 @@ contactsRouter.patch('/:id', ah(async (req, res) => {
     },
   });
   await safeOnContactUpdated(c, u);
+  if (body.stageId !== undefined && u.stageId !== c.stageId) await onKanbanStageChanged(orgId, c.id, u.stageId, { manual: true }); // SDR acompanha (v1.19.0)
   await audit(req, 'contact.update', { entity: 'contact', entityId: c.id, meta: { fields: Object.keys(body) } });
   res.json(view(u));
 }));

@@ -5,8 +5,10 @@ import { parseJson } from '../lib/json.js';
 import {
   DEFAULT_QUESTIONS, SEGMENTS, advanceStage, defaultCadenceSteps, normalizeQuestions, normalizeSteps, normalizeEmail, normalizePhone,
   channelAllowed, stepDueAt, renderTemplate, inBusinessHours, FINAL_STAGES, DAY_MS, segmentLabel,
-  type Stage, type Step, type Question, type Answers, type Source,
+  kanbanNameToStage, type Stage, type Step, type Question, type Answers, type Source,
 } from './core.js';
+import { syncSdrStageToKanban } from './kanbanSync.js';
+import { getV2Config } from './v2config.js';
 import { syncContactsToLeads, leadPhoneOfWaId } from '../mckmensagem/contactSync.js';
 import { sendOutbound } from '../whatsapp/messaging.js';
 import { openConversationFor } from '../whatsapp/multiCanal.js';
@@ -70,15 +72,40 @@ export async function logEvent(orgId: string, leadId: string, type: string, chan
   await prisma.sdrEvent.create({ data: { orgId, leadId, type, channel: channel ?? null, detail: detail ? detail.slice(0, 500) : null } }).catch((e) => console.error('[sdr] falha ao gravar evento', { orgId, leadId, type, error: (e as Error).message }));
 }
 
-export async function setStage(lead: SdrLead, next: Stage, opts: { manual?: boolean } = {}): Promise<SdrLead> {
+export async function setStage(lead: SdrLead, next: Stage, opts: { manual?: boolean; fromKanban?: boolean } = {}): Promise<SdrLead> {
   const stage = opts.manual ? next : advanceStage(lead.stage, next);
   if (stage === lead.stage) return lead;
   const data: Prisma.SdrLeadUpdateInput = { stage };
   // Ganho/perdido encerra a cadência.
   if (FINAL_STAGES.includes(stage) && ['ESPERA', 'ATIVA', 'APROVACAO'].includes(lead.cadenceStatus)) Object.assign(data, { cadenceStatus: 'PARADA', stopReason: stage === 'GANHO' ? 'GANHO' : 'PERDIDO', nextStepAt: null });
   const upd = await prisma.sdrLead.update({ where: { id: lead.id }, data });
-  await logEvent(lead.orgId, lead.id, 'ETAPA', null, `${lead.stage} → ${stage}${opts.manual ? ' (manual)' : ''}`);
+  await logEvent(lead.orgId, lead.id, 'ETAPA', opts.fromKanban ? 'KANBAN' : null, `${lead.stage} → ${stage}${opts.fromKanban ? ' (Kanban do MCKBOT)' : opts.manual ? ' (manual)' : ''}`);
+  // v1.19.0: leva a etapa para o Kanban do MCKBOT (contato ligado). Mudança vinda do próprio Kanban não volta.
+  if (!opts.fromKanban && upd.contactId) {
+    const moved = await syncSdrStageToKanban(upd, stage, { manual: opts.manual });
+    if (moved) await logEvent(lead.orgId, lead.id, 'KANBAN', null, moved);
+  }
   return upd;
+}
+
+/**
+ * Kanban → SDR (v1.19.0): o contato mudou de etapa no Kanban do MCKBOT (arrastado pela equipe, editado no contato ou
+ * por um fluxo). Os leads do SDR ligados a ele acompanham quando o nome da etapa corresponde (Qualificado, Reunião…,
+ * Ganho, Perdido…). `manual` = ação da equipe (pode voltar etapa); automação só anda para a frente. Nunca lança.
+ */
+export async function onKanbanStageChanged(orgId: string, contactId: string, stageId: string | null, opts: { manual?: boolean } = {}) {
+  try {
+    if (!stageId) return;
+    const leads = await prisma.sdrLead.findMany({ where: { orgId, contactId } });
+    if (!leads.length) return;
+    if (!(await getV2Config(orgId)).kanbanSync) return;
+    const st = await prisma.kanbanStage.findFirst({ where: { id: stageId, orgId }, select: { name: true } });
+    const target = st ? kanbanNameToStage(st.name) : null;
+    if (!target) return;
+    for (const l of leads) await setStage(l, target, { manual: !!opts.manual, fromKanban: true });
+  } catch (e) {
+    console.error('[sdr] falha ao trazer a etapa do Kanban', { orgId, error: (e as Error).message });
+  }
 }
 
 // ---------- Entrada de leads ----------

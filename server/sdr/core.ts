@@ -220,3 +220,23 @@ export function normalizePhone(p: unknown): string | null {
 }
 
 export const OPT_OUT_WORDS = /^\s*(sair|parar|pare|stop|descadastrar|cancelar inscri[cç][aã]o)\s*[.!]*\s*$/i;
+
+// ---------- Kanban do MCKBOT (v1.19.0) ----------
+const normName = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
+/** Nome da etapa do Kanban → etapa do SDR (null = não corresponde a nenhuma). */
+export function kanbanNameToStage(name: string): Stage | null {
+  const n = normName(name);
+  if (/^(ganh|won\b|venda fechada|fechad|cliente\b)/.test(n)) return 'GANHO';
+  if (/^(perd|lost\b|venda perdida|cancelad|descartad)/.test(n)) return 'PERDIDO';
+  if (/^(reuniao|demonstracao|demo\b|visita agendada)/.test(n)) return 'REUNIAO';
+  if (/^qualificad/.test(n)) return 'QUALIFICADO';
+  if (/^(respondeu|interessad)/.test(n)) return 'RESPONDEU';
+  if (/^(contatado|em contato|contato feito|abordad)/.test(n)) return 'CONTATADO';
+  if (/^(novo|nova|lead novo|novos)\b/.test(n)) return 'NOVO';
+  return null;
+}
+
+/** Etapa do SDR → etapa existente do Kanban (a primeira, na ordem do funil, cujo nome corresponde). */
+export function kanbanTargetFor<T extends { name: string; position: number }>(stage: Stage, stages: T[]): T | null {
+  return [...stages].sort((a, b) => a.position - b.position).find((s) => kanbanNameToStage(s.name) === stage) ?? null;
+}

@@ -18,7 +18,7 @@ const SOURCE: Record<string, string> = { MANUAL: 'Manual', IMPORTACAO: 'Importa�
 const TEMP: Record<string, { label: string; color: string }> = { FRIO: { label: 'Frio', color: '#3b82f6' }, MORNO: { label: 'Morno', color: '#f59e0b' }, QUENTE: { label: 'Quente', color: '#dc2626' } };
 const CAD: Record<string, string> = { SEM: 'Sem cadência', ESPERA: 'Acompanha se parar de responder', ATIVA: 'Em cadência', APROVACAO: 'Aguardando aprovação', PARADA: 'Parada', CONCLUIDA: 'Concluída' };
 const STOP: Record<string, string> = { RESPONDEU: 'respondeu', AGENDOU: 'reunião marcada', SAIU: 'pediu para sair', MANUAL: 'parada pela equipe', GANHO: 'ganho', PERDIDO: 'perdido' };
-const EVENT: Record<string, string> = { CRIADO: 'Entrou', ETAPA: 'Etapa', ENVIO: 'Mensagem enviada', PULO: 'Passo pulado', FALHA: 'Falha no envio', RESPOSTA: 'Respondeu', QUALIFICACAO: 'Qualificação da IA', QUENTE: '🔥 Lead quente (aviso enviado)', REUNIAO: '📅 Reunião', PARADA: 'Cadência parada', OPTOUT: 'Pediu para sair', NOTA: 'Nota', CADENCIA: 'Cadência', APROVACAO: 'Aguardando aprovação' };
+const EVENT: Record<string, string> = { CRIADO: 'Entrou', ETAPA: 'Etapa', ENVIO: 'Mensagem enviada', PULO: 'Passo pulado', FALHA: 'Falha no envio', RESPOSTA: 'Respondeu', QUALIFICACAO: 'Qualificação da IA', QUENTE: '🔥 Lead quente (aviso enviado)', REUNIAO: '📅 Reunião', PARADA: 'Cadência parada', OPTOUT: 'Pediu para sair', NOTA: 'Nota', CADENCIA: 'Cadência', APROVACAO: 'Aguardando aprovação', KANBAN: 'Kanban do MCKBOT', DONO: 'Responsável' };
 
 function Temp({ t, score }: { t: string; score?: number }) {
   const x = TEMP[t] ?? TEMP.FRIO;
@@ -298,7 +298,7 @@ function LeadModal({ id, onClose }: { id: string; onClose: () => void }) {
           </form>
           <div className="stack">
             <strong>Histórico</strong>
-            {l.events.map((e: any) => <div key={e.id} className="small"><span className="muted">{fmtDate(e.createdAt)}</span> · {EVENT[e.type] ?? e.type}{e.channel ? ` (${e.channel === 'EMAIL' ? 'e-mail' : e.channel === 'WHATSAPP' ? 'WhatsApp' : SOURCE[e.channel] ?? e.channel})` : ''}{e.detail ? `: ${e.detail}` : ''}</div>)}
+            {l.events.map((e: any) => <div key={e.id} className="small"><span className="muted">{fmtDate(e.createdAt)}</span> · {EVENT[e.type] ?? e.type}{e.channel ? ` (${e.channel === 'EMAIL' ? 'e-mail' : e.channel === 'WHATSAPP' ? 'WhatsApp' : e.channel === 'KANBAN' ? 'Kanban' : SOURCE[e.channel] ?? e.channel})` : ''}{e.detail ? `: ${e.detail}` : ''}</div>)}
           </div>
         </div>
       )}</Async>
@@ -365,7 +365,7 @@ function Config({ onSaved }: { onSaved: () => void }) {
   useEffect(() => { if (state.data) setV(state.data); }, [state.data]);
   if (!v) return <Async state={state}>{() => null}</Async>;
   const save = async (extra: Record<string, unknown> = {}) => {
-    const body = { enabled: v.enabled, autoMode: v.autoMode, captureWhatsapp: v.captureWhatsapp, autoBook: v.autoBook, segment: v.segment, questions: v.questions, warmScore: Number(v.warmScore), hotScore: Number(v.hotScore), workStart: v.workStart, workEnd: v.workEnd, workDays: v.workDays, dailyLimit: Number(v.dailyLimit), silenceHours: Number(v.silenceHours), formEnabled: v.formEnabled, formTitle: v.formTitle, alertHot: v.alertHot, ...extra };
+    const body = { enabled: v.enabled, autoMode: v.autoMode, captureWhatsapp: v.captureWhatsapp, autoBook: v.autoBook, segment: v.segment, questions: v.questions, warmScore: Number(v.warmScore), hotScore: Number(v.hotScore), workStart: v.workStart, workEnd: v.workEnd, workDays: v.workDays, dailyLimit: Number(v.dailyLimit), silenceHours: Number(v.silenceHours), formEnabled: v.formEnabled, formTitle: v.formTitle, alertHot: v.alertHot, kanbanSync: v.kanbanSync, ...extra };
     const r = await run(() => put('/sdr/config', body), 'Configuração salva');
     if (r) { state.setData(r); onSaved(); }
   };
@@ -379,6 +379,7 @@ function Config({ onSaved }: { onSaved: () => void }) {
         {toggle('autoMode', 'Modo automático', 'Cadência, qualificação, funil e reuniões sem aprovar cada passo. Desligue para aprovar cada envio manualmente.')}
         {toggle('captureWhatsapp', 'Quem chama no WhatsApp vira lead', 'Só contatos novos; quem pediu para sair nunca entra.')}
         {toggle('autoBook', 'A IA marca a reunião sozinha', 'Com confirmação do lead, nos horários livres da Agenda (lembrete pela própria Agenda).')}
+        {toggle('kanbanSync', 'Acompanhar o Kanban do MCKBOT', 'A etapa do lead e a do contato no Kanban andam juntas (Novo, Contatado, Respondeu, Qualificado, Reunião, Ganho, Perdido), quando o Kanban tem uma etapa com esse nome.')}
         {toggle('alertHot', 'Avisar quando um lead ficar quente', 'Pelos Números de aviso (Perfil › Organização) e no painel. A conversa NÃO é transferida.')}
       </div>
       <div className="card stack">
