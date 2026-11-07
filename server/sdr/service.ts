@@ -5,7 +5,7 @@ import { parseJson } from '../lib/json.js';
 import {
   DEFAULT_QUESTIONS, SEGMENTS, advanceStage, defaultCadenceSteps, normalizeQuestions, normalizeSteps, normalizeEmail, normalizePhone,
   channelAllowed, stepDueAt, renderTemplate, inBusinessHours, FINAL_STAGES, DAY_MS, segmentLabel,
-  kanbanNameToStage, type Stage, type Step, type Question, type Answers, type Source,
+  kanbanNameToStage, stepTag, type Stage, type Step, type Question, type Answers, type Source,
 } from './core.js';
 import { syncSdrStageToKanban } from './kanbanSync.js';
 import { getV2Config } from './v2config.js';
@@ -421,7 +421,7 @@ export async function runStep(lead: SdrLead, s: SdrSettings, now = new Date(), o
     if (fresh.optOutAt || fresh.cadenceStatus === 'PARADA') return { lead: fresh, sent: false };
     return { lead: await advance(fresh, steps, fresh.cadenceStep), sent: false };
   }
-  await logEvent(cur.orgId, cur.id, 'ENVIO', step.canal, `Passo do dia ${step.dia}${opts.approved ? ' (aprovado)' : ''}`);
+  await logEvent(cur.orgId, cur.id, 'ENVIO', step.canal, `${stepTag(cur.cadenceId, cur.cadenceStep)}Passo do dia ${step.dia}${opts.approved ? ' (aprovado)' : ''}`);
   cur = await prisma.sdrLead.update({ where: { id: cur.id }, data: { lastContactAt: now } });
   cur = await setStage(cur, 'CONTATADO');
   return { lead: await advance(cur, steps, cur.cadenceStep), sent: true };

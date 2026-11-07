@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { Fragment, useEffect, useState, type FormEvent } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { post, put, patch } from '../api';
 import { useAuth } from '../auth';
@@ -64,7 +64,7 @@ export default function Sdr() {
         return (
           <>
             <div className="tabs" role="tablist">
-              {[['painel', 'Painel'], ['funil', 'Funil'], ['leads', 'Leads'], ['cadencias', 'Cadências'], ['config', 'Configuração']].map(([k, l]) => (
+              {[['painel', 'Painel'], ['funil', 'Funil'], ['leads', 'Leads'], ['cadencias', 'Cadências'], ['relatorios', 'Relatórios'], ['config', 'Configuração']].map(([k, l]) => (
                 <button key={k} role="tab" aria-selected={tab === k} className={tab === k ? 'on' : ''} onClick={() => setTab(k)}>{l}</button>
               ))}
               <span className="small muted" style={{ marginLeft: 'auto', alignSelf: 'center' }}>{a.autoMode ? '⚡ Modo automático ligado' : '✋ Aprovação manual de cada envio'}</span>
@@ -73,6 +73,7 @@ export default function Sdr() {
             {tab === 'funil' && <Funil open={openLead} />}
             {tab === 'leads' && <Leads open={openLead} />}
             {tab === 'cadencias' && <Cadencias />}
+            {tab === 'relatorios' && <Relatorios />}
             {tab === 'config' && <Config onSaved={acesso.reload} />}
             {leadId && <LeadModal id={leadId} onClose={() => openLead(null)} />}
           </>
@@ -303,6 +304,44 @@ function LeadModal({ id, onClose }: { id: string; onClose: () => void }) {
         </div>
       )}</Async>
     </Modal>
+  );
+}
+
+function Relatorios() {
+  const [dias, setDias] = useState(30);
+  const state = useApi<any>(`/sdr/relatorio?dias=${dias}`, [dias]);
+  const [aberta, setAberta] = useState<string | null>(null);
+  const pct = (a: number, b: number) => (b ? `${Math.round((a / b) * 100)}%` : '—');
+  return (
+    <div className="stack">
+      <div className="row">
+        <select aria-label="Período" value={dias} onChange={(e) => setDias(Number(e.target.value))} style={{ width: 160 }}>
+          {[7, 30, 90, 180, 365].map((d) => <option key={d} value={d}>Últimos {d} dias</option>)}
+        </select>
+        <a className="btn sm" href={`/api/sdr/relatorio.csv?dias=${dias}`} download>⬇ Baixar CSV</a>
+        <span className="small muted">Resposta, reunião e descadastro contam para o último passo enviado antes deles.</span>
+      </div>
+      <Async state={state}>{(d) => d.cadencias.length ? (
+        <div className="card table-wrap"><table>
+          <thead><tr><th>Cadência</th><th>Leads</th><th>Enviados</th><th>Respondidos</th><th>Agendados</th><th>Descadastros</th><th>Taxa de resposta</th><th /></tr></thead>
+          <tbody>{d.cadencias.map((c: any) => (
+            <Fragment key={c.id}>
+              <tr>
+                <td><strong>{c.name}</strong><div className="small muted">{c.segmentLabel}</div></td>
+                <td>{c.leads}</td><td>{c.enviados}</td><td>{c.respondidos}</td><td>{c.agendados}</td><td>{c.descadastros}</td><td>{c.taxaResposta}%</td>
+                <td><button className="btn sm ghost" onClick={() => setAberta(aberta === c.id ? null : c.id)}>{aberta === c.id ? 'Fechar' : 'Por passo'}</button></td>
+              </tr>
+              {aberta === c.id && c.passos.map((p: any) => (
+                <tr key={`${c.id}-${p.indice}`} className="small">
+                  <td style={{ paddingLeft: 24 }}>Passo {p.indice + 1}{p.dia !== null ? ` · dia ${p.dia}` : ''}{p.canal ? ` · ${p.canal === 'EMAIL' ? 'e-mail' : 'WhatsApp'}` : ''}</td>
+                  <td /><td>{p.enviados}</td><td>{p.respondidos}</td><td>{p.agendados}</td><td>{p.descadastros}</td><td>{pct(p.respondidos, p.enviados)}</td><td />
+                </tr>
+              ))}
+            </Fragment>
+          ))}</tbody>
+        </table></div>
+      ) : <Empty title="Nenhum envio no período"><p className="small muted">Os números aparecem quando as cadências começarem a enviar.</p></Empty>}</Async>
+    </div>
   );
 }
 

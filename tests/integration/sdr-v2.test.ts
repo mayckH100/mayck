@@ -1,12 +1,15 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import { app, registerClient, Client, prisma, uniq } from '../helpers.js';
 import { syncSdrStageToKanban } from '../../server/sdr/kanbanSync.js';
+import { tickSdr, registerReply, getSdrSettings } from '../../server/sdr/service.js';
+import { outbox } from '../../server/lib/mailer.js';
+import request from 'supertest';
 
 /** SDR v2 (v1.19.0): Kanban, rodízio, relatórios, resposta por e-mail e formulário incorporável. */
 const ALL_DAY = { workStart: '00:00', workEnd: '23:59', workDays: '0,1,2,3,4,5,6' };
 const phone = () => `55119${Math.floor(10000000 + Math.random() * 89999999)}`;
 const lead = (id: string) => prisma.sdrLead.findUniqueOrThrow({ where: { id } });
-void app;
+const DAY = 24 * 3600 * 1000;
 
 describe('SDR v2', () => {
   let a: Client;
@@ -90,5 +93,29 @@ describe('SDR v2', () => {
     expect(d.body.distribuidos).toBeGreaterThanOrEqual(1);
     expect((await lead(semDono.body.id)).ownerUserId).toBeTruthy();
     await a.put('/api/sdr/config', { rodizio: { enabled: false, members: [] } });
+  });
+
+  it('3) relatório por cadência e por passo, com CSV', async () => {
+    const email = `${uniq('rel')}@cliente.com.br`;
+    const r = await a.post('/api/sdr/leads', { name: 'Rel', email, consent: true, segment: 'seguros' });
+    await tickSdr(new Date(Date.now() + DAY + 1000)); // dia 0 (WhatsApp) pulado: sem telefone; dia 1: e-mail
+    expect(outbox.some((m) => m.to === email && m.kind === 'sdr')).toBe(true);
+    const ev = await prisma.sdrEvent.findFirstOrThrow({ where: { leadId: r.body.id, type: 'ENVIO' } });
+    expect(ev.detail).toMatch(/^\[c:[^#]+#1\] Passo do dia 1/);
+    await registerReply(await lead(r.body.id), 'EMAIL', await getSdrSettings(orgA()));
+    const rel = await a.get('/api/sdr/relatorio?dias=7');
+    expect(rel.status).toBe(200);
+    const c = rel.body.cadencias.find((x: any) => x.segment === 'seguros');
+    expect(c).toMatchObject({ leads: 1, enviados: 1, respondidos: 1, taxaResposta: 100, segmentLabel: 'Corretora de seguros' });
+    expect(c.passos[1]).toMatchObject({ indice: 1, canal: 'EMAIL', enviados: 1, respondidos: 1 });
+    // Histórico do lead sem a marca interna.
+    const h = await a.get(`/api/sdr/leads/${r.body.id}`);
+    expect(h.body.events.find((e: any) => e.type === 'ENVIO').detail).toBe('Passo do dia 1');
+    const csv = await a.get('/api/sdr/relatorio.csv?dias=7');
+    expect(csv.status).toBe(200);
+    expect(csv.headers['content-type']).toContain('text/csv');
+    expect(csv.headers['content-disposition']).toContain('sdr-cadencias-7-dias.csv');
+    expect(csv.text).toContain('Corretora de seguros;Total;;;1;1;1;0;0;100');
+    expect((await request(app).get('/api/sdr/relatorio.csv')).status).toBe(401);
   });
 });

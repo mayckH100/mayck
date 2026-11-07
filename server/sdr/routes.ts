@@ -10,7 +10,7 @@ import { appUrl } from '../lib/mailer.js';
 import { parseJson } from '../lib/json.js';
 import { createAppointment, ConflictError } from '../agenda/service.js';
 import { parseLocal } from '../agenda/time.js';
-import { cleanEventDetail, STAGES, STAGE_LABEL, SEGMENTS, VARIABLES, normalizeQuestions, normalizeSteps, defaultCadenceSteps, segmentLabel, type Stage } from './core.js';
+import { buildCadenceReport, cadenceReportCsv, parseStepTag, cleanEventDetail, STAGES, STAGE_LABEL, SEGMENTS, VARIABLES, normalizeQuestions, normalizeSteps, defaultCadenceSteps, segmentLabel, type Stage } from './core.js';
 import { getSdrPlans, sdrAccess, setSdrPlans } from './access.js';
 import {
   assignByRotation, getSdrSettings, questionsOf, ensureCadences, stepsOf, upsertLead, leadView, logEvent, setStage, stopCadence, enroll, runStep, newToken,
@@ -375,6 +375,38 @@ sdrRouter.get('/painel', ah(async (req, res) => {
     aprovar: waiting.map((l) => ({ id: l.id, name: l.name, company: l.company, temperature: l.temperature, score: l.score })),
     quentes: hot.map((l) => ({ id: l.id, name: l.name, company: l.company, score: l.score, aiSummary: l.aiSummary, hotAlertAt: l.hotAlertAt })),
   });
+}));
+
+// ---------- Relatórios por cadência e por passo (v1.19.0) ----------
+async function cadenceReport(req: Request) {
+  const orgId = orgOf(req);
+  const dias = Math.min(365, Math.max(1, Number(req.query.dias) || 30));
+  const tz = await tzOf(orgId);
+  const since = new Date(startOfDayIn(new Date(), tz).getTime() - (dias - 1) * 86400e3);
+  // 60 dias antes do período: só para saber qual passo foi o último enviado antes de uma resposta.
+  const from = new Date(since.getTime() - 60 * 86400e3);
+  const [events, cads] = await Promise.all([
+    prisma.sdrEvent.findMany({ where: { orgId, createdAt: { gte: from }, type: { in: ['ENVIO', 'RESPOSTA', 'REUNIAO', 'OPTOUT'] } }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }], take: 100_000, select: { leadId: true, type: true, detail: true, createdAt: true } }),
+    prisma.sdrCadence.findMany({ where: { orgId } }),
+  ]);
+  const untagged = [...new Set(events.filter((e) => e.type === 'ENVIO' && !parseStepTag(e.detail)).map((e) => e.leadId))];
+  const leads = untagged.length ? await prisma.sdrLead.findMany({ where: { orgId, id: { in: untagged } }, select: { id: true, cadenceId: true } }) : [];
+  const rows = buildCadenceReport(events, since, cads.map((c) => ({ id: c.id, name: c.name, segment: c.segment, steps: stepsOf(c) })), new Map(leads.map((l) => [l.id, l.cadenceId])));
+  return { dias, since, rows };
+}
+
+sdrRouter.get('/relatorio', ah(async (req, res) => {
+  const r = await cadenceReport(req);
+  res.json({ dias: r.dias, desde: r.since, cadencias: r.rows.map((c) => ({ ...c, segmentLabel: segmentLabel(c.segment) })) });
+}));
+
+sdrRouter.get('/relatorio.csv', ah(async (req, res) => {
+  const r = await cadenceReport(req);
+  await audit(req, 'sdr.relatorio.exportar', { orgId: orgOf(req), entity: 'sdr_cadence', meta: { dias: r.dias } });
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="sdr-cadencias-${r.dias}-dias.csv"`);
+  res.setHeader('Cache-Control', 'no-store');
+  res.send(cadenceReportCsv(r.rows));
 }));
 
 // ---------- Painel Master: SDR por plano (superadmin) ----------

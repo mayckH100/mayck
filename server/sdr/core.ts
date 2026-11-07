@@ -243,3 +243,105 @@ export function kanbanTargetFor<T extends { name: string; position: number }>(st
 
 /** Tira as marcas internas do começo do texto do histórico ([u:…] dono do rodízio, [c:…#n] cadência e passo). */
 export const cleanEventDetail = (d: string | null | undefined): string | null => (d ? d.replace(/^(\[[a-z]:[^\]]{1,80}\]\s*)+/, '') || null : null);
+
+// ---------- Relatórios por cadência e por passo (v1.19.0) ----------
+/** Marca interna gravada no histórico de cada envio: cadência e índice do passo ("[c:<id>#<n>]"). */
+export const stepTag = (cadenceId: string | null | undefined, step: number) => (cadenceId ? `[c:${cadenceId}#${step}] ` : '');
+export function parseStepTag(detail: string | null | undefined): { cadenceId: string; step: number } | null {
+  const m = /^\[c:([^#\]]{1,60})#(\d{1,3})\]/.exec(detail ?? '');
+  return m ? { cadenceId: m[1], step: Number(m[2]) } : null;
+}
+
+export interface ReportEvent { leadId: string; type: string; detail: string | null; createdAt: Date }
+export interface StepStats { indice: number; dia: number | null; canal: Channel | null; enviados: number; respondidos: number; agendados: number; descadastros: number }
+export interface CadenceStats { id: string; name: string; segment: string; leads: number; enviados: number; respondidos: number; agendados: number; descadastros: number; taxaResposta: number; passos: StepStats[] }
+
+/**
+ * Junta o histórico em números por cadência e por passo. Resposta, reunião e descadastro contam uma vez por lead e
+ * cadência, para o último passo enviado antes deles (quem respondeu antes de receber qualquer passo não conta).
+ * `events` em ordem de data; os anteriores a `since` só servem para saber o último passo enviado.
+ * Envios antigos sem marca usam a cadência atual do lead e o passo pelo "dia N" do texto.
+ */
+export function buildCadenceReport(
+  events: ReportEvent[], since: Date,
+  cadences: { id: string; name: string; segment: string; steps: Step[] }[], leadCadence: Map<string, string | null>,
+): CadenceStats[] {
+  const out = new Map<string, CadenceStats>();
+  const leadsIn = new Map<string, Set<string>>();
+  const cadOf = new Map(cadences.map((c) => [c.id, c]));
+  const stat = (cadId: string) => {
+    let s = out.get(cadId);
+    if (!s) {
+      const c = cadOf.get(cadId);
+      s = { id: cadId, name: c?.name ?? 'Cadência apagada', segment: c?.segment ?? 'geral', leads: 0, enviados: 0, respondidos: 0, agendados: 0, descadastros: 0, taxaResposta: 0,
+        passos: (c?.steps ?? []).map((st, i) => ({ indice: i, dia: st.dia, canal: st.canal, enviados: 0, respondidos: 0, agendados: 0, descadastros: 0 })) };
+      out.set(cadId, s);
+      leadsIn.set(cadId, new Set());
+    }
+    return s;
+  };
+  const passo = (s: CadenceStats, i: number) => {
+    let p = s.passos.find((x) => x.indice === i);
+    if (!p) { p = { indice: i, dia: null, canal: null, enviados: 0, respondidos: 0, agendados: 0, descadastros: 0 }; s.passos.push(p); s.passos.sort((a, b) => a.indice - b.indice); }
+    return p;
+  };
+  const last = new Map<string, { cadenceId: string; step: number }>();
+  const done = new Set<string>();
+  const KEY: Record<string, 'respondidos' | 'agendados' | 'descadastros'> = { RESPOSTA: 'respondidos', REUNIAO: 'agendados', OPTOUT: 'descadastros' };
+  for (const e of events) {
+    const inPeriod = e.createdAt >= since;
+    if (e.type === 'ENVIO') {
+      let t = parseStepTag(e.detail);
+      if (!t) {
+        const cadId = leadCadence.get(e.leadId);
+        const dia = Number(/dia (\d+)/.exec(e.detail ?? '')?.[1]);
+        const i = cadId ? (cadOf.get(cadId)?.steps ?? []).findIndex((st) => st.dia === dia) : -1;
+        t = cadId && i >= 0 ? { cadenceId: cadId, step: i } : null;
+      }
+      if (!t) continue;
+      last.set(e.leadId, t);
+      if (!inPeriod) continue;
+      const s = stat(t.cadenceId);
+      s.enviados++;
+      passo(s, t.step).enviados++;
+      leadsIn.get(t.cadenceId)!.add(e.leadId);
+      continue;
+    }
+    const k = KEY[e.type];
+    const t = last.get(e.leadId);
+    if (!k || !t || !inPeriod) continue;
+    const once = `${k}:${e.leadId}:${t.cadenceId}`;
+    if (done.has(once)) continue;
+    done.add(once);
+    const s = stat(t.cadenceId);
+    s[k]++;
+    passo(s, t.step)[k]++;
+    leadsIn.get(t.cadenceId)!.add(e.leadId);
+  }
+  for (const [id, s] of out) {
+    s.leads = leadsIn.get(id)!.size;
+    s.taxaResposta = s.leads ? Math.round((s.respondidos / s.leads) * 100) : 0;
+  }
+  return [...out.values()].sort((a, b) => b.enviados - a.enviados || a.name.localeCompare(b.name));
+}
+
+/** Célula de CSV (separador ";"): aspas quando precisa e proteção contra fórmula em planilhas. */
+export function csvCell(v: unknown): string {
+  let s = v === null || v === undefined ? '' : String(v);
+  if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`;
+  return /[";\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+
+export function cadenceReportCsv(rows: CadenceStats[]): string {
+  const head = ['Cadência', 'Segmento', 'Passo', 'Dia', 'Canal', 'Leads', 'Enviados', 'Respondidos', 'Agendados', 'Descadastros', 'Taxa de resposta (%)'];
+  const lines = [head.map(csvCell).join(';')];
+  const canal = (c: Channel | null) => (c === 'EMAIL' ? 'E-mail' : c === 'WHATSAPP' ? 'WhatsApp' : '');
+  for (const r of rows) {
+    lines.push([r.name, segmentLabel(r.segment), 'Total', '', '', r.leads, r.enviados, r.respondidos, r.agendados, r.descadastros, r.taxaResposta].map(csvCell).join(';'));
+    for (const p of r.passos) {
+      const taxa = p.enviados ? Math.round((p.respondidos / p.enviados) * 100) : 0;
+      lines.push([r.name, segmentLabel(r.segment), p.indice + 1, p.dia ?? '', canal(p.canal), '', p.enviados, p.respondidos, p.agendados, p.descadastros, taxa].map(csvCell).join(';'));
+    }
+  }
+  return '\uFEFF' + lines.join('\r\n') + '\r\n';
+}
