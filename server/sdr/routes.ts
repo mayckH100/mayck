@@ -12,7 +12,8 @@ import { parseJson } from '../lib/json.js';
 import { createAppointment, ConflictError } from '../agenda/service.js';
 import { parseLocal } from '../agenda/time.js';
 import { buildCadenceReport, cadenceReportCsv, parseStepTag, cleanEventDetail, STAGES, STAGE_LABEL, SEGMENTS, VARIABLES, normalizeQuestions, normalizeSteps, defaultCadenceSteps, segmentLabel, type Stage } from './core.js';
-import { getSdrPlans, sdrAccess, setSdrPlans } from './access.js';
+import { getSdrPlans, sdrAccess, setSdrPlans, qualificacaoAccess } from './access.js';
+import { hasModule } from '../lib/permissions.js';
 import {
   assignByRotation, getSdrSettings, questionsOf, ensureCadences, stepsOf, upsertLead, leadView, logEvent, setStage, stopCadence, enroll, runStep, newToken,
 } from './service.js';
@@ -47,7 +48,10 @@ async function tzOf(orgId: string) {
 sdrRouter.get('/acesso', ah(async (req, res) => {
   const a = await sdrAccess(orgOf(req), !!req.auth?.isSuperAdmin);
   const s = a.liberado ? await getSdrSettings(orgOf(req)) : null;
-  res.json({ ...a, enabled: !!s?.enabled, autoMode: s?.autoMode ?? true });
+  // v1.20.0: etapa de qualificação (antiga IA de qualificação do MCK Mensagens) — também para quem tem só o MCK Mensagens.
+  const q = await qualificacaoAccess(orgOf(req), !!req.auth?.isSuperAdmin);
+  const podeQuali = (req.auth?.role === 'OWNER' || req.auth?.role === 'ADMIN') && (hasModule(req, 'sdr') || hasModule(req, 'mensagens'));
+  res.json({ ...a, enabled: !!s?.enabled, autoMode: s?.autoMode ?? true, qualificacao: { liberado: q.liberado && podeQuali, leitura: q.leitura && podeQuali, motivo: q.motivo }, modulo: hasModule(req, 'sdr') });
 }));
 
 function settingsView(s: Awaited<ReturnType<typeof getSdrSettings>>, req: Request, v2: SdrV2Config) {

@@ -73,6 +73,12 @@ export async function logEvent(orgId: string, leadId: string, type: string, chan
 }
 
 export async function setStage(lead: SdrLead, next: Stage, opts: { manual?: boolean; fromKanban?: boolean } = {}): Promise<SdrLead> {
+  // Automação só anda para a frente: compara com a etapa atual do banco (outro processo pode ter avançado o lead,
+  // ex.: qualificação da campanha e a resposta no WhatsApp ao mesmo tempo — v1.20.0).
+  if (!opts.manual) {
+    const fresh = await prisma.sdrLead.findUnique({ where: { id: lead.id } });
+    if (fresh) lead = fresh;
+  }
   const stage = opts.manual ? next : advanceStage(lead.stage, next);
   if (stage === lead.stage) return lead;
   const data: Prisma.SdrLeadUpdateInput = { stage };
@@ -289,6 +295,30 @@ export async function onSdrMeeting(orgId: string, contactId: string, appointment
     }
   } catch (e) {
     console.error('[sdr] falha ao registrar reunião', { orgId, error: (e as Error).message });
+  }
+}
+
+/**
+ * Etapa de qualificação (v1.20.0): a resposta de uma campanha do MCK Mensagens foi classificada pela qualificação do
+ * SDR com IA. Os leads do SDR da mesma pessoa (quando existem e o SDR está liberado) ganham o registro no histórico e
+ * andam no funil (interessado → Qualificado; sem interesse/dúvida → Respondeu). Não cria lead nem cadência, não envia
+ * nada (o motor das campanhas já respondeu). O pedido para sair segue pelo hook de opt-out. Nunca lança.
+ */
+export async function onCampaignQualified(orgId: string, contact: { id: string; waId: string }, intent: string, summary?: string | null) {
+  try {
+    if (intent === 'SAIR' || !(await sdrLiberadoCached(orgId))) return;
+    const phone = leadPhoneOfWaId(contact.waId);
+    const or: Prisma.SdrLeadWhereInput[] = [{ contactId: contact.id }];
+    if (phone) or.push({ phone });
+    const leads = await prisma.sdrLead.findMany({ where: { orgId, optOutAt: null, OR: or } });
+    const label = intent === 'POSITIVO' ? 'interessado' : intent === 'NEGATIVO' ? 'sem interesse agora' : 'com dúvida';
+    for (let l of leads) {
+      await logEvent(orgId, l.id, 'QUALIFICACAO', 'WHATSAPP', `Resposta de campanha: ${label}${summary ? ` (${summary})` : ''}`);
+      if (summary && !l.aiSummary) l = await prisma.sdrLead.update({ where: { id: l.id }, data: { aiSummary: summary.slice(0, 200) } });
+      await setStage(l, intent === 'POSITIVO' ? 'QUALIFICADO' : 'RESPONDEU');
+    }
+  } catch (e) {
+    console.error('[sdr] falha ao registrar a qualificação da campanha', { orgId, error: (e as Error).message });
   }
 }
 

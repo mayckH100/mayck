@@ -7,6 +7,7 @@ import { mckQuotaStatus } from '../ai/mckQuota.js';
 import { leadPhoneOfWaId } from '../mckmensagem/contactSync.js';
 import { answeredCount, computeScore, mergeAnswers, parseExtraction, temperatureOf, OPT_OUT_WORDS, type Answers, type Question } from './core.js';
 import { sdrLiberadoCached } from './access.js';
+import { getQualificacao, qualiPromptLines } from './qualificacao.js';
 import { alertHot, getSdrSettings, questionsOf, registerReply, setStage, upsertLead, logEvent } from './service.js';
 
 /**
@@ -46,6 +47,8 @@ export async function sdrPromptSection(orgId: string, conversationId: string): P
       '- Primeiro responda o que o cliente perguntou. Depois, de forma natural e sem interrogatório, descubra UMA das informações que ainda faltam (no máximo uma pergunta por resposta).',
       '- Nunca diga que está "qualificando" nem fale de pontuação. Nunca transfira para um atendente por causa disso.',
     ];
+    // v1.20.0: abordagem e próximo passo da etapa de qualificação (antiga IA de qualificação do MCK Mensagens).
+    lines.push(...qualiPromptLines((await getQualificacao(orgId)).config));
     if (missing.length) lines.push('Ainda falta saber:', ...missing.map((q) => `- ${q.pergunta}`));
     else lines.push('- Todas as informações já foram coletadas: foque em ajudar e no próximo passo.');
     if (c.s.autoMode && c.s.autoBook && c.lead.stage !== 'REUNIAO' && c.lead.temperature !== 'FRIO') {

@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
 import { registerClient, Client, createTestChannel, installGraphMock, graph, sendInbound, sentTexts, prisma } from '../helpers.js';
 import { tickLeadRetries, parseQualifyOutput } from '../../server/mckmensagem/qualificacao.js';
+import { saveQualificacao } from '../../server/sdr/qualificacao.js';
 
 describe('MCK Mensagens — IA de qualificação de leads', () => {
   let owner: Client;
@@ -125,12 +126,12 @@ describe('MCK Mensagens — IA de qualificação de leads', () => {
   });
 
   it('dúvida com ação "Fluxo" cujo fluxo foi apagado: a IA responde a dúvida em vez de deixar o lead sem resposta', async () => {
-    await prisma.leadAiSettings.update({ where: { orgId: orgId() }, data: { doubtAction: 'FLOW', doubtFlowId: 'fluxo-apagado' } });
+    await saveQualificacao(orgId(), { doubtAction: 'FLOW', doubtFlowId: 'fluxo-apagado' }); // v1.20.0: configuração única do SDR
     const id = await leadContatado('5511933330099', 'Duda');
     await sendInbound(ctx, '5511933330099', 'como funciona o pagamento?');
     expect((await prisma.lead.findUniqueOrThrow({ where: { id } })).lastIntent).toBe('DUVIDA');
     expect(sentTexts()).toContain('Resposta duvida da IA');
-    await prisma.leadAiSettings.update({ where: { orgId: orgId() }, data: { doubtAction: 'AI', doubtFlowId: null } });
+    await saveQualificacao(orgId(), { doubtAction: 'AI', doubtFlowId: null });
   });
 
   it('positivo aplica a etiqueta e remove as outras; negativo no limite troca para a de descartado', async () => {

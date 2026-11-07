@@ -12,7 +12,7 @@ import { contactIdForPhone, mirrorLeadsToContacts } from './contactSync.js';
 import { parseCsv, detectDelimiter, mapHeaderCell, rowFromCells, MAX_PHONES_PER_ROW, type HeaderCol } from '../lib/contacts-import.js';
 import { nameKey, siblingsOf, otherNumbersCount } from '../lib/same-client.js';
 import { mckIaReady } from '../ai/mckIa.js';
-import { getLeadAiSettings, classifyLeadMessage, buildQualifyPrompt, DEFAULT_PROMPT_TEMPLATE, PROMPT_VARIABLES, lockedPromptTail } from './qualificacao.js';
+import { qualiView, saveQualiFromRequest, testQuali } from '../sdr/qualificacaoRoutes.js';
 
 export const mckmensagemRouter = Router();
 
@@ -557,76 +557,20 @@ mckmensagemRouter.get('/metrics', ah(async (req, res) => {
   });
 }));
 
-// ---------------- IA de qualificação de leads ----------------
-
-const leadAiSchema = z.object({
-  enabled: z.boolean().optional(),
-  instructions: z.string().max(4000).optional(),
-  offer: z.string().max(1000).optional(),
-  positiveAction: z.enum(['HANDOFF', 'FLOW', 'BOT']).optional(),
-  positiveFlowId: z.string().max(40).nullable().optional(),
-  retryDays: z.number().int().min(1).max(60).optional(),
-  maxAttempts: z.number().int().min(1).max(10).optional(),
-  retryMessage: z.string().trim().min(1).max(1000).optional(),
-  promptTemplate: z.string().max(8000).nullable().optional(),
-  positiveMessage: z.string().max(1000).optional(),
-  negativeAction: z.enum(['RETRY', 'FLOW', 'HANDOFF', 'DISCARD']).optional(),
-  negativeFlowId: z.string().max(40).nullable().optional(),
-  doubtAction: z.enum(['AI', 'FLOW', 'HANDOFF']).optional(),
-  doubtFlowId: z.string().max(40).nullable().optional(),
-  tagPositive: z.string().trim().max(40).optional(),
-  tagWaiting: z.string().trim().max(40).optional(),
-  tagDiscarded: z.string().trim().max(40).optional(),
-});
-
-async function leadAiView(orgId: string) {
-  const [settings, flows, ai, aguardando, qualificados] = await Promise.all([
-    getLeadAiSettings(orgId),
-    prisma.flow.findMany({ where: { orgId, status: 'ACTIVE' }, select: { id: true, name: true }, orderBy: { name: 'asc' } }),
-    prisma.aiSettings.findUnique({ where: { orgId } }),
-    prisma.lead.count({ where: { orgId, status: 'AGUARDANDO' } }),
-    prisma.lead.count({ where: { orgId, status: 'QUALIFICADO' } }),
-  ]);
-  return {
-    settings, flows, aiReady: !!(ai?.apiKeyEnc || ai?.provider === 'fake' || (ai?.provider === 'mck' && mckIaReady())), aiProvider: ai?.provider ?? null, aiModel: ai?.model ?? null,
-    counts: { aguardando, qualificados },
-    defaultPromptTemplate: DEFAULT_PROMPT_TEMPLATE, promptVariables: PROMPT_VARIABLES, lockedPrompt: lockedPromptTail('(trechos da base de conhecimento)').trim(),
-    prompt: buildQualifyPrompt(settings as any, { tone: ai?.tone ?? '', companyInstructions: ai?.instructions ?? '', knowledge: '(trechos da base de conhecimento encontrados para a mensagem do lead)', leadName: '{nome}', attempts: 0, maxAttempts: settings.maxAttempts }),
-  };
-}
+// ---------------- Qualificação (SDR com IA, v1.20.0) ----------------
+// Rota antiga mantida por compatibilidade (apps abertos antes do deploy): mesma tela/configuração do SDR
+// (server/sdr/qualificacaoRoutes.ts). Fonte de verdade: a etapa de qualificação do SDR.
 
 mckmensagemRouter.get('/ia-leads', ah(async (req, res) => {
-  res.json(await leadAiView(orgOf(req)));
+  res.json(await qualiView(orgOf(req)));
 }));
 
 mckmensagemRouter.put('/ia-leads', ah(async (req, res) => {
-  const orgId = orgOf(req);
-  const data = leadAiSchema.parse(req.body);
-  if (data.promptTemplate !== undefined) {
-    const t = data.promptTemplate?.trim() ?? '';
-    data.promptTemplate = !t || t === DEFAULT_PROMPT_TEMPLATE.trim() ? null : t;
-  }
-  const cur = await getLeadAiSettings(orgId);
-  const checkFlow = async (action: string | undefined, flowId: string | null | undefined, fallback: string | null, label: string) => {
-    if (action !== 'FLOW') return;
-    const id = flowId === undefined ? fallback : flowId;
-    if (!id || !(await prisma.flow.findFirst({ where: { id, orgId } }))) throw new HttpError(400, `Escolha o fluxo para ${label}`);
-  };
-  await checkFlow(data.positiveAction, data.positiveFlowId, cur.positiveFlowId, 'o lead interessado');
-  await checkFlow(data.negativeAction, data.negativeFlowId, cur.negativeFlowId, 'o lead sem interesse');
-  await checkFlow(data.doubtAction, data.doubtFlowId, cur.doubtFlowId, 'o lead com dúvida');
-  await prisma.leadAiSettings.upsert({ where: { orgId }, create: { orgId, ...data }, update: data });
-  await audit(req, 'mckmensagem.ia_leads.update', { entity: 'LeadAiSettings', entityId: orgId });
-  res.json(await leadAiView(orgId));
+  await saveQualiFromRequest(req);
+  res.json(await qualiView(orgOf(req)));
 }));
 
 /** Simula a resposta de um lead (nada é enviado e nenhum lead é alterado). */
 mckmensagemRouter.post('/ia-leads/testar', ah(async (req, res) => {
-  const q = z.object({ texto: z.string().trim().min(1).max(1000), nome: z.string().max(80).optional() }).parse(req.body);
-  try {
-    const r = await classifyLeadMessage(orgOf(req), { name: q.nome ?? 'Cliente', qualifyAttempts: 0 }, q.texto);
-    res.json(r);
-  } catch (e) {
-    throw new HttpError(400, (e as Error).message);
-  }
+  res.json(await testQuali(req));
 }));

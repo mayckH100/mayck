@@ -47,6 +47,25 @@ export async function sdrAccess(orgId: string, isSuperAdmin = false): Promise<Sd
   return { liberado: false, motivo: 'SEM_PLANO' };
 }
 
+/**
+ * Etapa de qualificação do SDR com IA (v1.20.0; antiga "IA de qualificação" do MCK Mensagens). Regra para não tirar
+ * de quem já tinha:
+ * - quem tem o SDR (regra acima) tem a qualificação;
+ * - quem tem o MCK Mensagens ativo ou em teste também tem a qualificação (configurar e usar nas respostas das
+ *   campanhas), mesmo sem o Plano Completo — era assim antes da unificação;
+ * - MCK Mensagens vencido/bloqueado: só consulta a configuração (salvar responde 402, como antes);
+ * - os extras do SDR (captura de leads, cadências, e-mail, rodízio, relatórios, reunião) seguem a regra do SDR acima.
+ */
+export type QualiAccess = { liberado: boolean; leitura: boolean; sdr: boolean; motivo: SdrAccess['motivo'] | 'MCK_MENSAGENS' | 'MCK_MENSAGENS_INATIVO' };
+
+export async function qualificacaoAccess(orgId: string, isSuperAdmin = false): Promise<QualiAccess> {
+  const a = await sdrAccess(orgId, isSuperAdmin);
+  if (a.liberado) return { liberado: true, leitura: true, sdr: true, motivo: a.motivo };
+  if (await isProductActive(orgId, 'MCKMENSAGEM')) return { liberado: true, leitura: true, sdr: false, motivo: 'MCK_MENSAGENS' };
+  const sub = await prisma.subscription.findUnique({ where: { orgId_product: { orgId, product: 'MCKMENSAGEM' } }, select: { id: true } });
+  return { liberado: false, leitura: !!sub, sdr: false, motivo: sub ? 'MCK_MENSAGENS_INATIVO' : 'SEM_PLANO' };
+}
+
 // Cache curto para o caminho quente (mensagem recebida no WhatsApp e agendador).
 const cache = new Map<string, { at: number; ok: boolean }>();
 export async function sdrLiberadoCached(orgId: string): Promise<boolean> {

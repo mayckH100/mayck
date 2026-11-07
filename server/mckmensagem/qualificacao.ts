@@ -10,9 +10,12 @@ import { isProductActive } from '../billing/service.js';
 import { parseJson } from '../lib/json.js';
 import { personalize, inWindow } from './dispatcher.js';
 import type { Contact, Conversation, Lead, LeadAiSettings } from '@prisma/client';
+import { DEFAULT_LEAD_AI, getLegacyView, type LegacyLeadAi } from '../sdr/qualificacao.js';
 
 /**
- * IA de qualificação de leads (MCK Mensagens).
+ * Qualificação das respostas de campanha (MCK Mensagens) — etapa de qualificação do "SDR com IA" (v1.20.0).
+ * O motor continua o mesmo de antes (mesmas mensagens, ações, tentativas e etiquetas); a configuração agora vem da
+ * tela do SDR (server/sdr/qualificacao.ts) e o resultado também aparece no lead do SDR, quando ele existe.
  *
  * Quando um lead abordado por campanha responde, a IA lê a resposta e decide a intenção:
  *  - POSITIVO → lead QUALIFICADO; a IA confirma e apresenta o próximo passo (oferta) e a conversa segue
@@ -26,31 +29,12 @@ import type { Contact, Conversation, Lead, LeadAiSettings } from '@prisma/client
 export type Intent = 'POSITIVO' | 'NEGATIVO' | 'DUVIDA' | 'SAIR';
 export const QUALIFYING_STATUSES = ['CONTATADO', 'RESPONDEU', 'AGUARDANDO'];
 
-export const DEFAULT_LEAD_AI = {
-  enabled: false,
-  instructions: '',
-  offer: '',
-  positiveAction: 'HANDOFF',
-  positiveFlowId: null as string | null,
-  retryDays: 3,
-  maxAttempts: 3,
-  promptTemplate: null as string | null,
-  positiveMessage: '',
-  negativeAction: 'RETRY', // RETRY (aguardar e tentar de novo) | FLOW | HANDOFF | DISCARD
-  negativeFlowId: null as string | null,
-  doubtAction: 'AI', // AI (IA responde) | FLOW | HANDOFF
-  doubtFlowId: null as string | null,
-  tagPositive: 'lead-qualificado',
-  tagWaiting: 'lead-aguardando',
-  tagDiscarded: 'lead-descartado',
-  retryMessage: 'Oi {nome}! Passando de novo por aqui 😊 Ainda posso te ajudar? Se quiser, te mando mais detalhes, sem compromisso.',
-};
+// Configuração única (v1.20.0): a etapa de qualificação do SDR com IA é a fonte de verdade; a linha antiga de
+// LeadAiSettings vale como padrão enquanto a empresa não salvar pelo SDR (ver server/sdr/qualificacao.ts).
+export { DEFAULT_LEAD_AI };
 
-export async function getLeadAiSettings(orgId: string): Promise<typeof DEFAULT_LEAD_AI> {
-  const row = await prisma.leadAiSettings.findUnique({ where: { orgId } });
-  if (!row) return { ...DEFAULT_LEAD_AI };
-  const { orgId: _o, updatedAt: _u, ...rest } = row as LeadAiSettings;
-  return rest;
+export async function getLeadAiSettings(orgId: string): Promise<LegacyLeadAi> {
+  return getLegacyView(orgId);
 }
 
 /**
@@ -142,7 +126,7 @@ export interface QualifyResult { intent: Intent; reply: string; summary: string;
 export async function classifyLeadMessage(orgId: string, lead: Pick<Lead, 'name' | 'qualifyAttempts'>, text: string, history: ChatMessage[] = [], conversationId?: string): Promise<QualifyResult> {
   const ai = await prisma.aiSettings.findUnique({ where: { orgId } });
   const s = await getLeadAiSettings(orgId);
-  if (!ai) throw new Error('Configure a IA (provedor e chave) no MCKBOT > IA antes de usar a qualificação.');
+  if (!ai) throw new Error('Configure a IA (provedor e chave) no MCKBOT > IA antes de usar a qualificação do SDR com IA.');
   // MCK IA: mesma cota diária por plano do MCKBOT (estourou: não chama provedor).
   if (ai.provider === 'mck' && (await mckQuotaStatus(orgId)).reached) {
     await prisma.aiUsage.create({ data: { orgId, conversationId: conversationId ?? null, provider: 'mck', model: ai.model, success: false, error: MCK_QUOTA_REASON } }).catch(() => undefined);
@@ -176,7 +160,7 @@ export async function classifyLeadMessage(orgId: string, lead: Pick<Lead, 'name'
       if (/não configurada|desconhecido|não pode ser usado/.test(lastError)) break;
     }
   }
-  throw new Error(lastError || 'Falha na IA de qualificação');
+  throw new Error(lastError || 'Falha na qualificação do SDR com IA');
 }
 
 function phoneOf(waId: string): string | null {
@@ -195,7 +179,7 @@ async function note(conv: Conversation, body: string) {
 }
 
 /**
- * Chamado pelo inbound (modo robô). Retorna true quando a IA de qualificação cuidou da mensagem
+ * Chamado pelo inbound (modo robô). Retorna true quando a qualificação (SDR com IA) cuidou da mensagem
  * (aí o MCKBOT não roda fluxos/IA normal para ela).
  */
 export async function qualifyLeadInbound(conv: Conversation, contact: Contact, text: string): Promise<boolean> {
@@ -217,7 +201,7 @@ export async function qualifyLeadInbound(conv: Conversation, contact: Contact, t
   try {
     r = await classifyLeadMessage(conv.orgId, lead, text, hist, conv.id);
   } catch (e) {
-    await note(conv, `IA de qualificação falhou (${(e as Error).message.slice(0, 200)}). A mensagem seguiu para o atendimento normal.`);
+    await note(conv, `Qualificação do SDR com IA falhou (${(e as Error).message.slice(0, 200)}). A mensagem seguiu para o atendimento normal.`);
     return false;
   }
 
@@ -240,6 +224,11 @@ export async function qualifyLeadInbound(conv: Conversation, contact: Contact, t
     return true;
   };
   const allTags = [s.tagPositive, s.tagWaiting, s.tagDiscarded].filter(Boolean);
+  // Etapa de qualificação do SDR com IA: o resultado também vai para o lead do SDR da mesma pessoa (quando existe).
+  const toSdr = async () => {
+    const { onCampaignQualified } = await import('../sdr/service.js');
+    await onCampaignQualified(conv.orgId, contact, r.intent, r.summary);
+  };
 
   switch (r.intent) {
     case 'POSITIVO': {
@@ -248,6 +237,7 @@ export async function qualifyLeadInbound(conv: Conversation, contact: Contact, t
       await send(r.reply);
       if (s.positiveMessage?.trim()) await send(personalize(s.positiveMessage, lead));
       await note(conv, `Lead qualificado pela IA (interessado).${r.summary ? ' Resumo: ' + r.summary : ''}`);
+      await toSdr();
       await runAction(s.positiveAction, s.positiveFlowId, 'Lead qualificado: interessado');
       return true;
     }
@@ -264,6 +254,7 @@ export async function qualifyLeadInbound(conv: Conversation, contact: Contact, t
         ? `Lead sem interesse (${attempts}ª vez): marcado como Descartado (não será mais abordado).`
         : next ? `Lead sem interesse agora (${attempts}/${s.maxAttempts}). Em aguardo: nova tentativa em ${next.toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' })}.`
         : 'Lead sem interesse agora.');
+      await toSdr();
       if (s.negativeAction === 'FLOW' || s.negativeAction === 'HANDOFF') await runAction(s.negativeAction, s.negativeFlowId, 'Lead sem interesse');
       return true;
     }
@@ -273,11 +264,12 @@ export async function qualifyLeadInbound(conv: Conversation, contact: Contact, t
       await prisma.contact.update({ where: { id: contact.id }, data: { optOut: true } });
       await onLeadOptOut(conv.orgId, contact, now);
       await prisma.lead.update({ where: { id: lead.id }, data: { status: 'DESCARTADO', lastIntent: 'SAIR', nextAttemptAt: null } });
-      await note(conv, 'Lead pediu para não receber mais mensagens (opt-out pela IA de qualificação).');
+      await note(conv, 'Lead pediu para não receber mais mensagens (opt-out pela qualificação do SDR com IA).');
       return true;
     }
     default: {
       await prisma.lead.update({ where: { id: lead.id }, data: { status: 'RESPONDEU', lastIntent: 'DUVIDA', aiSummary: r.summary || lead.aiSummary, contactId: contact.id } });
+      await toSdr();
       if (s.doubtAction === 'AI') { await send(r.reply); return true; }
       // Fluxo da dúvida sem id, apagado ou com erro: a IA responde (antes o lead ficava sem resposta nenhuma).
       if (!(await runAction(s.doubtAction, s.doubtFlowId, 'Lead com dúvida'))) await send(r.reply);
@@ -319,7 +311,7 @@ export async function tickLeadRetries(now = new Date()): Promise<number> {
       await prisma.lead.update({ where: { id: lead.id }, data: { status: 'AGUARDANDO', nextAttemptAt: new Date(now.getTime() + 3600e3) } });
       continue;
     }
-    await note(conv, `Nova tentativa automática enviada ao lead (IA de qualificação, tentativa ${lead.qualifyAttempts + 1}).`);
+    await note(conv, `Nova tentativa automática enviada ao lead (SDR com IA, tentativa ${lead.qualifyAttempts + 1}).`);
     doneOrgs.add(lead.orgId);
     sent++;
   }

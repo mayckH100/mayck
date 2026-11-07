@@ -44,6 +44,7 @@ import { sdrRouter, sdrMasterRouter } from './sdr/routes.js';
 import { sdrPublicRouter } from './sdr/public.js';
 import { sdrInboundRouter } from './sdr/inbound.js';
 import { requireSdr } from './sdr/access.js';
+import { sdrQualificacaoRouter } from './sdr/qualificacaoRoutes.js';
 
 export function createApp() {
   const app = express();
@@ -160,7 +161,9 @@ export function createApp() {
   // MCK ERP: módulo próprio nas permissões da equipe; só com o Plano Completo ativo/teste (exportar os dados continua liberado).
   app.use('/api/erp', requireOrg, requireModule('erp_crm'), requirePlanoCompletoErp, erpRouter);
   // SDR com IA (v1.18.0): Plano Completo (ou plano liberado no Master), empresa da MCK e superadmin.
-  app.use('/api/sdr', requireOrg, requireModule('sdr'), requireSdr, sdrRouter);
+  // Etapa de qualificação do SDR com IA (v1.20.0): liberada também para quem tem só o MCK Mensagens (guarda própria).
+  app.use('/api/sdr/qualificacao', requireOrg, sdrQualificacaoRouter);
+  app.use('/api/sdr', requireOrg, requireModule('sdr', [{ method: 'GET', path: /^\/acesso\/?$/, anyOf: ['mensagens'] }]), requireSdr, sdrRouter);
   app.use('/api/reports', requireOrg, requireModule('relatorios'));
   app.use('/api', requireOrg, dashboardRouter);
   app.use('/api', (_req, res) => res.status(404).json({ error: 'Rota não encontrada' }));
