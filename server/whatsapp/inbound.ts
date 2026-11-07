@@ -156,7 +156,7 @@ export async function handleInboundMessage(channel: Channel, m: InboundMessage, 
     // "Quem responde automaticamente" deste canal: flows | ai | both (padrão, comportamento original).
     const mode = autoReplyModeOf(channel);
     await withConversationLock(conv.id, async () => {
-      // MCK Mensagens: lead abordado por campanha que respondeu → IA de qualificação (quando ligada).
+      // MCK Mensagens: lead abordado por campanha que respondeu → qualificação do SDR com IA (quando ligada).
       // No modo "Só fluxos" a IA não responde neste canal, então a qualificação também não roda.
       if (mode !== 'flows' && m.type === 'text' && (await qualifyLeadInbound(conv!, contact!, m.text ?? ''))) return;
       await automateInbound(conv!, contact!, message, { isFirst, replyId: m.replyId, mode });

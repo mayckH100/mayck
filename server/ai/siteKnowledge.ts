@@ -71,7 +71,7 @@ export async function livePricesText(): Promise<string> {
 
 /** Diferenciais da MCK DESENVOLVIMENTO (verdadeiros, tirados do produto e do site; sem números de concorrentes). */
 export const MCK_DIFERENCIAIS = [
-  'Tudo em um lugar: robô de fluxos, IA, Inbox da equipe, Kanban/CRM, agenda com Google Meet, campanhas, IA de qualificação de leads e cobranças automáticas (MCK Mensagens).',
+  'Tudo em um lugar: robô de fluxos, IA, Inbox da equipe, Kanban/CRM, agenda com Google Meet, campanhas e cobranças automáticas (MCK Mensagens) e SDR com IA, que qualifica os leads (inclusive quem responde às campanhas).',
   'Conecta o número de WhatsApp que a empresa já usa, por QR code, sem trocar de número e sem precisar da API paga para começar (a API oficial da Meta também é suportada).',
   'IA que fala como a empresa (instruções, base de conhecimento, catálogo de produtos) e só passa para uma pessoa quando o cliente pede.',
   'Teste grátis sem cartão, planos mensais sem fidelidade e preços acessíveis (veja PREÇOS ATUAIS).',

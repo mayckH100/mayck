@@ -3,8 +3,9 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { post, put, patch } from '../api';
 import { useAuth } from '../auth';
 import { useApi, Async, useAction, fmtDate, Modal, Field, Empty, copy, useToast } from '../ui';
+import QualificacaoCampanhas from './sdr/Qualificacao';
 
-/** SDR com IA (v1.18.0): pré-vendas automática — leads, qualificação pela IA, cadências, reuniões e funil. */
+/** SDR com IA (v1.18.0; tela única com a qualificação do MCK Mensagens na v1.20.0): leads, qualificação, cadências, reuniões e funil. */
 type Lead = {
   id: string; name: string | null; company: string | null; segment: string | null; segmentLabel: string; phone: string | null; email: string | null;
   source: string; stage: string; score: number; temperature: 'FRIO' | 'MORNO' | 'QUENTE'; ownerUserId: string | null; ownerName: string | null;
@@ -25,29 +26,43 @@ function Temp({ t, score }: { t: string; score?: number }) {
   return <span className="badge" style={{ background: x.color, color: '#fff' }}>{x.label}{score !== undefined ? ` · ${score}` : ''}</span>;
 }
 
-export default function Sdr() {
+type App = 'mckbot' | 'mensagem';
+const TABS: [string, string][] = [['painel', 'Painel'], ['funil', 'Funil'], ['leads', 'Leads'], ['qualificacao', 'Qualificação'], ['cadencias', 'Cadências'], ['relatorios', 'Relatórios'], ['config', 'Configuração']];
+
+/**
+ * SDR com IA — tela única (v1.20.0) do MCKBOT (/sdr) e do MCK Mensagens (/mensagem/sdr; o antigo menu "IA de
+ * qualificação" leva para cá). Quem tem só o MCK Mensagens vê a aba Qualificação; os demais recursos seguem o plano.
+ */
+export default function Sdr({ app = 'mckbot' }: { app?: App }) {
   const acesso = useApi<any>('/sdr/acesso');
   const [sp, setSp] = useSearchParams();
-  const tab = sp.get('aba') ?? 'painel';
   const leadId = sp.get('lead');
   const setTab = (k: string) => setSp(new URLSearchParams({ aba: k }));
   const openLead = (id: string | null) => { const n = new URLSearchParams(sp); if (id) n.set('lead', id); else n.delete('lead'); setSp(n); };
   const { can } = useAuth();
   const { run, busy } = useAction();
+  const planHref = app === 'mensagem' ? '/assinatura' : '/plano';
   return (
     <>
       <div className="page-head">
-        <div><h1>SDR com IA</h1><p className="muted">Pré-vendas no automático: a IA qualifica os leads, faz o acompanhamento, marca reuniões e avisa você quando um lead fica quente.</p></div>
+        <div><h1>SDR com IA</h1><p className="muted">Sua pré-vendas no automático: a IA qualifica cada lead (perguntas e pontuação de 0 a 100: frio, morno ou quente), acompanha quem parou de responder, marca reuniões e avisa você quando um lead fica quente.</p></div>
       </div>
       <Async state={acesso}>{(a) => {
-        if (!a.liberado) return (
+        const full = !!a.liberado && a.modulo !== false;
+        const quali = a.qualificacao ?? { liberado: false, leitura: false };
+        const tabs = TABS.filter(([k]) => (k === 'qualificacao' ? quali.leitura : full && a.enabled));
+        const tab = tabs.some(([k]) => k === sp.get('aba')) ? sp.get('aba')! : tabs[0]?.[0];
+        const upsell = !full && (
           <div className="card stack">
-            <h3>O SDR com IA faz parte do Plano Completo</h3>
-            <p className="muted">MCK ERP + MCKBOT + MCK Mensagens + SDR com IA em uma só assinatura (também no período de teste).</p>
-            <div><Link className="btn primary" to="/plano">Ver o Plano Completo</Link></div>
+            <h3>{quali.leitura ? 'Leve o SDR com IA completo' : 'O SDR com IA faz parte do Plano Completo'}</h3>
+            <p className="muted">{quali.leitura
+              ? 'Sua qualificação das respostas de campanha continua funcionando aqui. No Plano Completo você também tem captura automática de leads, funil, cadências por WhatsApp e e-mail, reuniões marcadas pela IA, rodízio entre a equipe e relatórios.'
+              : 'MCK ERP + MCKBOT + MCK Mensagens + SDR com IA em uma só assinatura (também no período de teste).'}</p>
+            {a.liberado && a.modulo === false ? <p className="small muted">Peça ao administrador da equipe acesso ao módulo SDR com IA.</p>
+              : app === 'mensagem' ? <div><a className="btn primary" href={planHref}>Ver o Plano Completo</a></div> : <div><Link className="btn primary" to={planHref}>Ver o Plano Completo</Link></div>}
           </div>
         );
-        if (!a.enabled) return (
+        const enable = full && !a.enabled && (
           <div className="card stack">
             <h3>Ligue o SDR com um clique</h3>
             <p>Tudo já vem pronto: cadências por segmento, perguntas de qualificação, horário comercial (9h–18h, seg–sex), limite de 40 envios por dia e o <strong>modo automático</strong> ligado.</p>
@@ -62,25 +77,55 @@ export default function Sdr() {
           </div>
         );
         return (
-          <>
-            <div className="tabs" role="tablist">
-              {[['painel', 'Painel'], ['funil', 'Funil'], ['leads', 'Leads'], ['cadencias', 'Cadências'], ['relatorios', 'Relatórios'], ['config', 'Configuração']].map(([k, l]) => (
-                <button key={k} role="tab" aria-selected={tab === k} className={tab === k ? 'on' : ''} onClick={() => setTab(k)}>{l}</button>
-              ))}
-              <span className="small muted" style={{ marginLeft: 'auto', alignSelf: 'center' }}>{a.autoMode ? '⚡ Modo automático ligado' : '✋ Aprovação manual de cada envio'}</span>
-            </div>
-            {tab === 'painel' && <Painel open={openLead} />}
-            {tab === 'funil' && <Funil open={openLead} />}
-            {tab === 'leads' && <Leads open={openLead} />}
-            {tab === 'cadencias' && <Cadencias />}
-            {tab === 'relatorios' && <Relatorios />}
-            {tab === 'config' && <Config onSaved={acesso.reload} />}
-            {leadId && <LeadModal id={leadId} onClose={() => openLead(null)} />}
-          </>
+          <div className="stack">
+            {upsell}
+            {enable}
+            {tabs.length > 0 && (
+              <div>
+                <div className="tabs" role="tablist">
+                  {tabs.map(([k, l]) => <button key={k} role="tab" aria-selected={tab === k} className={tab === k ? 'on' : ''} onClick={() => setTab(k)}>{l}</button>)}
+                  {full && a.enabled && <span className="small muted" style={{ marginLeft: 'auto', alignSelf: 'center' }}>{a.autoMode ? '⚡ Modo automático ligado' : '✋ Aprovação manual de cada envio'}</span>}
+                </div>
+                {tab === 'painel' && <Painel open={openLead} />}
+                {tab === 'funil' && <Funil open={openLead} />}
+                {tab === 'leads' && <Leads open={openLead} />}
+                {tab === 'qualificacao' && <Qualificacao full={full && a.enabled} readOnly={!quali.liberado} goConfig={() => setTab('config')} />}
+                {tab === 'cadencias' && <Cadencias />}
+                {tab === 'relatorios' && <Relatorios />}
+                {tab === 'config' && <Config onSaved={acesso.reload} />}
+              </div>
+            )}
+            {leadId && full && <LeadModal id={leadId} app={app} onClose={() => openLead(null)} />}
+          </div>
         );
       }}</Async>
     </>
   );
+}
+
+/** Aba Qualificação: perguntas e pontuação do SDR (resumo) + qualificação das respostas de campanha. */
+function Qualificacao({ full, readOnly, goConfig }: { full: boolean; readOnly: boolean; goConfig: () => void }) {
+  return (
+    <div className="stack">
+      {full && <PerguntasResumo goConfig={goConfig} />}
+      <div>
+        <h3 style={{ margin: '4px 0' }}>Respostas das campanhas</h3>
+        <p className="small muted" style={{ marginTop: 0 }}>Para quem responde às campanhas do MCK Mensagens.</p>
+      </div>
+      <QualificacaoCampanhas readOnly={readOnly} />
+    </div>
+  );
+}
+
+function PerguntasResumo({ goConfig }: { goConfig: () => void }) {
+  const state = useApi<any>('/sdr/config');
+  return <Async state={state}>{(v) => (
+    <div className="card stack">
+      <div className="row between"><h3 style={{ margin: 0 }}>Perguntas e pontuação</h3><button className="btn sm" onClick={goConfig}>Editar em Configuração</button></div>
+      <p className="small muted" style={{ margin: 0 }}>Nas conversas, a IA descobre estas respostas com naturalidade (uma pergunta por vez), dá uma nota a cada uma e calcula a pontuação do lead: frio abaixo de {v.warmScore}, morno de {v.warmScore} a {v.hotScore - 1}, quente a partir de {v.hotScore}.</p>
+      {v.questions.map((q: any) => <div key={q.id} className="row between small"><span>{q.pergunta}</span><span className="badge">peso {q.peso}</span></div>)}
+    </div>
+  )}</Async>;
 }
 
 function Painel({ open }: { open: (id: string) => void }) {
@@ -249,7 +294,7 @@ function Importar({ onClose, onDone }: { onClose: () => void; onDone: () => void
   );
 }
 
-function LeadModal({ id, onClose }: { id: string; onClose: () => void }) {
+function LeadModal({ id, app, onClose }: { id: string; app: App; onClose: () => void }) {
   const state = useApi<any>(`/sdr/leads/${id}`, [id]);
   const team = useApi<any>('/team');
   const { run, busy } = useAction();
@@ -286,7 +331,7 @@ function LeadModal({ id, onClose }: { id: string; onClose: () => void }) {
               {!l.optOut && ['SEM', 'PARADA', 'CONCLUIDA'].includes(l.cadenceStatus) && <button className="btn sm" disabled={busy} onClick={() => act('cadencia', undefined, 'Lead colocado na cadência')}>Pôr na cadência</button>}
               {!l.consent && !l.optOut && <button className="btn sm" disabled={busy} onClick={() => upd({ consent: true }, 'Consentimento registrado')}>Registrar consentimento</button>}
               {!l.optOut && <button className="btn sm ghost" disabled={busy} onClick={() => upd({ consent: false }, 'Marcado como "não quer receber"')}>Não quer receber</button>}
-              {l.conversationId && <Link className="btn sm ghost" to={`/inbox/${l.conversationId}`}>Abrir conversa</Link>}
+              {l.conversationId && (app === 'mensagem' ? <a className="btn sm ghost" href={`/inbox/${l.conversationId}`}>Abrir conversa no MCKBOT</a> : <Link className="btn sm ghost" to={`/inbox/${l.conversationId}`}>Abrir conversa</Link>)}
             </div>
           </div>
           <form className="row" onSubmit={(e) => { e.preventDefault(); if (inicio) act('reuniao', { inicio }, 'Reunião marcada na Agenda'); }}>

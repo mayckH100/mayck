@@ -82,7 +82,7 @@ export function decideGate(input: GateInput): GateDecision {
   if (inactive && sub) variant = sub.status === 'BLOQUEADA' ? 'blocked' : sub.source === 'TRIAL' ? 'trial' : 'expired';
   const paused = cfg.app === 'mckbot'
     ? 'O robô, a IA e os fluxos automáticos estão pausados.'
-    : 'As campanhas, os disparos e a IA de qualificação estão pausados.';
+    : 'As campanhas, os disparos e a qualificação do SDR com IA estão pausados.';
   const kept = 'Seus dados continuam guardados: você ainda pode consultar e exportar tudo.';
   const titles: Record<GateVariant, string> = {
     trial: 'Seu teste grátis acabou',

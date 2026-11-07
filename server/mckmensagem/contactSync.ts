@@ -6,7 +6,7 @@ import { parseJson } from '../lib/json.js';
  * Contatos do MCKBOT ↔ contatos (leads) do MCK Mensagens.
  *
  * A pessoa é uma só: o Contact do MCKBOT é a fonte do nome, do telefone e do opt-out; o Lead é a "ficha de
- * marketing" dela no MCK Mensagens (status, campanha, consentimento, etiquetas de campanha, IA de qualificação),
+ * marketing" dela no MCK Mensagens (status, campanha, consentimento, etiquetas de campanha, qualificação do SDR com IA),
  * ligada pelo contactId. A ligação é feita pelo telefone normalizado (E.164) dentro da organização: se já existe
  * um lead com o mesmo número, ele é vinculado e mesclado — nunca se cria um segundo.
  *

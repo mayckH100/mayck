@@ -2,6 +2,11 @@ import { useEffect, useState } from 'react';
 import { put, post } from '../../api';
 import { useApi, Async, Field, useAction } from '../../ui';
 
+/**
+ * SDR com IA › Qualificação (v1.20.0): etapa de qualificação das respostas de campanha (antiga "IA de qualificação"
+ * do MCK Mensagens). Mesmo componente no MCKBOT (/sdr) e no MCK Mensagens (/mensagem/sdr); uma só configuração.
+ */
+
 interface Settings {
   enabled: boolean; instructions: string; offer: string; positiveAction: 'HANDOFF' | 'FLOW' | 'BOT';
   positiveFlowId: string | null; retryDays: number; maxAttempts: number; retryMessage: string; promptTemplate: string | null;
@@ -10,16 +15,16 @@ interface Settings {
 }
 interface View {
   settings: Settings; flows: { id: string; name: string }[]; aiReady: boolean; aiProvider: string | null; aiModel: string | null;
-  counts: { aguardando: number; qualificados: number }; prompt: string;
+  counts: { aguardando: number; qualificados: number }; prompt: string; origem: 'SDR' | 'LEGADO' | 'PADRAO';
   defaultPromptTemplate: string; promptVariables: string[]; lockedPrompt: string;
 }
 interface TestResult { intent: 'POSITIVO' | 'NEGATIVO' | 'DUVIDA' | 'SAIR'; reply: string; summary: string }
 
 const INTENT_LABEL: Record<TestResult['intent'], string> = {
-  POSITIVO: 'Interessado (positivo)', NEGATIVO: 'Sem interesse (negativo)', DUVIDA: 'Dúvida', SAIR: 'Pediu para sair → opt-out',
+  POSITIVO: 'Interessado', NEGATIVO: 'Sem interesse agora', DUVIDA: 'Dúvida', SAIR: 'Pediu para sair (não recebe mais mensagens)',
 };
 
-function Form({ view, onSaved }: { view: View; onSaved: (v: View) => void }) {
+function Form({ view, onSaved, readOnly }: { view: View; onSaved: (v: View) => void; readOnly?: boolean }) {
   const withTpl = (st: Settings) => ({ ...st, promptTemplate: st.promptTemplate ?? view.defaultPromptTemplate });
   const [f, setF] = useState<Settings>(withTpl(view.settings));
   const { busy, run } = useAction();
@@ -30,29 +35,31 @@ function Form({ view, onSaved }: { view: View; onSaved: (v: View) => void }) {
   const set = <K extends keyof Settings>(k: K, v: Settings[K]) => setF((x) => ({ ...x, [k]: v }));
 
   const save = async () => {
-    const r = await run(() => put<View>('/mckmensagem/ia-leads', f), 'IA de qualificação salva');
+    const r = await run(() => put<View>('/sdr/qualificacao', f), 'Qualificação salva');
     if (r) onSaved(r);
   };
   const testar = async () => {
     setTest(null);
-    const r = await run(() => post<TestResult>('/mckmensagem/ia-leads/testar', { texto }));
+    const r = await run(() => post<TestResult>('/sdr/qualificacao/testar', { texto }));
     if (r) setTest(r);
   };
 
   return (
     <div className="stack">
-      {!view.aiReady && <div className="alert warn">Configure o provedor e a chave da IA no MCKBOT &gt; IA. A qualificação usa a mesma IA (e a mesma base de conhecimento).</div>}
+      {readOnly && <div className="alert warn">Sua assinatura do MCK Mensagens não está ativa: você pode consultar a configuração, mas para alterar é preciso renovar.</div>}
+      {!view.aiReady && <div className="alert warn">Configure a IA no MCKBOT › IA. A qualificação usa a mesma IA e a mesma base de conhecimento do seu atendimento.</div>}
+      {view.origem === 'LEGADO' && <div className="alert info small">Sua configuração anterior da qualificação foi mantida e continua funcionando. A partir de agora ela fica aqui, no SDR com IA.</div>}
       <div className="grid g2">
-        <div className="card stat"><div className="v">{view.counts.qualificados}</div><div className="l">Leads qualificados</div></div>
+        <div className="card stat"><div className="v">{view.counts.qualificados}</div><div className="l">Interessados nas campanhas</div></div>
         <div className="card stat"><div className="v">{view.counts.aguardando}</div><div className="l">Em aguardo (nova tentativa agendada)</div></div>
       </div>
 
       <div className="card stack">
         <label className="row" style={{ gap: 8 }}>
           <input type="checkbox" checked={f.enabled} onChange={(e) => set('enabled', e.target.checked)} />
-          <b>Ativar IA de qualificação nas respostas das campanhas</b>
+          <b>Qualificar as respostas das campanhas</b>
         </label>
-        <p className="muted small">Quando um lead abordado por campanha responde, a IA entende se ele tem interesse, responde e move o lead automaticamente.</p>
+        <p className="muted small">Quando alguém abordado por uma campanha do MCK Mensagens responde, a IA entende se a pessoa tem interesse, responde na hora e move o lead sozinha. As orientações abaixo também ajudam a IA do SDR nas conversas.</p>
         <Field label="Como abordar e qualificar" hint="O que você vende, para quem, e o que perguntar para descobrir o interesse.">
           <textarea rows={5} value={f.instructions} onChange={(e) => set('instructions', e.target.value)} placeholder="Ex.: Somos uma loja de carros seminovos revisados, com garantia e financiamento. Descubra qual modelo a pessoa procura, a faixa de preço e se tem carro para dar na troca. Destaque o test drive sem compromisso." />
         </Field>
@@ -62,7 +69,7 @@ function Form({ view, onSaved }: { view: View; onSaved: (v: View) => void }) {
       </div>
 
       <div className="card stack">
-        <h3>Quando o lead responde POSITIVO</h3>
+        <h3>Quando o lead demonstra interesse</h3>
         <p className="muted small">O lead vira <b>Qualificado</b> e a IA confirma o interesse com o próximo passo.</p>
         <Field label="Depois da resposta da IA">
           <select value={f.positiveAction} onChange={(e) => set('positiveAction', e.target.value as Settings['positiveAction'])}>
@@ -79,7 +86,7 @@ function Form({ view, onSaved }: { view: View; onSaved: (v: View) => void }) {
       </div>
 
       <div className="card stack">
-        <h3>Quando o lead responde NEGATIVO</h3>
+        <h3>Quando o lead não quer agora</h3>
         <p className="muted small">A IA agradece sem insistir. Depois disso:</p>
         <Field label="Ação">
           <select value={f.negativeAction} onChange={(e) => set('negativeAction', e.target.value as Settings['negativeAction'])}>
@@ -106,7 +113,7 @@ function Form({ view, onSaved }: { view: View; onSaved: (v: View) => void }) {
       </div>
 
       <div className="card stack">
-        <h3>Quando o lead tem DÚVIDA</h3>
+        <h3>Quando o lead tem uma dúvida</h3>
         <Field label="Ação">
           <select value={f.doubtAction} onChange={(e) => set('doubtAction', e.target.value as Settings['doubtAction'])}>
             <option value="AI">A IA responde e conduz para o próximo passo</option>
@@ -118,14 +125,14 @@ function Form({ view, onSaved }: { view: View; onSaved: (v: View) => void }) {
         <p className="muted small">Se o lead pedir para sair, ele recebe opt-out na hora e não é mais abordado (regra fixa, protege seu número).</p>
       </div>
 
-      <div className="row" style={{ justifyContent: 'flex-end' }}><button className="btn primary" disabled={busy} onClick={save}>Salvar</button></div>
+      {!readOnly && <div className="row" style={{ justifyContent: 'flex-end' }}><button className="btn primary" disabled={busy} onClick={save}>Salvar qualificação</button></div>}
 
       <div className="card stack">
         <h3>Testar</h3>
         <p className="muted small">Simule a resposta de um lead. Nada é enviado no WhatsApp e nenhum lead é alterado (usa a configuração salva).</p>
         <div className="row" style={{ gap: 8 }}>
           <input style={{ flex: 1 }} value={texto} onChange={(e) => setTexto(e.target.value)} />
-          <button className="btn" disabled={busy || !texto.trim()} onClick={testar}>Testar</button>
+          <button className="btn" disabled={busy || !texto.trim() || readOnly} onClick={testar}>Testar</button>
         </div>
         {test && (
           <div className="stack">
@@ -137,12 +144,12 @@ function Form({ view, onSaved }: { view: View; onSaved: (v: View) => void }) {
       </div>
 
       <div className="card stack">
-        <h3>Prompt da IA</h3>
-        <p className="muted small">Edite como a IA pensa e responde. As variáveis entre chaves são trocadas automaticamente: {view.promptVariables.map((v) => <code key={v} style={{ marginRight: 6 }}>{v}</code>)}</p>
+        <h3>Persona e instruções da IA (avançado)</h3>
+        <p className="muted small">Edite como a IA pensa e responde às campanhas. As variáveis entre chaves são trocadas automaticamente: {view.promptVariables.map((v) => <code key={v} style={{ marginRight: 6 }}>{v}</code>)}</p>
         <textarea rows={18} style={{ fontFamily: 'monospace', fontSize: 12 }} value={f.promptTemplate ?? ''} onChange={(e) => set('promptTemplate', e.target.value)} />
         <div className="row" style={{ gap: 8, justifyContent: 'space-between', flexWrap: 'wrap' }}>
           <button className="btn sm" onClick={() => set('promptTemplate', view.defaultPromptTemplate)}>Restaurar padrão</button>
-          <button className="btn primary" disabled={busy} onClick={save}>Salvar prompt</button>
+          {!readOnly && <button className="btn primary" disabled={busy} onClick={save}>Salvar</button>}
         </div>
         <button className="btn sm" onClick={() => setShowPrompt((x) => !x)}>{showPrompt ? 'Ocultar' : 'Ver'} a parte fixa (não editável)</button>
         {showPrompt && <>
@@ -165,12 +172,8 @@ function FlowSelect({ flows, value, onChange }: { flows: { id: string; name: str
   );
 }
 
-export default function MmLeadAi() {
-  const state = useApi<View>('/mckmensagem/ia-leads');
-  return (
-    <>
-      <div className="page-head"><div><h1>IA de qualificação</h1><p className="muted">A IA conversa com quem respondeu às campanhas, separa os interessados e agenda novas tentativas para quem disse não.</p></div></div>
-      <Async state={state}>{(v) => <Form view={v} onSaved={(nv) => state.setData(nv)} />}</Async>
-    </>
-  );
+/** Aba "Qualificação" do SDR com IA (respostas das campanhas). `readOnly`: MCK Mensagens vencido (só consulta). */
+export default function QualificacaoCampanhas({ readOnly }: { readOnly?: boolean }) {
+  const state = useApi<View>('/sdr/qualificacao');
+  return <Async state={state}>{(v) => <Form view={v} readOnly={readOnly} onSaved={(nv) => state.setData(nv)} />}</Async>;
 }
