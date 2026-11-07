@@ -7,6 +7,7 @@ import { ah, notFound, badRequest, HttpError } from '../lib/http.js';
 import { orgOf, requireRole } from '../auth/session.js';
 import { audit } from '../lib/audit.js';
 import { appUrl } from '../lib/mailer.js';
+import { escHtml } from '../agenda/service.js';
 import { parseJson } from '../lib/json.js';
 import { createAppointment, ConflictError } from '../agenda/service.js';
 import { parseLocal } from '../agenda/time.js';
@@ -55,7 +56,8 @@ function settingsView(s: Awaited<ReturnType<typeof getSdrSettings>>, req: Reques
     enabled: s.enabled, autoMode: s.autoMode, captureWhatsapp: s.captureWhatsapp, autoBook: s.autoBook, segment: s.segment,
     questions: questionsOf(s), warmScore: s.warmScore, hotScore: s.hotScore, workStart: s.workStart, workEnd: s.workEnd, workDays: s.workDays,
     dailyLimit: s.dailyLimit, silenceHours: s.silenceHours, formEnabled: s.formEnabled, formTitle: s.formTitle, alertHot: s.alertHot,
-    formUrl: `${appUrl(req)}/f/${s.formToken}`, segments: SEGMENTS, stages: STAGES.map((id) => ({ id, label: STAGE_LABEL[id] })), variables: VARIABLES,
+    formUrl: `${appUrl(req)}/f/${s.formToken}`,
+    embedSnippet: `<iframe src="${appUrl(req)}/f/${s.formToken}?embed=1" title="${escHtml(s.formTitle)}" style="width:100%;max-width:520px;height:760px;border:0" loading="lazy"></iframe>`, segments: SEGMENTS, stages: STAGES.map((id) => ({ id, label: STAGE_LABEL[id] })), variables: VARIABLES,
   };
 }
 

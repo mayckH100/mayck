@@ -169,4 +169,37 @@ describe('SDR v2', () => {
     }
     expect((await a.get('/api/sdr/config')).body.emailReplies).toBe(false);
   });
+
+  it('5) formulário incorporável: só a página do formulário em ?embed=1 libera o iframe; resto continua bloqueado', async () => {
+    const cfg = (await a.get('/api/sdr/config')).body;
+    const token = cfg.formUrl.split('/f/')[1];
+    expect(cfg.embedSnippet).toContain(`/f/${token}?embed=1`);
+    expect(cfg.embedSnippet).toMatch(/^<iframe src="[^"]+" title="[^"]*" style="[^"]+" loading="lazy"><\/iframe>$/);
+    const normal = await request(app).get(`/f/${token}`);
+    expect(normal.headers['content-security-policy']).toContain("frame-ancestors 'none'");
+    expect(normal.headers['x-frame-options']).toBe('DENY');
+    const emb = await request(app).get(`/f/${token}?embed=1`);
+    expect(emb.status).toBe(200);
+    expect(emb.headers['content-security-policy']).toContain('frame-ancestors https:;');
+    expect(emb.headers['content-security-policy']).toContain("script-src 'self'");
+    expect(emb.headers['x-frame-options']).toBeUndefined();
+    expect(emb.text).toContain(`action="/f/${token}?embed=1"`);
+    // Lista de sites: só eles podem mostrar.
+    const put = await a.put('/api/sdr/config', { embedDomains: ['https://www.minhaloja.com.br/contato', 'javascript:x', '*.parceiro.com'] });
+    expect(put.body.embedDomains).toEqual(['www.minhaloja.com.br', '*.parceiro.com']);
+    const emb2 = await request(app).get(`/f/${token}?embed=1`);
+    expect(emb2.headers['content-security-policy']).toContain('frame-ancestors https://www.minhaloja.com.br https://*.parceiro.com');
+    // Envio de dentro do iframe (origem do próprio formulário): lead criado, agradecimento também liberado no iframe.
+    const tel = phone();
+    const ok = await request(app).post(`/f/${token}?embed=1`).type('form').send({ nome: 'Iframe', telefone: tel, consentimento: 'sim' });
+    expect(ok.status).toBe(200);
+    expect(ok.text).toContain('Recebido');
+    expect(ok.headers['x-frame-options']).toBeUndefined();
+    const l = await prisma.sdrLead.findFirstOrThrow({ where: { orgId: orgA(), phone: '+' + tel } });
+    expect(l.source).toBe('FORMULARIO');
+    // Outra origem continua recusada; outras rotas continuam sem iframe.
+    expect((await request(app).post(`/f/${token}?embed=1`).set('Origin', 'https://www.minhaloja.com.br').type('form').send({ nome: 'X', telefone: phone(), consentimento: 'sim' })).status).toBe(403);
+    expect((await request(app).get('/api/versao?embed=1')).headers['x-frame-options']).toBe('DENY');
+    await a.put('/api/sdr/config', { embedDomains: [] });
+  });
 });

@@ -29,6 +29,7 @@ export const CHANGELOG: EntradaChangelog[] = [
       'Rodízio de leads: escolha quem da equipe recebe os leads e cada lead novo sem responsável vai para o próximo da lista, um de cada vez. Também dá para distribuir de uma vez os leads que ainda estão sem responsável.',
       'Nova aba Relatórios no SDR: veja, por cadência e por passo, quantas mensagens foram enviadas, quantos responderam, quantos marcaram reunião e quantos pediram para sair, e baixe tudo em planilha (CSV).',
       'Quando o lead responde o seu e-mail, o acompanhamento para sozinho e a resposta aparece no histórico do lead. Se ele pedir para ser descadastrado na resposta, ele sai da lista na hora. Respostas automáticas, como aviso de férias, não contam.',
+      'Coloque o formulário do SDR no seu próprio site: copie o código pronto na Configuração do SDR e cole na sua página. Se quiser, escolha quais sites podem mostrar o formulário.',
     ],
   },
   {

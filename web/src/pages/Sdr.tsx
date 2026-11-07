@@ -404,7 +404,7 @@ function Config({ onSaved }: { onSaved: () => void }) {
   useEffect(() => { if (state.data) setV(state.data); }, [state.data]);
   if (!v) return <Async state={state}>{() => null}</Async>;
   const save = async (extra: Record<string, unknown> = {}) => {
-    const body = { enabled: v.enabled, autoMode: v.autoMode, captureWhatsapp: v.captureWhatsapp, autoBook: v.autoBook, segment: v.segment, questions: v.questions, warmScore: Number(v.warmScore), hotScore: Number(v.hotScore), workStart: v.workStart, workEnd: v.workEnd, workDays: v.workDays, dailyLimit: Number(v.dailyLimit), silenceHours: Number(v.silenceHours), formEnabled: v.formEnabled, formTitle: v.formTitle, alertHot: v.alertHot, kanbanSync: v.kanbanSync, rodizio: v.rodizio, ...extra };
+    const body = { enabled: v.enabled, autoMode: v.autoMode, captureWhatsapp: v.captureWhatsapp, autoBook: v.autoBook, segment: v.segment, questions: v.questions, warmScore: Number(v.warmScore), hotScore: Number(v.hotScore), workStart: v.workStart, workEnd: v.workEnd, workDays: v.workDays, dailyLimit: Number(v.dailyLimit), silenceHours: Number(v.silenceHours), formEnabled: v.formEnabled, formTitle: v.formTitle, alertHot: v.alertHot, kanbanSync: v.kanbanSync, rodizio: v.rodizio, embedDomains: String(v.embedDomainsText ?? (v.embedDomains ?? []).join('\n')).split(/[\s,;]+/).filter(Boolean), ...extra };
     const r = await run(() => put('/sdr/config', body), 'Configuração salva');
     if (r) { state.setData(r); onSaved(); }
   };
@@ -461,6 +461,10 @@ function Config({ onSaved }: { onSaved: () => void }) {
         {toggle('formEnabled', 'Formulário ligado', 'Quem preencher entra como lead com autorização de contato.')}
         <Field label="Título"><input value={v.formTitle} onChange={(e) => setV({ ...v, formTitle: e.target.value })} maxLength={80} /></Field>
         <div className="row"><code className="small">{v.formUrl}</code><button className="btn sm" onClick={() => copy(v.formUrl, toast)}>Copiar link</button>{can('OWNER', 'ADMIN') && <button className="btn sm ghost" onClick={() => save({ newFormLink: true })}>Gerar novo link</button>}</div>
+        <strong className="small">Colocar o formulário no seu site</strong>
+        <p className="small muted">Copie o código abaixo e cole na página do seu site (WordPress, Wix, loja virtual…), no bloco de HTML. Quem preencher entra direto no SDR.</p>
+        <div className="row"><textarea readOnly rows={3} value={v.embedSnippet} style={{ flex: 1, fontFamily: 'monospace', fontSize: 12 }} onFocus={(e) => e.target.select()} /><button className="btn sm" onClick={() => copy(v.embedSnippet, toast)}>Copiar código</button></div>
+        <Field label="Sites que podem mostrar o formulário (opcional)" hint="Um por linha, ex.: www.minhaloja.com.br. Em branco = qualquer site com HTTPS."><textarea rows={2} value={v.embedDomainsText ?? (v.embedDomains ?? []).join('\n')} onChange={(e) => setV({ ...v, embedDomainsText: e.target.value })} disabled={!can('OWNER', 'ADMIN')} /></Field>
       </div>
       {can('OWNER', 'ADMIN') && <div><button className="btn primary" disabled={busy} onClick={() => save()}>Salvar configuração</button></div>}
       <SdrTeste />
