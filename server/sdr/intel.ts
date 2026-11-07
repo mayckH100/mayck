@@ -210,3 +210,44 @@ export function inBestWindow(now: Date, hora: number, tz?: string | null): boole
   const h = zonedParts(now, safeTz(tz ?? undefined)).hour;
   return h >= hora && h < hora + 2;
 }
+
+// ---------- 7) Intenção, sentimento e opt-out automático (LGPD) ----------
+export type Intencao = 'OPTOUT' | 'SEM_INTERESSE' | 'REUNIAO' | 'COMPRA' | 'PRECO' | 'DUVIDA' | 'OUTRO';
+export type Sentimento = 'POSITIVO' | 'NEUTRO' | 'NEGATIVO';
+export const INTENCAO_LABEL: Record<Intencao, string> = {
+  OPTOUT: 'Pediu para não receber mais', SEM_INTERESSE: 'Sem interesse', REUNIAO: 'Quer marcar conversa', COMPRA: 'Quer comprar/contratar',
+  PRECO: 'Perguntou preço', DUVIDA: 'Dúvida', OUTRO: 'Conversa',
+};
+const plain = (s: string) => ` ${norm(s || '').replace(/[^\p{L}\p{N}?! ]/gu, ' ').replace(/\s+/g, ' ')} `;
+
+/** Pedido de opt-out em frase (além das palavras exatas SAIR/PARAR do WhatsApp). */
+const OPTOUT_RE = new RegExp([
+  ' nao quero (mais )?receber',
+  ' nao (me )?(mande|mandem|envie|enviem|chame|chamem|ligue|liguem) mais',
+  ' (pare|parem|para|parar) de (me )?(mandar|enviar|chamar|ligar|incomodar)',
+  ' (me )?(tira|tire|tirem|remova|remove|removam|exclua|excluam|apague) (meu numero |meu contato )?(da|dessa|desta|de sua|da sua) lista',
+  ' (quero )?sair (da|dessa|desta) lista',
+  ' (me )?descadastr',
+  ' nao quero mais (mensagens?|contato|que me)',
+  ' (lgpd|nao autorizo|nao autorizei)',
+].join('|'));
+
+export function isOptOutPhrase(text: string): boolean {
+  return OPTOUT_RE.test(plain(text));
+}
+
+const has = (t: string, words: string[]) => words.some((w) => t.includes(` ${w}`));
+export function detectIntent(text: string): { intencao: Intencao; sentimento: Sentimento } {
+  const t = plain(text);
+  const neg = has(t, ['ruim', 'pessimo', 'pessima', 'horrivel', 'absurdo', 'chato', 'irritad', 'reclama', 'golpe', 'nao gostei', 'decepcion', 'insatisfeit', 'raiva', 'palhacada', 'enganad', 'demora demais']) || /😡|👎|🤬|😠/u.test(text);
+  const pos = has(t, ['otimo', 'otima', 'gostei', 'perfeito', 'perfeita', 'obrigad', 'show', 'top', 'legal', 'maravilh', 'excelente', 'adorei', 'massa', 'bacana', 'boa ']) || /👍|😊|🙏|😍|👏|❤/u.test(text);
+  const sentimento: Sentimento = neg && !pos ? 'NEGATIVO' : pos && !neg ? 'POSITIVO' : 'NEUTRO';
+  let intencao: Intencao = 'OUTRO';
+  if (isOptOutPhrase(text)) intencao = 'OPTOUT';
+  else if (has(t, ['nao tenho interesse', 'sem interesse', 'nao preciso', 'nao quero', 'ja resolvi', 'ja contratei', 'nao e pra mim', 'nao me interessa'])) intencao = 'SEM_INTERESSE';
+  else if (has(t, ['marcar', 'agendar', 'reuniao', 'demonstracao', 'demo ', 'call ', 'videochamada', 'conversar amanha', 'que horas', 'qual horario', 'tem horario'])) intencao = 'REUNIAO';
+  else if (has(t, ['quero contratar', 'quero comprar', 'vamos fechar', 'fechado', 'como contrato', 'como faco para contratar', 'como assino', 'pode mandar o contrato', 'manda o link de pagamento', 'quero assinar', 'tenho interesse', 'quero sim'])) intencao = 'COMPRA';
+  else if (has(t, ['preco', 'quanto custa', 'quanto e', 'valor', 'valores', 'mensalidade', 'orcamento', 'tabela', 'planos'])) intencao = 'PRECO';
+  else if (t.includes('?') || has(t, ['como funciona', 'duvida', 'explica', 'o que e'])) intencao = 'DUVIDA';
+  return { intencao, sentimento };
+}

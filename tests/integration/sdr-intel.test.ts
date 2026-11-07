@@ -191,4 +191,32 @@ describe('SDR inteligência', () => {
     expect((await a.put('/api/sdr/inteligencia', { reuniao: { ofertaHorarios: true, noShow: false } })).body.reuniao).toMatchObject({ ofertaHorarios: true, noShow: false, noShowTexto: 'Oi {primeiro_nome}, vamos remarcar? {horarios}' });
     await a.put('/api/sdr/inteligencia', { reuniao: { ofertaHorarios: false } });
   });
+
+  it('7) intenção/sentimento no histórico e opt-out automático por frase (só quando ligado)', async () => {
+    const { installGraphMock, sendInbound } = await import('../helpers.js');
+    const { flushSdr } = await import('../../server/sdr/ai.js');
+    installGraphMock();
+    const ctx = await createTestChannel(orgA());
+    expect((await a.get('/api/sdr/inteligencia')).body).toMatchObject({ sentimento: true, optOutAuto: true }); // configuração nova
+    const tel = phone();
+    await sendInbound(ctx, tel, 'Oi! Quanto custa o plano?');
+    await flushSdr();
+    const l = await prisma.sdrLead.findFirstOrThrow({ where: { orgId: orgA(), phone: '+' + tel } });
+    const v = await a.get(`/api/sdr/inteligencia/leads/${l.id}`);
+    expect(v.body.intencao).toMatchObject({ intencao: 'PRECO', sentimento: 'NEUTRO', label: 'Perguntou preço' });
+    expect((await a.get(`/api/sdr/leads/${l.id}`)).body.events.find((e: any) => e.type === 'INTENCAO').detail).toBe('Perguntou preço · tom neutro');
+    await sendInbound(ctx, tel, 'Por favor, não quero mais receber mensagens');
+    await flushSdr();
+    expect((await prisma.contact.findFirstOrThrow({ where: { orgId: orgA(), waId: tel } })).optOut).toBe(true);
+    expect((await lead(l.id)).optOutAt).toBeTruthy();
+    // Empresa sem a opção (quem já usava): a mesma frase não muda nada.
+    const c = await registerClient();
+    const ctxC = await createTestChannel(c.me.org.id);
+    const tel2 = phone();
+    await sendInbound(ctxC, tel2, 'não quero mais receber mensagens');
+    await flushSdr();
+    expect((await prisma.contact.findFirstOrThrow({ where: { orgId: c.me.org.id, waId: tel2 } })).optOut).toBe(false);
+    await sendInbound(ctxC, tel2, 'SAIR'); // palavra exata continua valendo para todos
+    expect((await prisma.contact.findFirstOrThrow({ where: { orgId: c.me.org.id, waId: tel2 } })).optOut).toBe(true);
+  });
 });

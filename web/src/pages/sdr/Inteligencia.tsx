@@ -39,6 +39,10 @@ function Form({ v, onSaved }: { v: any; onSaved: () => void }) {
         <Toggle checked={!!f.melhorHorario} onChange={(x) => setF({ ...f, melhorHorario: x })} label="Enviar no horário em que o lead mais responde" hint="Sempre dentro do seu horário comercial (fuso da empresa, padrão Brasília). Sem histórico, envia às 10h. Adia no máximo um dia." />
       </div>
       <div className="card stack">
+        <h3 style={{ margin: 0 }}>Privacidade (LGPD)</h3>
+        <Toggle checked={!!f.optOutAuto} onChange={(x) => setF({ ...f, optOutAuto: x })} label="Entender pedidos para sair escritos de outro jeito" hint='Além de "SAIR" e "PARAR", frases como "não quero mais receber", "me tira da lista" ou "pare de me mandar mensagem" param todas as mensagens automáticas para esse contato. Não envia nada.' />
+      </div>
+      <div className="card stack">
         <h3 style={{ margin: 0 }}>Reuniões</h3>
         <Toggle checked={!!f.reuniao.ofertaHorarios} onChange={(x) => setF({ ...f, reuniao: { ...f.reuniao, ofertaHorarios: x } })} label="A IA propõe horários livres da Agenda a leads mornos e quentes" hint="Usa os horários de atendimento já configurados na Agenda. Muda as respostas da IA." />
         <Toggle checked={!!f.reuniao.noShow} onChange={(x) => setF({ ...f, reuniao: { ...f.reuniao, noShow: x } })} label="Recuperar quem não compareceu" hint='Ao marcar "Não compareceu" no lead, envia uma mensagem com novos horários (só para quem pode receber).' />
@@ -47,6 +51,7 @@ function Form({ v, onSaved }: { v: any; onSaved: () => void }) {
       <div className="card stack">
         <h3 style={{ margin: 0 }}>Para o vendedor</h3>
         <Toggle checked={!!f.resumo} onChange={(x) => setF({ ...f, resumo: x })} label="Resumo para o vendedor no aviso de lead quente e no Kanban" hint="Dor, orçamento, prazo, decisor e próximo passo. Vai só para a sua equipe, nunca para o lead." />
+        <Toggle checked={!!f.sentimento} onChange={(x) => setF({ ...f, sentimento: x })} label="Mostrar a intenção e o tom de cada resposta do lead" hint="Ex.: perguntou preço, quer marcar conversa, sem interesse; tom positivo, neutro ou negativo. Só para a equipe." />
         <Toggle checked={!!f.cnpj} onChange={(x) => setF({ ...f, cnpj: x })} label="Completar pelo CNPJ (Receita Federal, grátis)" hint="Quando o lead informa o CNPJ (na conversa, no formulário ou no cadastro), buscamos razão social, atividade, situação, regime e cidade. Não envia nada ao lead; se a consulta falhar, nada muda." />
       </div>
       <div><button className="btn primary" disabled={busy} onClick={save}>Salvar</button></div>
@@ -62,6 +67,8 @@ function bodyOf(f: any) {
     followupIa: !!f.followupIa,
     melhorHorario: !!f.melhorHorario,
     reuniao: f.reuniao,
+    sentimento: !!f.sentimento,
+    optOutAuto: !!f.optOutAuto,
     objecoes: { enabled: !!f.objecoes.enabled, itens: f.objecoes.itens.map((o: any) => ({ id: o.id, titulo: o.titulo, resposta: o.resposta, gatilhos: Array.isArray(o.gatilhos) ? o.gatilhos : String(o.gatilhos).split(',') })) },
   };
 }
@@ -123,6 +130,7 @@ export function LeadInteligencia({ id }: { id: string }) {
         <div className="small">
           {[['Dor', d.resumo.dor], ['Orçamento', d.resumo.orcamento], ['Prazo', d.resumo.prazo], ['Decisor', d.resumo.decisor]].map(([k, val]) => <div key={k}><span className="muted">{k}:</span> {val ?? <em className="muted">não informado</em>}</div>)}
           <div><span className="muted">Próximo passo:</span> <strong>{d.resumo.proximoPasso}</strong></div>
+          {d.intencao && <div><span className="muted">Última intenção:</span> {d.intencao.label} · tom {({ POSITIVO: '🙂 positivo', NEUTRO: 'neutro', NEGATIVO: '🙁 negativo' } as any)[d.intencao.sentimento]}</div>}
           <div><span className="muted">Melhor horário para falar:</span> {d.melhorHorario.hora}h–{d.melhorHorario.hora + 2}h{d.melhorHorario.base < 2 ? ' (padrão; ainda sem histórico de respostas)' : ` (com base em ${d.melhorHorario.base} respostas)`}</div>
         </div>
       </div>

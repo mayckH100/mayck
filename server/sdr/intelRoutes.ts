@@ -40,6 +40,8 @@ const schema = z.object({
   resumo: z.boolean().optional(),
   followupIa: z.boolean().optional(),
   melhorHorario: z.boolean().optional(),
+  sentimento: z.boolean().optional(),
+  optOutAuto: z.boolean().optional(),
   reuniao: z.object({ ofertaHorarios: z.boolean().optional(), noShow: z.boolean().optional(), noShowTexto: z.string().max(600).optional() }).optional(),
 });
 
@@ -66,7 +68,8 @@ sdrIntelRouter.get('/leads/:id', ah(async (req, res) => {
   const resumo = buildHandoff(parseJson<Answers>(l.answersJson, {}), l, explicacao.proximaAcao);
   const tz = (await prisma.organization.findUnique({ where: { id: l.orgId }, select: { timezone: true } }))?.timezone ?? 'America/Sao_Paulo';
   const melhor = bestSendHour(await replyDatesOf(l), s, tz);
-  res.json({ stage: l.stage, horariosLivres: await nextFreeSlots(l.orgId), metodo: (await getIntelConfig(l.orgId)).metodo, explicacao, resumo, melhorHorario: { ...melhor, fuso: tz }, empresa: await leadEmpresa(l.orgId, l.id) });
+  const ult = await prisma.sdrEvent.findFirst({ where: { orgId: l.orgId, leadId: l.id, type: 'INTENCAO' }, orderBy: { createdAt: 'desc' }, select: { detail: true, createdAt: true } });
+  res.json({ intencao: ult ? { ...parseJson<object>(ult.detail, {}), em: ult.createdAt } : null, stage: l.stage, horariosLivres: await nextFreeSlots(l.orgId), metodo: (await getIntelConfig(l.orgId)).metodo, explicacao, resumo, melhorHorario: { ...melhor, fuso: tz }, empresa: await leadEmpresa(l.orgId, l.id) });
 }));
 
 /** Enriquecer pelo CNPJ informado pela equipe. Falha silenciosa: responde 200 com `empresa: null` e um aviso. */

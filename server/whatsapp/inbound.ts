@@ -13,6 +13,8 @@ import type { Channel } from '@prisma/client';
 import { onLeadInbound, onLeadOptOut } from '../mckmensagem/hooks.js';
 import { qualifyLeadInbound } from '../mckmensagem/qualificacao.js';
 import { sdrOnInboundInBackground } from '../sdr/ai.js';
+import { isOptOutPhrase } from '../sdr/intel.js';
+import { getIntelConfig } from '../sdr/intelConfig.js';
 import { autoReplyModeOf } from './autoReplyMode.js';
 import { openConversationFor, redirectIfActiveElsewhere } from './multiCanal.js';
 import { safeSyncContactsToLeads, safeOnContactUpdated } from '../mckmensagem/contactSync.js';
@@ -140,7 +142,8 @@ export async function handleInboundMessage(channel: Channel, m: InboundMessage, 
       }
     }
 
-    const isOptOut = OPT_OUT.has(normalize(m.text));
+    // v1.21.0: além de SAIR/PARAR, frases como "não quero mais receber" quando o opt-out automático do SDR está ligado.
+    const isOptOut = OPT_OUT.has(normalize(m.text)) || (m.type === 'text' && isOptOutPhrase(m.text ?? '') && (await getIntelConfig(orgId).then((c) => c.optOutAuto).catch(() => false)));
     if (!isOptOut) await onLeadInbound(orgId, contact);
     if (isOptOut) {
       await prisma.contact.update({ where: { id: contact.id }, data: { optOut: true } });

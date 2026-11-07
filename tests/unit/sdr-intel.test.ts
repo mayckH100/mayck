@@ -105,3 +105,19 @@ describe('SDR inteligência — 6) reunião', () => {
     expect(offerSlotsLine([])).toBe('');
   });
 });
+
+import { detectIntent, isOptOutPhrase } from '../../server/sdr/intel.js';
+describe('SDR inteligência — 7) intenção, sentimento e opt-out', () => {
+  it('opt-out por frase (LGPD) sem falso positivo comum', () => {
+    for (const t of ['Não quero mais receber mensagens', 'me tira dessa lista por favor', 'Pare de me mandar mensagem!', 'não me mande mais nada', 'quero me descadastrar']) expect(isOptOutPhrase(t)).toBe(true);
+    for (const t of ['quero receber a proposta', 'pode parar de se preocupar, vou fechar', 'não quero pagar caro', 'qual a lista de preços?']) expect(isOptOutPhrase(t)).toBe(false);
+  });
+  it('intenção e sentimento', () => {
+    expect(detectIntent('Quanto custa o plano?')).toEqual({ intencao: 'PRECO', sentimento: 'NEUTRO' });
+    expect(detectIntent('Ótimo! Podemos marcar uma reunião amanhã?')).toEqual({ intencao: 'REUNIAO', sentimento: 'POSITIVO' });
+    expect(detectIntent('Não tenho interesse, achei péssimo')).toEqual({ intencao: 'SEM_INTERESSE', sentimento: 'NEGATIVO' });
+    expect(detectIntent('Vamos fechar, como contrato?').intencao).toBe('COMPRA');
+    expect(detectIntent('me tira da lista').intencao).toBe('OPTOUT');
+    expect(detectIntent('ok').intencao).toBe('OUTRO');
+  });
+});

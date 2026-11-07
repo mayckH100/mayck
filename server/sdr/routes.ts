@@ -40,6 +40,9 @@ sdrRouter.use('/inteligencia', sdrIntelRouter);
 /** Evento CNPJ guarda JSON; no histórico aparece só o nome da empresa. */
 const cnpjDetail = (d: string | null) => { const j = parseJson<any>(d, null); return j ? `${j.fantasia || j.razaoSocial}${j.situacao ? ` (${j.situacao})` : ''}` : null; };
 
+const SENT: Record<string, string> = { POSITIVO: 'positivo', NEUTRO: 'neutro', NEGATIVO: 'negativo' };
+const intentDetail = (d: string | null) => { const j = parseJson<any>(d, null); return j ? `${j.label} · tom ${SENT[j.sentimento] ?? '—'}` : null; };
+
 async function findLead(req: Request, id: string): Promise<SdrLead> {
   const l = await prisma.sdrLead.findFirst({ where: { id, orgId: orgOf(req) } });
   if (!l) throw notFound('Lead');
@@ -233,7 +236,7 @@ sdrRouter.get('/leads/:id', ah(async (req, res) => {
   res.json({
     ...leadView(l, { ownerName: l.ownerUserId ? owners.get(l.ownerUserId) ?? null : null, cadenceName: cad?.name ?? null }),
     questions: await questionsFor(l.orgId, s), steps: stepsOf(cad), conversationId: conv?.id ?? null,
-    events: events.map((e) => ({ id: e.id, type: e.type, channel: e.channel, detail: e.type === 'CNPJ' ? cnpjDetail(e.detail) : cleanEventDetail(e.detail), createdAt: e.createdAt })),
+    events: events.map((e) => ({ id: e.id, type: e.type, channel: e.channel, detail: e.type === 'CNPJ' ? cnpjDetail(e.detail) : e.type === 'INTENCAO' ? intentDetail(e.detail) : cleanEventDetail(e.detail), createdAt: e.createdAt })),
   });
 }));
 

@@ -29,11 +29,15 @@ export interface IntelConfig {
   melhorHorario: boolean;
   /** Reunião: IA propõe horários livres da Agenda; recuperação de quem não compareceu (os dois mudam mensagens: desligados). */
   reuniao: { ofertaHorarios: boolean; noShow: boolean; noShowTexto: string };
+  /** Intenção e sentimento de cada mensagem do lead (só leitura para a equipe; ligado em configuração nova). */
+  sentimento: boolean;
+  /** Opt-out automático por frase ("não quero mais receber", "me tira da lista"...): para tudo, não envia nada (ligado em configuração nova). */
+  optOutAuto: boolean;
 }
 
-export const DEFAULT_INTEL: IntelConfig = { metodo: 'PADRAO', objecoes: { enabled: false, itens: DEFAULT_OBJECOES }, cnpj: false, resumo: false, followupIa: false, melhorHorario: false, reuniao: { ofertaHorarios: false, noShow: false, noShowTexto: DEFAULT_NOSHOW_TEXT } };
+export const DEFAULT_INTEL: IntelConfig = { metodo: 'PADRAO', objecoes: { enabled: false, itens: DEFAULT_OBJECOES }, cnpj: false, resumo: false, followupIa: false, melhorHorario: false, reuniao: { ofertaHorarios: false, noShow: false, noShowTexto: DEFAULT_NOSHOW_TEXT }, sentimento: false, optOutAuto: false };
 /** Padrões de quem liga o SDR pela primeira vez (nada aqui envia mensagem sozinho). */
-export const NEW_SETUP_INTEL: IntelConfig = { ...DEFAULT_INTEL, cnpj: true, resumo: true };
+export const NEW_SETUP_INTEL: IntelConfig = { ...DEFAULT_INTEL, cnpj: true, resumo: true, sentimento: true, optOutAuto: true };
 
 export function normalizeIntel(raw: unknown): IntelConfig {
   const r = (raw && typeof raw === 'object' ? raw : {}) as any;
@@ -49,6 +53,8 @@ export function normalizeIntel(raw: unknown): IntelConfig {
       noShow: r.reuniao?.noShow === true,
       noShowTexto: String(r.reuniao?.noShowTexto ?? '').trim().slice(0, 600) || DEFAULT_NOSHOW_TEXT,
     },
+    sentimento: r.sentimento === true,
+    optOutAuto: r.optOutAuto === true,
   };
 }
 
