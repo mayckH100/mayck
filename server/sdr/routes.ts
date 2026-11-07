@@ -10,10 +10,10 @@ import { appUrl } from '../lib/mailer.js';
 import { parseJson } from '../lib/json.js';
 import { createAppointment, ConflictError } from '../agenda/service.js';
 import { parseLocal } from '../agenda/time.js';
-import { STAGES, STAGE_LABEL, SEGMENTS, VARIABLES, normalizeQuestions, normalizeSteps, defaultCadenceSteps, segmentLabel, type Stage } from './core.js';
+import { cleanEventDetail, STAGES, STAGE_LABEL, SEGMENTS, VARIABLES, normalizeQuestions, normalizeSteps, defaultCadenceSteps, segmentLabel, type Stage } from './core.js';
 import { getSdrPlans, sdrAccess, setSdrPlans } from './access.js';
 import {
-  getSdrSettings, questionsOf, ensureCadences, stepsOf, upsertLead, leadView, logEvent, setStage, stopCadence, enroll, runStep, newToken,
+  assignByRotation, getSdrSettings, questionsOf, ensureCadences, stepsOf, upsertLead, leadView, logEvent, setStage, stopCadence, enroll, runStep, newToken,
 } from './service.js';
 import { parseCsv } from './csv.js';
 import { getV2Config, setV2Config, normalizeDomains, type SdrV2Config } from './v2config.js';
@@ -59,7 +59,12 @@ function settingsView(s: Awaited<ReturnType<typeof getSdrSettings>>, req: Reques
   };
 }
 
-sdrRouter.get('/config', ah(async (req, res) => res.json(settingsView(await getSdrSettings(orgOf(req)), req, await getV2Config(orgOf(req))))));
+async function teamOf(orgId: string) {
+  const ms = await prisma.membership.findMany({ where: { orgId }, include: { user: { select: { id: true, name: true } } }, orderBy: { createdAt: 'asc' } });
+  return ms.map((m) => ({ id: m.user.id, name: m.user.name }));
+}
+
+sdrRouter.get('/config', ah(async (req, res) => res.json({ ...settingsView(await getSdrSettings(orgOf(req)), req, await getV2Config(orgOf(req))), team: await teamOf(orgOf(req)) })));
 
 const HHMM = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/);
 const configSchema = z.object({
@@ -101,7 +106,7 @@ sdrRouter.put('/config', admins, ah(async (req, res) => {
   const s = await prisma.sdrSettings.update({ where: { orgId }, data });
   if (b.enabled && !cur.enabled) await ensureCadences(orgId);
   await audit(req, 'sdr.config', { orgId, entity: 'sdr_settings', entityId: orgId, meta: { enabled: s.enabled, autoMode: s.autoMode, autoBook: s.autoBook, newFormLink: !!newFormLink } });
-  res.json(settingsView(s, req, v2));
+  res.json({ ...settingsView(s, req, v2), team: await teamOf(orgId) });
 }));
 
 // ---------- Cadências ----------
@@ -211,7 +216,7 @@ sdrRouter.get('/leads/:id', ah(async (req, res) => {
   res.json({
     ...leadView(l, { ownerName: l.ownerUserId ? owners.get(l.ownerUserId) ?? null : null, cadenceName: cad?.name ?? null }),
     questions: questionsOf(s), steps: stepsOf(cad), conversationId: conv?.id ?? null,
-    events: events.map((e) => ({ id: e.id, type: e.type, channel: e.channel, detail: e.detail, createdAt: e.createdAt })),
+    events: events.map((e) => ({ id: e.id, type: e.type, channel: e.channel, detail: cleanEventDetail(e.detail), createdAt: e.createdAt })),
   });
 }));
 
@@ -299,6 +304,17 @@ sdrRouter.post('/leads/:id/reuniao', ah(async (req, res) => {
     if (e instanceof ConflictError) throw new HttpError(409, 'Esse horário já está ocupado na Agenda');
     throw e;
   }
+}));
+
+/** Rodízio: distribui agora os leads em aberto que ainda não têm dono (máx. 500 por vez). */
+sdrRouter.post('/rodizio/distribuir', admins, ah(async (req, res) => {
+  const orgId = orgOf(req);
+  if (!(await getV2Config(orgId)).rodizio.enabled) throw badRequest('Ligue o rodízio e escolha os membros primeiro');
+  const leads = await prisma.sdrLead.findMany({ where: { orgId, ownerUserId: null, stage: { notIn: ['GANHO', 'PERDIDO'] } }, orderBy: { createdAt: 'asc' }, take: 500 });
+  let n = 0;
+  for (const l of leads) if ((await assignByRotation(l)).ownerUserId) n++;
+  await audit(req, 'sdr.rodizio.distribuir', { orgId, entity: 'sdr_lead', meta: { distribuidos: n } });
+  res.json({ distribuidos: n });
 }));
 
 // ---------- Importação CSV ----------

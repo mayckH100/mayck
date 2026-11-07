@@ -26,6 +26,7 @@ export const CHANGELOG: EntradaChangelog[] = [
     titulo: 'SDR com IA: Kanban junto, rodízio de leads, relatórios e formulário no seu site',
     itens: [
       'O SDR e o Kanban do MCKBOT andam juntos: quando o lead muda de etapa no SDR, o contato muda no Kanban, e quando você arrasta o contato no Kanban (para Qualificado, Ganho ou Perdido, por exemplo), o lead acompanha. Dá para desligar na Configuração do SDR.',
+      'Rodízio de leads: escolha quem da equipe recebe os leads e cada lead novo sem responsável vai para o próximo da lista, um de cada vez. Também dá para distribuir de uma vez os leads que ainda estão sem responsável.',
     ],
   },
   {

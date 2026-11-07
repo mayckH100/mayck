@@ -166,11 +166,41 @@ export async function upsertLead(orgId: string, input: LeadInput, source: Source
     throw e;
   }
   await logEvent(orgId, lead.id, 'CRIADO', source, optOut ? 'já tinha pedido para sair: não recebe mensagens' : null);
+  if (!lead.ownerUserId) lead = await assignByRotation(lead).catch(() => lead);
   if (input.note) await logEvent(orgId, lead.id, 'NOTA', source, input.note);
   lead = await linkContact(lead).catch(() => lead);
   const s = await getSdrSettings(orgId);
   if (s.enabled && !optOut) lead = await enroll(lead, s, now);
   return { lead, created: true };
+}
+
+// ---------- Rodízio de leads (v1.19.0) ----------
+/**
+ * Próximo dono do rodízio: o membro escolhido que vem depois de quem recebeu o último lead pelo rodízio (na ordem
+ * da lista). Membros que saíram da equipe são ignorados. Sem membros válidos: null.
+ */
+export async function nextRotationOwner(orgId: string, members: string[]): Promise<string | null> {
+  if (!members.length) return null;
+  const valid = new Set((await prisma.membership.findMany({ where: { orgId, userId: { in: members } }, select: { userId: true } })).map((m) => m.userId));
+  const list = members.filter((m) => valid.has(m));
+  if (!list.length) return null;
+  const last = await prisma.sdrEvent.findFirst({ where: { orgId, type: 'DONO', channel: 'RODIZIO' }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], select: { detail: true } });
+  const lastId = last?.detail?.match(/\[u:([^\]]+)\]/)?.[1];
+  const i = lastId ? list.indexOf(lastId) : -1;
+  return list[(i + 1) % list.length];
+}
+
+/** Lead novo sem dono: recebe o próximo do rodízio, quando ligado em SDR › Configuração. */
+export async function assignByRotation(lead: SdrLead): Promise<SdrLead> {
+  if (lead.ownerUserId) return lead;
+  const cfg = (await getV2Config(lead.orgId)).rodizio;
+  if (!cfg.enabled) return lead;
+  const owner = await nextRotationOwner(lead.orgId, cfg.members);
+  if (!owner) return lead;
+  const upd = await prisma.sdrLead.update({ where: { id: lead.id }, data: { ownerUserId: owner } });
+  const u = await prisma.user.findUnique({ where: { id: owner }, select: { name: true } });
+  await logEvent(lead.orgId, lead.id, 'DONO', 'RODIZIO', `[u:${owner}] Rodízio: ${u?.name ?? 'membro da equipe'}`);
+  return upd;
 }
 
 /** Telefone com consentimento/WhatsApp: liga ao contato do MCKBOT e ao lead do MCK Mensagens (mesma pessoa). */

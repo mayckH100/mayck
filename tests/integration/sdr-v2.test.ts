@@ -55,6 +55,40 @@ describe('SDR v2', () => {
     await a.post('/api/kanban/move', { contactId: cid, stageId: await stageId('Qualificado') });
     expect((await lead(l0.id)).stage).toBe('PERDIDO');
     expect((await a.put('/api/sdr/config', { kanbanSync: true })).body.kanbanSync).toBe(true);
-    void uniq;
+  });
+
+  it('2) rodízio: leads novos sem dono vão um para cada membro escolhido, em ordem', async () => {
+    const u2 = await prisma.user.create({ data: { email: `${uniq('rod')}@t.com.br`, name: 'Bia Rodízio', passwordHash: 'x' } });
+    await prisma.membership.create({ data: { userId: u2.id, orgId: orgA(), role: 'AGENT' } });
+    const me = a.me.user.id;
+    const outsider = await registerClient();
+    expect((await a.put('/api/sdr/config', { rodizio: { enabled: true, members: [me, outsider.me.user.id] } })).status).toBe(400);
+    expect((await a.put('/api/sdr/config', { rodizio: { enabled: true, members: [] } })).status).toBe(400);
+    const cfg = await a.put('/api/sdr/config', { rodizio: { enabled: true, members: [me, u2.id] } });
+    expect(cfg.status).toBe(200);
+    expect(cfg.body.rodizio).toEqual({ enabled: true, members: [me, u2.id] });
+    expect(cfg.body.team.map((t: any) => t.id)).toEqual(expect.arrayContaining([me, u2.id]));
+    const owners: string[] = [];
+    for (let i = 0; i < 4; i++) owners.push((await a.post('/api/sdr/leads', { name: `R${i}`, email: `${uniq('rod')}@x.com.br` })).body.ownerUserId);
+    expect(new Set([owners[0], owners[1]])).toEqual(new Set([me, u2.id]));
+    expect(owners[2]).toBe(owners[0]);
+    expect(owners[3]).toBe(owners[1]);
+    // Quem já vem com dono não entra no rodízio.
+    expect((await a.post('/api/sdr/leads', { email: `${uniq('rod')}@x.com.br`, ownerUserId: me })).body.ownerUserId).toBe(me);
+    // Histórico mostra o rodízio sem marca interna.
+    const fr = await a.post('/api/sdr/leads', { email: `${uniq('rod')}@x.com.br` });
+    const h = await a.get(`/api/sdr/leads/${fr.body.id}`);
+    const dono = h.body.events.find((e: any) => e.type === 'DONO');
+    expect(dono.detail).toMatch(/^Rodízio: /);
+    // Distribuir os antigos sem dono.
+    await a.put('/api/sdr/config', { rodizio: { enabled: false, members: [me, u2.id] } });
+    const semDono = await a.post('/api/sdr/leads', { email: `${uniq('rod')}@x.com.br` });
+    expect(semDono.body.ownerUserId).toBeNull();
+    expect((await a.post('/api/sdr/rodizio/distribuir')).status).toBe(400);
+    await a.put('/api/sdr/config', { rodizio: { enabled: true, members: [me, u2.id] } });
+    const d = await a.post('/api/sdr/rodizio/distribuir');
+    expect(d.body.distribuidos).toBeGreaterThanOrEqual(1);
+    expect((await lead(semDono.body.id)).ownerUserId).toBeTruthy();
+    await a.put('/api/sdr/config', { rodizio: { enabled: false, members: [] } });
   });
 });

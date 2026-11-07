@@ -365,7 +365,7 @@ function Config({ onSaved }: { onSaved: () => void }) {
   useEffect(() => { if (state.data) setV(state.data); }, [state.data]);
   if (!v) return <Async state={state}>{() => null}</Async>;
   const save = async (extra: Record<string, unknown> = {}) => {
-    const body = { enabled: v.enabled, autoMode: v.autoMode, captureWhatsapp: v.captureWhatsapp, autoBook: v.autoBook, segment: v.segment, questions: v.questions, warmScore: Number(v.warmScore), hotScore: Number(v.hotScore), workStart: v.workStart, workEnd: v.workEnd, workDays: v.workDays, dailyLimit: Number(v.dailyLimit), silenceHours: Number(v.silenceHours), formEnabled: v.formEnabled, formTitle: v.formTitle, alertHot: v.alertHot, kanbanSync: v.kanbanSync, ...extra };
+    const body = { enabled: v.enabled, autoMode: v.autoMode, captureWhatsapp: v.captureWhatsapp, autoBook: v.autoBook, segment: v.segment, questions: v.questions, warmScore: Number(v.warmScore), hotScore: Number(v.hotScore), workStart: v.workStart, workEnd: v.workEnd, workDays: v.workDays, dailyLimit: Number(v.dailyLimit), silenceHours: Number(v.silenceHours), formEnabled: v.formEnabled, formTitle: v.formTitle, alertHot: v.alertHot, kanbanSync: v.kanbanSync, rodizio: v.rodizio, ...extra };
     const r = await run(() => put('/sdr/config', body), 'Configuração salva');
     if (r) { state.setData(r); onSaved(); }
   };
@@ -381,6 +381,17 @@ function Config({ onSaved }: { onSaved: () => void }) {
         {toggle('autoBook', 'A IA marca a reunião sozinha', 'Com confirmação do lead, nos horários livres da Agenda (lembrete pela própria Agenda).')}
         {toggle('kanbanSync', 'Acompanhar o Kanban do MCKBOT', 'A etapa do lead e a do contato no Kanban andam juntas (Novo, Contatado, Respondeu, Qualificado, Reunião, Ganho, Perdido), quando o Kanban tem uma etapa com esse nome.')}
         {toggle('alertHot', 'Avisar quando um lead ficar quente', 'Pelos Números de aviso (Perfil › Organização) e no painel. A conversa NÃO é transferida.')}
+      </div>
+      <div className="card stack">
+        <strong>Distribuição automática de leads (rodízio)</strong>
+        <label className="row" style={{ alignItems: 'flex-start' }}><input type="checkbox" checked={!!v.rodizio?.enabled} disabled={!can('OWNER', 'ADMIN')} onChange={(e) => setV({ ...v, rodizio: { ...v.rodizio, enabled: e.target.checked } })} style={{ width: 'auto', marginTop: 3 }} /><span><strong>Distribuir os leads novos entre a equipe</strong><br /><span className="small muted">Cada lead novo sem responsável vai para o próximo da lista, um de cada vez.</span></span></label>
+        <div className="row" style={{ flexWrap: 'wrap' }}>
+          {(v.team ?? []).map((m: any) => {
+            const on = (v.rodizio?.members ?? []).includes(m.id);
+            return <label key={m.id} className="row small" style={{ gap: 6 }}><input type="checkbox" checked={on} disabled={!can('OWNER', 'ADMIN')} style={{ width: 'auto' }} onChange={() => setV({ ...v, rodizio: { ...v.rodizio, members: on ? v.rodizio.members.filter((x: string) => x !== m.id) : [...(v.rodizio?.members ?? []), m.id] } })} />{m.name}</label>;
+          })}
+        </div>
+        {can('OWNER', 'ADMIN') && state.data?.rodizio?.enabled && <div><button className="btn sm" disabled={busy} onClick={async () => { const r = await run(() => post('/sdr/rodizio/distribuir')); if (r) toast(`${r.distribuidos} lead(s) distribuído(s)`); }}>Distribuir agora os leads sem responsável</button></div>}
       </div>
       <div className="card stack">
         <strong>Perguntas de qualificação (a IA pergunta com naturalidade e dá a nota)</strong>

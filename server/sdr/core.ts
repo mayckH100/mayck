@@ -240,3 +240,6 @@ export function kanbanNameToStage(name: string): Stage | null {
 export function kanbanTargetFor<T extends { name: string; position: number }>(stage: Stage, stages: T[]): T | null {
   return [...stages].sort((a, b) => a.position - b.position).find((s) => kanbanNameToStage(s.name) === stage) ?? null;
 }
+
+/** Tira as marcas internas do começo do texto do histórico ([u:…] dono do rodízio, [c:…#n] cadência e passo). */
+export const cleanEventDetail = (d: string | null | undefined): string | null => (d ? d.replace(/^(\[[a-z]:[^\]]{1,80}\]\s*)+/, '') || null : null);

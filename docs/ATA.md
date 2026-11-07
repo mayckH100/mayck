@@ -210,3 +210,4 @@ Entradas antigas assinadas "Hark" podem ser de qualquer um. Se não souber qual 
 ## Atualização 2026-11-07 — Leandro: SDR v2 — v1.19.0 (em andamento)
 - Progresso item a item (se o crédito acabar, o Daniel continua daqui; ver docs/SDR.md › Para a v2):
 - 1) Kanban ↔ SDR: feito (server/sdr/kanbanSync.ts, `onKanbanStageChanged` em service.ts; ganchos em routes/kanban.ts, routes/contacts.ts e flows/engine.ts). Config v2 sem migração no AuditLog (`sdr.v2.config`, server/sdr/v2config.ts). Testes: tests/integration/sdr-v2.test.ts, tests/unit/sdr-v2.test.ts.
+- 2) Rodízio de leads: feito (`assignByRotation`/`nextRotationOwner` em service.ts; ordem pela lista de membros escolhidos, último dono lido do evento DONO/RODIZIO; POST /api/sdr/rodizio/distribuir; config em SDR › Configuração).
