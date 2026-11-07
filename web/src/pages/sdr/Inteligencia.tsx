@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { put } from '../../api';
+import { put, post } from '../../api';
 import { useApi, Async, Field, useAction } from '../../ui';
 
 /**
@@ -33,6 +33,10 @@ function Form({ v, onSaved }: { v: any; onSaved: () => void }) {
         {f.metodo === 'PADRAO' && <p className="small muted" style={{ margin: 0 }}>As perguntas do método Padrão são editadas em Configuração.</p>}
       </div>
       <Objecoes f={f} setF={setF} padrao={v.objecoesPadrao} />
+      <div className="card stack">
+        <h3 style={{ margin: 0 }}>Dados da empresa do lead</h3>
+        <Toggle checked={!!f.cnpj} onChange={(x) => setF({ ...f, cnpj: x })} label="Completar pelo CNPJ (Receita Federal, grátis)" hint="Quando o lead informa o CNPJ (na conversa, no formulário ou no cadastro), buscamos razão social, atividade, situação, regime e cidade. Não envia nada ao lead; se a consulta falhar, nada muda." />
+      </div>
       <div><button className="btn primary" disabled={busy} onClick={save}>Salvar</button></div>
     </div>
   );
@@ -41,6 +45,7 @@ function Form({ v, onSaved }: { v: any; onSaved: () => void }) {
 function bodyOf(f: any) {
   return {
     metodo: f.metodo,
+    cnpj: !!f.cnpj,
     objecoes: { enabled: !!f.objecoes.enabled, itens: f.objecoes.itens.map((o: any) => ({ id: o.id, titulo: o.titulo, resposta: o.resposta, gatilhos: Array.isArray(o.gatilhos) ? o.gatilhos : String(o.gatilhos).split(',') })) },
   };
 }
@@ -88,8 +93,30 @@ const NIVEL: Record<string, { label: string; color: string }> = {
 /** Bloco do lead (janela do lead): por que a pontuação é essa e o que fazer agora. */
 export function LeadInteligencia({ id }: { id: string }) {
   const state = useApi<any>(`/sdr/inteligencia/leads/${id}`, [id]);
+  const [cnpj, setCnpj] = useState('');
+  const { run, busy } = useAction();
+  const buscar = async () => {
+    const r: any = await run(() => post(`/sdr/inteligencia/leads/${id}/cnpj`, { cnpj }));
+    if (r) { if (r.aviso) alert(r.aviso); state.reload(); }
+  };
   return (
     <Async state={state}>{(d) => (
+      <>
+      <div className="card stack">
+        <strong>Empresa do lead</strong>
+        {d.empresa ? (
+          <div className="small">
+            <div><strong>{d.empresa.fantasia || d.empresa.razaoSocial}</strong>{d.empresa.fantasia ? <span className="muted"> · {d.empresa.razaoSocial}</span> : null}</div>
+            <div className="muted">CNPJ {d.empresa.cnpj.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5')}{d.empresa.situacao ? ` · ${d.empresa.situacao}` : ''}{d.empresa.regime ? ` · ${d.empresa.regime}` : ''}{d.empresa.cidade ? ` · ${d.empresa.cidade}/${d.empresa.uf}` : ''}</div>
+            {d.empresa.atividade && <div>Atividade: {d.empresa.atividade}</div>}
+          </div>
+        ) : (
+          <form className="row" onSubmit={(e) => { e.preventDefault(); if (cnpj.trim()) buscar(); }}>
+            <input value={cnpj} onChange={(e) => setCnpj(e.target.value)} placeholder="CNPJ do lead" maxLength={20} style={{ width: 200 }} />
+            <button className="btn sm" disabled={busy || !cnpj.trim()}>Completar pela Receita</button>
+          </form>
+        )}
+      </div>
       <div className="card stack">
         <strong>Por que esta pontuação? <span className="small muted">({d.explicacao.titulo})</span></strong>
         <p className="small" style={{ margin: 0 }}>{d.explicacao.porque}</p>
@@ -103,6 +130,7 @@ export function LeadInteligencia({ id }: { id: string }) {
           ))}
         </div>
       </div>
+      </>
     )}</Async>
   );
 }

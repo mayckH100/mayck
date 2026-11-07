@@ -22,7 +22,8 @@ import { getV2Config, setV2Config, normalizeDomains, sdrReplyTo, type SdrV2Confi
 import { contem } from '../lib/busca.js';
 import { startOfDayIn } from './time.js';
 import { sdrIntelRouter } from './intelRoutes.js';
-import { questionsFor, seedIntelForNewSetup } from './intelConfig.js';
+import { questionsFor, seedIntelForNewSetup, getIntelConfig } from './intelConfig.js';
+import { enrichLeadInBackground, findCnpjIn } from './cnpj.js';
 
 export const sdrRouter = Router();
 const admins = requireRole('OWNER', 'ADMIN');
@@ -35,6 +36,9 @@ const writeLimiter = rateLimit({
 sdrRouter.use(writeLimiter);
 // v1.21.0: inteligência (método BANT/SPIN, explicação da pontuação, objeções, CNPJ, resumo, follow-up, reunião, intenção).
 sdrRouter.use('/inteligencia', sdrIntelRouter);
+
+/** Evento CNPJ guarda JSON; no histórico aparece só o nome da empresa. */
+const cnpjDetail = (d: string | null) => { const j = parseJson<any>(d, null); return j ? `${j.fantasia || j.razaoSocial}${j.situacao ? ` (${j.situacao})` : ''}` : null; };
 
 async function findLead(req: Request, id: string): Promise<SdrLead> {
   const l = await prisma.sdrLead.findFirst({ where: { id, orgId: orgOf(req) } });
@@ -210,6 +214,9 @@ sdrRouter.post('/leads', ah(async (req, res) => {
   const orgId = orgOf(req);
   await checkOwner(orgId, b.ownerUserId);
   const r = await upsertLead(orgId, b, 'MANUAL');
+  // v1.21.0: CNPJ no campo empresa → enriquece em segundo plano (quando ligado; nunca bloqueia).
+  const cnpj = findCnpjIn(b.company);
+  if (cnpj && (await getIntelConfig(orgId)).cnpj) enrichLeadInBackground(r.lead, cnpj);
   await audit(req, 'sdr.lead.create', { orgId, entity: 'sdr_lead', entityId: r.lead.id, meta: { created: r.created } });
   res.status(r.created ? 201 : 200).json({ ...leadView(r.lead), created: r.created });
 }));
@@ -226,7 +233,7 @@ sdrRouter.get('/leads/:id', ah(async (req, res) => {
   res.json({
     ...leadView(l, { ownerName: l.ownerUserId ? owners.get(l.ownerUserId) ?? null : null, cadenceName: cad?.name ?? null }),
     questions: await questionsFor(l.orgId, s), steps: stepsOf(cad), conversationId: conv?.id ?? null,
-    events: events.map((e) => ({ id: e.id, type: e.type, channel: e.channel, detail: cleanEventDetail(e.detail), createdAt: e.createdAt })),
+    events: events.map((e) => ({ id: e.id, type: e.type, channel: e.channel, detail: e.type === 'CNPJ' ? cnpjDetail(e.detail) : cleanEventDetail(e.detail), createdAt: e.createdAt })),
   });
 }));
 

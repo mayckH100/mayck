@@ -18,17 +18,20 @@ export interface IntelConfig {
   metodo: Metodo;
   /** Biblioteca de objeções: a IA usa as respostas da empresa (muda as respostas aos leads: desligada por padrão). */
   objecoes: { enabled: boolean; itens: Objecao[] };
+  /** Enriquecimento por CNPJ (BrasilAPI): não envia nada; ligado em configuração nova. */
+  cnpj: boolean;
 }
 
-export const DEFAULT_INTEL: IntelConfig = { metodo: 'PADRAO', objecoes: { enabled: false, itens: DEFAULT_OBJECOES } };
+export const DEFAULT_INTEL: IntelConfig = { metodo: 'PADRAO', objecoes: { enabled: false, itens: DEFAULT_OBJECOES }, cnpj: false };
 /** Padrões de quem liga o SDR pela primeira vez (nada aqui envia mensagem sozinho). */
-export const NEW_SETUP_INTEL: IntelConfig = { ...DEFAULT_INTEL };
+export const NEW_SETUP_INTEL: IntelConfig = { ...DEFAULT_INTEL, cnpj: true };
 
 export function normalizeIntel(raw: unknown): IntelConfig {
   const r = (raw && typeof raw === 'object' ? raw : {}) as any;
   return {
     metodo: normalizeMetodo(r.metodo),
     objecoes: { enabled: r.objecoes?.enabled === true, itens: r.objecoes?.itens === undefined ? DEFAULT_OBJECOES : normalizeObjecoes(r.objecoes.itens) },
+    cnpj: r.cnpj === true,
   };
 }
 

@@ -45,3 +45,14 @@ describe('SDR inteligência — 2) objeções', () => {
     expect(r).toEqual([{ id: 'prazo_de_entrega', titulo: 'Prazo de entrega', gatilhos: ['demora', 'prazo longo'], resposta: 'Informe o prazo real.' }]);
   });
 });
+
+import { findCnpjIn } from '../../server/sdr/cnpj.js';
+describe('SDR inteligência — 3) CNPJ', () => {
+  it('acha CNPJ válido no texto (com ou sem máscara) e ignora inválidos', () => {
+    expect(findCnpjIn('meu cnpj é 11.222.333/0001-81, obrigado')).toBe('11222333000181');
+    expect(findCnpjIn('11222333000181')).toBe('11222333000181');
+    expect(findCnpjIn('11.222.333/0001-80')).toBeNull();
+    expect(findCnpjIn('telefone 5511999998888')).toBeNull();
+    expect(findCnpjIn(null)).toBeNull();
+  });
+});

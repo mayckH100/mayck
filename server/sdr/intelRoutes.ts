@@ -9,6 +9,8 @@ import { getSdrSettings, questionsOf } from './service.js';
 import { getIntelConfig, setIntelConfig, questionsFor, type IntelConfig } from './intelConfig.js';
 import { explainScore, METODOS, METODO_LABEL, METODO_QUESTIONS, DEFAULT_OBJECOES } from './intel.js';
 import type { Answers, Temperature } from './core.js';
+import { enrichLead, leadEmpresa } from './cnpj.js';
+import { isValidCnpj, onlyDigits } from '../lib/documento.js';
 
 /** SDR com IA › Inteligência (v1.21.0): `/api/sdr/inteligencia` (montado dentro do sdrRouter: mesmo acesso do SDR). */
 export const sdrIntelRouter = Router();
@@ -32,6 +34,7 @@ const schema = z.object({
     enabled: z.boolean().optional(),
     itens: z.array(z.object({ id: z.string().max(40).optional(), titulo: z.string().max(80), gatilhos: z.union([z.array(z.string().max(60)).max(15), z.string().max(900)]), resposta: z.string().max(600) })).max(20).optional(),
   }).optional(),
+  cnpj: z.boolean().optional(),
 });
 
 sdrIntelRouter.put('/', admins, ah(async (req, res) => {
@@ -54,5 +57,14 @@ sdrIntelRouter.get('/leads/:id', ah(async (req, res) => {
   const s = await getSdrSettings(l.orgId);
   const qs = await questionsFor(l.orgId, s);
   const explicacao = explainScore(qs, parseJson<Answers>(l.answersJson, {}), l.score, l.temperature as Temperature, s.warmScore, s.hotScore);
-  res.json({ metodo: (await getIntelConfig(l.orgId)).metodo, explicacao });
+  res.json({ metodo: (await getIntelConfig(l.orgId)).metodo, explicacao, empresa: await leadEmpresa(l.orgId, l.id) });
+}));
+
+/** Enriquecer pelo CNPJ informado pela equipe. Falha silenciosa: responde 200 com `empresa: null` e um aviso. */
+sdrIntelRouter.post('/leads/:id/cnpj', ah(async (req, res) => {
+  const l = await leadOf(req);
+  const cnpj = onlyDigits(String(req.body?.cnpj ?? ''));
+  if (cnpj.length !== 14 || !isValidCnpj(cnpj)) return res.json({ empresa: null, aviso: 'CNPJ inválido' });
+  const empresa = await enrichLead(l, cnpj);
+  res.json({ empresa, aviso: empresa ? null : 'Não foi possível consultar agora. O lead segue normalmente.' });
 }));

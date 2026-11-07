@@ -6,6 +6,8 @@ import { allowedOrigins } from '../auth/session.js';
 import { SEGMENTS } from './core.js';
 import { sdrLiberadoCached } from './access.js';
 import { getSdrSettings, optOutLead, upsertLead } from './service.js';
+import { enrichLeadInBackground, findCnpjIn } from './cnpj.js';
+import { getIntelConfig } from './intelConfig.js';
 import { getV2Config } from './v2config.js';
 
 /**
@@ -98,11 +100,14 @@ sdrPublicRouter.post('/f/:token', formLimiter, urlenc, async (req, res, next) =>
     if (b.consentimento !== 'sim') return page(res, 400, f.s.formTitle, formHtml(req.params.token, f.s.formTitle, f.orgName, 'Marque a autorização de contato para enviar.', embed), embed);
     const seg = SEGMENTS.some((s) => s.id === b.segmento) ? b.segmento : null;
     try {
-      await upsertLead(f.s.orgId, {
+      const r = await upsertLead(f.s.orgId, {
         name: String(b.nome ?? '').slice(0, 120), company: String(b.empresa ?? '').slice(0, 120) || null, segment: seg,
         phone: String(b.telefone ?? '').slice(0, 30), email: String(b.email ?? '').slice(0, 200), consent: true,
         note: b.mensagem ? `Mensagem do formulário${embed ? ' (incorporado em site)' : ''}: ${String(b.mensagem).slice(0, 400)}` : embed ? 'Veio pelo formulário incorporado em site' : null,
       }, 'FORMULARIO');
+      // v1.21.0: CNPJ digitado no campo empresa → enriquece em segundo plano (quando ligado; nunca bloqueia).
+      const cnpj = findCnpjIn(b.empresa);
+      if (cnpj && (await getIntelConfig(f.s.orgId).catch(() => null))?.cnpj) enrichLeadInBackground(r.lead, cnpj);
     } catch {
       return page(res, 400, f.s.formTitle, formHtml(req.params.token, f.s.formTitle, f.orgName, 'Informe um WhatsApp ou e-mail válido.', embed), embed);
     }

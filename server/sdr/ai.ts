@@ -9,6 +9,7 @@ import { answeredCount, computeScore, mergeAnswers, parseExtraction, temperature
 import { sdrLiberadoCached } from './access.js';
 import { getQualificacao, qualiPromptLines } from './qualificacao.js';
 import { getIntelConfig, questionsFor } from './intelConfig.js';
+import { enrichLeadInBackground, findCnpjIn } from './cnpj.js';
 import { metodoPromptLine, detectObjecao, objecoesPromptLines } from './intel.js';
 import { alertHot, getSdrSettings, registerReply, setStage, upsertLead, logEvent } from './service.js';
 
@@ -162,6 +163,7 @@ export async function sdrOnInbound(args: { conv: Conversation; contact: Contact;
   }
   if (lead.optOutAt || ['GANHO', 'PERDIDO'].includes(lead.stage) || conv.mode === 'HUMAN' || !args.text?.trim()) return lead;
   const intel = await getIntelConfig(orgId);
+  if (intel.cnpj) { const cnpj = findCnpjIn(args.text); if (cnpj) enrichLeadInBackground(lead, cnpj); }
   if (intel.objecoes.enabled) {
     const obj = detectObjecao(args.text, intel.objecoes.itens);
     if (obj) await logEvent(orgId, lead.id, 'OBJECAO', 'WHATSAPP', obj.titulo);
