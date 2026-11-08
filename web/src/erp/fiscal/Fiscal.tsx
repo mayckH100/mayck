@@ -4,7 +4,6 @@ import JsBarcode from 'jsbarcode';
 import { get, post, put, del } from '../../api';
 import { useAuth } from '../../auth';
 import { useApi, Async, Empty, Modal, Field, useAction, useToast, fmtDate } from '../../ui';
-import ErpNav from '../ErpNav';
 import { brl } from '../format';
 import { BuscaProduto } from '../comum';
 
@@ -16,7 +15,6 @@ export default function Fiscal() {
   return (
     <div className="page">
       <div className="page-head"><div><h1>Fiscal</h1><p className="muted">NF-e emitida com o certificado A1 da própria empresa, direto na SEFAZ. Comece em homologação.</p></div></div>
-      <ErpNav />
       <div className="row" style={{ marginBottom: 10 }}>{([['nfe', 'NF-e emitidas'], ['cfg', 'Emitente e certificado'], ['regras', 'Regras de tributação']] as const).map(([a, l]) => <button key={a} className={`btn sm ${aba === a ? 'primary' : ''}`} onClick={() => setAba(a)}>{l}</button>)}</div>
       {aba === 'nfe' && <ListaNfe />}
       {aba === 'cfg' && <Config />}
