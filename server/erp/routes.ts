@@ -5,6 +5,7 @@
 import { requireErpArea } from '../lib/permissions.js';
 import { relatoriosRouter } from './relatorios/relatorios.routes.js';
 import { balcaoRouter } from './vendas/balcao.routes.js';
+import { caixaRouter } from './vendas/caixa.routes.js';
 import { importacaoRouter } from './importacao/importacao.routes.js';
 import { Router } from 'express';
 import { ah } from '../lib/http.js';
@@ -53,6 +54,7 @@ erpRouter.use('/estoque/nfe', requireErpArea('erp_estoque', ['erp_compras']), nf
 erpRouter.use('/estoque/inventarios', requireErpArea('erp_estoque'), inventarioRouter);
 erpRouter.use('/estoque', requireErpArea('erp_estoque', ['erp_vendas', 'erp_compras']), estoqueRouter);
 erpRouter.use('/vendas/balcao', requireErpArea('erp_vendas'), balcaoRouter);
+erpRouter.use('/vendas/caixa', requireErpArea('erp_vendas', ['erp_financeiro', 'erp_relatorios']), caixaRouter);
 erpRouter.use('/vendas/pedidos', requireErpArea('erp_vendas', ['erp_estoque', 'erp_financeiro']), pedidosRouter);
 erpRouter.use('/compras', requireErpArea('erp_compras', ['erp_estoque', 'erp_financeiro']), comprasRouter);
 erpRouter.use('/producao', requireErpArea('erp_compras', ['erp_estoque']), producaoRouter);
