@@ -4,7 +4,6 @@ import { useParams, Link } from 'react-router-dom';
 import { post } from '../../api';
 import { useAuth } from '../../auth';
 import { useApi, Async, Modal, Field, useAction, useToast, fmtDate } from '../../ui';
-import ErpNav from '../ErpNav';
 import { NfeDoPedido } from '../fiscal/Fiscal';
 import { brl, qtd, toMil } from '../format';
 import { badgeStatus } from './Pedidos';
@@ -27,7 +26,6 @@ export default function Pedido() {
   const acao = async (evento: string, extra: any = {}) => { await run(() => post(`/erp/vendas/pedidos/${id}/acao`, { evento, ...extra }), ROTULO[evento]); setPedindo(null); state.reload(); };
   return (
     <>
-      <ErpNav />
       <Async state={state}>{(p) => (
         <>
           <div className="page-head">

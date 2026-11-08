@@ -3,7 +3,6 @@ import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { get, post } from '../../api';
 import { useApi, Async, Empty, Modal, Field, useAction, useToast, fmtDate } from '../../ui';
-import ErpNav from '../ErpNav';
 import VendaBalcao from './Balcao';
 import { CaixaBanner, AbrirCaixaModal, CaixasHistorico, type EstadoCaixa } from './Caixa';
 import { brl, toCents, toMil, qtd, STATUS_PEDIDO } from '../format';
@@ -54,7 +53,6 @@ export default function Pedidos({ balcao: abrirBalcao = false }: { balcao?: bool
           <button className="btn primary" onClick={iniciarVenda}>Venda balcão</button>
         </div>
       </div>
-      <ErpNav />
       {(abrirBalcao || abertas.length > 0) && <CaixaBanner estado={caixa.data} sessaoId={sessaoId} onEscolher={setSessaoEscolhida} onAbrir={() => setAbrirCaixa('so')} onReload={caixa.reload} />}
       <div className="row" style={{ marginBottom: 10, flexWrap: 'wrap' }}>{GRUPOS.map((x) => <button key={x.label} className={`btn sm ${grupo === x.label ? 'primary' : ''}`} onClick={() => setGrupo(x.label)}>{x.label}</button>)}
         <button className={`btn sm ${caixasAba ? 'primary' : ''}`} onClick={() => setGrupo('Caixas')}>Caixas</button></div>
