@@ -3,7 +3,7 @@
  * e as alterações sensíveis (custo, estornos, cancelamentos). Baixável em CSV e enviado sozinho no fim do dia.
  */
 import { prisma } from '../../db.js';
-import { planoCompletoAtivo } from '../../billing/service.js';
+import { erpLiberado } from '../../billing/erpAccess.js';
 import { agoraLocal } from '../alertas/alertas.js';
 
 const SENSIVEIS = ['produto.custo', 'produto.custo_xml', 'produto.custos_adicionais', 'baixa.estornar', 'pedido.cancelar', 'pedido.devolver', 'estoque.ajuste_saida', 'titulo.cancelar', 'nfe_saida.cancelar'].map((a) => `erp.${a}`);
@@ -81,7 +81,7 @@ export async function tickRelatorioDiario(now = new Date(), horaEnvio = 22) {
     const org = await prisma.organization.findUnique({ where: { id: c.orgId }, select: { timezone: true } });
     const { dia, hora } = agoraLocal(org?.timezone || 'America/Sao_Paulo', now);
     if (hora < horaEnvio || c.relatorioUltimoDia === dia) continue;
-    if (!(await planoCompletoAtivo(c.orgId, now))) continue; // ERP só no Plano Completo
+    if (!(await erpLiberado(c.orgId, now))) continue; // ERP só no Plano Completo
     const claim = await prisma.erpConfig.updateMany({ where: { orgId: c.orgId, OR: [{ relatorioUltimoDia: null }, { relatorioUltimoDia: { not: dia } }] }, data: { relatorioUltimoDia: dia } });
     if (!claim.count) continue;
     try {
