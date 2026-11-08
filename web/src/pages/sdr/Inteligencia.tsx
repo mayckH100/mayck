@@ -32,6 +32,7 @@ function Form({ v, onSaved }: { v: any; onSaved: () => void }) {
         </div>
         {f.metodo === 'PADRAO' && <p className="small muted" style={{ margin: 0 }}>As perguntas do método Padrão são editadas em Configuração.</p>}
       </div>
+      <Conversa f={f} setF={setF} />
       <Objecoes f={f} setF={setF} padrao={v.objecoesPadrao} />
       <div className="card stack">
         <h3 style={{ margin: 0 }}>Acompanhamento (cadências)</h3>
@@ -70,9 +71,27 @@ function bodyOf(f: any) {
     reuniao: f.reuniao,
     sentimento: !!f.sentimento,
     optOutAuto: !!f.optOutAuto,
+    conversa: { enabled: !!f.conversa?.enabled, autoverificacao: f.conversa?.autoverificacao !== false, handoff: f.conversa?.handoff !== false },
     autoResposta: { enabled: !!f.autoResposta?.enabled, frases: String(f.autoResposta?.frasesTexto ?? (f.autoResposta?.frases ?? []).join('\n')).split('\n').map((x: string) => x.trim()).filter(Boolean).slice(0, 30), acao: f.autoResposta?.acao === 'PAUSAR' ? 'PAUSAR' : 'SEGUIR', pausaHoras: Math.min(168, Math.max(1, Math.round(Number(f.autoResposta?.pausaHoras) || 24))), iaDuvida: !!f.autoResposta?.iaDuvida },
     objecoes: { enabled: !!f.objecoes.enabled, itens: f.objecoes.itens.map((o: any) => ({ id: o.id, titulo: o.titulo, resposta: o.resposta, gatilhos: Array.isArray(o.gatilhos) ? o.gatilhos : String(o.gatilhos).split(',') })) },
   };
+}
+
+/** v1.26.0: IA conversacional avançada (muda as respostas aos leads: desligada para quem já usava o SDR). */
+function Conversa({ f, setF }: { f: any; setF: (x: any) => void }) {
+  const c = f.conversa ?? { enabled: false, autoverificacao: true, handoff: true };
+  const set = (patch: any) => setF({ ...f, conversa: { ...c, ...patch } });
+  return (
+    <div className="card stack">
+      <h3 style={{ margin: 0 }}>IA conversacional avançada</h3>
+      <p className="small muted" style={{ margin: 0 }}>Conversa mais humana com os leads do SDR e com quem responde às suas campanhas. Muda as respostas da IA para leads; o atendimento comum continua igual.</p>
+      <Toggle checked={!!c.enabled} onChange={(x) => set({ enabled: x })} label="Ligar a IA conversacional avançada" hint="A IA lê os dados do lead (empresa, CNPJ, respostas já dadas, objeções, campanha) e a conversa inteira, nunca pergunta de novo o que ele já respondeu, escreve como no WhatsApp (curto, uma pergunta por vez, no tom do lead) e decide o próximo passo pelo método escolhido." />
+      {c.enabled && <>
+        <Toggle checked={c.autoverificacao !== false} onChange={(x) => set({ autoverificacao: x })} label="Conferir cada resposta antes de enviar" hint="Tamanho, uma pergunta só, nada de preço, cobertura ou prazo fora das suas Instruções e nenhum dado sensível. Se algo estiver errado, a IA reescreve uma vez (conta no limite de uso e é pulada quando o limite está no fim). Sem a informação, ela diz que confirma com o especialista." />
+        <Toggle checked={c.handoff !== false} onChange={(x) => set({ handoff: x })} label="Passar ao vendedor na hora certa" hint="Lead quente, pedido para falar com uma pessoa, lead irritado ou dúvida que as Instruções não cobrem: a IA para de responder e a equipe recebe o aviso com o resumo do lead." />
+      </>}
+    </div>
+  );
 }
 
 /** v1.22.0: respostas automáticas do lead (saudação, ausência, menus, "estou dirigindo") não contam como resposta. */

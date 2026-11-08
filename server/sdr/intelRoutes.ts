@@ -44,6 +44,7 @@ const schema = z.object({
   melhorHorario: z.boolean().optional(),
   sentimento: z.boolean().optional(),
   optOutAuto: z.boolean().optional(),
+  conversa: z.object({ enabled: z.boolean().optional(), autoverificacao: z.boolean().optional(), handoff: z.boolean().optional() }).optional(),
   reuniao: z.object({ ofertaHorarios: z.boolean().optional(), noShow: z.boolean().optional(), noShowTexto: z.string().max(600).optional() }).optional(),
   autoResposta: z.object({
     enabled: z.boolean().optional(),

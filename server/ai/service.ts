@@ -17,6 +17,7 @@ import { agendaPromptSection, applyAgendaTag, cleanAiText, stripJsonMarkers, str
 import { productsPromptSection } from './products.js';
 import { productContextFor } from './productSource.js';
 import { sdrPromptSection, sdrForcesBooking } from '../sdr/ai.js';
+import { conversaAvancadaFor, conversaPromptSection, HISTORICO_AVANCADO } from '../sdr/conversaService.js';
 import { applyOrderTag, intentFromText, ordersPromptSection, tagConversation } from '../agenda/orders.js';
 import { notAutoReply } from '../sdr/autoReply.js';
 import { detectVoicePreference, decideWithPreference, historyContent, isVoicePreference, MARK_CLIENT_AUDIO, stripVoiceMarkers, voicePromptSection, type VoicePreference } from './voice/preference.js';
@@ -171,6 +172,8 @@ async function generateAiReplyInner(args: { orgId: string; conversationId: strin
   // IA desligada: não responde e não transfere (quem decide o que fazer é o fluxo/atendente).
   if (!s || !s.enabled) return { text: null, handoff: false, failed: true, reason: 'IA desativada', usedContext: false };
   const fail = failureText(s);
+  // v1.26.0: IA conversacional avançada (SDR › Inteligência; só conversas com leads e o "Testar"). Desligada = null.
+  const adv = await conversaAvancadaFor(orgId, conversationId, s).catch(() => null);
 
   // Única transferência permitida: pedido explícito do cliente (detector em código + palavras da empresa).
   const handoffWords = parseJson<string[]>(s.handoffKeywords, []).filter(Boolean);
@@ -211,7 +214,7 @@ async function generateAiReplyInner(args: { orgId: string; conversationId: strin
 
   const history = await prisma.message.findMany({
     where: { orgId, conversationId, direction: { in: ['IN', 'OUT'] }, status: { not: 'FAILED' }, ...notAutoReply },
-    orderBy: { createdAt: 'desc' }, take: 10,
+    orderBy: { createdAt: 'desc' }, take: adv ? HISTORICO_AVANCADO : 10,
   });
   // Voz: preferência do cliente nesta conversa (pedido explícito de áudio/texto, detector por palavras) e
   // o que a IA de fato consegue fazer aqui. Falha aqui nunca derruba a resposta.
@@ -231,8 +234,9 @@ async function generateAiReplyInner(args: { orgId: string; conversationId: strin
   const site = await knowledgePromptSection(s, text).catch(() => '');
   // Kanban automático (desligado por padrão): etapas e o marcador [ETAPA:nome].
   const kanban = s.kanbanAuto ? await kanbanPromptSection(orgId, conversationId).catch(() => '') : '';
+  const avancada = adv ? conversaPromptSection(adv) : '';
   const messages: ChatMessage[] = [
-    { role: 'system', content: buildSystemPrompt({ instructions: [s.instructions, args.extraInstructions, agenda, pedidos, prod.rules, site, kanban, sdr].filter(Boolean).join('\n'), tone: s.tone }, context, contactNotes, voice) },
+    { role: 'system', content: buildSystemPrompt({ instructions: [s.instructions, args.extraInstructions, agenda, pedidos, prod.rules, site, kanban, sdr, avancada].filter(Boolean).join('\n'), tone: s.tone }, context, contactNotes, voice) },
     // Links da agenda/Meet já enviados saem do histórico: a IA não deve copiá-los numa nova resposta.
     // Áudios ficam marcados: [enviado como áudio] (nota de voz da IA) e [áudio do cliente, transcrito].
     ...history.reverse().slice(0, -1).map((m) => ({ role: (m.direction === 'IN' ? 'user' : 'assistant') as 'user' | 'assistant', content: historyContent(m, stripSystemLinks) })),
