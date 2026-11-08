@@ -1777,6 +1777,7 @@ model ErpPedidoVenda {
   motivoCancelamento  String?
   observacoes         String?
   correlationId       String
+  caixaSessaoId       String? // venda balcão: sessão de caixa em que foi feita
   createdAt           DateTime        @default(now())
   updatedAt           DateTime        @updatedAt
   itens               ErpPedidoItem[]
@@ -1784,6 +1785,7 @@ model ErpPedidoVenda {
   @@unique([orgId, numero])
   @@index([orgId, statusOperacional])
   @@index([orgId, parceiroId])
+  @@index([caixaSessaoId])
 }
 
 model ErpPedidoItem {
@@ -2164,7 +2166,10 @@ model ErpBaixa {
   forma         String    @default("PIX") // PIX | BOLETO | TED | DINHEIRO | CARTAO
   estornada     Boolean   @default(false)
   userId        String?
+  caixaSessaoId String? // recebimento da venda balcão: sessão de caixa (totais por forma no fechamento)
   createdAt     DateTime  @default(now())
+
+  @@index([caixaSessaoId])
 }
 
 /**
@@ -2185,6 +2190,54 @@ model ErpLancamento {
   createdAt   DateTime @default(now())
 
   @@index([orgId, contaId, data])
+}
+
+/**
+ * Sessão de caixa do PDV (venda balcão): abertura com o dinheiro inicial, fechamento com o dinheiro contado.
+ * Uma sessão aberta por conta do tipo CAIXA: `contaAberta` = contaFinanceiraId enquanto aberta (único), nulo depois.
+ * Esperado em dinheiro = abertura + vendas em dinheiro + suprimentos − sangrias; diferença = contado − esperado.
+ */
+model ErpCaixaSessao {
+  id                    String    @id @default(cuid())
+  orgId                 String
+  contaFinanceiraId     String
+  contaAberta           String?   @unique
+  status                String    @default("ABERTO") // ABERTO | FECHADO
+  abertoPorUserId       String?
+  abertoEm              DateTime  @default(now())
+  valorAberturaCents    Int       @default(0)
+  observacaoAbertura    String?
+  qtdVendas             Int       @default(0)
+  fechadoPorUserId      String?
+  fechadoEm             DateTime?
+  valorContadoCents     Int?
+  valorEsperadoCents    Int?
+  diferencaCents        Int?
+  totalVendasCents      Int?
+  totalSangriasCents    Int?
+  totalSuprimentosCents Int?
+  totaisPorForma        String? // JSON: { DINHEIRO: { qtd, valorCents }, PIX: ..., CARTAO: ... }
+  observacaoFechamento  String?
+  updatedAt             DateTime  @updatedAt
+
+  @@index([orgId, abertoEm])
+  @@index([orgId, status])
+}
+
+/** Sangria (retirada de dinheiro do caixa) e suprimento (reforço de troco) durante uma sessão. */
+model ErpCaixaMovimento {
+  id            String   @id @default(cuid())
+  orgId         String
+  sessaoId      String
+  tipo          String // SANGRIA | SUPRIMENTO
+  valorCents    Int
+  motivo        String
+  contaOutraId  String? // conta de destino (sangria) ou de origem (suprimento), quando o dinheiro vai/vem de outra conta
+  userId        String?
+  em            DateTime @default(now())
+
+  @@index([sessaoId])
+  @@index([orgId, em])
 }
 
 /**
