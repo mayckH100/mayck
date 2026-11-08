@@ -65,6 +65,8 @@ export default function Products() {
         )}
       </div>
 
+      <ProductSourceCard ro={ro} />
+
       <div className="card" style={{ marginBottom: 12 }}>
         <input type="search" placeholder="Buscar por nome, categoria ou detalhe…" value={q} onChange={(e) => setQ(e.target.value)} style={{ width: '100%' }} aria-label="Buscar produtos" />
       </div>
@@ -130,6 +132,92 @@ export default function Products() {
 
       {importing && <ImportModal onClose={() => setImporting(false)} onDone={() => state.reload()} />}
     </>
+  );
+}
+
+type Source = 'catalogo' | 'erp' | 'ambos';
+interface SourceView {
+  productSource: Source; erpShowQuantity: boolean; erpDepositoId: string | null;
+  erpLiberado: boolean; motivo: string | null; depositos: { id: string; nome: string }[]; efetivo: Source;
+}
+const SOURCE_OPTS: { id: Source; label: string; hint: string }[] = [
+  { id: 'catalogo', label: 'Somente Produtos cadastrados', hint: 'A IA usa só esta lista de produtos (como sempre foi).' },
+  { id: 'erp', label: 'ERP da MCK (saldo em tempo real)', hint: 'A IA consulta os produtos ativos do MCK ERP, com o estoque disponível (já descontado o reservado e a quarentena).' },
+  { id: 'ambos', label: 'Os dois', hint: 'Descrição, promoção e link vêm daqui; o estoque vem do ERP (liga pelo código SKU citado no produto ou pelo mesmo nome).' },
+];
+const ORIGEM_LABEL: Record<string, string> = { catalogo: 'Produtos', erp: 'ERP', ambos: 'Produtos + ERP' };
+
+/** v1.24.0 — "De onde a IA consulta os produtos": Produtos, ERP ou os dois, com teste do que a IA receberia. */
+function ProductSourceCard({ ro }: { ro: boolean }) {
+  const state = useApi<SourceView>('/ai/products/source');
+  const [f, setF] = useState<{ productSource: Source; erpShowQuantity: boolean; erpDepositoId: string } | null>(null);
+  const [msg, setMsg] = useState('');
+  const [prev, setPrev] = useState<{ context: string; source: Source; requested: Source; fallback: string | null; products: { id: string; name: string; origem: string }[] } | null>(null);
+  const { busy, run } = useAction();
+  useEffect(() => { if (state.data) setF({ productSource: state.data.productSource, erpShowQuantity: state.data.erpShowQuantity, erpDepositoId: state.data.erpDepositoId ?? '' }); }, [state.data]);
+  const body = () => f && ({ productSource: f.productSource, erpShowQuantity: f.erpShowQuantity, erpDepositoId: f.erpDepositoId || null });
+  const save = async () => { const ok = await run(() => put('/ai/products/source', body()), 'Fonte dos produtos salva'); if (ok) state.reload(); };
+  const test = async () => { const r = await run(() => post('/ai/products/preview', { message: msg, ...body() })); if (r) setPrev(r as any); };
+  return (
+    <Async state={state}>{(d) => !f ? null : (
+      <div className="card stack" style={{ marginBottom: 12 }}>
+        <div>
+          <h2 style={{ margin: 0 }}>De onde a IA consulta os produtos</h2>
+          <p className="small muted" style={{ margin: '4px 0 0' }}>A IA nunca informa custo, fornecedor ou dados internos, e nunca inventa preço ou estoque.</p>
+        </div>
+        <div className="stack" role="radiogroup" aria-label="De onde a IA consulta os produtos">
+          {SOURCE_OPTS.map((o) => {
+            const off = o.id !== 'catalogo' && !d.erpLiberado;
+            return (
+              <label key={o.id} className="row" style={{ alignItems: 'flex-start', gap: 8, opacity: off ? 0.55 : 1 }}>
+                <input type="radio" name="productSource" value={o.id} checked={f.productSource === o.id} disabled={ro || off || busy}
+                  onChange={() => { setF({ ...f, productSource: o.id }); setPrev(null); }} style={{ marginTop: 3 }} />
+                <span><strong>{o.label}</strong><div className="small muted">{o.hint}</div></span>
+              </label>
+            );
+          })}
+          {!d.erpLiberado && <p className="small muted" style={{ margin: 0 }}>🔒 {d.motivo}</p>}
+          {d.productSource !== d.efetivo && <p className="small" style={{ margin: 0, color: 'var(--danger)' }}>A opção salva usa o ERP, mas ele não está liberado: a IA está usando só os Produtos cadastrados.</p>}
+        </div>
+        {f.productSource !== 'catalogo' && d.erpLiberado && (
+          <div className="grid g2">
+            <Field label="Quantidade em estoque" hint={f.erpShowQuantity ? 'A IA informa a quantidade exata disponível (ex.: 12 UN).' : 'A IA diz só: disponível, poucas unidades, sem estoque ou sob encomenda.'}>
+              <label className="row small" style={{ gap: 6 }}>
+                <input type="checkbox" checked={f.erpShowQuantity} disabled={ro || busy} onChange={(e) => { setF({ ...f, erpShowQuantity: e.target.checked }); setPrev(null); }} />
+                Mostrar a quantidade exata ao cliente
+              </label>
+            </Field>
+            <Field label="Depósito" hint="Saldo de qual depósito a IA considera.">
+              <select value={f.erpDepositoId} disabled={ro || busy} onChange={(e) => { setF({ ...f, erpDepositoId: e.target.value }); setPrev(null); }}>
+                <option value="">Todos os depósitos</option>
+                {d.depositos.map((x) => <option key={x.id} value={x.id}>{x.nome}</option>)}
+              </select>
+            </Field>
+          </div>
+        )}
+        {!ro && (
+          <div className="row" style={{ justifyContent: 'flex-end' }}>
+            <button type="button" className="btn primary" disabled={busy} onClick={save}>Salvar</button>
+          </div>
+        )}
+        <div className="stack" style={{ borderTop: '1px solid var(--line)', paddingTop: 10 }}>
+          <strong>Testar</strong>
+          <form className="row" style={{ flexWrap: 'wrap' }} onSubmit={(e) => { e.preventDefault(); if (msg.trim()) test(); }}>
+            <input value={msg} onChange={(e) => setMsg(e.target.value)} maxLength={2000} placeholder="Ex.: quanto custa a furadeira? tem em estoque?" aria-label="Mensagem de teste" style={{ flex: 1, minWidth: 220 }} />
+            <button className="btn" disabled={busy || !msg.trim()}>Testar</button>
+          </form>
+          {prev && (
+            <div className="stack">
+              {prev.fallback && <p className="small" style={{ margin: 0 }}>{prev.fallback === 'sem_plano' ? 'ERP não liberado para esta empresa: o teste usou só os Produtos cadastrados.' : 'Não foi possível consultar o ERP agora: o teste usou só os Produtos cadastrados.'}</p>}
+              {prev.products.length === 0
+                ? <p className="small muted" style={{ margin: 0 }}>Nenhum produto combinou com a mensagem. A IA vai dizer que verifica com a equipe.</p>
+                : <p className="small muted" style={{ margin: 0 }}>Produtos encontrados: {prev.products.map((p) => `${p.name} (${ORIGEM_LABEL[p.origem] ?? p.origem})`).join(', ')}</p>}
+              {prev.context && <pre className="small" style={{ whiteSpace: 'pre-wrap', margin: 0, padding: 8, background: 'var(--bg)', borderRadius: 6 }}>{prev.context}</pre>}
+            </div>
+          )}
+        </div>
+      </div>
+    )}</Async>
   );
 }
 
