@@ -143,7 +143,14 @@ function Chat({ id, onChange }: { id: string; onChange: () => void }) {
               <div key={m.id} className={`bubble ${m.direction === 'INTERNAL' ? 'note' : m.direction === 'OUT' ? 'out' : ''} ${m.status === 'FAILED' ? 'failed' : ''}`}>
                 {m.direction !== 'IN' && <div className="small" style={{ fontWeight: 700 }}>{m.direction === 'INTERNAL' ? (m.sender === 'agent' ? `Nota interna · ${m.authorName ?? ''}` : 'Sistema') : m.sender === 'agent' ? m.authorName ?? 'Atendente' : SENDER[m.sender]}</div>}
                 {m.mediaUrl && <div><a href={m.mediaUrl} target="_blank" rel="noreferrer">[{m.type}] abrir mídia</a></div>}
-                {m.body}
+                {m.type === 'audio' && !m.mediaUrl ? (
+                  // v1.23.0: áudio recebido (com a transcrição da IA) ou nota de voz enviada pela IA (texto falado).
+                  <div>
+                    <div className="small" style={{ fontWeight: 600 }}>🎤 {m.direction === 'OUT' ? 'Áudio enviado' : 'Áudio'}</div>
+                    {m.transcript ? <div className="small" style={{ fontStyle: 'italic', whiteSpace: 'pre-wrap' }} title={m.direction === 'OUT' ? 'Texto falado no áudio' : 'Transcrição feita pela IA'}>“{m.transcript}”</div>
+                      : m.body && !/^\[.*\]$/.test(m.body) ? m.body : <div className="small muted">sem transcrição</div>}
+                  </div>
+                ) : m.body}
                 {m.status === 'FAILED' && <div className="small" style={{ color: 'var(--danger)' }}>Não enviada: {m.error}</div>}
                 {m.direction === 'IN' && typeof m.error === 'string' && m.error.startsWith('AUTORESPOSTA') && <div className="small" title={m.error.replace(/^AUTORESPOSTA:\s*/, '')}><span className="badge">🤖 Resposta automática</span> <span className="muted">não conta como resposta</span></div>}
                 <div className="meta"><span>{fmtDate(m.createdAt)}</span>{m.direction === 'OUT' && <StatusBadge status={m.status} />}</div>

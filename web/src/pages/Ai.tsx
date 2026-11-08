@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { AI_TEMPLATES, aiTemplateById } from '../lib/aiTemplates';
-import { post, put, del } from '../api';
+import { post, put, del, get, postBlob } from '../api';
 import { useAuth } from '../auth';
 import { useApi, Async, Empty, useAction, Modal, Field, fmtDate, fmtNum } from '../ui';
 
@@ -33,6 +33,8 @@ function Config() {
   const [apiKey, setApiKey] = useState('');
   const [tpl, setTpl] = useState('');
   const [tplApplied, setTplApplied] = useState('');
+  const [tplAsk, setTplAsk] = useState<{ text: string; label: string } | null>(null);
+  const [voiceKey, setVoiceKey] = useState('');
   const [sp] = useSearchParams();
   const wantTemplate = sp.get('modelo') === '1';
   const tplRef = useRef<HTMLSelectElement>(null);
@@ -42,7 +44,8 @@ function Config() {
   const applyTemplate = () => {
     const t = aiTemplateById(tpl);
     if (!t) return;
-    if (f.instructions?.trim() && f.instructions.trim() !== t.text && !confirm('Substituir as Instruções atuais pelo modelo? O texto atual será trocado (só vale depois de Salvar).')) return;
+    // Já há instruções diferentes: pergunta num Modal antes de substituir (sem window.confirm).
+    if (f.instructions?.trim() && f.instructions.trim() !== t.text) { setTplAsk({ text: t.text, label: t.label }); return; }
     setF({ ...f, instructions: t.text });
     setTplApplied(t.label);
   };
@@ -58,11 +61,26 @@ function Config() {
           handoffKeywords: f.handoffKeywords.split(',').map((x: string) => x.trim()).filter(Boolean), fallbackMessage: f.fallbackMessage,
           failureMessage: f.failureMessage ?? '', competitorNotes: f.competitorNotes ?? '', webSearch: !!f.webSearch, kanbanAuto: !!f.kanbanAuto,
           ...(superAdmin ? { useMckSite: !!f.useMckSite } : {}),
+          voiceEnabled: !!f.voiceEnabled, voiceReplyMode: f.voiceReplyMode, voiceProvider: f.voiceProvider, voiceName: f.voiceName ?? '',
+          voiceModel: f.voiceModel ?? '', voiceStyle: f.voiceStyle ?? '', voiceMaxSeconds: Number(f.voiceMaxSeconds) || 45,
+          transcribeAudio: !!f.transcribeAudio, transcribeProvider: f.transcribeProvider ?? 'auto',
         };
         if (apiKey) body.apiKey = apiKey;
+        if (voiceKey) body.voiceApiKey = voiceKey;
         const r = await run(() => put('/ai/settings', body), 'Configurações da IA salvas');
-        if (r) { setApiKey(''); state.setData(r); }
+        if (r) { setApiKey(''); setVoiceKey(''); state.setData(r); }
       }}>
+        {tplAsk && (
+          <Modal title="Substituir as Instruções?" onClose={() => setTplAsk(null)}>
+            <div className="stack">
+              <p style={{ margin: 0 }}>As Instruções atuais serão trocadas pelo modelo <strong>{tplAsk.label}</strong>. A troca só vale depois de clicar em Salvar.</p>
+              <div className="row" style={{ justifyContent: 'flex-end' }}>
+                <button type="button" className="btn" onClick={() => setTplAsk(null)}>Voltar</button>
+                <button type="button" className="btn primary" onClick={() => { setF({ ...f, instructions: tplAsk.text }); setTplApplied(tplAsk.label); setTplAsk(null); }}>Substituir</button>
+              </div>
+            </div>
+          </Modal>
+        )}
         <fieldset disabled={ro} className="card stack" style={{ margin: 0 }}>
           <h2>Provedor e modelo</h2>
           {f.provider === 'mck' && <div className={`alert ${s.mckIaReady ? 'info' : 'warn'}`}>{s.mckIaReady ? 'MCK IA: a inteligência artificial própria da MCK DESENVOLVIMENTO. Não precisa de chave.' : 'A MCK IA ainda não foi ativada na plataforma. Use o Google Gemini com a sua chave por enquanto.'}</div>}
@@ -108,8 +126,115 @@ function Config() {
           <div className="alert info small">A IA informa valores, planos, prazos e passo a passo usando as Instruções acima e a base de conhecimento. Mantenha os preços atualizados nesses lugares.</div>
           {!ro && <button className="btn primary" disabled={busy}>{busy ? 'Salvando…' : 'Salvar configurações'}</button>}
         </fieldset>
+        <VoiceSettings f={f} setF={setF} s={s} ro={ro} voiceKey={voiceKey} setVoiceKey={setVoiceKey} busy={busy}
+          clearVoiceKey={async () => { const r = await run(() => put('/ai/settings', { clearVoiceApiKey: true }), 'Chave da ElevenLabs removida'); if (r) state.setData(r); }} />
       </form>
     )}</Async>
+  );
+}
+
+const ENGINES: Record<string, { label: string; hint: string }> = {
+  gemini: { label: 'Google Gemini (grátis)', hint: 'Usa a chave do Gemini da IA de texto (ou a MCK IA). Camada gratuita do Google.' },
+  openai: { label: 'OpenAI', hint: 'Usa a chave da OpenAI da IA de texto (Provedor: OpenAI). Cobrado pela OpenAI na sua conta.' },
+  elevenlabs: { label: 'ElevenLabs (voz mais humana)', hint: 'Usa a sua chave da ElevenLabs (conta própria; o plano grátis deles tem uma cota mensal de caracteres).' },
+};
+const STT: Record<string, string> = { auto: 'Igual à IA de texto', gemini: 'Google Gemini', openai: 'OpenAI (Whisper)', elevenlabs: 'ElevenLabs (Scribe)' };
+
+/** Seção "Voz": ouvir áudios dos clientes e responder com nota de voz (motor, voz, estilo, prévia). */
+function VoiceSettings({ f, setF, s, ro, voiceKey, setVoiceKey, busy, clearVoiceKey }: { f: any; setF: (v: any) => void; s: any; ro: boolean; voiceKey: string; setVoiceKey: (v: string) => void; busy: boolean; clearVoiceKey: () => void }) {
+  const engine = f.voiceProvider ?? 'gemini';
+  const [voices, setVoices] = useState<{ id: string; label: string }[]>([]);
+  const [vErr, setVErr] = useState('');
+  const [needsKey, setNeedsKey] = useState(false);
+  const [preview, setPreview] = useState<{ url: string } | null>(null);
+  const [pBusy, setPBusy] = useState(false);
+  const [pErr, setPErr] = useState('');
+  const fRef = useRef(f);
+  fRef.current = f;
+  // A lista de vozes muda com o motor (ElevenLabs: vozes da conta do cliente, depois de salvar a chave).
+  useEffect(() => {
+    if (ro) return;
+    let alive = true;
+    setVErr('');
+    get(`/ai/voice/voices?provider=${engine}`).then((r: any) => {
+      if (!alive) return;
+      setVoices(r.voices ?? []);
+      setNeedsKey(!!r.needsKey);
+      const cur = fRef.current;
+      if ((r.voices ?? []).length && !(r.voices as any[]).some((v) => v.id === cur.voiceName)) setF({ ...cur, voiceName: r.defaultVoice || r.voices[0].id });
+    }).catch((e: Error) => { if (alive) { setVoices([]); setVErr(e.message); } });
+    return () => { alive = false; };
+  }, [engine, s.hasVoiceApiKey, ro]);
+  useEffect(() => () => { if (preview) URL.revokeObjectURL(preview.url); }, [preview]);
+  const listen = async () => {
+    setPBusy(true); setPErr('');
+    try {
+      const blob = await postBlob('/ai/voice/preview', { voiceProvider: engine, voiceName: f.voiceName ?? '', voiceModel: f.voiceModel ?? '', voiceStyle: f.voiceStyle ?? '' }, { timeoutMs: 75000 });
+      const url = URL.createObjectURL(blob);
+      setPreview({ url });
+      new Audio(url).play().catch(() => undefined);
+    } catch (e) {
+      setPErr((e as Error).message || 'Não foi possível gerar a prévia.');
+    } finally {
+      setPBusy(false);
+    }
+  };
+  return (
+    <fieldset disabled={ro} className="card stack" style={{ margin: 0, gridColumn: '1 / -1' }}>
+      <h2>Voz</h2>
+      <p className="small muted" style={{ margin: 0 }}>A IA ouve os áudios dos clientes e pode responder com áudio, como uma pessoa. Links e detalhes (preços, listas) vão por escrito logo depois do áudio. Cada áudio ouvido ou gerado conta no limite de respostas da IA.</p>
+      <div className="grid g2">
+        <div className="stack">
+          <h3 style={{ margin: 0 }}>Ouvir</h3>
+          <label className="row"><input type="checkbox" checked={!!f.transcribeAudio} onChange={(e) => setF({ ...f, transcribeAudio: e.target.checked })} /> Ouvir os áudios dos clientes (a transcrição aparece no Inbox e a IA responde ao que foi dito)</label>
+          <Field label="Quem transcreve" hint="Áudios de até 2 minutos. Se não der para ouvir, a IA pede para o cliente escrever."><select value={f.transcribeProvider ?? 'auto'} onChange={(e) => setF({ ...f, transcribeProvider: e.target.value })}>{Object.entries(STT).map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select></Field>
+        </div>
+        <div className="stack">
+          <h3 style={{ margin: 0 }}>Falar</h3>
+          <label className="row"><input type="checkbox" checked={!!f.voiceEnabled} onChange={(e) => setF({ ...f, voiceEnabled: e.target.checked })} /> Responder com áudio (nota de voz)</label>
+          <Field label="Quando responder em áudio"><select value={f.voiceReplyMode ?? 'espelhar'} onChange={(e) => setF({ ...f, voiceReplyMode: e.target.value })}>
+            <option value="espelhar">Espelhar o cliente (áudio responde áudio, texto responde texto)</option>
+            <option value="sempre_audio">Sempre em áudio</option>
+            <option value="nunca_audio">Nunca em áudio (só ouvir)</option>
+          </select></Field>
+        </div>
+      </div>
+      <div className="grid g2">
+        <Field label="Motor da voz" hint={ENGINES[engine]?.hint}><select value={engine} onChange={(e) => setF({ ...f, voiceProvider: e.target.value, voiceName: '' })}>{Object.entries(ENGINES).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}</select></Field>
+        <Field label="Voz" hint={engine === 'elevenlabs' ? 'Vozes da sua conta ElevenLabs (inclui as que você adicionou da biblioteca).' : 'Feminina ou masculina; ouça a prévia para escolher.'}>
+          <select value={f.voiceName ?? ''} onChange={(e) => setF({ ...f, voiceName: e.target.value })} disabled={!voices.length}>
+            {!voices.length && <option value="">{needsKey ? 'Salve a chave da ElevenLabs para ver as vozes' : vErr ? 'Não foi possível carregar' : 'Carregando…'}</option>}
+            {voices.map((v) => <option key={v.id} value={v.id}>{v.label}</option>)}
+          </select>
+        </Field>
+      </div>
+      {vErr && <div className="alert warn small" role="alert">{vErr}</div>}
+      {engine === 'elevenlabs' && (
+        <div className="grid g2">
+          <Field label="Chave da ElevenLabs" hint={s.hasVoiceApiKey ? 'Chave configurada (guardada cifrada). Preencha só para trocar.' : 'Crie em elevenlabs.io › API Keys. Guardada cifrada; nunca aparece de novo na tela.'}>
+            <input type="password" autoComplete="off" value={voiceKey} onChange={(e) => setVoiceKey(e.target.value)} placeholder={s.hasVoiceApiKey ? 'configurada' : 'Cole sua chave'} />
+          </Field>
+          <Field label="Modelo da ElevenLabs" hint="Multilingual v2: mais natural. Flash v2.5: mais rápido e gasta metade dos créditos.">
+            <select value={f.voiceModel || 'eleven_multilingual_v2'} onChange={(e) => setF({ ...f, voiceModel: e.target.value })}>
+              <option value="eleven_multilingual_v2">Multilingual v2 (mais natural)</option>
+              <option value="eleven_flash_v2_5">Flash v2.5 (mais rápido)</option>
+            </select>
+          </Field>
+          {s.hasVoiceApiKey && !ro && <div><button type="button" className="btn sm danger" disabled={busy} onClick={clearVoiceKey}>Remover chave da ElevenLabs</button></div>}
+        </div>
+      )}
+      <div className="grid g2">
+        <Field label="Jeito de falar" hint={engine === 'elevenlabs' ? 'Na ElevenLabs o jeito de falar vem da voz escolhida (este texto não é usado).' : 'Ex.: animada, calma, formal, bem-humorada.'}><textarea rows={2} maxLength={500} value={f.voiceStyle ?? ''} onChange={(e) => setF({ ...f, voiceStyle: e.target.value })} /></Field>
+        <Field label="Duração máxima do áudio (segundos)" hint="Respostas mais longas vão por escrito."><input type="number" min={10} max={120} value={f.voiceMaxSeconds ?? 45} onChange={(e) => setF({ ...f, voiceMaxSeconds: e.target.value })} /></Field>
+      </div>
+      <div className="row" style={{ gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+        <button type="button" className="btn" disabled={pBusy || ro || (engine === 'elevenlabs' && !s.hasVoiceApiKey)} onClick={listen}>{pBusy ? 'Gerando áudio…' : '▶ Ouvir prévia'}</button>
+        {preview && <audio controls src={preview.url} style={{ height: 36 }} />}
+        <span className="small muted">A prévia usa a voz escolhida acima (mesmo antes de salvar) e conta no uso da IA.</span>
+      </div>
+      {pErr && <div className="alert err small" role="alert"><strong>Prévia:</strong> {pErr}</div>}
+      {!ro && <button className="btn primary" disabled={busy}>{busy ? 'Salvando…' : 'Salvar configurações'}</button>}
+    </fieldset>
   );
 }
 
