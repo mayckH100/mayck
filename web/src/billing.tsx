@@ -7,7 +7,15 @@ export const PRODUCTS = ['MCKBOT', 'MCKMENSAGEM'] as const;
 export const CYCLES: Cycle[] = ['MENSAL', 'ANUAL'];
 export const STATUSES: SubStatus[] = ['ATIVA', 'TRIAL', 'VENCIDA', 'BLOQUEADA'];
 
+/** Nomes padrão (fallback). Os exibidos vêm do Master (v1.25.0): /billing/status → plans, /public/plans → label. */
 export const PRODUCT_LABEL: Record<PlanProduct, string> = { MCKBOT: 'MCKBOT', MCKMENSAGEM: 'MCKMENSAGEM', COMBO: 'Plano Completo: MCK ERP + MCKBOT + MCK Mensagens' };
+export type PlanModule = 'MCKBOT' | 'MCKMENSAGEM' | 'ERP';
+export const PLAN_MODULES: PlanModule[] = ['MCKBOT', 'MCKMENSAGEM', 'ERP'];
+export const MODULE_LABEL: Record<PlanModule, string> = { MCKBOT: 'MCKBOT', MCKMENSAGEM: 'MCK Mensagens', ERP: 'MCK ERP' };
+/** Plano como o Master configurou (v1.25.0). apps = assinaturas que ele renova. */
+export interface PlanInfo { id: PlanProduct; name: string; desc: string; features: string[]; modules: PlanModule[]; apps: ('MCKBOT' | 'MCKMENSAGEM')[]; visible: boolean }
+/** Menor valor cobrável (igual ao servidor): ciclo com preço abaixo disso não está à venda. */
+export const MIN_CHARGE_CENTS = 100;
 export const CYCLE_LABEL: Record<string, string> = { MENSAL: 'Mensal', ANUAL: 'Anual' };
 export const STATUS_LABEL: Record<SubStatus, string> = { ATIVA: 'Ativa', TRIAL: 'Em teste', VENCIDA: 'Vencida', BLOQUEADA: 'Bloqueada' };
 export const STATUS_CLS: Record<SubStatus, string> = { ATIVA: 'green', TRIAL: 'blue', VENCIDA: 'amber', BLOQUEADA: 'red' };
