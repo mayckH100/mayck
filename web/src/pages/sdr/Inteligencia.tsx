@@ -38,6 +38,7 @@ function Form({ v, onSaved }: { v: any; onSaved: () => void }) {
         <Toggle checked={!!f.followupIa} onChange={(x) => setF({ ...f, followupIa: x })} label="A IA personaliza cada follow-up com o que o lead já disse" hint="Muda as mensagens das cadências. Usa a cota diária da IA; se a IA não responder, sai o texto padrão do passo." />
         <Toggle checked={!!f.melhorHorario} onChange={(x) => setF({ ...f, melhorHorario: x })} label="Enviar no horário em que o lead mais responde" hint="Sempre dentro do seu horário comercial (fuso da empresa, padrão Brasília). Sem histórico, envia às 10h. Adia no máximo um dia." />
       </div>
+      <AutoResposta f={f} setF={setF} />
       <div className="card stack">
         <h3 style={{ margin: 0 }}>Privacidade (LGPD)</h3>
         <Toggle checked={!!f.optOutAuto} onChange={(x) => setF({ ...f, optOutAuto: x })} label="Entender pedidos para sair escritos de outro jeito" hint='Além de "SAIR" e "PARAR", frases como "não quero mais receber", "me tira da lista" ou "pare de me mandar mensagem" param todas as mensagens automáticas para esse contato. Não envia nada.' />
@@ -69,8 +70,39 @@ function bodyOf(f: any) {
     reuniao: f.reuniao,
     sentimento: !!f.sentimento,
     optOutAuto: !!f.optOutAuto,
+    autoResposta: { enabled: !!f.autoResposta?.enabled, frases: String(f.autoResposta?.frasesTexto ?? (f.autoResposta?.frases ?? []).join('\n')).split('\n').map((x: string) => x.trim()).filter(Boolean).slice(0, 30), acao: f.autoResposta?.acao === 'PAUSAR' ? 'PAUSAR' : 'SEGUIR', pausaHoras: Math.min(168, Math.max(1, Math.round(Number(f.autoResposta?.pausaHoras) || 24))), iaDuvida: !!f.autoResposta?.iaDuvida },
     objecoes: { enabled: !!f.objecoes.enabled, itens: f.objecoes.itens.map((o: any) => ({ id: o.id, titulo: o.titulo, resposta: o.resposta, gatilhos: Array.isArray(o.gatilhos) ? o.gatilhos : String(o.gatilhos).split(',') })) },
   };
+}
+
+/** v1.22.0: respostas automáticas do lead (saudação, ausência, menus, "estou dirigindo") não contam como resposta. */
+function AutoResposta({ f, setF }: { f: any; setF: (x: any) => void }) {
+  const a = f.autoResposta ?? { enabled: true, frases: [], acao: 'SEGUIR', pausaHoras: 24, iaDuvida: false };
+  const set = (patch: any) => setF({ ...f, autoResposta: { ...a, ...patch } });
+  const texto = a.frasesTexto ?? (a.frases ?? []).join('\n');
+  return (
+    <div className="card stack">
+      <h3 style={{ margin: 0 }}>Respostas automáticas</h3>
+      <Toggle checked={!!a.enabled} onChange={(x) => set({ enabled: x })} label="Identificar respostas automáticas" hint='Mensagens de saudação ou ausência ("obrigado pelo contato, retornaremos em breve"), horário de atendimento, menus "digite 1", "estou dirigindo", Não Perturbe e "fora do escritório" no e-mail não contam como resposta: não qualificam, não mudam o funil, não param a cadência e a IA não responde. Ficam no histórico com o selo "Resposta automática". Não envia nada.' />
+      {a.enabled && (
+        <>
+          <Field label="Frases que sempre indicam resposta automática (uma por linha, opcional)">
+            <textarea rows={3} maxLength={4000} value={texto} placeholder={'Ex.: Bem-vindo ao atendimento da\nNosso expediente é'} onChange={(e) => set({ frasesTexto: e.target.value })} />
+          </Field>
+          <Field label="Quando receber resposta automática">
+            <div className="row">
+              <select value={a.acao} onChange={(e) => set({ acao: e.target.value })} style={{ width: 220 }}>
+                <option value="SEGUIR">Seguir a cadência normalmente</option>
+                <option value="PAUSAR">Pausar a cadência por</option>
+              </select>
+              {a.acao === 'PAUSAR' && <><input type="number" min={1} max={168} value={a.pausaHoras} onChange={(e) => set({ pausaHoras: e.target.value })} style={{ width: 80 }} aria-label="Horas de pausa" /><span className="small">horas</span></>}
+            </div>
+          </Field>
+          <Toggle checked={!!a.iaDuvida} onChange={(x) => set({ iaDuvida: x })} label="Em caso de dúvida, confirmar com a MCK IA" hint="Só para mensagens que ficam no meio do caminho. Usa a cota diária da IA; sem cota, vale a identificação automática." />
+        </>
+      )}
+    </div>
+  );
 }
 
 /** Ligado só quando a empresa quer: muda as respostas da IA aos leads. */

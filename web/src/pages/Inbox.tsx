@@ -145,6 +145,7 @@ function Chat({ id, onChange }: { id: string; onChange: () => void }) {
                 {m.mediaUrl && <div><a href={m.mediaUrl} target="_blank" rel="noreferrer">[{m.type}] abrir mídia</a></div>}
                 {m.body}
                 {m.status === 'FAILED' && <div className="small" style={{ color: 'var(--danger)' }}>Não enviada: {m.error}</div>}
+                {m.direction === 'IN' && typeof m.error === 'string' && m.error.startsWith('AUTORESPOSTA') && <div className="small" title={m.error.replace(/^AUTORESPOSTA:\s*/, '')}><span className="badge">🤖 Resposta automática</span> <span className="muted">não conta como resposta</span></div>}
                 <div className="meta"><span>{fmtDate(m.createdAt)}</span>{m.direction === 'OUT' && <StatusBadge status={m.status} />}</div>
               </div>
             ))}

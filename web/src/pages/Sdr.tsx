@@ -20,7 +20,7 @@ const SOURCE: Record<string, string> = { MANUAL: 'Manual', IMPORTACAO: 'Importa�
 const TEMP: Record<string, { label: string; color: string }> = { FRIO: { label: 'Frio', color: '#3b82f6' }, MORNO: { label: 'Morno', color: '#f59e0b' }, QUENTE: { label: 'Quente', color: '#dc2626' } };
 const CAD: Record<string, string> = { SEM: 'Sem cadência', ESPERA: 'Acompanha se parar de responder', ATIVA: 'Em cadência', APROVACAO: 'Aguardando aprovação', PARADA: 'Parada', CONCLUIDA: 'Concluída' };
 const STOP: Record<string, string> = { RESPONDEU: 'respondeu', AGENDOU: 'reunião marcada', SAIU: 'pediu para sair', MANUAL: 'parada pela equipe', GANHO: 'ganho', PERDIDO: 'perdido' };
-const EVENT: Record<string, string> = { CRIADO: 'Entrou', ETAPA: 'Etapa', ENVIO: 'Mensagem enviada', PULO: 'Passo pulado', FALHA: 'Falha no envio', RESPOSTA: 'Respondeu', QUALIFICACAO: 'Qualificação da IA', QUENTE: '🔥 Lead quente (aviso enviado)', REUNIAO: '📅 Reunião', PARADA: 'Cadência parada', OPTOUT: 'Pediu para sair', NOTA: 'Nota', CADENCIA: 'Cadência', APROVACAO: 'Aguardando aprovação', KANBAN: 'Kanban do MCKBOT', DONO: 'Responsável', OBJECAO: '💬 Objeção', CNPJ: '🏢 Dados da Receita', NOSHOW: '🚫 Não compareceu', INTENCAO: '🧭 Intenção' };
+const EVENT: Record<string, string> = { CRIADO: 'Entrou', ETAPA: 'Etapa', ENVIO: 'Mensagem enviada', PULO: 'Passo pulado', FALHA: 'Falha no envio', RESPOSTA: 'Respondeu', QUALIFICACAO: 'Qualificação da IA', QUENTE: '🔥 Lead quente (aviso enviado)', REUNIAO: '📅 Reunião', PARADA: 'Cadência parada', OPTOUT: 'Pediu para sair', NOTA: 'Nota', CADENCIA: 'Cadência', APROVACAO: 'Aguardando aprovação', KANBAN: 'Kanban do MCKBOT', DONO: 'Responsável', OBJECAO: '💬 Objeção', CNPJ: '🏢 Dados da Receita', NOSHOW: '🚫 Não compareceu', INTENCAO: '🧭 Intenção', AUTORESPOSTA: '🤖 Resposta automática (não conta como resposta)' };
 
 function Temp({ t, score }: { t: string; score?: number }) {
   const x = TEMP[t] ?? TEMP.FRIO;
@@ -369,6 +369,9 @@ function Relatorios() {
         <a className="btn sm" href={`/api/sdr/relatorio.csv?dias=${dias}`} download>⬇ Baixar CSV</a>
         <span className="small muted">Resposta, reunião e descadastro contam para o último passo enviado antes deles.</span>
       </div>
+      <Async state={state}>{(d) => d.respostasAutomaticas ? (
+        <div className="small"><span className="badge">🤖 {d.respostasAutomaticas.total} resposta{d.respostasAutomaticas.total === 1 ? '' : 's'} automática{d.respostasAutomaticas.total === 1 ? '' : 's'} ignorada{d.respostasAutomaticas.total === 1 ? '' : 's'}</span> <span className="muted">no período (WhatsApp {d.respostasAutomaticas.whatsapp} · e-mail {d.respostasAutomaticas.email}). Não contam como resposta.</span></div>
+      ) : null}</Async>
       <Async state={state}>{(d) => d.cadencias.length ? (
         <div className="card table-wrap"><table>
           <thead><tr><th>Cadência</th><th>Leads</th><th>Enviados</th><th>Respondidos</th><th>Agendados</th><th>Descadastros</th><th>Taxa de resposta</th><th /></tr></thead>
