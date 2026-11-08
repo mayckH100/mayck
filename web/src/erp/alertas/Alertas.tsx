@@ -2,14 +2,12 @@
 import { useState } from 'react';
 import { get, post, put } from '../../api';
 import { useApi, Async, Field, useAction } from '../../ui';
-import ErpNav from '../ErpNav';
 
 export default function Alertas() {
   const st = useApi<any>('/erp/alertas');
   return (
     <>
       <div className="page-head"><div><h1>Alertas por WhatsApp</h1><p className="muted">Um resumo por dia no seu WhatsApp: contas vencendo, estoque abaixo do mínimo e produtos parados.</p></div></div>
-      <ErpNav />
       <Async state={st}>{(c) => <Form inicial={c} onSaved={st.reload} />}</Async>
     </>
   );
