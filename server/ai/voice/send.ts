@@ -1,13 +1,15 @@
 /**
  * Voz da IA (v1.23.0): envia a resposta da IA como texto ou como nota de voz, conforme a configuração
- * (Inteligência artificial › Voz) e o que o cliente mandou por último (modo "espelhar").
+ * (Inteligência artificial › Voz), a preferência do cliente nesta conversa (pediu áudio/texto) e o que ele
+ * mandou por último (modo "espelhar").
  * Qualquer problema com a voz cai para o texto de sempre: o cliente nunca fica sem resposta.
  */
 import type { Contact, Conversation, Message } from '@prisma/client';
 import { prisma } from '../../db.js';
 import { sendOutbound, resolveChannel, isQrChannel } from '../../whatsapp/messaging.js';
 import { qrManager } from '../../whatsapp/qr/manager.js';
-import { decideReplyAsAudio, isAudioType } from './spoken.js';
+import { isAudioType } from './spoken.js';
+import { decideWithPreference } from './preference.js';
 import { synthesizeReply } from './service.js';
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -24,7 +26,10 @@ export async function sendAiReply(conv: Conversation, contact: Contact, text: st
   try {
     const s = await prisma.aiSettings.findUnique({ where: { orgId: conv.orgId } });
     if (!s?.voiceEnabled || contact.optOut) return sendText(text);
-    if (!decideReplyAsAudio(s, await lastInboundWasAudio(conv.id))) return sendText(text);
+    // Preferência do cliente nesta conversa (pediu áudio/texto) vale acima do modo da empresa; lida do banco
+    // porque acabou de ser gravada ao gerar a resposta (o objeto `conv` pode estar desatualizado).
+    const fresh = await prisma.conversation.findUnique({ where: { id: conv.id }, select: { voicePreference: true } });
+    if (!decideWithPreference(s, await lastInboundWasAudio(conv.id), fresh?.voicePreference)) return sendText(text);
     const channel = await resolveChannel(conv);
     const qr = isQrChannel(channel) && channel ? channel.id : null;
     // "gravando áudio..." enquanto a voz é gerada (só no modo QR; a API oficial não tem esse aviso).
