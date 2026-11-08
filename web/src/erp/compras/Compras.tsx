@@ -3,7 +3,6 @@ import { useState } from 'react';
 import { get, post, put } from '../../api';
 import { useAuth } from '../../auth';
 import { useApi, Async, Empty, Modal, Field, useAction, fmtDate } from '../../ui';
-import ErpNav from '../ErpNav';
 import { brl, qtd, toMil, toCents, fromCents } from '../format';
 import { BuscaParceiro, EditorItens, type LinhaItem } from '../comum';
 
@@ -16,7 +15,6 @@ export default function Compras() {
   return (
     <div className="page">
       <div className="page-head"><div><h1>Compras</h1><p className="muted">Solicitação → cotação → pedido com alçada → recebimento pela NF-e (conferido contra o pedido).</p></div></div>
-      <ErpNav />
       <div className="row" style={{ marginBottom: 10, flexWrap: 'wrap' }}>
         {(['ped', 'sol', 'cot'] as const).map((a) => <button key={a} className={`btn sm ${aba === a ? 'primary' : ''}`} onClick={() => setAba(a)}>{{ ped: 'Pedidos de compra', sol: 'Solicitações', cot: 'Cotações' }[a]}</button>)}
       </div>
