@@ -3,7 +3,6 @@ import { useState } from 'react';
 import { get, post } from '../../api';
 import { useAuth } from '../../auth';
 import { useApi, Async, Empty, Modal, Field, useAction, useToast } from '../../ui';
-import ErpNav from '../ErpNav';
 import { brl, toCents, fromCents } from '../format';
 import { BuscaParceiro } from '../comum';
 
@@ -16,7 +15,6 @@ export default function Financeiro() {
   return (
     <div className="page">
       <div className="page-head"><div><h1>Financeiro</h1><p className="muted">Faturamento gera contas a receber; NF-e de entrada gera contas a pagar. Baixa, Pix, conciliação e DRE.</p></div></div>
-      <ErpNav />
       <div className="row" style={{ marginBottom: 10, flexWrap: 'wrap' }}>
         {([['painel', 'Painel'], ['RECEBER', 'A receber'], ['PAGAR', 'A pagar'], ['contas', 'Contas e conciliação'], ['dre', 'DRE']] as const).map(([a, l]) => <button key={a} className={`btn sm ${aba === a ? 'primary' : ''}`} onClick={() => setAba(a)}>{l}</button>)}
       </div>
