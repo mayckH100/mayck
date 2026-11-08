@@ -18,6 +18,7 @@ import { productsPromptSection } from './products.js';
 import { productContextFor } from './productSource.js';
 import { sdrPromptSection, sdrForcesBooking } from '../sdr/ai.js';
 import { conversaAvancadaFor, conversaPromptSection, estiloFinal, HISTORICO_AVANCADO } from '../sdr/conversaService.js';
+import { extrairPlano, type Plano } from '../sdr/conversa.js';
 import { applyOrderTag, intentFromText, ordersPromptSection, tagConversation } from '../agenda/orders.js';
 import { notAutoReply } from '../sdr/autoReply.js';
 import { detectVoicePreference, decideWithPreference, historyContent, isVoicePreference, MARK_CLIENT_AUDIO, stripVoiceMarkers, voicePromptSection, type VoicePreference } from './voice/preference.js';
@@ -234,7 +235,7 @@ async function generateAiReplyInner(args: { orgId: string; conversationId: strin
   const site = await knowledgePromptSection(s, text).catch(() => '');
   // Kanban automático (desligado por padrão): etapas e o marcador [ETAPA:nome].
   const kanban = s.kanbanAuto ? await kanbanPromptSection(orgId, conversationId).catch(() => '') : '';
-  const avancada = adv ? conversaPromptSection(adv) : '';
+  const avancada = adv ? conversaPromptSection(adv, text) : '';
   const messages: ChatMessage[] = [
     { role: 'system', content: buildSystemPrompt({ instructions: [s.instructions, args.extraInstructions, agenda, pedidos, prod.rules, site, kanban, sdr, avancada].filter(Boolean).join('\n'), tone: s.tone }, context, contactNotes, voice) },
     // Links da agenda/Meet já enviados saem do histórico: a IA não deve copiá-los numa nova resposta.
@@ -284,27 +285,32 @@ async function generateAiReplyInner(args: { orgId: string; conversationId: strin
         return { text: rest.length >= 8 ? rest : fail, handoff: false, failed: rest.length < 8, reason: 'IA não soube responder (transferência bloqueada: o cliente não pediu humano)', usedContext };
       }
       await prisma.aiUsage.create({ data: { ...base, success: true } });
+      // v1.26.0 (IA conversacional avançada): o plano interno [PLANO: ...] sai do texto antes de tudo.
+      let raw = r.text;
+      let plano: Plano | null = null;
+      if (adv) ({ plano, texto: raw } = extrairPlano(raw));
+      if (adv && plano) console.info('[ia-conversa] plano', { orgId, conversationId: conversationId || null, ...plano });
       // Classificação da conversa (reunião / pedido / os dois) pelo marcador [TIPO:...].
-      const intent = intentFromText(r.text);
+      const intent = intentFromText(raw);
       if (intent) await tagConversation(orgId, conversationId, intent).catch(() => undefined);
       // Marcador de agendamento: cria o compromisso (com checagem de conflito) e troca pelo link da agenda.
       // O marcador de pedido sai antes (o JSON dele tem colchetes) e é processado depois.
-      const noOrder = stripJsonMarkers(r.text, 'PEDIDO');
+      const noOrder = stripJsonMarkers(raw, 'PEDIDO');
       let booked: { text: string; appointmentId?: string } = await applyAgendaTag({ orgId, conversationId, text: noOrder, clientText: text, force: sdrBook }).catch((e) => {
         console.error('[agenda-ia]', (e as Error).message);
-        return { text: cleanAiText(r.text) };
+        return { text: cleanAiText(raw) };
       });
       if (booked.appointmentId) await tagConversation(orgId, conversationId, 'REUNIAO').catch(() => undefined);
       // Marcador de pedido: confirma com o cliente, exige dados de entrega conforme a configuração e registra.
-      if (r.text !== noOrder) {
-        booked = await applyOrderTag({ orgId, conversationId, text: r.text, cleanText: booked.text, clientText: text }).catch((e) => {
+      if (raw !== noOrder) {
+        booked = await applyOrderTag({ orgId, conversationId, text: raw, cleanText: booked.text, clientText: text }).catch((e) => {
           console.error('[pedido-ia]', (e as Error).message);
           return { text: booked.text };
         });
       }
       // Kanban automático: marcador [ETAPA:nome] move o contato (sempre retirado do texto).
       if (s.kanbanAuto || /\[ETAPA:/i.test(booked.text)) booked = { ...booked, text: await applyKanbanTag(orgId, conversationId, booked.text, s.kanbanAuto).catch(() => booked.text.replace(/\[ETAPA:[^\]]*\]/gi, '').trim()) };
-      let out = stripVoiceMarkers(booked.text || cleanAiText(r.text));
+      let out = stripVoiceMarkers(booked.text || cleanAiText(raw));
       if (adv && out) out = estiloFinal(adv, out, [...history].reverse()); // v1.26.0: estilo WhatsApp (sem custo)
       if (!out) {
         console.warn('[ia] resposta sem texto útil: texto de falha enviado, sem transferir', { orgId, conversationId: conversationId || null });

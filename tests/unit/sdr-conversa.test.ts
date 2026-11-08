@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { contextoLines, empresaUsaEmoji, polirResposta, frasesDeRobo } from '../../server/sdr/conversa.js';
+import { contextoLines, empresaUsaEmoji, polirResposta, frasesDeRobo, extrairPlano, objetivoSugerido, planejamentoLines } from '../../server/sdr/conversa.js';
 
 /** v1.26.0: IA conversacional avançada — funções puras (dados fictícios). */
 describe('IA conversacional avançada (puro)', () => {
@@ -20,5 +20,17 @@ describe('IA conversacional avançada (puro)', () => {
     expect(frasesDeRobo('Entendido perfeitamente. Espero ter ajudado!')).toHaveLength(2);
     expect(empresaUsaEmoji('Somos a Loja 😊')).toBe(true);
     expect(empresaUsaEmoji('Somos a Loja', null)).toBe(false);
+  });
+
+  it('planejamento: plano sai do texto (mesmo malformado), objetivo sugerido pelo estado do lead', () => {
+    expect(extrairPlano('[PLANO: intencao=preço; objetivo=QUALIFICAR]\nCusta R$ 50. Quantas pessoas usariam?')).toEqual({ plano: { intencao: 'preço', objetivo: 'QUALIFICAR' }, texto: 'Custa R$ 50. Quantas pessoas usariam?' });
+    expect(extrairPlano('[PLANO intencao=x objetivo=VOAR] Oi')).toEqual({ plano: null, texto: 'Oi' });
+    expect(extrairPlano('Sem plano.').plano).toBeNull();
+    const base = { nome: null, empresa: null, receita: null, etapa: 'Respondeu', pontuacao: 10, temperatura: 'FRIO', respondidas: [], faltam: ['prazo'], objecoes: [], campanha: null, resumo: null };
+    expect(objetivoSugerido(base, 'OUTRO')).toBe('QUALIFICAR');
+    expect(objetivoSugerido(base, 'SEM_INTERESSE')).toBe('TRATAR_OBJECAO');
+    expect(objetivoSugerido({ ...base, temperatura: 'QUENTE' }, 'OUTRO')).toBe('AGENDAR');
+    expect(objetivoSugerido(null, 'OUTRO')).toBe('RESPONDER');
+    expect(planejamentoLines({ metodo: 'SPIN', sugerido: 'QUALIFICAR', handoff: false }).join('\n')).toMatch(/SPIN: situação[\s\S]*Não use PASSAR_VENDEDOR/);
   });
 });

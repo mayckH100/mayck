@@ -82,4 +82,16 @@ describe('IA conversacional avançada', () => {
     expect(sys).toContain('No máximo UMA pergunta por mensagem');
     expect(sys).toContain('Não use emojis.');
   });
+
+  it('3) planejamento: método escolhido no prompt e o plano interno nunca chega ao lead', async () => {
+    await a.put('/api/sdr/inteligencia', { metodo: 'BANT' });
+    const { conv } = await leadComConversa();
+    fakeAi.script = ['[PLANO: intencao=duvida; objetivo=QUALIFICAR]\nCobre sim. Quem decide a contratação aí?'];
+    const r = await generateAiReply({ orgId: orgA(), conversationId: conv.id, text: 'cobre incêndio?' });
+    expect(r.text).toBe('Cobre sim. Quem decide a contratação aí?');
+    const sys = systemOf(fakeAi.calls[0]);
+    expect(sys).toContain('ANTES DE RESPONDER, PLANEJE');
+    expect(sys).toMatch(/Objetivo sugerido pelo estado do lead: QUALIFICAR\. Método: BANT/);
+    await a.put('/api/sdr/inteligencia', { metodo: 'PADRAO' });
+  });
 });

@@ -5,7 +5,8 @@ import { getIntelConfig, questionsFor, type IntelConfig } from './intelConfig.js
 import { leadEmpresa } from './cnpj.js';
 import { STAGE_LABEL, type Answers, type Stage } from './core.js';
 import type { Metodo } from './intel.js';
-import { contextoLines, empresaUsaEmoji, estiloLines, polirResposta, type LeadContexto } from './conversa.js';
+import { contextoLines, empresaUsaEmoji, estiloLines, polirResposta, objetivoSugerido, planejamentoLines, type LeadContexto } from './conversa.js';
+import { detectIntent } from './intel.js';
 
 /**
  * IA conversacional avançada (v1.26.0) — parte com banco. `conversaAvancadaFor` diz se a conversa usa a IA
@@ -72,8 +73,9 @@ export async function conversaAvancadaFor(orgId: string, conversationId: string,
 }
 
 /** Trecho do prompt da IA conversacional avançada (vai junto das Instruções da empresa). */
-export function conversaPromptSection(c: ConversaCtx): string {
-  return ['### IA CONVERSACIONAL AVANÇADA', ...contextoLines(c.contexto), ...estiloLines({ usaEmoji: c.usaEmoji }), '### FIM DA IA CONVERSACIONAL'].join('\n');
+export function conversaPromptSection(c: ConversaCtx, textoLead = ''): string {
+  const sugerido = objetivoSugerido(c.contexto, detectIntent(textoLead).intencao);
+  return ['### IA CONVERSACIONAL AVANÇADA', ...contextoLines(c.contexto), ...estiloLines({ usaEmoji: c.usaEmoji }), ...planejamentoLines({ metodo: c.metodo, sugerido, handoff: c.cfg.handoff }), '### FIM DA IA CONVERSACIONAL'].join('\n');
 }
 
 /** A IA chamou o lead pelo nome nas últimas 3 respostas? (para não repetir o nome em toda mensagem) */

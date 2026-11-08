@@ -98,3 +98,50 @@ export function polirResposta(text: string, o: { usaEmoji: boolean; nome?: strin
   t = t.replace(/[ \t]{2,}/g, ' ').replace(/\s+([,.!?])/g, '$1').replace(/^[\s,.!]+/, '').replace(/\n{3,}/g, '\n\n').trim();
   return t ? t[0].toUpperCase() + t.slice(1) : t;
 }
+
+// ---------- 3) Planejamento antes de responder ----------
+export const OBJETIVOS = ['RESPONDER', 'QUALIFICAR', 'TRATAR_OBJECAO', 'AGENDAR', 'PASSAR_VENDEDOR'] as const;
+export type Objetivo = (typeof OBJETIVOS)[number];
+export interface Plano { intencao: string; objetivo: Objetivo }
+
+const METODO_GUIA: Record<string, string> = {
+  PADRAO: 'siga as perguntas de qualificação da empresa (as que ainda faltam), uma por vez',
+  BANT: 'BANT: necessidade, orçamento, quem decide e prazo, nessa ordem natural da conversa',
+  SPIN: 'SPIN: situação → problema → implicação → necessidade de solução, com perguntas abertas',
+};
+
+/** Próximo objetivo sugerido pelo estado do lead (a IA pode discordar e explicar no plano). */
+export function objetivoSugerido(c: LeadContexto | null, intencaoLead: string): Objetivo {
+  if (intencaoLead === 'SEM_INTERESSE') return 'TRATAR_OBJECAO';
+  if (intencaoLead === 'REUNIAO') return 'AGENDAR';
+  if (intencaoLead === 'COMPRA' || c?.temperatura === 'QUENTE') return 'AGENDAR';
+  if (c && c.faltam.length) return 'QUALIFICAR';
+  return c ? 'AGENDAR' : 'RESPONDER';
+}
+
+export function planejamentoLines(o: { metodo: string; sugerido: Objetivo; handoff: boolean }): string[] {
+  return [
+    'ANTES DE RESPONDER, PLANEJE (interno):',
+    '- Entenda a intenção da última mensagem do lead (ex.: preço, dúvida, objeção, quer marcar, quer comprar, sem interesse, irritado) e escolha UM objetivo: RESPONDER, QUALIFICAR, TRATAR_OBJECAO, AGENDAR ou PASSAR_VENDEDOR.',
+    `- Objetivo sugerido pelo estado do lead: ${o.sugerido}. Método: ${METODO_GUIA[o.metodo] ?? METODO_GUIA.PADRAO}.`,
+    '- Sempre responda primeiro o que o lead perguntou; depois avance UM passo rumo ao objetivo.',
+    o.handoff
+      ? '- PASSAR_VENDEDOR quando: o lead está pronto para comprar/fechar, pede uma pessoa, está irritado ou pergunta algo que as Instruções e o CONTEXTO não respondem. Nesse caso diga, em uma frase, que um especialista da equipe vai continuar com ele.'
+      : '- Não use PASSAR_VENDEDOR: continue o atendimento.',
+    '- Escreva o plano na PRIMEIRA linha, exatamente assim (o lead não vê): [PLANO: intencao=<palavra>; objetivo=<OBJETIVO>]',
+    '- Na linha de baixo, só a mensagem para o lead.',
+  ];
+}
+
+/** Separa o plano (marcador interno) do texto. O marcador nunca vai para o lead, mesmo malformado. */
+export function extrairPlano(text: string): { plano: Plano | null; texto: string } {
+  let plano: Plano | null = null;
+  const m = text.match(/\[\s*PLANO\s*:?([^\]]*)\]/i);
+  if (m) {
+    const intencao = (m[1].match(/inten[cç][aã]o\s*=\s*([^;\]]+)/i)?.[1] ?? '').trim().toLowerCase().slice(0, 40);
+    const obj = (m[1].match(/objetivo\s*=\s*([A-Z_a-z]+)/i)?.[1] ?? '').toUpperCase() as Objetivo;
+    if (OBJETIVOS.includes(obj)) plano = { intencao: intencao || 'outro', objetivo: obj };
+  }
+  const texto = text.replace(/\[\s*PLANO\s*:?[^\]]*\]\s*/gi, '').replace(/^\s*PLANO\s*:[^\n]*\n/i, '').trim();
+  return { plano, texto };
+}
