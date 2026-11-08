@@ -1,7 +1,6 @@
 /** BI: o negócio no período em uma tela (vendas, margem, ABC, estoque, compras, produção, financeiro, CRM) e CSV. */
 import { useState } from 'react';
 import { useApi, Async } from '../../ui';
-import ErpNav from '../ErpNav';
 import { brl, qtd } from '../format';
 
 const pct = (bp: number) => `${(bp / 100).toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%`;
@@ -23,7 +22,6 @@ export default function Bi() {
           <input type="date" value={p.ate} onChange={(e) => setP({ ...p, ate: e.target.value })} aria-label="Até" />
           <button className="btn sm" onClick={() => baixar('pedidos')}>CSV pedidos</button><button className="btn sm" onClick={() => baixar('produtos')}>CSV produtos</button>
         </div></div>
-      <ErpNav />
       <Async state={st}>{(d) => {
         const max = Math.max(1, ...d.vendas.serie.map((x: any) => x.valorCents));
         return <>
