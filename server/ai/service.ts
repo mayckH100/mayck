@@ -17,8 +17,8 @@ import { agendaPromptSection, applyAgendaTag, cleanAiText, stripJsonMarkers, str
 import { productsPromptSection } from './products.js';
 import { productContextFor } from './productSource.js';
 import { sdrPromptSection, sdrForcesBooking } from '../sdr/ai.js';
-import { conversaAvancadaFor, conversaPromptSection, estiloFinal, revisarResposta, cotaPermiteExtra, registrarTarefaEspecialista, erroAutoverificacao, HISTORICO_AVANCADO } from '../sdr/conversaService.js';
-import { extrairPlano, type Plano } from '../sdr/conversa.js';
+import { conversaAvancadaFor, conversaPromptSection, estiloFinal, revisarResposta, cotaPermiteExtra, registrarTarefaEspecialista, erroAutoverificacao, decidirHandoff, HISTORICO_AVANCADO } from '../sdr/conversaService.js';
+import { extrairPlano, resumoHandoff, type Plano } from '../sdr/conversa.js';
 import { applyOrderTag, intentFromText, ordersPromptSection, tagConversation } from '../agenda/orders.js';
 import { notAutoReply } from '../sdr/autoReply.js';
 import { detectVoicePreference, decideWithPreference, historyContent, isVoicePreference, MARK_CLIENT_AUDIO, stripVoiceMarkers, voicePromptSection, type VoicePreference } from './voice/preference.js';
@@ -180,7 +180,9 @@ async function generateAiReplyInner(args: { orgId: string; conversationId: strin
   const handoffWords = parseJson<string[]>(s.handoffKeywords, []).filter(Boolean);
   const askedHuman = isExplicitHumanRequest(text, handoffWords);
   if (askedHuman) {
-    return { text: s.fallbackMessage, handoff: true, reason: 'Contato pediu atendimento humano', usedContext: false };
+    // v1.26.0: com a IA conversacional avançada, a equipe recebe o resumo do lead junto com o pedido.
+    const reason = adv?.cfg.handoff && adv.contexto ? resumoHandoff(adv.contexto, 'pedido de atendente', text) : 'Contato pediu atendimento humano';
+    return { text: s.fallbackMessage, handoff: true, reason, usedContext: false };
   }
 
   const [today, monthAgg] = await Promise.all([
@@ -339,6 +341,9 @@ async function generateAiReplyInner(args: { orgId: string; conversationId: strin
         out = rv.texto;
         plano = rv.plano;
         if (rv.especialista) await registrarTarefaEspecialista(adv, text, rv.problemas);
+        // Parte 5: handoff inteligente (para a IA e avisa a equipe com o resumo do lead).
+        const h = await decidirHandoff(adv, { texto: out, textoLead: text, plano, especialista: rv.especialista, agendou: acted }).catch(() => null);
+        if (h) return { text: h.texto, handoff: true, reason: h.reason, usedContext };
       }
       if (!out) {
         console.warn('[ia] resposta sem texto útil: texto de falha enviado, sem transferir', { orgId, conversationId: conversationId || null });

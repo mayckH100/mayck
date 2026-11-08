@@ -93,7 +93,8 @@ export function polirResposta(text: string, o: { usaEmoji: boolean; nome?: strin
   if (o.nomeRecente && first && first.length >= 2) {
     const n = first.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     t = t.replace(new RegExp(`^((?:oi|olá|ola|bom dia|boa tarde|boa noite|certo|claro|tudo bem)),?\\s+${n}([,!.]?)`, 'i'), (_m, g: string, p: string) => `${g}${p || ','}`)
-      .replace(new RegExp(`,\\s*${n}(?=[,!.?])`, 'gi'), '');
+      .replace(new RegExp(`,\\s*${n}(?=[,!.?])`, 'gi'), ''
+      .replace(new RegExp(`^[\\s,.!]*${n}[!,.]\\s*`, 'i'), '');
   }
   t = t.replace(/[ \t]{2,}/g, ' ').replace(/\s+([,.!?])/g, '$1').replace(/^[\s,.!]+/, '').replace(/\n{3,}/g, '\n\n').trim();
   return t ? t[0].toUpperCase() + t.slice(1) : t;
@@ -246,4 +247,47 @@ export function ajusteMecanico(text: string): string {
     t = (acc || t.slice(0, MAX_CHARS - 1) + '…').trim();
   }
   return t;
+}
+
+// ---------- 5) Handoff inteligente ----------
+const IRRITACAO = /(j[aá] (te )?(falei|disse|expliquei)|voc[eê]s n[aã]o entendem|n[aã]o (est[aá]|t[aá]) entendendo|(é|e|eh|parece|falando com( um)?) rob[oô]|que saco|palha[cç]ada|absurdo|rid[ií]culo|vergonha|desrespeito|cansei|p[eé]ssimo atendimento|me deixa em paz|para de (me )?enrolar|enrola[cç][aã]o)/i;
+
+/** Lead irritado (palavras, CAIXA ALTA gritada, "!!!"). Não confunde com pedido de saída (tratado antes). */
+export function leadIrritado(text: string, sentimento?: string): boolean {
+  const t = (text ?? '').trim();
+  if (!t) return false;
+  if (IRRITACAO.test(t)) return true;
+  const letras = t.replace(/[^A-Za-zÀ-ÿ]/g, '');
+  if (letras.length >= 12 && letras === letras.toUpperCase() && /[A-Z]/.test(letras)) return true;
+  return sentimento === 'NEGATIVO' && /!{2,}|\?{3,}/.test(t);
+}
+
+export type MotivoHandoff = 'pedido de atendente' | 'lead irritado' | 'dúvida fora das Instruções' | 'lead quente' | 'hora do vendedor';
+
+export function motivoHandoff(a: { textoLead: string; sentimento?: string; intencao?: string; plano: Plano | null; temperatura?: string | null; especialista: boolean; agendou?: boolean }): MotivoHandoff | null {
+  if (leadIrritado(a.textoLead, a.sentimento)) return 'lead irritado';
+  if (a.especialista) return 'dúvida fora das Instruções';
+  if (a.plano?.objetivo === 'PASSAR_VENDEDOR') return 'hora do vendedor';
+  if (!a.agendou && (a.intencao === 'COMPRA' || a.temperatura === 'QUENTE')) return 'lead quente';
+  return null;
+}
+
+export const TEXTO_PASSAGEM = 'Vou chamar um especialista da equipe para continuar com você por aqui.';
+/** Garante que o lead saiba que uma pessoa vai continuar (sem repetir se a IA já disse). */
+export function comPassagem(texto: string): string {
+  if (/especialista|equipe|vendedor|consultor|colega|atendente/i.test(texto)) return texto;
+  return `${texto.trim()} ${TEXTO_PASSAGEM}`.trim();
+}
+
+/** Motivo da transferência para a equipe, com o resumo do lead (vai no aviso aos números da empresa e na nota). */
+export function resumoHandoff(c: LeadContexto | null, motivo: MotivoHandoff, textoLead: string): string {
+  const parts = [`IA conversacional: ${motivo}`];
+  if (c?.nome) parts.push(`Lead: ${clip(c.nome, 60)}${c.empresa ? ` (${clip(c.empresa, 60)})` : ''}`);
+  if (c?.temperatura) parts.push(`Pontuação ${c.pontuacao ?? 0}/100 (${c.temperatura.toLowerCase()})`);
+  if (c?.campanha) parts.push(`Campanha: ${clip(c.campanha, 60)}`);
+  if (c?.respondidas.length) parts.push(`Já disse: ${c.respondidas.slice(0, 4).map((r) => clip(r.resposta, 50)).join('; ')}`);
+  if (c?.objecoes.length) parts.push(`Objeções: ${c.objecoes.slice(0, 3).join('; ')}`);
+  if (c?.resumo) parts.push(`Resumo: ${clip(c.resumo, 120)}`);
+  parts.push(`Última mensagem: "${clip(textoLead, 160)}"`);
+  return parts.join(' · ').slice(0, 900);
 }

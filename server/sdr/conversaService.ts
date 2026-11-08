@@ -5,7 +5,7 @@ import { getIntelConfig, questionsFor, type IntelConfig } from './intelConfig.js
 import { leadEmpresa } from './cnpj.js';
 import { STAGE_LABEL, type Answers, type Stage } from './core.js';
 import type { Metodo } from './intel.js';
-import { contextoLines, empresaUsaEmoji, estiloLines, polirResposta, objetivoSugerido, planejamentoLines, guardrailLines, verificarResposta, criticaPara, ajusteMecanico, extrairPlano, GRAVES, TEXTO_ESPECIALISTA, MCK_IA_INDISPONIVEL, type LeadContexto, type Plano, type Problema } from './conversa.js';
+import { contextoLines, empresaUsaEmoji, estiloLines, polirResposta, objetivoSugerido, planejamentoLines, guardrailLines, verificarResposta, criticaPara, ajusteMecanico, extrairPlano, GRAVES, TEXTO_ESPECIALISTA, MCK_IA_INDISPONIVEL, motivoHandoff, resumoHandoff, comPassagem, type MotivoHandoff, type LeadContexto, type Plano, type Problema } from './conversa.js';
 import { mckQuotaStatus } from '../ai/mckQuota.js';
 import { logEvent } from './service.js';
 import { detectIntent } from './intel.js';
@@ -150,3 +150,22 @@ export async function registrarTarefaEspecialista(c: ConversaCtx, textoLead: str
 
 /** Erro da nova tentativa visto pela empresa: nunca o nome do provedor. */
 export const erroAutoverificacao = (provider: string, e: unknown) => (provider === 'mck' ? MCK_IA_INDISPONIVEL : `Autoverificação: ${(e as Error)?.message ?? 'falha'}`.slice(0, 300));
+
+/**
+ * Parte 5: decide se a IA para e passa ao vendedor (lead quente, irritado, pedido de pessoa, dúvida fora do escopo).
+ * Devolve o texto final (com a frase de passagem) e o motivo com o resumo, ou null para seguir com a IA.
+ */
+export async function decidirHandoff(c: ConversaCtx, a: { texto: string; textoLead: string; plano: Plano | null; especialista: boolean; agendou: boolean }): Promise<{ texto: string; reason: string; motivo: MotivoHandoff } | null> {
+  if (!c.cfg.handoff || !c.conversationId) return null;
+  const d = detectIntent(a.textoLead);
+  const motivo = motivoHandoff({ textoLead: a.textoLead, sentimento: d.sentimento, intencao: d.intencao, plano: a.plano, temperatura: c.contexto?.temperatura, especialista: a.especialista, agendou: a.agendou });
+  if (!motivo) return null;
+  if (c.sdrLeadId) await logEvent(c.orgId, c.sdrLeadId, 'HANDOFF', 'WHATSAPP', `Passado ao vendedor: ${motivo}`);
+  console.info('[ia-conversa] passado ao vendedor', { orgId: c.orgId, conversationId: c.conversationId, motivo });
+  return { texto: comPassagem(a.texto), reason: resumoHandoff(c.contexto, motivo, a.textoLead), motivo };
+}
+
+/** Campanhas (MCK Mensagens): contexto + estilo + segurança; a resposta sai no JSON da qualificação (sem plano). */
+export function conversaCampanhaSection(c: ConversaCtx): string {
+  return ['### IA CONVERSACIONAL AVANÇADA (vale para o campo "resposta" do JSON)', ...contextoLines(c.contexto), ...estiloLines({ usaEmoji: c.usaEmoji }), ...guardrailLines(), '### FIM DA IA CONVERSACIONAL'].join('\n');
+}

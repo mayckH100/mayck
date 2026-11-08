@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeAll, beforeEach } from 'vitest';
-import { registerClient, Client, createTestChannel, installGraphMock, graph, prisma } from '../helpers.js';
+import { registerClient, Client, createTestChannel, installGraphMock, graph, prisma, sendInbound, sentTexts } from '../helpers.js';
+import { flushSdr } from '../../server/sdr/ai.js';
 import { fakeAi } from '../../server/ai/providers.js';
 import { generateAiReply } from '../../server/ai/service.js';
 import { applyExtraction } from '../../server/sdr/ai.js';
@@ -120,5 +121,55 @@ describe('IA conversacional avançada', () => {
     expect(fakeAi.calls).toHaveLength(1);
     expect(r3.text).toMatch(/especialista/);
     await a.put('/api/ai/settings', { dailyLimit: 1000 });
+  });
+
+  it('5) handoff inteligente: irritação, lead quente, plano PASSAR_VENDEDOR e pedido de pessoa levam o resumo; desligado não transfere', async () => {
+    const { conv } = await leadComConversa({ answers: { necessidade: { resposta: 'seguro para a clínica', nota: 90 } } });
+    fakeAi.script = ['Desculpe a demora, já te explico.'];
+    const r1 = await generateAiReply({ orgId: orgA(), conversationId: conv.id, text: 'já falei isso duas vezes, que saco' });
+    expect(r1.handoff).toBe(true);
+    expect(r1.text).toBe('Desculpe a demora, já te explico. Vou chamar um especialista da equipe para continuar com você por aqui.');
+    expect(r1.reason).toMatch(/^IA conversacional: lead irritado · Lead: Paula Teste \(Clínica Fictícia\)[\s\S]*Já disse: seguro para a clínica/);
+    fakeAi.script = ['[PLANO: intencao=cobertura; objetivo=PASSAR_VENDEDOR]\nIsso o especialista da equipe te explica melhor, ele já te chama.'];
+    const r2 = await generateAiReply({ orgId: orgA(), conversationId: conv.id, text: 'vocês fazem seguro de frota internacional?' });
+    expect(r2).toMatchObject({ handoff: true, text: 'Isso o especialista da equipe te explica melhor, ele já te chama.' });
+    expect(r2.reason).toContain('hora do vendedor');
+    const quente = await leadComConversa();
+    await prisma.sdrLead.update({ where: { id: quente.lead.id }, data: { temperature: 'QUENTE', score: 85 } });
+    fakeAi.script = ['Perfeito, dá para começar ainda este mês.'];
+    const r3 = await generateAiReply({ orgId: orgA(), conversationId: quente.conv.id, text: 'e quando começa?' });
+    expect(r3.handoff).toBe(true);
+    expect(r3.reason).toMatch(/lead quente[\s\S]*Pontuação 85\/100 \(quente\)/);
+    const r4 = await generateAiReply({ orgId: orgA(), conversationId: conv.id, text: 'quero falar com um atendente' });
+    expect(r4.handoff).toBe(true);
+    expect(r4.reason).toMatch(/^IA conversacional: pedido de atendente/);
+    // Handoff desligado: segue com a IA.
+    await a.put('/api/sdr/inteligencia', { conversa: { handoff: false } });
+    fakeAi.script = ['Entendo. Me conta o que aconteceu?'];
+    const r5 = await generateAiReply({ orgId: orgA(), conversationId: conv.id, text: 'que saco' });
+    expect(r5.handoff).toBe(false);
+    expect(systemOf(fakeAi.calls.at(-1)!)).toContain('Não use PASSAR_VENDEDOR');
+    await a.put('/api/sdr/inteligencia', { conversa: { handoff: true } });
+  });
+
+  it('5) campanhas (MCK Mensagens): pedido de pessoa passa ao vendedor sem gastar IA', async () => {
+    expect((await a.put('/api/mckmensagem/ia-leads', { enabled: true, positiveAction: 'BOT' })).status).toBe(200);
+    const tel = phone();
+    const r = await a.post('/api/mckmensagem/leads', { phone: tel, name: 'Rafa Campanha', consentSource: 'MANUAL' });
+    expect(r.status).toBe(201);
+    const contact = await prisma.contact.upsert({ where: { orgId_waId: { orgId: orgA(), waId: tel } }, update: {}, create: { orgId: orgA(), waId: tel, phone: '+' + tel, name: 'Rafa Campanha', lastMessageAt: new Date(Date.now() - 3600e3) } });
+    await prisma.lead.update({ where: { id: r.body.id }, data: { status: 'CONTATADO', contactId: contact.id } });
+    const conv = await openConversationFor(orgA(), contact.id, ctx.ch.id);
+    await prisma.conversation.update({ where: { id: conv.id }, data: { lastInboundAt: new Date() } });
+    await prisma.message.create({ data: { orgId: orgA(), conversationId: conv.id, channelId: ctx.ch.id, direction: 'OUT', sender: 'bot', type: 'text', body: 'Oi! Temos uma condição para clínicas. Posso te explicar?', status: 'SENT', createdAt: new Date(Date.now() - 600_000) } });
+    const before = fakeAi.calls.length;
+    await sendInbound(ctx, tel, 'prefiro falar com uma pessoa');
+    await flushSdr();
+    expect(sentTexts()).toEqual(['Vou chamar um especialista da equipe para continuar com você por aqui.']);
+    expect(fakeAi.calls.length).toBe(before);
+    const c = await prisma.conversation.findUniqueOrThrow({ where: { id: conv.id } });
+    expect(c.mode).toBe('HUMAN');
+    const n = await prisma.message.findFirstOrThrow({ where: { conversationId: conv.id, direction: 'INTERNAL', body: { contains: 'Transferido' } } });
+    expect(n.body).toContain('IA conversacional: pedido de atendente · Lead: Rafa Campanha');
   });
 });

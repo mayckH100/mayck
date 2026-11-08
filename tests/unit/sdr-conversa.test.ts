@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { contextoLines, empresaUsaEmoji, polirResposta, frasesDeRobo, extrairPlano, objetivoSugerido, planejamentoLines, verificarResposta, ajusteMecanico } from '../../server/sdr/conversa.js';
+import { contextoLines, empresaUsaEmoji, polirResposta, frasesDeRobo, extrairPlano, objetivoSugerido, planejamentoLines, verificarResposta, ajusteMecanico, leadIrritado, motivoHandoff, comPassagem } from '../../server/sdr/conversa.js';
 
 /** v1.26.0: IA conversacional avançada — funções puras (dados fictícios). */
 describe('IA conversacional avançada (puro)', () => {
@@ -46,5 +46,19 @@ describe('IA conversacional avançada (puro)', () => {
     expect(verificarResposta('a'.repeat(600), { fontes }).problemas).toEqual(['longa']);
     expect(ajusteMecanico('Temos dois planos. Quer o básico? Ou o completo?')).toBe('Temos dois planos. Quer o básico?');
     expect(ajusteMecanico('Frase curta. '.repeat(60)).length).toBeLessThanOrEqual(500);
+  });
+
+  it('handoff: irritação, dúvida fora do escopo, plano e lead quente', () => {
+    expect(leadIrritado('já falei isso, vocês não entendem')).toBe(true);
+    expect(leadIrritado('QUERO RESOLVER ISSO HOJE AGORA')).toBe(true);
+    expect(leadIrritado('ok, pode mandar a proposta')).toBe(false);
+    const base = { textoLead: 'ok', plano: null, especialista: false };
+    expect(motivoHandoff(base)).toBeNull();
+    expect(motivoHandoff({ ...base, especialista: true })).toBe('dúvida fora das Instruções');
+    expect(motivoHandoff({ ...base, plano: { intencao: 'x', objetivo: 'PASSAR_VENDEDOR' } })).toBe('hora do vendedor');
+    expect(motivoHandoff({ ...base, temperatura: 'QUENTE' })).toBe('lead quente');
+    expect(motivoHandoff({ ...base, temperatura: 'QUENTE', agendou: true })).toBeNull();
+    expect(comPassagem('Certo.')).toMatch(/especialista da equipe/);
+    expect(comPassagem('A equipe já te chama.')).toBe('A equipe já te chama.');
   });
 });
