@@ -263,3 +263,11 @@ Entradas antigas assinadas "Hark" podem ser de qualquer um. Se não souber qual 
 - **Testes:** tests/unit/voz.test.ts (19) e tests/integration/voz.test.ts (13); suíte unitária completa 55 arquivos (507 testes) ok; integração relacionada (IA, WhatsApp, inbound, fluxos, SDR, handoff, agenda, cobranças, segurança) 42 arquivos ok; typecheck servidor e web ok; build da web ok.
 - **Produção:** sem deploy, nenhuma mensagem enviada. Deploy normal aplica a migração (prisma migrate deploy no start).
 - **Falta:** testar com chaves reais e no celular; guardar/tocar o áudio no Inbox; ligações (etapa 2).
+
+## Atualização 2026-11-08 — IA consulta o estoque do ERP — v1.24.0
+- **Pedido do Mayck:** opção para a IA consultar o ERP da MCK (saldo) ou só os Produtos cadastrados.
+- **Feito:** Produtos › "De onde a IA consulta os produtos": Somente Produtos (padrão, igual a antes) / ERP da MCK (saldo em tempo real) / Os dois; "Mostrar a quantidade exata" (padrão desligado) e depósito; caixa "Testar" (prévia com a fonte escolhida). Disponível = físico − reservado − quarentena dos lotes liberados e não vencidos (regra do ERP). Custo, custos adicionais e fornecedor nunca vão ao prompt. ERP só com Plano Completo (ou empresa da MCK); sem plano ou com erro no ERP → catálogo. Detalhes em docs/ERP.md › IA consulta o estoque do ERP.
+- **Migração:** 0050_ia_fonte_produtos (só aditiva: 3 colunas em AiSettings com padrão; todas as empresas ficam em "catalogo"). Aplica no deploy normal (prisma migrate deploy no start).
+- **Testes:** tests/unit/ia-fonte-produtos.test.ts (8) e tests/integration/ia-fonte-produtos.test.ts (8) + produtos/IA/ERP relacionados; typecheck servidor e web; build da web.
+- **Produção:** sem deploy, nenhum dado alterado. Commit com [skip render].
+- **Falta:** subir no GitHub, deploy, conferir a tela no navegador com uma empresa que tenha ERP com estoque.
