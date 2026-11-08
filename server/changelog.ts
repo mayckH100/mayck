@@ -21,6 +21,19 @@ export type EntradaChangelog = {
 
 export const CHANGELOG: EntradaChangelog[] = [
   {
+    versao: '1.23.0',
+    data: '07/11/2026',
+    titulo: 'A IA agora ouve e responde com áudio no WhatsApp',
+    itens: [
+      'Quando o cliente manda um áudio, a IA ouve, entende e responde ao que foi dito, usando seus produtos, a base de conhecimento, o SDR e os fluxos, como se ele tivesse escrito. A transcrição aparece no Inbox embaixo do áudio.',
+      'A IA também pode responder com nota de voz, com voz natural de atendente brasileiro. Por padrão ela espelha o cliente: áudio responde com áudio e texto com texto. Também dá para escolher "sempre em áudio" ou "nunca em áudio".',
+      'Você escolhe o motor da voz: Google Gemini (grátis), OpenAI ou ElevenLabs (a voz mais humana, com a sua própria chave). Escolha a voz feminina ou masculina, o jeito de falar e ouça a prévia antes de salvar.',
+      'Links, preços e listas vão por escrito logo depois do áudio. Respostas longas continuam em texto, e se o áudio do cliente não puder ser ouvido a IA pede, com educação, para ele escrever.',
+      'No WhatsApp pelo QR code o cliente vê "gravando áudio..." antes da resposta. Conversas com atendente humano não recebem resposta da IA, nem em áudio.',
+      'Para ligar: Inteligência artificial › Configuração › Voz. Cada áudio ouvido ou gerado conta no limite de uso da IA.',
+    ],
+  },
+  {
     versao: '1.22.0',
     data: '07/11/2026',
     titulo: 'SDR com IA reconhece respostas automáticas',
