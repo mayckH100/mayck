@@ -21,6 +21,18 @@ export type EntradaChangelog = {
 
 export const CHANGELOG: EntradaChangelog[] = [
   {
+    versao: '1.22.0',
+    data: '07/11/2026',
+    titulo: 'SDR com IA reconhece respostas automáticas',
+    itens: [
+      'Quando o lead tem resposta automática ligada (saudação ou ausência do WhatsApp Business, "obrigado pelo contato, retornaremos em breve", horário de atendimento, menus "digite 1 para...", "estou dirigindo", Não Perturbe, férias ou "fora do escritório" no e-mail), isso não conta mais como resposta.',
+      'A IA não responde a essas mensagens (nada de robô conversando com robô), o lead não é qualificado nem muda de etapa e a cadência segue normalmente, esperando a resposta de uma pessoa.',
+      'A mensagem continua no Inbox e no histórico do lead com o selo "Resposta automática" e o motivo; a aba Relatórios mostra quantas foram ignoradas.',
+      'Quem responde de verdade, mesmo ocupado ("estou em reunião, mas tenho interesse, me manda o valor"), continua sendo atendido normalmente.',
+      'Já vem ligado para todas as empresas. Na aba Inteligência você pode cadastrar frases próprias, escolher pausar a cadência por algumas horas ao receber uma resposta automática ou desligar o recurso.',
+    ],
+  },
+  {
     versao: '1.21.0',
     data: '07/11/2026',
     titulo: 'SDR com IA mais inteligente: aba Inteligência',

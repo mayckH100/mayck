@@ -147,6 +147,8 @@ const HUMANO: RegExp[] = [
   /\b(me|nos) (manda|mande|envia|envie|passa|passe|liga|ligue|chama|chame|explica|explique)\b/, /\bpode (me )?(mandar|enviar|ligar|chamar|passar|explicar)\b/,
   /\bquero (sim|saber|conhecer|contratar|o|a|um|uma|mais)\b/, /\bgostaria de\b/, /\bcomo funciona\b/, /\bvamos (marcar|agendar|conversar)\b/,
   /\bsim,? (quero|tenho|pode)\b/, /\bpode sim\b/,
+  // Pergunta do lead sobre a empresa ("qual o horário de atendimento?", "vocês atendem sábado?").
+  /^(oi|ola|bom dia|boa tarde|boa noite)?[ ,!.]*(qual|quais|quanto|quantos|quantas|onde|quando|voces|vcs|tem|teria|aceita|aceitam|atende|atendem|faz|fazem|funciona|funcionam)\b[^?]{0,120}\?\s*$/,
   // EN / ES
   /\b(i'm|i am|we're|we are) interested\b/, /\bhow much\b/, /\bsend me\b/, /\bcall me\b/,
   /\bme interesa\b/, /\bcuanto (cuesta|vale|sale)\b/, /\b(mandame|enviame|llamame)\b/,

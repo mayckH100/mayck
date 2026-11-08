@@ -68,6 +68,8 @@ const HUMANAS: string[] = [
   "I'm interested, how much is it?",
   'Me interesa, ¿cuánto cuesta?',
   'Recebi, vou ver com meu sócio e te falo.',
+  'qual o horário de atendimento?',
+  'Vocês atendem sábado?',
 ];
 
 describe('detectAutoReply', () => {
@@ -92,6 +94,11 @@ describe('detectAutoReply', () => {
   it('humano com interesse continua humano mesmo respondendo rápido', () => {
     expect(detectAutoReply('Estou em reunião, mas tenho interesse, me manda o valor', { msDesdeEnvio: 5_000 })).toMatchObject({ automatica: false, humano: true });
     expect(detectAutoReply('sim, quero', { msDesdeEnvio: 3_000 }).automatica).toBe(false);
+  });
+
+  it('pergunta do lead respondida em segundos continua humana', () => {
+    expect(detectAutoReply('qual o horário de atendimento?', { msDesdeEnvio: 3_000 }).automatica).toBe(false);
+    expect(detectAutoReply('oi, qual o horário?', { msDesdeEnvio: 3_000 }).automatica).toBe(false);
   });
 
   it('tempo sozinho não basta; repetição de texto longo sim', () => {

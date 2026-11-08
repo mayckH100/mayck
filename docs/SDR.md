@@ -1,4 +1,4 @@
-# SDR com IA (v1.18.0; v2 na v1.19.0; unificado com a qualificação do MCK Mensagens na v1.20.0; fase 2 "inteligência" na v1.21.0)
+# SDR com IA (v1.18.0; v2 na v1.19.0; unificado com a qualificação do MCK Mensagens na v1.20.0; fase 2 "inteligência" na v1.21.0; respostas automáticas na v1.22.0)
 
 Pré-vendas automática dentro do MCKBOT (menu **SDR com IA**, rota `/sdr`). Evolui o funil de leads automático
 existente: o lead do SDR (`SdrLead`) liga-se ao contato do MCKBOT (`Contact`) e ao lead do MCK Mensagens (`Lead`)
@@ -135,6 +135,45 @@ Aba **SDR › Inteligência** (`web/src/pages/sdr/Inteligencia.tsx`; bloco do le
 - Testes: `tests/unit/sdr-intel.test.ts`, `tests/integration/sdr-intel.test.ts`.
 - Fora desta fase: status "não compareceu" na própria Agenda (precisaria de tela da Agenda) e recuperação automática sem o vendedor marcar;
   classificação de intenção por IA (hoje por palavras, para não gastar cota).
+
+## Respostas automáticas (v1.22.0, sem migração)
+Resposta automática do lead não é resposta: não qualifica, não pontua, não muda etapa (SDR, Kanban, lead do MCK Mensagens),
+não para a cadência, não vira opt-out nem objeção, e a IA/fluxos não respondem (evita robô conversando com robô).
+Vale para **todas** as empresas, ligado por padrão (inclusive quem já usa).
+- **Detector local, sem IA** (`server/sdr/autoReply.ts`, `detectAutoReply(texto, ctx)` → `{ automatica, confianca, motivo, pontos, humano }`):
+  padrões PT-BR/EN/ES com peso e categoria — *sistema* (declara "mensagem automática", menu "digite 1"/linhas numeradas,
+  "notificações silenciadas", app de auto-resposta), *empresa* (agradece o contato, retornaremos, horário de atendimento,
+  "não atendemos chamadas", "pedimos que envie", "agradecemos a compreensão", out of office...), *pessoal* (estou dirigindo,
+  no trânsito, em reunião/atendimento/cirurgia/plantão, de férias/viajando até, não posso falar agora, Não Perturbe/Modo Foco)
+  — mais sinais: tempo desde o nosso envio (≤ 15 s +2, ≤ 60 s +1), repetição do mesmo texto do mesmo contato (+3/+4),
+  formatação de saudação (*negrito* várias vezes, ⚠️), frases extras da empresa (+6), cabeçalhos `Auto-Submitted`,
+  (o sinal de tempo não vale em conversa em andamento — o contato escreveu nos 30 min antes do nosso envio —, porque aí
+  responder rápido é normal),
+  `X-Autoreply`, `Precedence: auto_reply` e assunto de ausência no e-mail. Automática com ≥ 4 pontos; confiança
+  alta ≥ 6, média 3–5, baixa < 3. **Trava de pessoa:** com sinal claro de pessoa ("tenho interesse", "me manda o valor",
+  "pode me ligar", "quanto custa", pergunta sobre a empresa como "qual o horário de atendimento?") só é automática com sinal de sistema, texto repetido longo ou saudação de empresa
+  muito forte (≥ 7 pontos de empresa). Ex.: "Estou em reunião, mas tenho interesse, me manda o valor" = humano.
+- **WhatsApp** (`server/whatsapp/inbound.ts` + `server/sdr/autoReplyService.ts`): só mensagens de texto que chegam quando a
+  empresa enviou algo para a conversa nos últimos 7 dias (quem chama primeiro nunca é marcado). Verificada ANTES de gravar,
+  dentro da trava do contato (sem corrida com a qualificação de campanha nem com a extração do SDR em segundo plano).
+  A mensagem é gravada com `Message.error = "AUTORESPOSTA: <motivo>"` (campo sem uso em recebidas; sem migração), ganha nota
+  de sistema no Inbox e evento `AUTORESPOSTA` nos leads do SDR da mesma pessoa. Não roda: opt-out, `onLeadInbound` (lead da
+  campanha segue "Contatado"), `sdrOnInbound`, `qualifyLeadInbound`, fluxos/IA. `contact.lastMessageAt` não muda.
+  Os históricos que a IA lê (resposta da IA, qualificação de campanha, extração do SDR, follow-up personalizado e melhor
+  horário) filtram as marcadas (`notAutoReply`).
+- **E-mail** (`server/sdr/inbound.ts`): falha de entrega/spam continua `ignorado`; cabeçalho, assunto ou texto de
+  ausência com lead encontrado → `automatica` + evento `AUTORESPOSTA` (canal EMAIL); a cadência segue.
+- **Configuração** (`server/sdr/autoReplyConfig.ts`): AuditLog `sdr.autoresposta.config` (o mais recente vale; sem registro =
+  `{ enabled: true, frases: [], acao: 'SEGUIR', pausaHoras: 24, iaDuvida: false }`). Editada em SDR › Inteligência
+  (`GET/PUT /api/sdr/inteligencia` → `autoResposta`). `acao: 'PAUSAR'` adia o próximo passo da cadência em `pausaHoras`
+  (1–168; nunca adianta). `iaDuvida` (desligado): na faixa média, sem sinal de pessoa, pergunta à MCK IA "AUTO/HUMANO"
+  respeitando a cota diária; sem cota/falha vale o detector.
+- **Visível:** selo "🤖 Resposta automática" na mensagem do Inbox; evento no histórico do lead; contador na aba Relatórios
+  (`respostasAutomaticas: { total, whatsapp, email }` em `GET /api/sdr/relatorio`).
+- Testes: `tests/unit/sdr-autoresposta.test.ts` (exemplos reais típicos e falsos positivos), `tests/integration/sdr-autoresposta.test.ts`
+  (caso real da clínica sem resposta da IA, cadência que segue, pausa, humano depois, desligado, e-mail).
+- Fora: aba Inteligência só aparece para quem tem o SDR completo (quem tem só o MCK Mensagens fica com o padrão ligado, sem tela
+  para frases/pausa); o CSV dos relatórios não traz o contador; mensagens de áudio/imagem não são analisadas.
 
 ## Para a v3
 Modelos aprovados da Meta para WhatsApp fora da janela de 24 h; teste A/B de textos (dependem de aprovação externa /

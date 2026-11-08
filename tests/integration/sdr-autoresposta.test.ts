@@ -156,6 +156,8 @@ describe('SDR — resposta automática', () => {
       const { leadId } = await campanha(t2);
       await sendInbound(ctx, t2, CASO_REAL);
       expect((await prisma.lead.findUniqueOrThrow({ where: { id: leadId } })).status).not.toBe('CONTATADO');
+      // Não deixa reabordagem pendente para o agendador global de outros testes (tickLeadRetries).
+      await prisma.lead.update({ where: { id: leadId }, data: { status: 'DESCARTADO', nextAttemptAt: null } });
     } finally {
       await a.put('/api/sdr/inteligencia', { autoResposta: { enabled: true } });
     }

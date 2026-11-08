@@ -1,7 +1,7 @@
 import type { Conversation, SdrLead } from '@prisma/client';
 import { prisma } from '../db.js';
 import { leadPhoneOfWaId } from '../mckmensagem/contactSync.js';
-import { detectAutoReply, normalizeText, type AutoReplyResult } from './autoReply.js';
+import { detectAutoReply, normalizeText, notAutoReply, type AutoReplyResult } from './autoReply.js';
 import { getAutoReplyConfig, type AutoReplyConfig } from './autoReplyConfig.js';
 
 /**
@@ -32,7 +32,11 @@ export async function checkWhatsappAutoReply(args: { orgId: string; conversation
     });
     if (!lastOut) return null;
     const repetida = await isRepeated(orgId, contactId, text);
-    let det: AutoReplyResult & { iaConsultada?: boolean } = detectAutoReply(text, { msDesdeEnvio: Math.max(0, now.getTime() - lastOut.createdAt.getTime()), repetida, frasesExtras: cfg.frases });
+    // Conversa em andamento (o contato escreveu de verdade nos 30 min antes do nosso envio): responder rápido é normal,
+    // então o sinal de tempo não vale (só o texto).
+    const ativa = await prisma.message.findFirst({ where: { orgId, conversationId, direction: 'IN', createdAt: { gte: new Date(lastOut.createdAt.getTime() - 30 * 60_000), lte: lastOut.createdAt }, ...notAutoReply }, select: { id: true } });
+    const msDesdeEnvio = ativa ? null : Math.max(0, now.getTime() - lastOut.createdAt.getTime());
+    let det: AutoReplyResult & { iaConsultada?: boolean } = detectAutoReply(text, { msDesdeEnvio, repetida, frasesExtras: cfg.frases });
     if (cfg.iaDuvida && det.confianca === 'media' && !det.humano) {
       const ia = await askMckIa(orgId, conversationId, text).catch(() => null);
       if (ia !== null) det = { ...det, automatica: ia, iaConsultada: true, motivo: `${det.motivo}; confirmado pela MCK IA` };
