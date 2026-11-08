@@ -3,7 +3,6 @@ import { useState } from 'react';
 import { get, post, patch } from '../../api';
 import { useAuth } from '../../auth';
 import { useApi, Async, Empty, Modal, Field, useAction, fmtDate } from '../../ui';
-import ErpNav from '../ErpNav';
 import { qtd, toMil, toCents } from '../format';
 import EntradaXml from './EntradaXml';
 import Etiquetas from './Etiquetas';
@@ -30,7 +29,6 @@ export default function Estoque() {
           <button className="btn primary" disabled={!deps.data?.length} onClick={() => setModal({ tipo: 'entrada' })}>+ Entrada</button>
         </div>
       </div>
-      <ErpNav />
       <div className="row" style={{ marginBottom: 10, flexWrap: 'wrap' }}>
         {(['saldos', 'xml', 'etiquetas', 'inventarios', 'movimentos', 'depositos'] as const).map((a) => <button key={a} className={`btn sm ${aba === a ? 'primary' : ''}`} onClick={() => setAba(a)}>{{ saldos: 'Saldos', xml: 'Entrada por XML', etiquetas: 'Lotes e etiquetas', inventarios: 'Inventário', movimentos: 'Movimentações', depositos: 'Depósitos e endereços' }[a]}</button>)}
       </div>
