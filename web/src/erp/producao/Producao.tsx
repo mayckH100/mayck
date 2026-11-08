@@ -2,7 +2,6 @@
 import { useState } from 'react';
 import { get, post, put } from '../../api';
 import { useApi, Async, Empty, Modal, Field, useAction, fmtDate } from '../../ui';
-import ErpNav from '../ErpNav';
 import { brl, qtd, toMil, toCents, fromCents } from '../format';
 import { BuscaProduto } from '../comum';
 
@@ -14,7 +13,6 @@ export default function Producao() {
   return (
     <div className="page">
       <div className="page-head"><div><h1>Produção</h1><p className="muted">Estrutura → ordem de produção → consumo e lote com rastreio → MRP do que comprar e produzir.</p></div></div>
-      <ErpNav />
       <div className="row" style={{ marginBottom: 10, flexWrap: 'wrap' }}>
         {(['ops', 'estr', 'mrp'] as const).map((a) => <button key={a} className={`btn sm ${aba === a ? 'primary' : ''}`} onClick={() => setAba(a)}>{{ ops: 'Ordens de produção', estr: 'Estruturas e roteiros', mrp: 'MRP' }[a]}</button>)}
       </div>
