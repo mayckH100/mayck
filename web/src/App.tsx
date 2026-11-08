@@ -31,6 +31,7 @@ import ErpCliente360 from './erp/crm/Cliente360';
 import ErpProdutos from './erp/produtos/Produtos';
 import ErpEstoque from './erp/estoque/Estoque';
 import ErpPedidos from './erp/vendas/Pedidos';
+import ErpRelatorioCaixa from './erp/vendas/Caixa';
 import ErpPedido from './erp/vendas/Pedido';
 import ErpCompras from './erp/compras/Compras';
 import ErpProducao from './erp/producao/Producao';
@@ -348,6 +349,7 @@ export default function App() {
             <Route path="/erp/pedidos" element={<ErpPedidos key="pedidos" />} />
             <Route path="/erp/balcao" element={<ErpPedidos key="balcao" balcao />} />
             <Route path="/erp/pedidos/:id" element={<ErpPedido />} />
+            <Route path="/erp/caixa/:id" element={<ErpRelatorioCaixa />} />
             <Route path="/erp/compras" element={<ErpCompras />} />
             <Route path="/erp/producao" element={<ErpProducao />} />
             <Route path="/erp/financeiro" element={<ErpFinanceiro />} />
