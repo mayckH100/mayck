@@ -355,6 +355,8 @@ model Conversation {
   handoffAlertTries  Int       @default(0)
   /// Classificação da IA: do que trata a conversa — REUNIAO | PEDIDO | AMBOS (nulo = ainda não classificada).
   aiIntent           String?
+  /// Voz: preferência do cliente nesta conversa — 'audio' | 'texto' (nulo = segue o modo da empresa). Migração 0053.
+  voicePreference    String?
   createdAt          DateTime  @default(now())
 
   @@index([orgId, status])
@@ -707,6 +709,9 @@ model PlatformSettings {
   waDigestDay        String? // último dia (AAAA-MM-DD, Brasília) do resumo diário de WhatsApp desconectado para o superadmin
   /// SDR com IA: em quais planos o módulo vem liberado (Painel Master). JSON { COMBO, MCKBOT, MCKMENSAGEM }.
   sdrPlansJson       String   @default("{\"COMBO\":true,\"MCKBOT\":false,\"MCKMENSAGEM\":false}")
+  /// Planos editáveis no Painel Master (v1.25.0): nome, descrição, itens, módulos e "visível para venda" por plano.
+  /// JSON { MCKBOT?, MCKMENSAGEM?, COMBO? }; plano ausente = padrão do código (os códigos dos planos nunca mudam).
+  plansJson          String   @default("{}")
   updatedAt          DateTime @updatedAt
 }
 
