@@ -21,6 +21,18 @@ export type EntradaChangelog = {
 
 export const CHANGELOG: EntradaChangelog[] = [
   {
+    versao: '1.25.0',
+    data: '08/11/2026',
+    titulo: 'Caixa no PDV e planos atualizados',
+    itens: [
+      'Os planos agora mostram, no site, no cadastro e na tela de assinatura, o nome, a descrição e o que está incluso sempre atualizados pela MCK.',
+      'Um plano que saiu de venda deixa de aparecer para novos clientes. Quem já assina continua com tudo o que tem hoje e pode renovar normalmente no mesmo plano.',
+      'O acesso ao MCK ERP e à consulta de estoque pela IA segue o que o seu plano inclui. Seus dados continuam guardados e podem ser baixados a qualquer momento.',
+      'Caixa do PDV: a venda balcão agora exige caixa aberto, com sangria, suprimento e fechamento com valor contado e diferença.',
+      'Voz da IA: a IA sabe que pode responder por áudio e segue, em cada conversa, se o cliente prefere áudio ou texto.',
+    ],
+  },
+  {
     versao: '1.24.0',
     data: '08/11/2026',
     titulo: 'A IA pode consultar o estoque do MCK ERP',
