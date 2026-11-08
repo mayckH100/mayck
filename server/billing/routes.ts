@@ -4,7 +4,8 @@ import { prisma } from '../db.js';
 import { ah, badRequest, HttpError } from '../lib/http.js';
 import { orgOf } from '../auth/session.js';
 import { audit } from '../lib/audit.js';
-import { PRODUCTS, CYCLES, PLAN_PRODUCTS, getSettings, getSubscriptionView, getWebhookSecret, planosOferecidos, renew, revokePayment } from './service.js';
+import { PRODUCTS, CYCLES, PLAN_PRODUCTS, getSettings, getSubscriptionView, getWebhookSecret, introPriceFor, introStatus, planosOferecidos, renew, revokePayment } from './service.js';
+import { INTRO_CYCLE, INTRO_PLAN, publicIntroOffer } from './introOffer.js';
 import { planApps, planModules } from './planCatalog.js';
 import { CouponError, MIN_FINAL_CENTS, loadValidCoupon, priceWithCoupon, publicCouponView, quotesFor } from './coupons.js';
 import { billingConfigured, createPreference, getPayment, MpError, mpFriendly, parseReference, verifySignature } from './mercadopago.js';
@@ -39,19 +40,29 @@ export async function processPayment(paymentId: string, expectedOrgId?: string):
   if (!org) return { ok: false, renewed: false, reason: 'organizacao_inexistente' };
   const { prices } = await getSettings();
   const basePrice = prices[ref.product][ref.cycle];
-  let expected = basePrice;
   // Cupom: o desconto veio da referência criada pelo próprio servidor no checkout (só o servidor cria
   // preferências com o token do MP) e nunca deixa o valor abaixo do mínimo cobrável. Se o cupom
   // expirou, esgotou ou foi desativado depois do checkout, o pagamento já feito é honrado.
   const coupon = ref.coupon ? await prisma.coupon.findUnique({ where: { id: ref.coupon.id } }) : null;
   const discount = ref.coupon ? Math.max(0, Math.min(ref.coupon.discountCents, basePrice - MIN_FINAL_CENTS)) : 0;
-  expected -= discount;
+  let expected = basePrice - discount;
+  // Promoção de entrada (v1.27.0): o preço promocional só vale se, AGORA, a empresa ainda for cliente nova
+  // (pagamentos confirmados, sem contar este). Abrir vários checkouts na promoção não adianta: o 3º pagamento
+  // promocional chega aqui com a empresa já fora da promoção e o valor fica divergente. Promoção desligada no
+  // Master depois do checkout: o pagamento já feito é honrado (como no cupom).
+  let intro = false;
+  if (ref.introCents !== null) {
+    if (ref.product === INTRO_PLAN && ref.cycle === INTRO_CYCLE && (await introStatus(ref.orgId, String(pay.id))).eligible) {
+      intro = true;
+      expected = Math.min(expected, Math.max(MIN_FINAL_CENTS, ref.introCents));
+    }
+  }
   const paidCents = Math.round(pay.transaction_amount * 100);
   if (paidCents < expected || (pay.currency_id && pay.currency_id !== 'BRL')) {
-    await audit(null, 'billing.mp.valor_divergente', { orgId: ref.orgId, entity: 'payment', entityId: pay.id, meta: { paidCents, expected, product: ref.product, cycle: ref.cycle, coupon: coupon?.code } });
-    return { ok: false, renewed: false, reason: 'valor_divergente', orgId: ref.orgId };
+    await audit(null, 'billing.mp.valor_divergente', { orgId: ref.orgId, entity: 'payment', entityId: pay.id, meta: { paidCents, expected, product: ref.product, cycle: ref.cycle, coupon: coupon?.code, ...(ref.introCents !== null ? { introCents: ref.introCents, introAceita: intro } : {}) } });
+    return { ok: false, renewed: false, reason: ref.introCents !== null && !intro ? 'promocao_esgotada' : 'valor_divergente', orgId: ref.orgId };
   }
-  const r = await renew(ref.orgId, ref.product, ref.cycle, { source: 'MP', mpPaymentId: pay.id, amountCents: paidCents });
+  const r = await renew(ref.orgId, ref.product, ref.cycle, { source: 'MP', mpPaymentId: pay.id, amountCents: paidCents, introOffer: intro });
   if (coupon) {
     // Uso do cupom só conta com pagamento confirmado; único por pagamento (aviso repetido não conta de novo).
     try {
@@ -60,7 +71,7 @@ export async function processPayment(paymentId: string, expectedOrgId?: string):
   }
   // Indique e ganhe: primeiro pagamento aprovado da indicada libera 30 dias para quem indicou (uma vez; nunca lança).
   await creditReferralForPayment(ref.orgId, String(pay.id));
-  if (!r.duplicated) await audit(null, 'billing.mp.renovado', { orgId: ref.orgId, entity: 'payment', entityId: pay.id, meta: { product: ref.product, cycle: ref.cycle, paidCents, ...(coupon ? { coupon: coupon.code, discountCents: discount } : {}) } });
+  if (!r.duplicated) await audit(null, 'billing.mp.renovado', { orgId: ref.orgId, entity: 'payment', entityId: pay.id, meta: { product: ref.product, cycle: ref.cycle, paidCents, ...(coupon ? { coupon: coupon.code, discountCents: discount } : {}), ...(intro ? { introOffer: true } : {}) } });
   return { ok: true, renewed: !r.duplicated, duplicated: r.duplicated, orgId: ref.orgId };
 }
 
@@ -70,7 +81,10 @@ export const billingRouter = Router();
 billingRouter.get('/status', ah(async (req, res) => {
   const orgId = orgOf(req);
   const subscriptions = await Promise.all(PRODUCTS.map((p) => getSubscriptionView(orgId, p)));
-  const { prices, trialDays, plans } = await getSettings();
+  const { prices, trialDays, plans, introOffer } = await getSettings();
+  // v1.27.0: promoção de entrada do Plano Completo (texto público + situação desta empresa).
+  const introPub = publicIntroOffer(introOffer, prices[INTRO_PLAN][INTRO_CYCLE]);
+  const introMe = introPub ? await introStatus(orgId) : null;
   // v1.25.0: planos do Master. "offered" = à venda (visível) ou oculto que a empresa já assinou (pode renovar).
   const offered = new Set(await planosOferecidos(orgId));
   res.json({
@@ -78,7 +92,10 @@ billingRouter.get('/status', ah(async (req, res) => {
     products: PLAN_PRODUCTS.map((id) => ({ id, name: plans[id].name })),
     plans: PLAN_PRODUCTS.filter((id) => offered.has(id)).map((id) => ({
       id, name: plans[id].name, desc: plans[id].desc, features: plans[id].features, modules: planModules(plans[id]), apps: planApps(plans[id]), visible: plans[id].visible,
+      ...(id === INTRO_PLAN && introPub ? { introOffer: introPub } : {}),
     })),
+    // eligible = esta empresa ainda paga o preço promocional no próximo pagamento mensal do Plano Completo.
+    introOffer: introPub && introMe ? { ...introPub, eligible: introMe.eligible, monthsUsed: introMe.used, monthsLeft: introMe.remaining } : null,
   });
 }));
 
@@ -93,13 +110,22 @@ billingRouter.post('/checkout', ah(async (req, res) => {
   // Plano oculto (fora de venda): só quem já assinou pode renovar; ciclo com preço abaixo do mínimo não é vendido.
   if (!(await planosOferecidos(orgId)).includes(product)) throw badRequest('Este plano não está mais à venda.');
   if (prices[product][cycle] < MIN_FINAL_CENTS) throw badRequest('Este ciclo do plano não está à venda.');
-  let amountCents = prices[product][cycle];
+  const fullCents = prices[product][cycle];
+  // Promoção de entrada (v1.27.0): Plano Completo mensal para cliente nova. Calculada só aqui no servidor.
+  const intro = await introPriceFor(orgId, product, cycle);
+  let amountCents = intro ? intro.priceCents : fullCents;
   let applied: { id: string; code: string; discountCents: number } | null = null;
+  let couponNotice: string | undefined;
   if (couponCode) {
     try {
       const { coupon, quote } = await priceWithCoupon(couponCode, product, cycle, orgId);
-      amountCents = quote.finalCents;
-      applied = { id: coupon.id, code: coupon.code, discountCents: quote.discountCents };
+      // Cupom não acumula com a promoção: vale o MENOR preço. Empate fica com a promoção (o cupom não é gasto).
+      if (!intro || quote.finalCents < intro.priceCents) {
+        amountCents = quote.finalCents;
+        applied = { id: coupon.id, code: coupon.code, discountCents: quote.discountCents };
+      } else {
+        couponNotice = 'O cupom não acumula com a promoção de cliente nova. Aplicamos o menor preço: o promocional.';
+      }
     } catch (e) {
       if (e instanceof CouponError) throw badRequest(e.message);
       throw e;
@@ -108,11 +134,16 @@ billingRouter.post('/checkout', ah(async (req, res) => {
   const user = req.auth?.userId ? await prisma.user.findUnique({ where: { id: req.auth.userId } }) : null;
   try {
     const pref = await createPreference({
-      orgId, product, cycle, amountCents, coupon: applied ? { id: applied.id, discountCents: applied.discountCents } : null, baseUrl: baseUrlOf(req), payerEmail: user?.email, returnPath: app === 'mensagem' ? '/mensagem/assinatura' : '/',
-      title: `${plans[product].name} — plano ${cycle === 'ANUAL' ? 'anual' : 'mensal'}${applied ? ` (cupom ${applied.code})` : ''}`,
+      orgId, product, cycle, amountCents, coupon: applied ? { id: applied.id, discountCents: applied.discountCents } : null, introCents: intro ? intro.priceCents : null, baseUrl: baseUrlOf(req), payerEmail: user?.email, returnPath: app === 'mensagem' ? '/mensagem/assinatura' : '/',
+      title: `${plans[product].name} — plano ${cycle === 'ANUAL' ? 'anual' : 'mensal'}${applied ? ` (cupom ${applied.code})` : intro ? ` (promoção cliente nova: mês ${intro.month} de ${intro.months})` : ''}`,
     });
-    await audit(req, 'billing.checkout', { entity: 'preference', entityId: pref.id, meta: { product, cycle, amountCents, ...(applied ? { coupon: applied.code, discountCents: applied.discountCents } : {}) } });
-    res.json({ init_point: pref.init_point, preferenceId: pref.id, amountCents, ...(applied ? { coupon: applied.code, discountCents: applied.discountCents, originalCents: prices[product][cycle] } : {}) });
+    await audit(req, 'billing.checkout', { entity: 'preference', entityId: pref.id, meta: { product, cycle, amountCents, ...(applied ? { coupon: applied.code, discountCents: applied.discountCents } : {}), ...(intro ? { introOffer: true, introMonth: intro.month } : {}) } });
+    res.json({
+      init_point: pref.init_point, preferenceId: pref.id, amountCents,
+      ...(applied ? { coupon: applied.code, discountCents: applied.discountCents, originalCents: fullCents } : {}),
+      ...(intro ? { introOffer: { priceCents: intro.priceCents, month: intro.month, months: intro.months, regularPriceCents: fullCents }, originalCents: fullCents } : {}),
+      ...(couponNotice ? { couponNotice } : {}),
+    });
   } catch (e) {
     if (e instanceof MpError) throw new HttpError(502, mpFriendly(e, 'iniciar o pagamento'));
     throw e;
@@ -127,7 +158,9 @@ billingRouter.post('/coupon', ah(async (req, res) => {
     const { prices } = await getSettings();
     const quotes = quotesFor(c, prices);
     if (Object.keys(quotes).length === 0) throw new CouponError('valor');
-    res.json({ coupon: publicCouponView(c), quotes });
+    // v1.27.0: cupom não acumula com a promoção de cliente nova; no checkout vale o menor preço.
+    const intro = await introPriceFor(orgOf(req), INTRO_PLAN, INTRO_CYCLE);
+    res.json({ coupon: publicCouponView(c), quotes, ...(intro ? { introOffer: { plan: INTRO_PLAN, cycle: INTRO_CYCLE, priceCents: intro.priceCents, stacks: false } } : {}) });
   } catch (e) {
     if (e instanceof CouponError) return void res.status(e.problem === 'inexistente' ? 404 : 400).json({ error: e.message, reason: e.problem });
     throw e;

@@ -13,7 +13,9 @@ export type PlanModule = 'MCKBOT' | 'MCKMENSAGEM' | 'ERP';
 export const PLAN_MODULES: PlanModule[] = ['MCKBOT', 'MCKMENSAGEM', 'ERP'];
 export const MODULE_LABEL: Record<PlanModule, string> = { MCKBOT: 'MCKBOT', MCKMENSAGEM: 'MCK Mensagens', ERP: 'MCK ERP' };
 /** Plano como o Master configurou (v1.25.0). apps = assinaturas que ele renova. */
-export interface PlanInfo { id: PlanProduct; name: string; desc: string; features: string[]; modules: PlanModule[]; apps: ('MCKBOT' | 'MCKMENSAGEM')[]; visible: boolean }
+/** v1.27.0: promoção de entrada do Plano Completo (vem do servidor; o preço cobrado é sempre calculado lá). */
+export interface IntroOfferInfo { plan: PlanProduct; cycle: 'MENSAL'; priceCents: number; months: number; regularPriceCents: number; newCustomersOnly: boolean; text: string; eligible?: boolean; monthsUsed?: number; monthsLeft?: number }
+export interface PlanInfo { id: PlanProduct; name: string; desc: string; features: string[]; modules: PlanModule[]; apps: ('MCKBOT' | 'MCKMENSAGEM')[]; visible: boolean; introOffer?: IntroOfferInfo }
 /** Menor valor cobrável (igual ao servidor): ciclo com preço abaixo disso não está à venda. */
 export const MIN_CHARGE_CENTS = 100;
 export const CYCLE_LABEL: Record<string, string> = { MENSAL: 'Mensal', ANUAL: 'Anual' };

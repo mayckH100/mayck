@@ -133,9 +133,12 @@ if (/^\d{12,13}$/.test(MCK_WHATSAPP_NUMERO)) window.MCK_WA_BUTTON('https://wa.me
     box.innerHTML = data.plans.map(function (p) {
       var best = p.id === 'COMBO', price = p.prices[cycle], l = LINKS[p.id] || LINKS.MCKBOT;
       var save = cycle === 'ANUAL' && p.annualSavings > 0 ? 'Economize ' + brl(p.annualSavings) + ' por ano' : (cycle === 'ANUAL' ? '' : 'ou ' + brl(p.prices.ANUAL) + ' no plano anual');
+      // v1.27.0: promoção de cliente nova do Plano Completo (só no mensal): "R$ 58/mês nos 2 primeiros meses, depois R$ 100/mês".
+      var promo = cycle === 'MENSAL' && p.introOffer ? p.introOffer : null;
+      if (promo) save = 'Cliente nova: ' + esc(promo.text) + ' · ou ' + brl(p.prices.ANUAL) + ' no plano anual';
       return '<div class="plan' + (best ? ' best' : '') + '">' + (best ? '<span class="badge">Mais completo</span>' : '') +
         '<h3>' + esc(p.label) + '</h3><p class="muted" style="color:var(--muted);margin:0">' + esc(p.desc) + '</p>' +
-        '<div class="price">' + brl(price) + ' <small>/' + (cycle === 'MENSAL' ? 'mês' : 'ano') + '</small></div><div class="save">' + save + '</div>' +
+        '<div class="price">' + (promo ? '<s style="font-size:.5em;opacity:.6">' + brl(price) + '</s> ' + brl(promo.priceCents) : brl(price)) + ' <small>/' + (cycle === 'MENSAL' ? 'mês' : 'ano') + '</small></div><div class="save">' + save + '</div>' +
         '<ul class="check">' + p.features.map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul>' +
         '<div class="acts"><a class="btn red block" href="' + l.trial + '">Começar teste grátis de ' + data.trialDays + ' dias</a>' +
         '<a class="btn ghost block" href="' + l.trial + '">Assinar ' + esc(p.label.replace('Combo MCKBOT + MCK Mensagens', 'o Combo')) + '</a>' +

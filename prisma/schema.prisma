@@ -675,6 +675,8 @@ model BillingEvent {
   actorUserId    String?
   prevValidUntil DateTime?
   newValidUntil  DateTime?
+  /// v1.27.0: pagamento contado como mês da promoção de entrada do Plano Completo.
+  introOffer     Boolean   @default(false)
   createdAt      DateTime  @default(now())
 
   @@index([orgId, createdAt])
@@ -712,6 +714,9 @@ model PlatformSettings {
   /// Planos editáveis no Painel Master (v1.25.0): nome, descrição, itens, módulos e "visível para venda" por plano.
   /// JSON { MCKBOT?, MCKMENSAGEM?, COMBO? }; plano ausente = padrão do código (os códigos dos planos nunca mudam).
   plansJson          String   @default("{}")
+  /// Promoção de entrada do Plano Completo (v1.27.0): JSON { enabled, priceCents, months }; '{}' = padrão do código
+  /// (ligada, R$ 58,00 nos 2 primeiros meses do COMBO mensal, só para cliente nova).
+  introOfferJson     String   @default("{}")
   updatedAt          DateTime @updatedAt
 }
 

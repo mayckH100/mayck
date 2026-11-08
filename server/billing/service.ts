@@ -1,6 +1,7 @@
 import { prisma } from '../db.js';
 import { decryptOrNull, encryptOrNull } from '../lib/crypto.js';
 import { applyPlanInput, erpBySubscriptions, parsePlanCatalog, planApps, validatePlanInput, PLAN_CODES, type PlanCatalog, type PlanInput } from './planCatalog.js';
+import { applyIntroOfferInput, introEligibility, introOfferActive, parseIntroOffer, validateIntroOfferInput, INTRO_CYCLE, INTRO_PLAN, type IntroOffer, type IntroOfferInput, type PaidEvent } from './introOffer.js';
 
 /**
  * Cobrança por produto. Cada organização tem uma assinatura por app
@@ -65,7 +66,8 @@ export async function getSettings() {
     prices = Object.fromEntries(PLAN_PRODUCTS.map((p) => [p, { MENSAL: Number(parsed?.[p]?.MENSAL ?? DEFAULT_PRICES[p].MENSAL), ANUAL: Number(parsed?.[p]?.ANUAL ?? DEFAULT_PRICES[p].ANUAL) }])) as Prices;
   } catch { /* mantém padrão */ }
   const plans: PlanCatalog = parsePlanCatalog((s as { plansJson?: string }).plansJson);
-  return { trialDays: s.trialDays, prices, plans, webhookSecretConfigured: !!s.mpWebhookSecretEnc, raw: s };
+  const introOffer: IntroOffer = parseIntroOffer((s as { introOfferJson?: string }).introOfferJson);
+  return { trialDays: s.trialDays, prices, plans, introOffer, webhookSecretConfigured: !!s.mpWebhookSecretEnc, raw: s };
 }
 
 export async function getWebhookSecret(): Promise<string | null> {
@@ -73,9 +75,14 @@ export async function getWebhookSecret(): Promise<string | null> {
   return decryptOrNull(s?.mpWebhookSecretEnc ?? null);
 }
 
-export async function updateSettings(input: { trialDays?: number; prices?: Partial<Record<PlanProduct, Partial<Record<Cycle, number>>>>; plans?: Partial<Record<PlanProduct, PlanInput>>; mpWebhookSecret?: string | null }) {
+export async function updateSettings(input: { trialDays?: number; prices?: Partial<Record<PlanProduct, Partial<Record<Cycle, number>>>>; plans?: Partial<Record<PlanProduct, PlanInput>>; introOffer?: IntroOfferInput; mpWebhookSecret?: string | null }) {
   const cur = await getSettings();
-  const data: { trialDays?: number; pricesJson?: string; plansJson?: string; mpWebhookSecretEnc?: string | null } = {};
+  const data: { trialDays?: number; pricesJson?: string; plansJson?: string; introOfferJson?: string; mpWebhookSecretEnc?: string | null } = {};
+  if (input.introOffer) {
+    const err = validateIntroOfferInput(input.introOffer);
+    if (err) throw new SettingsError(err);
+    data.introOfferJson = JSON.stringify(applyIntroOfferInput(cur.introOffer, input.introOffer));
+  }
   if (input.plans) {
     const next = JSON.parse(JSON.stringify(cur.plans)) as PlanCatalog;
     for (const code of PLAN_CODES) {
@@ -102,6 +109,42 @@ export async function updateSettings(input: { trialDays?: number; prices?: Parti
 }
 
 export const priceOf = async (product: PlanProduct, cycle: Cycle) => (await getSettings()).prices[product][cycle];
+
+// ---------- Promoção de entrada do Plano Completo (v1.27.0; regra em introOffer.ts) ----------
+/**
+ * Pagamentos CONFIRMADOS da empresa: Mercado Pago aprovado (kind MP) que não foi estornado e ativação/renovação
+ * manual com ciclo feita pelo Master (kind MANUAL com cycle). Ajuste só de data, teste, bloqueio e mês grátis de
+ * indicação não são pagamento. `exceptMpPaymentId` tira da conta o pagamento que está sendo conferido (aviso repetido).
+ */
+export async function confirmedPayments(orgId: string, exceptMpPaymentId?: string): Promise<PaidEvent[]> {
+  const evs = await prisma.billingEvent.findMany({
+    where: { orgId, OR: [{ kind: 'MP' }, { kind: 'MANUAL', cycle: { not: null } }, { kind: 'MP_ESTORNO' }] },
+    select: { kind: true, product: true, cycle: true, mpPaymentId: true, introOffer: true },
+  });
+  const estornados = new Set(evs.filter((e) => e.kind === 'MP_ESTORNO' && e.mpPaymentId).map((e) => e.mpPaymentId!.replace(/-estorno$/, '')));
+  return evs
+    .filter((e) => e.kind !== 'MP_ESTORNO')
+    .filter((e) => !(e.kind === 'MP' && e.mpPaymentId && (estornados.has(e.mpPaymentId) || e.mpPaymentId === exceptMpPaymentId)))
+    .map((e) => ({ product: e.product, cycle: e.cycle, intro: e.introOffer }));
+}
+
+/** Situação da empresa na promoção: ainda é "cliente nova"? Quantos meses promocionais já pagou? */
+export async function introStatus(orgId: string, exceptMpPaymentId?: string) {
+  const { introOffer } = await getSettings();
+  return { offer: introOffer, ...introEligibility(await confirmedPayments(orgId, exceptMpPaymentId), introOffer.months) };
+}
+
+/**
+ * Preço promocional que ESTA empresa paga agora no plano/ciclo, ou null (sem promoção: outro plano, anual,
+ * promoção desligada ou mais cara que o preço normal, ou empresa que não é mais cliente nova).
+ */
+export async function introPriceFor(orgId: string, product: PlanProduct, cycle: Cycle): Promise<{ priceCents: number; month: number; months: number } | null> {
+  if (product !== INTRO_PLAN || cycle !== INTRO_CYCLE) return null;
+  const { prices } = await getSettings();
+  const st = await introStatus(orgId);
+  if (!introOfferActive(st.offer, prices[product][cycle]) || !st.eligible) return null;
+  return { priceCents: st.offer.priceCents, month: st.used + 1, months: st.offer.months };
+}
 
 // ---------- Assinaturas ----------
 export function effectiveStatus(sub: { status: string; validUntil: Date }, now = new Date()): SubStatus {
@@ -198,7 +241,7 @@ function addCycle(from: Date, cycle: Cycle): Date {
  * Se `mpPaymentId` vier, o evento é único por pagamento: um segundo aviso do mesmo
  * pagamento não renova de novo (retorna { duplicated: true }).
  */
-export async function renew(orgId: string, product: PlanProduct, cycle: Cycle, opts: { source?: 'MANUAL' | 'MP'; mpPaymentId?: string; amountCents?: number; actorUserId?: string } = {}) {
+export async function renew(orgId: string, product: PlanProduct, cycle: Cycle, opts: { source?: 'MANUAL' | 'MP'; mpPaymentId?: string; amountCents?: number; actorUserId?: string; introOffer?: boolean } = {}) {
   const source = opts.source ?? (opts.mpPaymentId ? 'MP' : 'MANUAL');
   const products = await planProducts(product); // módulos do plano no Master (padrão: COMBO = os dois)
   for (const p of products) await getSubscription(orgId, p);
@@ -217,7 +260,7 @@ export async function renew(orgId: string, product: PlanProduct, cycle: Cycle, o
       const newMax = updated.reduce<Date | null>((m, s) => (!m || s.validUntil > m ? s.validUntil : m), null);
       await tx.billingEvent.create({
         // createdAt = o mesmo "agora" usado como base: o estorno reconstrói exatamente quanto este pagamento somou.
-        data: { orgId, product, kind: source, cycle, amountCents: opts.amountCents ?? null, mpPaymentId: opts.mpPaymentId ?? null, actorUserId: opts.actorUserId ?? null, prevValidUntil: prevMax, newValidUntil: newMax, createdAt: now },
+        data: { orgId, product, kind: source, cycle, amountCents: opts.amountCents ?? null, mpPaymentId: opts.mpPaymentId ?? null, actorUserId: opts.actorUserId ?? null, prevValidUntil: prevMax, newValidUntil: newMax, introOffer: !!opts.introOffer, createdAt: now },
       });
       return { duplicated: false as const, subscriptions: updated };
     });

@@ -53,10 +53,10 @@ describe('Cupons: regras e cálculo de preço', () => {
   });
 
   it('referência do Mercado Pago carrega cupom e desconto; formato antigo continua válido', () => {
-    expect(parseReference('mckbot|org1|MCKBOT|MENSAL')).toEqual({ orgId: 'org1', product: 'MCKBOT', cycle: 'MENSAL', coupon: null });
+    expect(parseReference('mckbot|org1|MCKBOT|MENSAL')).toEqual({ orgId: 'org1', product: 'MCKBOT', cycle: 'MENSAL', coupon: null, introCents: null });
     const ref = buildReference('org1', 'COMBO', 'ANUAL', { id: 'cm123abc', discountCents: 18000 });
     expect(ref).toBe('mckbot|org1|COMBO|ANUAL|c=cm123abc:18000');
-    expect(parseReference(ref)).toEqual({ orgId: 'org1', product: 'COMBO', cycle: 'ANUAL', coupon: { id: 'cm123abc', discountCents: 18000 } });
+    expect(parseReference(ref)).toEqual({ orgId: 'org1', product: 'COMBO', cycle: 'ANUAL', coupon: { id: 'cm123abc', discountCents: 18000 }, introCents: null });
     expect(parseReference('mckbot|org1|COMBO|ANUAL|lixo')).toBeNull();
     expect(parseReference('mckbot|org1|COMBO|ANUAL|c=abc:-5')).toBeNull();
   });

@@ -39,6 +39,8 @@ interface Settings {
   plans?: Record<PlanProduct, PlanCfg>; planStats?: Record<PlanProduct, { pagantes: number; emTeste: number }>;
   prices: Record<PlanProduct, Record<Cycle, number>>; trialDays: number; mpWebhookSecret: string | null; mpWebhookSecretConfigured: boolean; mpConfigured: boolean;
   mpCheck?: { ok: boolean; message: string };
+  /** v1.27.0: promoção de entrada do Plano Completo (mensal, só cliente nova). */
+  introOffer?: { enabled: boolean; priceCents: number; months: number };
 }
 
 const TABS = [
@@ -493,6 +495,7 @@ function PlatformSettingsForm() {
   const state = useApi<Settings>('/master/settings');
   const [plans, setPlans] = useState<Record<string, PlanDraft>>({});
   const [trial, setTrial] = useState('');
+  const [intro, setIntro] = useState<{ enabled: boolean; price: string; months: string }>({ enabled: true, price: '58,00', months: '2' });
   const [secret, setSecret] = useState('');
   const [clearSecret, setClearSecret] = useState(false);
   const [error, setError] = useState('');
@@ -513,6 +516,7 @@ function PlatformSettingsForm() {
     }
     setPlans(p);
     setTrial(String(d.trialDays));
+    if (d.introOffer) setIntro({ enabled: d.introOffer.enabled, price: centsToInput(d.introOffer.priceCents), months: String(d.introOffer.months) });
   }, [state.data]);
   const setPlan = (pr: PlanProduct, patch: Partial<PlanDraft>) => setPlans((cur) => ({ ...cur, [pr]: { ...cur[pr], ...patch } }));
   const save = async (body: Record<string, unknown>) => {
@@ -535,7 +539,11 @@ function PlatformSettingsForm() {
     }
     const td = Number(trial);
     if (!Number.isInteger(td) || td < 0 || td > 365) { setError('Dias de teste deve ser um número inteiro entre 0 e 365.'); return; }
-    const body: Record<string, unknown> = { prices, plans: outPlans, trialDays: td };
+    const introPrice = parseBRL(intro.price);
+    const introMonths = Number(intro.months);
+    if (introPrice === null || introPrice < 100) { setError('Preço promocional do Plano Completo: informe um valor de pelo menos R$ 1,00.'); return; }
+    if (!Number.isInteger(introMonths) || introMonths < 1 || introMonths > 12) { setError('Meses da promoção: um número inteiro de 1 a 12.'); return; }
+    const body: Record<string, unknown> = { prices, plans: outPlans, trialDays: td, introOffer: { enabled: intro.enabled, priceCents: introPrice, months: introMonths } };
     if (clearSecret) body.mpWebhookSecret = null;
     else if (secret.trim()) body.mpWebhookSecret = secret.trim();
     // Tirar o MCK ERP de um plano com assinantes corta o ERP deles: pede confirmação (Modal, sem window.confirm).
@@ -609,6 +617,17 @@ function PlatformSettingsForm() {
             })}
           </div>
           <p className="small muted" style={{ margin: 0 }}>Os novos preços valem para os próximos pagamentos; pagamentos já aprovados não mudam. Preço 0 deixa aquele ciclo fora de venda. Os códigos dos planos não mudam, então assinaturas, cupons e pagamentos continuam funcionando.</p>
+        </div>
+        <div className="card stack" data-testid="promo-plano-completo">
+          <h2 style={{ margin: 0 }}>Promoção de cliente nova: Plano Completo mensal</h2>
+          <p className="small muted" style={{ margin: 0 }}>Empresa que nunca pagou nenhum plano paga o preço promocional nos primeiros meses do Plano Completo mensal; depois, o preço normal acima. O anual não tem promoção. Só pagamentos aprovados contam, e o cupom não acumula (vale o menor preço).</p>
+          <label className="row small" style={{ gap: 6 }}>
+            <input type="checkbox" checked={intro.enabled} onChange={(e) => setIntro({ ...intro, enabled: e.target.checked })} /> Promoção ligada
+          </label>
+          <div className="grid g2" style={{ gap: 8 }}>
+            <Field label="Preço promocional (R$/mês)"><input inputMode="decimal" aria-label="Preço promocional do Plano Completo" value={intro.price} onChange={(e) => setIntro({ ...intro, price: e.target.value })} /></Field>
+            <Field label="Por quantos meses" hint="1 a 12."><input type="number" min={1} max={12} aria-label="Meses da promoção" value={intro.months} onChange={(e) => setIntro({ ...intro, months: e.target.value })} /></Field>
+          </div>
         </div>
         <div className="grid g2">
           <div className="card stack">

@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { post } from '../api';
 import { useAuth, type SubscriptionView, type SubStatus } from '../auth';
 import { useApi, Async, Loading, useAction } from '../ui';
-import { CYCLE_LABEL, MIN_CHARGE_CENTS, PLAN_PRODUCTS, PRODUCT_LABEL, SubBadge, type PlanInfo, clearStoredCoupon, couponLabel, daysLeft, fmtBRL, fmtDay, normalizeCoupon, storedCoupon, type AppliedCoupon, type Cycle, type PlanProduct } from '../billing';
+import { CYCLE_LABEL, MIN_CHARGE_CENTS, PLAN_PRODUCTS, PRODUCT_LABEL, SubBadge, type IntroOfferInfo, type PlanInfo, clearStoredCoupon, couponLabel, daysLeft, fmtBRL, fmtDay, normalizeCoupon, storedCoupon, type AppliedCoupon, type Cycle, type PlanProduct } from '../billing';
 
 export interface BillingStatus {
   subscriptions: SubscriptionView[];
@@ -12,13 +12,15 @@ export interface BillingStatus {
   configured: boolean;
   /** v1.25.0: planos do Master oferecidos a esta empresa (à venda + oculto que ela já assina). */
   plans?: PlanInfo[];
+  /** v1.27.0: promoção de cliente nova do Plano Completo; eligible = esta empresa paga o promocional no próximo mensal. */
+  introOffer?: IntroOfferInfo | null;
 }
 export interface ConfirmResult { ok: boolean; renewed: boolean; duplicated?: boolean; reason?: string; subscriptions: SubscriptionView[] }
 
 const DESC: Record<PlanProduct, string> = {
   MCKBOT: 'Automação de atendimento no WhatsApp: Inbox, fluxos, Kanban e IA.',
   MCKMENSAGEM: 'Envio de mensagens e campanhas pelo MCKMENSAGEM.',
-  COMBO: 'MCK ERP + MCKBOT + MCKMENSAGEM juntos, com desconto. O MCK ERP e o SDR com IA só vêm neste plano. Renova tudo de uma vez.',
+  COMBO: 'MCK ERP + MCKBOT + MCKMENSAGEM juntos. O MCK ERP e o SDR com IA só vêm neste plano. Renova tudo de uma vez.',
 };
 
 export function reasonText(r: ConfirmResult): { kind: 'ok' | 'warn' | 'err'; text: string } {
@@ -29,6 +31,7 @@ export function reasonText(r: ConfirmResult): { kind: 'ok' | 'warn' | 'err'; tex
     return { kind: 'warn', text: 'Pagamento em análise ou aguardando compensação (Pix/boleto). Assim que for aprovado, a assinatura é renovada automaticamente.' };
   if (reason === 'status_rejected') return { kind: 'err', text: 'O pagamento foi recusado. Tente novamente com outra forma de pagamento.' };
   if (reason === 'status_cancelled') return { kind: 'err', text: 'O pagamento foi cancelado.' };
+  if (reason === 'promocao_esgotada') return { kind: 'err', text: 'Este pagamento usou o preço promocional, mas a promoção de cliente nova já foi usada pela sua empresa. Fale com o suporte para acertar a diferença.' };
   if (reason === 'valor_divergente') return { kind: 'err', text: 'O valor pago não confere com o preço do plano. Fale com o suporte.' };
   if (reason === 'outra_organizacao') return { kind: 'err', text: 'Este pagamento pertence a outra organização.' };
   return { kind: 'warn', text: `Não foi possível confirmar o pagamento agora (${reason || 'motivo desconhecido'}). Se o valor foi debitado, a renovação acontece automaticamente em alguns minutos.` };
@@ -105,12 +108,20 @@ export function CouponBox({ state }: { state: CouponState }) {
   );
 }
 
-export function ProductCard({ product, sub, prices, configured, app, desc, label, coupon, features, hidden }: { product: PlanProduct; sub: { status: SubStatus; validUntil: string; cycle?: string } | null; prices: Record<Cycle, number>; configured: boolean; app?: 'mckbot' | 'mensagem'; desc?: string; label?: string; coupon?: AppliedCoupon | null; features?: string[]; hidden?: boolean }) {
+export function ProductCard({ product, sub, prices, configured, app, desc, label, coupon, features, hidden, intro }: { product: PlanProduct; sub: { status: SubStatus; validUntil: string; cycle?: string } | null; prices: Record<Cycle, number>; configured: boolean; app?: 'mckbot' | 'mensagem'; desc?: string; label?: string; coupon?: AppliedCoupon | null; features?: string[]; hidden?: boolean; intro?: IntroOfferInfo | null }) {
   const [cycle, setCycle] = useState<Cycle>('MENSAL');
   const { busy, run } = useAction();
   const left = sub ? daysLeft(sub.validUntil) : 0;
   const saving = prices.MENSAL * 12 - prices.ANUAL;
-  const q = coupon?.quotes[product]?.[cycle] ?? null;
+  // v1.27.0: promoção de cliente nova (só no mensal do plano dela). Cupom não acumula: vale o menor preço.
+  const introFor = (c: Cycle) => (intro && intro.eligible && intro.plan === product && intro.cycle === c && intro.priceCents < prices[c] ? intro : null);
+  const quoteFor = (c: Cycle) => {
+    const cq = coupon?.quotes[product]?.[c] ?? null;
+    const io = introFor(c);
+    return io && (!cq || cq.finalCents >= io.priceCents) ? null : cq;
+  };
+  const q = quoteFor(cycle);
+  const io = introFor(cycle);
   const forSale = (c: Cycle) => prices[c] >= MIN_CHARGE_CENTS; // preço 0 no Master = ciclo fora de venda
   useEffect(() => { if (!forSale(cycle) && forSale(cycle === 'MENSAL' ? 'ANUAL' : 'MENSAL')) setCycle(cycle === 'MENSAL' ? 'ANUAL' : 'MENSAL'); }, [prices.MENSAL, prices.ANUAL]);
   const pay = async () => {
@@ -136,13 +147,15 @@ export function ProductCard({ product, sub, prices, configured, app, desc, label
       )}
       <div className="grid g2" style={{ gap: 8 }}>
         {(['MENSAL', 'ANUAL'] as Cycle[]).map((c) => {
-          const cq = coupon?.quotes[product]?.[c] ?? null;
+          const cq = quoteFor(c);
+          const ci = cq ? null : introFor(c);
           return (
           <label key={c} className="card" style={{ padding: 10, cursor: 'pointer', boxShadow: 'none', borderColor: cycle === c ? 'var(--brand)' : undefined }}>
             <div className="row"><input type="radio" name={`cycle-${product}`} checked={cycle === c} disabled={!forSale(c)} onChange={() => setCycle(c)} /> <strong>{CYCLE_LABEL[c]}</strong></div>
             {!forSale(c) ? <div className="small muted">Indisponível</div> : cq ? <div><s className="small muted">{fmtBRL(cq.originalCents)}</s> <span style={{ fontSize: 18, fontWeight: 700 }}>{fmtBRL(cq.finalCents)}</span></div>
+              : ci ? <div><s className="small muted">{fmtBRL(prices[c])}</s> <span style={{ fontSize: 18, fontWeight: 700 }}>{fmtBRL(ci.priceCents)}</span></div>
               : <div style={{ fontSize: 18, fontWeight: 700 }}>{fmtBRL(prices[c])}</div>}
-            <div className="small muted">{c === 'MENSAL' ? 'por mês' : saving > 0 ? `por ano · economize ${fmtBRL(saving)}` : 'por ano'}</div>
+            <div className="small muted">{c === 'MENSAL' ? (ci ? `por mês · promoção de cliente nova: ${ci.text}` : 'por mês') : saving > 0 ? `por ano · economize ${fmtBRL(saving)}` : 'por ano'}</div>
           </label>
           );
         })}
@@ -154,9 +167,12 @@ export function ProductCard({ product, sub, prices, configured, app, desc, label
           <div className="row between"><strong>Total</strong><strong>{fmtBRL(q.finalCents)}</strong></div>
         </div>
       )}
-      {coupon && !q && <div className="small muted">O cupom {coupon.coupon.code} não vale para este plano/ciclo.</div>}
+      {coupon && !q && (io && coupon.quotes[product]?.[cycle]
+        ? <div className="small muted">O cupom {coupon.coupon.code} não acumula com a promoção de cliente nova. Vale o menor preço: o promocional.</div>
+        : <div className="small muted">O cupom {coupon.coupon.code} não vale para este plano/ciclo.</div>)}
+      {io && !q && <div className="small" style={{ color: 'var(--green, #15803d)' }}>Promoção de cliente nova: mês {(io.monthsUsed ?? 0) + 1} de {io.months} pelo preço promocional; depois, {fmtBRL(io.regularPriceCents)}/mês.</div>}
       <button className="btn primary" disabled={!configured || busy || !forSale(cycle)} onClick={pay}>
-        {busy ? 'Abrindo pagamento…' : `Pagar ${fmtBRL(q ? q.finalCents : prices[cycle])} (Pix ou cartão)`}
+        {busy ? 'Abrindo pagamento…' : `Pagar ${fmtBRL(q ? q.finalCents : io ? io.priceCents : prices[cycle])} (Pix ou cartão)`}
       </button>
     </div>
   );
@@ -252,7 +268,7 @@ export default function Plan() {
                 <div className="grid g3">
                   {plansOf(b).map((pl) => (
                     <ProductCard key={pl.id} product={pl.id} sub={planSub(pl, subs)} prices={b.prices[pl.id]} configured={b.configured} coupon={coupon.applied}
-                      label={pl.name} desc={pl.desc || undefined} features={pl.features} hidden={!pl.visible} />
+                      label={pl.name} desc={pl.desc || undefined} features={pl.features} hidden={!pl.visible} intro={b.introOffer} />
                   ))}
                 </div>
                 <p className="small muted">O pagamento é processado pelo Mercado Pago. Ao renovar antes do vencimento, o novo período é somado ao que ainda resta. Novos clientes têm {b.trialDays} dia(s) de teste grátis.</p>

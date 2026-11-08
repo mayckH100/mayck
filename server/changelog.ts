@@ -21,6 +21,18 @@ export type EntradaChangelog = {
 
 export const CHANGELOG: EntradaChangelog[] = [
   {
+    versao: '1.27.0',
+    data: '08/11/2026',
+    titulo: 'Plano Completo com preço de entrada para empresas novas',
+    itens: [
+      'O Plano Completo (MCK ERP + MCKBOT + MCK Mensagens) custa R$ 100 por mês ou R$ 1.000 por ano.',
+      'Empresa nova, que ainda não assinou nenhum plano, paga R$ 58 por mês nos 2 primeiros meses do Plano Completo mensal. Depois, o valor normal de R$ 100 por mês.',
+      'A promoção aparece no site, na vitrine de planos e na tela Plano, com o preço promocional e o valor que vem depois.',
+      'O plano anual não tem a promoção, e cupom de desconto não soma com ela: vale sempre o menor preço.',
+      'MCKBOT (R$ 22 por mês) e MCK Mensagens (R$ 15 por mês) continuam com os mesmos preços.',
+    ],
+  },
+  {
     versao: '1.26.0',
     data: '08/11/2026',
     titulo: 'SDR com IA conversa como gente: IA conversacional avançada',

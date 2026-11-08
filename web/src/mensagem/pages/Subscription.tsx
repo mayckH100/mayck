@@ -58,7 +58,7 @@ export default function MmSubscription() {
               {/* v1.25.0: planos do Master que incluem o MCK Mensagens (nome, descrição e "à venda" editáveis). */}
               {plansOf(b).filter((pl) => pl.apps.includes('MCKMENSAGEM')).map((pl) => (
                 <ProductCard key={pl.id} product={pl.id} label={pl.name} app="mensagem" sub={planSub(pl, b.subscriptions)} prices={b.prices[pl.id]} configured={b.configured} coupon={coupon.applied}
-                  desc={pl.desc || undefined} features={pl.features} hidden={!pl.visible} />
+                  desc={pl.desc || undefined} features={pl.features} hidden={!pl.visible} intro={b.introOffer} />
               ))}
             </div>
             <p className="small muted">Com a assinatura inativa você continua consultando e exportando seus contatos e métricas, mas não pode criar, importar nem disparar campanhas. Ao renovar antes do vencimento, o novo período é somado ao que resta. Novos clientes têm {b.trialDays} dia(s) de teste grátis.</p>

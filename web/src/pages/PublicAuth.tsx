@@ -2,13 +2,13 @@ import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { get, post } from '../api';
 import { Field, Loading } from '../ui';
-import { fmtBRL, PRODUCT_LABEL, type Cycle, type PlanProduct } from '../billing';
+import { fmtBRL, PRODUCT_LABEL, type Cycle, type IntroOfferInfo, type PlanProduct } from '../billing';
 
 export type AppKind = 'mckbot' | 'mensagem';
 type Wrap = (p: { children: ReactNode }) => JSX.Element;
 
-export interface PublicPlan { id: PlanProduct; label: string; desc: string; features: string[]; prices: Record<Cycle, number>; annualSavings: number }
-export interface PublicPlans { trialDays: number; plans: PublicPlan[] }
+export interface PublicPlan { id: PlanProduct; label: string; desc: string; features: string[]; prices: Record<Cycle, number>; annualSavings: number; introOffer?: IntroOfferInfo }
+export interface PublicPlans { trialDays: number; plans: PublicPlan[]; introOffer?: IntroOfferInfo | null }
 
 /**
  * Nome dos planos à venda (v1.25.0, editados no Master) para o aviso "Plano escolhido" do cadastro.
@@ -49,8 +49,11 @@ export function PlansShowcase({ registerTo = '/cadastro', highlight, title = 'Pl
             <div className="row between"><h3 style={{ margin: 0 }}>{p.label}</h3>{p.id === 'COMBO' && <span className="badge red">Melhor custo</span>}</div>
             <p className="small muted" style={{ margin: 0 }}>{p.desc}</p>
             <div>
-              <span style={{ fontSize: 26, fontWeight: 800 }}>{fmtBRL(p.prices[cycle])}</span>
+              {cycle === 'MENSAL' && p.introOffer
+                ? <><s className="small muted">{fmtBRL(p.prices.MENSAL)}</s> <span style={{ fontSize: 26, fontWeight: 800 }}>{fmtBRL(p.introOffer.priceCents)}</span></>
+                : <span style={{ fontSize: 26, fontWeight: 800 }}>{fmtBRL(p.prices[cycle])}</span>}
               <span className="small muted"> /{cycle === 'MENSAL' ? 'mês' : 'ano'}</span>
+              {cycle === 'MENSAL' && p.introOffer && <div className="small" style={{ color: 'var(--brand)' }}>Cliente nova: {p.introOffer.text}</div>}
               {cycle === 'ANUAL' && p.annualSavings > 0 && <div className="small" style={{ color: 'var(--brand)' }}>Economize {fmtBRL(p.annualSavings)} por ano</div>}
             </div>
             <ul className="small" style={{ margin: 0, paddingLeft: 18, lineHeight: 1.6 }}>{p.features.map((f) => <li key={f}>{f}</li>)}</ul>

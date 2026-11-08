@@ -70,31 +70,36 @@ export async function checkMpCredential(): Promise<{ ok: boolean; message: strin
 }
 
 /**
- * Referência externa do pagamento: "mckbot|<orgId>|<produto>|<ciclo>" e, com cupom,
- * "|c=<couponId>:<descontoCentavos>". Só o servidor cria preferências (com o token do MP),
- * então o desconto gravado aqui é o calculado no servidor no momento do checkout.
+ * Referência externa do pagamento: "mckbot|<orgId>|<produto>|<ciclo>" e, opcionalmente (nesta ordem):
+ *  - com cupom: "|c=<couponId>:<descontoCentavos>";
+ *  - com a promoção de entrada do Plano Completo (v1.27.0): "|i=<preçoPromocionalCentavos>" (a empresa era cliente
+ *    nova no checkout; o webhook confere de novo antes de aceitar o valor promocional).
+ * Só o servidor cria preferências (com o token do MP), então o que vai aqui é o calculado no servidor no checkout.
  */
-export const buildReference = (orgId: string, product: PlanProduct, cycle: Cycle, coupon?: { id: string; discountCents: number } | null) =>
-  `mckbot|${orgId}|${product}|${cycle}` + (coupon ? `|c=${coupon.id}:${Math.round(coupon.discountCents)}` : '');
-export function parseReference(ref: unknown): { orgId: string; product: PlanProduct; cycle: Cycle; coupon: { id: string; discountCents: number } | null } | null {
+export const buildReference = (orgId: string, product: PlanProduct, cycle: Cycle, coupon?: { id: string; discountCents: number } | null, introCents?: number | null) =>
+  `mckbot|${orgId}|${product}|${cycle}` + (coupon ? `|c=${coupon.id}:${Math.round(coupon.discountCents)}` : '') + (introCents ? `|i=${Math.round(introCents)}` : '');
+export function parseReference(ref: unknown): { orgId: string; product: PlanProduct; cycle: Cycle; coupon: { id: string; discountCents: number } | null; introCents: number | null } | null {
   if (typeof ref !== 'string') return null;
   const parts = ref.split('|');
-  if ((parts.length !== 4 && parts.length !== 5) || parts[0] !== 'mckbot' || !parts[1]) return null;
-  const [, orgId, product, cycle, extra] = parts;
+  if (parts.length < 4 || parts.length > 6 || parts[0] !== 'mckbot' || !parts[1]) return null;
+  const [, orgId, product, cycle, ...extras] = parts;
   if (!isPlanProduct(product) || !isCycle(cycle)) return null;
   let coupon: { id: string; discountCents: number } | null = null;
-  if (extra !== undefined) {
-    const m = /^c=([A-Za-z0-9_-]{1,40}):(\d{1,9})$/.exec(extra);
-    if (!m) return null;
-    coupon = { id: m[1], discountCents: Number(m[2]) };
+  let introCents: number | null = null;
+  for (const extra of extras) {
+    const c = /^c=([A-Za-z0-9_-]{1,40}):(\d{1,9})$/.exec(extra);
+    const i = /^i=(\d{1,9})$/.exec(extra);
+    if (c && !coupon && introCents === null) coupon = { id: c[1], discountCents: Number(c[2]) };
+    else if (i && introCents === null) introCents = Number(i[1]);
+    else return null;
   }
-  return { orgId, product, cycle, coupon };
+  return { orgId, product, cycle, coupon, introCents };
 }
 
-export async function createPreference(input: { orgId: string; product: PlanProduct; cycle: Cycle; title: string; amountCents: number; coupon?: { id: string; discountCents: number } | null; baseUrl: string; payerEmail?: string; returnPath?: string }) {
+export async function createPreference(input: { orgId: string; product: PlanProduct; cycle: Cycle; title: string; amountCents: number; coupon?: { id: string; discountCents: number } | null; introCents?: number | null; baseUrl: string; payerEmail?: string; returnPath?: string }) {
   const body = {
     items: [{ id: `${input.product}-${input.cycle}`, title: input.title, quantity: 1, currency_id: 'BRL', unit_price: Math.round(input.amountCents) / 100 }],
-    external_reference: buildReference(input.orgId, input.product, input.cycle, input.coupon),
+    external_reference: buildReference(input.orgId, input.product, input.cycle, input.coupon, input.introCents),
     notification_url: `${input.baseUrl}/api/billing/mp/webhook`,
     statement_descriptor: 'MCKBOT',
     back_urls: {
