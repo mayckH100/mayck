@@ -21,6 +21,19 @@ export type EntradaChangelog = {
 
 export const CHANGELOG: EntradaChangelog[] = [
   {
+    versao: '1.24.0',
+    data: '08/11/2026',
+    titulo: 'A IA pode consultar o estoque do MCK ERP',
+    itens: [
+      'Nova opção em Produtos: "De onde a IA consulta os produtos". Escolha "Somente Produtos cadastrados" (como sempre foi), "ERP da MCK (saldo em tempo real)" ou "Os dois".',
+      'Com o ERP, a IA responde com o estoque de verdade, já descontando o que está reservado para pedidos e o que está em quarentena, e com o preço cadastrado no produto do ERP.',
+      'Em "Os dois", a descrição, a promoção e o link vêm dos Produtos cadastrados e o estoque vem do ERP. Os produtos se ligam pelo código (SKU) citado no produto ou pelo mesmo nome.',
+      'Por padrão a IA diz só "disponível", "poucas unidades", "sem estoque" ou "sob encomenda". Se preferir, ligue "Mostrar a quantidade exata" e escolha de qual depósito vem o saldo.',
+      'A IA nunca informa custo, fornecedor ou outros dados internos. Se o ERP não responder, ela usa os Produtos cadastrados e continua atendendo.',
+      'Use o "Testar" para ver exatamente o que a IA vai receber antes de salvar. A consulta ao ERP faz parte do Plano Completo; quem já usa a IA continua igual até mudar a opção.',
+    ],
+  },
+  {
     versao: '1.23.0',
     data: '07/11/2026',
     titulo: 'A IA agora ouve e responde com áudio no WhatsApp',
