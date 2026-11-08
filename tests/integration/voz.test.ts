@@ -3,6 +3,7 @@ import { registerClient, createTestChannel, installGraphMock, graph, prisma, uni
 import { handleInboundMessage, handleQrMessage } from '../../server/whatsapp/inbound.js';
 import { qrManager, type QrSocket } from '../../server/whatsapp/qr/manager.js';
 import { fakeVoice } from '../../server/ai/voice/providers.js';
+import { fakeAi } from '../../server/ai/providers.js';
 import { isOggOpus } from '../../server/ai/voice/ogg.js';
 import type { AnyMessageContent } from '@whiskeysockets/baileys';
 
@@ -269,5 +270,95 @@ describe('Voz da IA — ouvir e responder com áudio no WhatsApp', () => {
     expect((await owner.put('/api/ai/settings', { voiceReplyMode: 'sempre' })).status).toBe(400);
     expect((await owner.put('/api/ai/settings', { voiceProvider: 'azure' })).status).toBe(400);
     expect((await owner.put('/api/ai/settings', { voiceName: 'x"; drop' })).status).toBe(400);
+  });
+
+  // ---- Preferência do cliente por conversa (automática): pedido de áudio/texto, prompt e histórico ----
+  const mainCall = () => [...fakeAi.calls].reverse().find((c) => (c.find((m) => m.role === 'system')?.content ?? '').includes('### COMO VOCÊ CONVERSA'))!;
+  const systemOf = (c: ReturnType<typeof mainCall>) => c.find((m) => m.role === 'system')!.content;
+
+  it('espelhar + texto "Poderia ser por áudio": já responde em áudio, guarda a preferência e segue em áudio; "prefiro texto" volta ao texto', async () => {
+    await setVoice({ voiceEnabled: true, voiceReplyMode: 'espelhar' });
+    const p = nextPhone();
+    fakeAi.script = []; fakeAi.calls = [];
+    // Conversa como a do print: a IA vinha mandando áudio.
+    await audio(p, 'FAKE:qual o horário de atendimento?');
+    expect(sends()[0].body.type).toBe('audio');
+    graph.reset();
+    fakeAi.script.push('Claro! Nosso horário é de segunda a sexta, das 9h às 18h.');
+    await texto(p, 'Poderia ser por áudio');
+    expect(sends()).toHaveLength(1);
+    expect(sends()[0].body).toMatchObject({ type: 'audio', audio: { voice: true } });
+    let conv = await convOf(p);
+    expect(conv.voicePreference).toBe('audio');
+    // O prompt conhece a capacidade real e o histórico marca os áudios.
+    let call = mainCall();
+    expect(systemOf(call)).toContain('Você pode responder por áudio (nota de voz)');
+    expect(systemOf(call)).toContain('Nunca diga que só conversa por texto');
+    expect(systemOf(call)).toContain('Esta resposta vai como ÁUDIO');
+    expect(systemOf(call)).not.toContain('Você é o assistente virtual');
+    const hist = call.filter((m) => m.role !== 'system').map((m) => m.content);
+    expect(hist.some((h) => h.startsWith('[áudio do cliente, transcrito] qual o horário'))).toBe(true);
+    expect(hist.some((h) => h.startsWith('[enviado como áudio] '))).toBe(true);
+    // Próximas mensagens de texto continuam em áudio (preferência da conversa).
+    graph.reset();
+    await texto(p, 'qual o horário de atendimento?');
+    expect(sends()[0].body.type).toBe('audio');
+    // "Prefiro texto" troca para texto, sem anunciar nada.
+    graph.reset();
+    fakeAi.script.push('Combinado. Atendemos de segunda a sexta, das 9h às 18h.');
+    await texto(p, 'prefiro texto, estou no trabalho');
+    expect(uploads()).toHaveLength(0);
+    expect(sends()[0].body.type).toBe('text');
+    conv = await convOf(p);
+    expect(conv.voicePreference).toBe('texto');
+    call = mainCall();
+    expect(systemOf(call)).toContain('prefere texto');
+    graph.reset();
+    await texto(p, 'qual o horário de atendimento?');
+    expect(sends()[0].body.type).toBe('text');
+    // O Inbox recebe a preferência da conversa e a nota de voz enviada (tipo áudio + texto falado).
+    const d = await owner.get(`/api/conversations/${conv.id}`);
+    expect(d.body.conversation.voicePreference).toBe('texto');
+    const voz = d.body.messages.find((m: any) => m.direction === 'OUT' && m.type === 'audio');
+    expect(voz).toMatchObject({ sender: 'ai' });
+    expect(voz.transcript).toContain('9h às 18h');
+    expect(fakeAi.script).toHaveLength(0);
+  });
+
+  it('empresa em "nunca_audio": pedido explícito do cliente ("manda áudio") é atendido em áudio', async () => {
+    await setVoice({ voiceEnabled: true, voiceReplyMode: 'nunca_audio' });
+    const p = nextPhone();
+    await texto(p, 'qual o horário de atendimento?');
+    expect(sends()[0].body.type).toBe('text');
+    graph.reset();
+    fakeAi.script = ['[enviado como áudio] Claro! A gente atende de segunda a sexta, das 9h às 18h.'];
+    await texto(p, 'me manda um áudio explicando');
+    expect(sends()[0].body.type).toBe('audio');
+    expect((await convOf(p)).voicePreference).toBe('audio');
+    // Se a IA copiar o marcador do histórico, ele sai antes da voz.
+    expect(fakeVoice.tts.at(-1)).not.toContain('[enviado como áudio]');
+    expect(fakeVoice.tts.at(-1)).toContain('Claro!');
+  });
+
+  it('voz desligada: pedido de áudio responde por texto, prompt diz "no momento por texto" e nunca nega áudios enviados', async () => {
+    const p = nextPhone();
+    fakeAi.calls = [];
+    fakeAi.script = ['Agora consigo te responder por aqui, por escrito. Atendemos de segunda a sexta, das 9h às 18h!'];
+    await texto(p, 'pode ser por áudio?');
+    expect(uploads()).toHaveLength(0);
+    expect(sends()).toHaveLength(1);
+    expect(sends()[0].body.type).toBe('text');
+    const sys = systemOf(mainCall());
+    expect(sys).toContain('No momento as respostas são por texto');
+    expect(sys).toContain('sem negar áudios que já tenham sido enviados');
+    expect(sys).not.toContain('Você pode responder por áudio');
+    expect(sys).not.toMatch(/apenas por mensagens de texto|só conversa por texto escrito/);
+    expect(sys).toMatch(/Não diga que é robô, IA ou assistente virtual, a não ser que o cliente pergunte diretamente/);
+    // A preferência fica guardada: quando a empresa ligar a voz, essa conversa já sai em áudio.
+    expect((await convOf(p)).voicePreference).toBe('audio');
+    graph.reset();
+    await setVoice({ voiceEnabled: true, voiceReplyMode: 'espelhar' });
+    await texto(p, 'qual o horário de atendimento?');
+    expect(sends()[0].body.type).toBe('audio');
   });
 });
