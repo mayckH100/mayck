@@ -271,3 +271,9 @@ Entradas antigas assinadas "Hark" podem ser de qualquer um. Se não souber qual 
 - **Testes:** tests/unit/ia-fonte-produtos.test.ts (8) e tests/integration/ia-fonte-produtos.test.ts (8) + produtos/IA/ERP relacionados; typecheck servidor e web; build da web.
 - **Produção:** sem deploy, nenhum dado alterado. Commit com [skip render].
 - **Falta:** subir no GitHub, deploy, conferir a tela no navegador com uma empresa que tenha ERP com estoque.
+
+## Atualização 2026-11-08 (tarde) — Hark: preços da IA x100 — v1.25.1
+- **Pedido do Mayck:** a IA da MCK estava informando outro valor. No "Testar", ela respondeu MCKBOT R$ 2.200,00 e Plano Completo R$ 3.000,00.
+- **Causa:** `livePricesText` (server/ai/siteKnowledge.ts) formatava como reais os preços que ficam em centavos no banco. Corrigido (divide por 100); teste novo em tests/integration/ia-regras-site-kanban.test.ts.
+- **Na conta da MCK (navegador):** SDR em modo manual, 8 cadências antigas desativadas, 6 perguntas de qualificação da MCK; fluxo de boas-vindas corrigido (identidade e preços); FAQ com "Plano Completo" e novidades; removida uma chave de API salva por engano.
+- **Observação:** DEFAULT_PRICES no código ainda é 39,90/45/100, mas os preços que valem são os do Master: 22/15/30.

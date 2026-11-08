@@ -39,6 +39,9 @@ describe('IA: site da MCK, concorrentes, base de conhecimento e Kanban automáti
     expect(sys).toMatch(/\[Página mckbot\][\s\S]*MCKBOT/);
     expect(sys).toMatch(/\[Página mck-mensagens\]/);
     expect(sys).toMatch(/PREÇOS ATUAIS[\s\S]*MCKBOT: R\$/);
+    // Preços ficam em centavos no banco: 3990 tem que virar R$ 39,90 (não R$ 3.990,00).
+    expect(sys).toMatch(/MCKBOT: R\$\s?39,90\/mês/);
+    expect(sys).not.toMatch(/R\$\s?3\.990/);
     expect(sys).toContain('QUANDO O CLIENTE COMPARAR COM CONCORRENTES');
     expect(sys).toContain('nunca invente preço');
     expect(sys).toContain('- Suporte no mesmo dia.');

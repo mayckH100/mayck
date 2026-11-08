@@ -21,6 +21,14 @@ export type EntradaChangelog = {
 
 export const CHANGELOG: EntradaChangelog[] = [
   {
+    versao: '1.25.1',
+    data: '08/11/2026',
+    titulo: 'IA informa os preços certos dos planos',
+    itens: [
+      'Corrigido: a IA da MCK podia informar o preço dos planos multiplicado por 100 (ex.: R$ 2.200 em vez de R$ 22). Agora ela usa exatamente os valores da página de planos.',
+    ],
+  },
+  {
     versao: '1.25.0',
     data: '08/11/2026',
     titulo: 'Caixa no PDV e planos atualizados',

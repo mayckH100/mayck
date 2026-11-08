@@ -55,7 +55,8 @@ export function siteText(): string {
 }
 export const resetSiteCache = () => { cache = null; };
 
-const brl = (n: number) => n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+/** Preços no banco ficam em centavos (2200 = R$ 22,00). */
+const brl = (cents: number) => (cents / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
 /** Preços atuais (mesmos da vitrine /api/public/plans). */
 export async function livePricesText(): Promise<string> {
