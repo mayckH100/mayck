@@ -12,7 +12,12 @@ test('menu do MCK ERP tem "Venda balcão (PDV)" e abre a tela de venda', async (
   await item.click();
   await expect(page).toHaveURL(/\/erp\/balcao$/);
   await expect(page.getByRole('heading', { level: 1, name: 'Venda balcão (PDV)' })).toBeVisible();
+  // Venda balcão exige caixa aberto (v1.25): sem caixa, abre "Abrir caixa" primeiro.
+  await expect(page.getByRole('dialog', { name: 'Abrir caixa' })).toBeVisible();
+  await page.getByLabel('Dinheiro na abertura').fill('0');
+  await page.getByRole('dialog', { name: 'Abrir caixa' }).getByRole('button', { name: 'Abrir caixa' }).click();
   await expect(page.getByText('Finalizar venda')).toBeVisible();
+  await expect(page.getByText(/Caixa aberto/)).toBeVisible();
   await page.screenshot({ path: 'tests/e2e/.resultados/erp-balcao.png', fullPage: false });
   await page.keyboard.press('Escape');
   await expect(page.getByRole('button', { name: 'Vendas balcão' })).toBeVisible();
