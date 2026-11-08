@@ -3,7 +3,6 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { get, post, put } from '../../api';
 import { useApi, Async, Empty, Modal, Field, useAction } from '../../ui';
-import ErpNav from '../ErpNav';
 import ImportarExportar from '../ImportarExportar';
 import { useAuth } from '../../auth';
 import { fmtDoc, toCents, fromCents } from '../format';
@@ -27,7 +26,6 @@ export default function Clientes({ papel = 'cliente' }: { papel?: 'cliente' | 'f
           <button className="btn primary" onClick={() => setNovo(true)}>{forn ? '+ Novo fornecedor' : '+ Novo cliente'}</button>
         </div>
       </div>
-      <ErpNav />
       <Async state={state}>{(d) => d.items.length === 0 ? (
         <div className="card"><Empty title={query ? 'Nada encontrado' : 'Nenhum cadastro ainda'}>{forn ? 'Cadastre o primeiro fornecedor pelo CNPJ.' : 'Cadastre o primeiro cliente pelo CNPJ ou CPF.'}</Empty></div>
       ) : (

@@ -1,7 +1,6 @@
 /** Painel do CRM: KPIs e funil com filtros de período e filial. */
 import { useState } from 'react';
 import { useApi, Async } from '../../ui';
-import ErpNav from '../ErpNav';
 import { brl } from '../format';
 
 const hoje = () => new Date().toISOString().slice(0, 10);
@@ -17,8 +16,8 @@ export default function Painel() {
   return (
     <>
       <div className="page-head">
-        <div><h1>MCK ERP · CRM</h1><p className="muted">Indicadores comerciais do período, com filtros por filial.</p></div>
-        <div className="row">
+        <div><h1>Painel CRM</h1><p className="muted">Indicadores comerciais do período, com filtros por filial.</p></div>
+        <div className="row filtros">
           <input type="date" value={de} onChange={(e) => setDe(e.target.value)} aria-label="De" />
           <input type="date" value={ate} onChange={(e) => setAte(e.target.value)} aria-label="Até" />
           <select value={filialId} onChange={(e) => setFilialId(e.target.value)} aria-label="Filial">
@@ -27,7 +26,6 @@ export default function Painel() {
           </select>
         </div>
       </div>
-      <ErpNav />
       <Async state={state}>{(d) => {
         const k = d.kpis;
         const max = Math.max(1, ...d.funil.map((f: any) => f.valorCents));

@@ -3,7 +3,6 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { post, get } from '../../api';
 import { useApi, Async, Modal, Field, useAction } from '../../ui';
-import ErpNav from '../ErpNav';
 import { brl, toCents } from '../format';
 
 export default function Funil() {
@@ -19,7 +18,6 @@ export default function Funil() {
         <div><h1>Funil de vendas</h1><p className="muted">Arraste os cards entre as etapas. Ganhar ou perder fecha a oportunidade e registra na linha do tempo do cliente.</p></div>
         <button className="btn primary" onClick={() => setNova(true)}>+ Oportunidade</button>
       </div>
-      <ErpNav />
       <Async state={state}>{(d) => (
         <div className="board">
           {d.etapas.map((e: any) => {

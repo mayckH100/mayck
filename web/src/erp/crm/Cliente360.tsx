@@ -3,7 +3,6 @@ import { useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { post, patch } from '../../api';
 import { useApi, Async, useAction, fmtDate, Field } from '../../ui';
-import ErpNav from '../ErpNav';
 import { brl, fmtDoc } from '../format';
 import { ParceiroForm } from './Clientes';
 
@@ -15,7 +14,6 @@ export default function Cliente360() {
   const [editando, setEditando] = useState(false);
   return (
     <>
-      <ErpNav />
       <Async state={state}>{(p) => (
         <>
           <div className="page-head">
