@@ -78,7 +78,7 @@ export function matchProducts<T extends ProductLike>(query: string, products: T[
   return GENERIC.test(q) ? active.slice(0, k) : [];
 }
 
-const clip = (s: string, n: number) => {
+export const clip = (s: string, n: number) => {
   const t = s.replace(/\s+/g, ' ').trim();
   return t.length > n ? t.slice(0, n - 1).trimEnd() + '…' : t;
 };
@@ -102,12 +102,16 @@ export function formatProductLine(p: ProductLike): string {
 
 /** Bloco do prompt com os produtos encontrados, limitado a PROMPT_MAX_CHARS. Vazio se nenhum. */
 export function formatProductsContext(products: ProductLike[], maxChars = PROMPT_MAX_CHARS): string {
-  if (!products.length) return '';
-  const head = '[Produtos do catálogo]';
+  return formatLinesBlock('[Produtos do catálogo]', products.map(formatProductLine), maxChars);
+}
+
+/** Cabeçalho + linhas já formatadas, cortando no orçamento de caracteres (a 1ª linha entra mesmo truncada). */
+export function formatLinesBlock(head: string, rawLines: string[], maxChars = PROMPT_MAX_CHARS): string {
+  if (!rawLines.length) return '';
   const lines: string[] = [];
   let size = head.length;
-  for (const p of products) {
-    let line = formatProductLine(p);
+  for (const raw of rawLines) {
+    let line = raw;
     if (size + line.length + 1 > maxChars) {
       if (lines.length) break;
       line = line.slice(0, Math.max(0, maxChars - size - 2)) + '…';

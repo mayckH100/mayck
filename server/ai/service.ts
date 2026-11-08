@@ -15,6 +15,7 @@ import { normalize } from '../flows/logic.js';
 import { aiNotesPromptSection, contactIdOfConversation } from './contactNotes.js';
 import { agendaPromptSection, applyAgendaTag, cleanAiText, stripJsonMarkers, stripSystemLinks } from '../agenda/ai.js';
 import { productsPromptSection } from './products.js';
+import { productContextFor } from './productSource.js';
 import { sdrPromptSection, sdrForcesBooking } from '../sdr/ai.js';
 import { applyOrderTag, intentFromText, ordersPromptSection, tagConversation } from '../agenda/orders.js';
 import { notAutoReply } from '../sdr/autoReply.js';
@@ -178,7 +179,8 @@ async function generateAiReplyInner(args: { orgId: string; conversationId: strin
 
   const hits = await retrieve(orgId, text, 3);
   // Produtos do catálogo que combinam com a mensagem (até 5, texto curto). Falha aqui nunca derruba a resposta.
-  const prod = await productsPromptSection(orgId, text).catch(() => ({ context: '', rules: '', count: 0 }));
+  // v1.24.0: a fonte (Produtos, ERP ou os dois) segue a configuração da empresa; ERP indisponível/falhou → catálogo.
+  const prod = await productContextFor(orgId, text).catch(() => productsPromptSection(orgId, text)).catch(() => ({ context: '', rules: '', count: 0 }));
   const context = [hits.map((h) => `[${h.item.title}]\n${h.item.text}`).join('\n\n'), prod.context].filter(Boolean).join('\n\n');
   const usedContext = hits.length > 0 || prod.count > 0;
 
