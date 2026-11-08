@@ -21,6 +21,20 @@ export type EntradaChangelog = {
 
 export const CHANGELOG: EntradaChangelog[] = [
   {
+    versao: '1.26.0',
+    data: '08/11/2026',
+    titulo: 'SDR com IA conversa como gente: IA conversacional avançada',
+    itens: [
+      'Nova opção na aba Inteligência do SDR: "IA conversacional avançada". Vale para os leads do SDR e para quem responde às suas campanhas do MCK Mensagens; o atendimento comum continua igual.',
+      'A IA lê os dados do lead (nome, empresa, dados da Receita pelo CNPJ, etapa, respostas já dadas, objeções e a campanha de onde ele veio), as suas Instruções e a conversa inteira, e nunca pergunta de novo o que o lead já respondeu.',
+      'Jeito de WhatsApp: mensagens curtas, uma pergunta por vez, no tom do lead, sem frases de robô e sem emojis se a sua empresa não usa.',
+      'Antes de responder, a IA entende o que o lead quer e escolhe o próximo passo (qualificar, tratar uma objeção, marcar conversa ou passar ao vendedor), seguindo o método escolhido: Padrão, BANT ou SPIN.',
+      'Cada resposta é conferida antes de sair: nada de preço, cobertura ou prazo fora das suas Instruções e nenhum dado sensível. Se a IA não tiver a informação, ela diz que confirma com o especialista e a sua equipe recebe a tarefa.',
+      'Lead quente, pedido para falar com uma pessoa, lead irritado ou dúvida fora do que você ensinou: a IA para e passa ao vendedor, que recebe o aviso com o resumo do lead.',
+      'Quem já usa o SDR não tem nenhuma mudança nas mensagens até ligar a opção. A conferência pode usar uma resposta a mais da IA e é pulada quando o seu limite diário está no fim.',
+    ],
+  },
+  {
     versao: '1.25.1',
     data: '08/11/2026',
     titulo: 'IA informa os preços certos dos planos',
