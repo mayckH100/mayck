@@ -144,10 +144,11 @@ describe('SDR v2', () => {
         return { l, email, replyTo: m.replyTo! };
       };
       const x = await mk('resp');
-      // Resposta automática (férias) é ignorada.
+      // Resposta automática (férias) não conta como resposta: fica no histórico marcada (v1.22.0) e a cadência segue.
       const auto = await post({ items: [{ From: { Address: x.email }, To: [{ Address: x.replyTo }], Subject: 'Resposta automática: estou de férias', Headers: { 'Auto-Submitted': 'auto-replied' }, ExtractedMarkdownMessage: 'Volto dia 20.' }] }, `Bearer ${SECRET}`);
-      expect(auto.body.itens).toEqual(['ignorado']);
+      expect(auto.body.itens).toEqual(['automatica']);
       expect((await lead(x.l.id)).cadenceStatus).toBe('ATIVA');
+      expect(await prisma.sdrEvent.findFirst({ where: { leadId: x.l.id, type: 'AUTORESPOSTA' } })).toBeTruthy();
       // Resposta de verdade: cadência para e o texto fica no histórico.
       const ok = await post({ items: [{ From: { Name: 'Resp', Address: 'outro-endereco@cliente.com.br' }, To: [{ Address: x.replyTo }], Subject: 'Re: posso te ajudar?', ExtractedMarkdownMessage: 'Tenho interesse, me liga amanhã.', RawTextBody: 'Tenho interesse\n> citação' }] }, `Bearer ${SECRET}`);
       expect(ok.body.itens).toEqual(['resposta']);

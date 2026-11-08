@@ -6,6 +6,9 @@ import { prisma } from '../db.js';
 import { normalizeEmail } from './core.js';
 import { getSdrSettings, logEvent, optOutLead, registerReply } from './service.js';
 import { inboundEnabled, MIN_INBOUND_SECRET } from './v2config.js';
+import { autoReplyHeaders, AUTO_SUBJECT_RE, detectAutoReply } from './autoReply.js';
+import { getAutoReplyConfig } from './autoReplyConfig.js';
+import { logAutoReplyOnLead } from './autoReplyService.js';
 
 export { inboundEnabled };
 
@@ -53,16 +56,19 @@ function header(h: unknown, name: string): string {
   return (Array.isArray(v) ? v.join(' ') : String(v ?? '')).slice(0, 300);
 }
 
+/** Falha de entrega / remetente de sistema: não é o lead (nem resposta automática dele). */
+export function isBounce(item: any, from: string | null): boolean {
+  if (!from || /^(mailer-daemon|postmaster|no-?reply|bounce)/i.test(from)) return true;
+  return /^\s*(undeliverable|delivery status|n[aã]o entregue|mail delivery failed|returned mail)/i.test(String(item?.Subject ?? ''));
+}
+
 /** Resposta automática, falha de entrega ou lista: não é o lead respondendo. */
 export function isAutomatic(item: any, from: string | null): boolean {
-  if (!from || /^(mailer-daemon|postmaster|no-?reply|bounce)/i.test(from)) return true;
+  if (isBounce(item, from)) return true;
   const h = item?.Headers;
-  const auto = header(h, 'Auto-Submitted').toLowerCase();
-  if (auto && auto !== 'no') return true;
-  if (header(h, 'X-Autoreply') || header(h, 'X-Autorespond') || header(h, 'X-Auto-Response-Suppress').toLowerCase().includes('all')) return true;
-  if (/^(bulk|junk|list|auto_reply)$/i.test(header(h, 'Precedence').trim())) return true;
-  const subj = String(item?.Subject ?? '');
-  return /^\s*(auto(matic)?\s*(reply|resposta)|resposta autom[aá]tica|out of office|ausente|f[eé]rias|fora do escrit[oó]rio|undeliverable|delivery status|n[aã]o entregue)/i.test(subj);
+  if (autoReplyHeaders(h)) return true;
+  if (header(h, 'X-Auto-Response-Suppress').toLowerCase().includes('all')) return true;
+  return AUTO_SUBJECT_RE.test(String(item?.Subject ?? ''));
 }
 
 export const UNSUB_RE = /\b(descadastr\w*|remov(a|er|e)\s+(meu|o meu|da lista|me)|me\s+remov\w*|n[aã]o\s+(quero|desejo)\s+(mais\s+)?receber|sair\s+da\s+lista|parar?\s+de\s+(me\s+)?(enviar|mandar|receber)|unsubscribe)\b/i;
@@ -98,15 +104,33 @@ async function leadsFor(item: any, from: string | null): Promise<SdrLead[]> {
 }
 
 /** Processa um item do webhook. Devolve o que aconteceu (para o teste e o log). */
-export async function handleInboundItem(item: any): Promise<'ignorado' | 'sem_lead' | 'resposta' | 'descadastro'> {
+export async function handleInboundItem(item: any): Promise<'ignorado' | 'sem_lead' | 'resposta' | 'descadastro' | 'automatica'> {
   const from = addrOf(item?.From) ?? addrOf(item?.ReplyTo);
   const spam = Number(item?.SpamScore ?? item?.Spam?.Score ?? 0);
-  if (spam >= 5 || isAutomatic(item, from)) return 'ignorado';
+  // Falha de entrega e spam: não é o lead.
+  if (spam >= 5 || isBounce(item, from)) return 'ignorado';
+  const headerAuto = isAutomatic(item, from);
   const leads = await leadsFor(item, from);
-  if (!leads.length) return 'sem_lead';
+  if (!leads.length) return headerAuto ? 'ignorado' : 'sem_lead';
   const text = replyText(item);
+  // v1.22.0: resposta automática (cabeçalhos, assunto ou texto de "fora do escritório"/férias): fica no histórico do
+  // lead marcada como "Resposta automática" e a cadência segue (ou pausa, se a empresa escolheu). Não vira resposta.
+  const autoOf = async (orgId: string) => {
+    if (headerAuto) return { automatica: true, motivo: 'cabeçalho ou assunto de resposta automática do e-mail' };
+    const cfg = await getAutoReplyConfig(orgId);
+    if (!cfg.enabled) return null;
+    const d = detectAutoReply(text, { assunto: String(item?.Subject ?? ''), headers: item?.Headers, frasesExtras: cfg.frases });
+    return d.automatica ? d : null;
+  };
+  const autos = await Promise.all(leads.map((l) => autoOf(l.orgId)));
+  if (autos.every(Boolean)) {
+    for (const [i, l] of leads.entries()) await logAutoReplyOnLead(l, 'EMAIL', autos[i]!.motivo);
+    console.info('[sdr] resposta automática por e-mail ignorada', { leads: leads.map((l) => l.id) });
+    return 'automatica';
+  }
   const unsub = UNSUB_RE.test(text) || UNSUB_RE.test(String(item?.Subject ?? ''));
-  for (const l of leads) {
+  for (const [i, l] of leads.entries()) {
+    if (autos[i]) { await logAutoReplyOnLead(l, 'EMAIL', autos[i]!.motivo); continue; }
     if (unsub) {
       await optOutLead(l, 'EMAIL');
       await logEvent(l.orgId, l.id, 'NOTA', 'EMAIL', 'Pediu para sair respondendo o e-mail');

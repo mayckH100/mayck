@@ -14,6 +14,7 @@ import { nextFreeSlots, offerSlotsLine } from './meeting.js';
 import { detectIntent, INTENCAO_LABEL } from './intel.js';
 import { metodoPromptLine, detectObjecao, objecoesPromptLines } from './intel.js';
 import { alertHot, getSdrSettings, registerReply, setStage, upsertLead, logEvent } from './service.js';
+import { notAutoReply } from './autoReply.js';
 
 /**
  * SDR com IA no WhatsApp. Não substitui a IA do MCKBOT (que continua respondendo com Instruções, base, agenda e a
@@ -104,7 +105,7 @@ export async function extractAnswers(orgId: string, conversationId: string, ques
   const ai = await prisma.aiSettings.findUnique({ where: { orgId } });
   if (!ai || !ai.enabled) return null;
   if (ai.provider === 'mck' && (await mckQuotaStatus(orgId)).reached) return null;
-  const history = await prisma.message.findMany({ where: { orgId, conversationId, direction: { in: ['IN', 'OUT'] }, status: { not: 'FAILED' } }, orderBy: { createdAt: 'desc' }, take: 16 });
+  const history = await prisma.message.findMany({ where: { orgId, conversationId, direction: { in: ['IN', 'OUT'] }, status: { not: 'FAILED' }, ...notAutoReply }, orderBy: { createdAt: 'desc' }, take: 16 });
   const transcript = history.reverse().map((m) => `${m.direction === 'IN' ? 'LEAD' : 'EMPRESA'}: ${(m.body ?? '').slice(0, 500)}`).join('\n');
   if (!transcript) return null;
   const msgs: ChatMessage[] = [{ role: 'system', content: extractionPrompt(questions, answers) }, { role: 'user', content: `CONVERSA:\n${transcript}` }];

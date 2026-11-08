@@ -13,6 +13,7 @@ import { bestSendHour, buildHandoff, explainScore, METODOS, METODO_LABEL, METODO
 import type { Answers, Temperature } from './core.js';
 import { enrichLead, leadEmpresa } from './cnpj.js';
 import { isValidCnpj, onlyDigits } from '../lib/documento.js';
+import { getAutoReplyConfig, setAutoReplyConfig } from './autoReplyConfig.js';
 
 /** SDR com IA › Inteligência (v1.21.0): `/api/sdr/inteligencia` (montado dentro do sdrRouter: mesmo acesso do SDR). */
 export const sdrIntelRouter = Router();
@@ -23,6 +24,7 @@ async function intelView(orgId: string) {
   const { salvo: _s, ...cfg } = c;
   return {
     ...cfg,
+    autoResposta: await getAutoReplyConfig(orgId), // v1.22.0 (ligado por padrão para todos)
     objecoesPadrao: DEFAULT_OBJECOES,
     metodos: METODOS.map((id) => ({ id, label: METODO_LABEL[id], perguntas: id === 'PADRAO' ? questionsOf(s) : METODO_QUESTIONS[id] })),
   };
@@ -43,13 +45,22 @@ const schema = z.object({
   sentimento: z.boolean().optional(),
   optOutAuto: z.boolean().optional(),
   reuniao: z.object({ ofertaHorarios: z.boolean().optional(), noShow: z.boolean().optional(), noShowTexto: z.string().max(600).optional() }).optional(),
+  autoResposta: z.object({
+    enabled: z.boolean().optional(),
+    frases: z.union([z.array(z.string().max(120)).max(30), z.string().max(4000)]).optional(),
+    acao: z.enum(['SEGUIR', 'PAUSAR']).optional(),
+    pausaHoras: z.number().int().min(1).max(168).optional(),
+    iaDuvida: z.boolean().optional(),
+  }).optional(),
 });
 
 sdrIntelRouter.put('/', admins, ah(async (req, res) => {
-  const b = schema.parse(req.body) as Partial<IntelConfig>;
+  const { autoResposta, ...b } = schema.parse(req.body);
   const orgId = orgOf(req);
-  await setIntelConfig(orgId, b, { userId: req.auth?.userId, ip: req.ip });
-  await audit(req, 'sdr.inteligencia', { orgId, entity: 'sdr_settings', entityId: orgId, meta: { campos: Object.keys(b) } });
+  const ctx = { userId: req.auth?.userId, ip: req.ip };
+  if (Object.keys(b).length) await setIntelConfig(orgId, b as Partial<IntelConfig>, ctx);
+  if (autoResposta) await setAutoReplyConfig(orgId, autoResposta as any, ctx);
+  await audit(req, 'sdr.inteligencia', { orgId, entity: 'sdr_settings', entityId: orgId, meta: { campos: [...Object.keys(b), ...(autoResposta ? ['autoResposta'] : [])] } });
   res.json(await intelView(orgId));
 }));
 

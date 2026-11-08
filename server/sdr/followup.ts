@@ -4,6 +4,7 @@ import { decryptOrNull } from '../lib/crypto.js';
 import { createProvider, type ChatMessage } from '../ai/providers.js';
 import { mckQuotaStatus } from '../ai/mckQuota.js';
 import type { Step } from './core.js';
+import { notAutoReply } from './autoReply.js';
 
 /**
  * SDR fase 2 (v1.21.0) — follow-up personalizado pela IA (opcional, desligado por padrão). Reescreve o texto do passo
@@ -45,7 +46,7 @@ export async function personalizeStep(lead: SdrLead, step: Step, baseText: strin
     let transcript = '';
     if (lead.contactId) {
       const convs = await prisma.conversation.findMany({ where: { orgId: lead.orgId, contactId: lead.contactId }, select: { id: true }, take: 20 });
-      const msgs = await prisma.message.findMany({ where: { orgId: lead.orgId, conversationId: { in: convs.map((c) => c.id) }, direction: { in: ['IN', 'OUT'] }, status: { not: 'FAILED' } }, orderBy: { createdAt: 'desc' }, take: 12 });
+      const msgs = await prisma.message.findMany({ where: { orgId: lead.orgId, conversationId: { in: convs.map((c) => c.id) }, direction: { in: ['IN', 'OUT'] }, status: { not: 'FAILED' }, ...notAutoReply }, orderBy: { createdAt: 'desc' }, take: 12 });
       transcript = msgs.reverse().map((m) => `${m.direction === 'IN' ? 'CLIENTE' : 'EMPRESA'}: ${(m.body ?? '').slice(0, 400)}`).join('\n');
     }
     const provider = createProvider(ai.provider, decryptOrNull(ai.apiKeyEnc), ai.baseUrl);

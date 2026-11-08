@@ -11,6 +11,7 @@ import { parseJson } from '../lib/json.js';
 import { personalize, inWindow } from './dispatcher.js';
 import type { Contact, Conversation, Lead, LeadAiSettings } from '@prisma/client';
 import { DEFAULT_LEAD_AI, getLegacyView, type LegacyLeadAi } from '../sdr/qualificacao.js';
+import { notAutoReply } from '../sdr/autoReply.js';
 
 /**
  * Qualificação das respostas de campanha (MCK Mensagens) — etapa de qualificação do "SDR com IA" (v1.20.0).
@@ -191,7 +192,7 @@ export async function qualifyLeadInbound(conv: Conversation, contact: Contact, t
   if (!lead) return false;
 
   const recent = await prisma.message.findMany({
-    where: { orgId: conv.orgId, conversationId: conv.id, direction: { in: ['IN', 'OUT'] }, status: { not: 'FAILED' } },
+    where: { orgId: conv.orgId, conversationId: conv.id, direction: { in: ['IN', 'OUT'] }, status: { not: 'FAILED' }, ...notAutoReply },
     orderBy: { createdAt: 'desc' }, take: 9,
   });
   // Remove a mensagem atual (já gravada) e garante que o histórico termine em "assistant" antes do texto do usuário.

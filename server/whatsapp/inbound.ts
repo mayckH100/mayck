@@ -16,6 +16,8 @@ import { sdrOnInboundInBackground } from '../sdr/ai.js';
 import { isOptOutPhrase } from '../sdr/intel.js';
 import { getIntelConfig } from '../sdr/intelConfig.js';
 import { autoReplyModeOf } from './autoReplyMode.js';
+import { checkWhatsappAutoReply, onWhatsappAutoReply } from '../sdr/autoReplyService.js';
+import { autoMarkOf } from '../sdr/autoReply.js';
 import { openConversationFor, redirectIfActiveElsewhere } from './multiCanal.js';
 import { safeSyncContactsToLeads, safeOnContactUpdated } from '../mckmensagem/contactSync.js';
 
@@ -111,12 +113,21 @@ export async function handleInboundMessage(channel: Channel, m: InboundMessage, 
     // que recebeu (antes a conversa era única por contato e a resposta saía pelo primeiro número).
     let conv = await openConversationFor(orgId, contact!.id, channel.id);
 
+    // v1.22.0: resposta automática do lead (saudação/ausência, menu, "estou dirigindo"...) logo depois de um envio nosso.
+    // Verificada ANTES de gravar, dentro da trava do contato: a mensagem já nasce marcada e nenhuma qualificação,
+    // extração do SDR ou resposta da IA (que leem o histórico) chega a tratá-la como resposta de uma pessoa.
+    const auto = m.type === 'text' && m.text?.trim() && !m.replyId
+      ? await checkWhatsappAutoReply({ orgId, conversationId: conv.id, contactId: contact!.id, text: m.text })
+      : null;
+    const isAuto = !!auto?.automatica;
+
     let message;
     try {
       message = await prisma.message.create({
         data: {
           orgId, conversationId: conv.id, channelId: channel.id, direction: 'IN', sender: 'contact', type: m.type,
           body: m.text || (m.mediaId ? `[${m.type}]` : `[${m.type}]`), waMessageId: m.waMessageId, status: 'RECEIVED', createdAt: m.timestamp > new Date() ? new Date() : m.timestamp,
+          error: isAuto ? autoMarkOf(auto!.motivo) : null,
         },
       });
     } catch (e) {
@@ -128,7 +139,14 @@ export async function handleInboundMessage(channel: Channel, m: InboundMessage, 
       where: { id: conv.id },
       data: { lastInboundAt: now, lastMessageAt: now, unreadCount: { increment: 1 } },
     });
-    contact = await prisma.contact.update({ where: { id: contact!.id }, data: { lastMessageAt: now } });
+    // Resposta automática não conta como "o contato já falou com a gente" (a 1ª mensagem de verdade continua sendo a 1ª).
+    if (!isAuto) contact = await prisma.contact.update({ where: { id: contact!.id }, data: { lastMessageAt: now } });
+    if (isAuto) {
+      // Fica no Inbox e no histórico do lead com o selo "Resposta automática"; nada mais acontece: sem opt-out,
+      // sem "Respondeu" na campanha, sem qualificação/pontuação/etapa, cadência segue, IA e fluxos não respondem.
+      await onWhatsappAutoReply(conv, contact!, auto!, now);
+      return 'ok' as const;
+    }
 
     // MCK Mensagens: imagem/PDF de cliente com cobrança em aberto (ou que fala de pagamento) vira comprovante em análise.
     if (m.type === 'image' || m.type === 'document') {

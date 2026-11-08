@@ -17,6 +17,7 @@ import { agendaPromptSection, applyAgendaTag, cleanAiText, stripJsonMarkers, str
 import { productsPromptSection } from './products.js';
 import { sdrPromptSection, sdrForcesBooking } from '../sdr/ai.js';
 import { applyOrderTag, intentFromText, ordersPromptSection, tagConversation } from '../agenda/orders.js';
+import { notAutoReply } from '../sdr/autoReply.js';
 
 export interface AiReply {
   text: string | null; // texto a enviar ao contato (null = nada)
@@ -183,7 +184,7 @@ async function generateAiReplyInner(args: { orgId: string; conversationId: strin
 
 
   const history = await prisma.message.findMany({
-    where: { orgId, conversationId, direction: { in: ['IN', 'OUT'] }, status: { not: 'FAILED' } },
+    where: { orgId, conversationId, direction: { in: ['IN', 'OUT'] }, status: { not: 'FAILED' }, ...notAutoReply },
     orderBy: { createdAt: 'desc' }, take: 10,
   });
   // Agenda: horários livres + regra do marcador [AGENDAR:{...}] (só se a empresa ligou o agendamento pela IA).

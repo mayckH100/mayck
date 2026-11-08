@@ -415,9 +415,19 @@ async function cadenceReport(req: Request) {
   return { dias, since, rows };
 }
 
+/** v1.22.0: respostas automáticas ignoradas no período (WhatsApp: mensagens marcadas; e-mail: eventos do SDR). */
+async function autoReplyCount(orgId: string, since: Date) {
+  const { AUTO_MARK } = await import('./autoReply.js');
+  const [whatsapp, email] = await Promise.all([
+    prisma.message.count({ where: { orgId, direction: 'IN', createdAt: { gte: since }, error: { startsWith: AUTO_MARK } } }),
+    prisma.sdrEvent.count({ where: { orgId, type: 'AUTORESPOSTA', channel: 'EMAIL', createdAt: { gte: since } } }),
+  ]);
+  return { total: whatsapp + email, whatsapp, email };
+}
+
 sdrRouter.get('/relatorio', ah(async (req, res) => {
   const r = await cadenceReport(req);
-  res.json({ dias: r.dias, desde: r.since, cadencias: r.rows.map((c) => ({ ...c, segmentLabel: segmentLabel(c.segment) })) });
+  res.json({ dias: r.dias, desde: r.since, cadencias: r.rows.map((c) => ({ ...c, segmentLabel: segmentLabel(c.segment) })), respostasAutomaticas: await autoReplyCount(orgOf(req), r.since) });
 }));
 
 sdrRouter.get('/relatorio.csv', ah(async (req, res) => {
