@@ -10,8 +10,8 @@ import { importacaoRouter } from './importacao/importacao.routes.js';
 import { Router } from 'express';
 import { ah } from '../lib/http.js';
 import { orgOf } from '../auth/session.js';
-import { planoCompletoAtivo } from '../billing/service.js';
-import { ERP_PLANO_COMPLETO_MSG } from '../billing/guard.js';
+import { erpLiberado, erpPlanoMsg, planosComErp } from '../billing/erpAccess.js';
+import { erpPlanoDaEmpresa } from '../billing/service.js';
 import { coreRouter } from './core/core.routes.js';
 import { parceirosRouter } from './crm/parceiros.routes.js';
 import { funilRouter } from './crm/funil.routes.js';
@@ -38,11 +38,13 @@ registrarConsumidoresVendas();
 registrarConsumidoresFinanceiro();
 
 export const erpRouter = Router();
-/** O ERP está liberado para esta empresa? (Plano Completo ativo ou em teste; superadmin sempre.) Sempre responde, mesmo sem plano. */
+/** O ERP está liberado para esta empresa? (plano com o MCK ERP ativo ou em teste; empresa da MCK e superadmin sempre.) Sempre responde, mesmo sem plano. */
 erpRouter.get('/acesso', ah(async (req, res) => {
   const superAdmin = !!req.auth?.isSuperAdmin;
-  const plano = await planoCompletoAtivo(orgOf(req));
-  res.json({ liberado: superAdmin || plano, planoCompleto: plano, superAdmin, motivo: superAdmin || plano ? null : ERP_PLANO_COMPLETO_MSG });
+  // planoCompleto: nome mantido por compatibilidade = "algum plano com o MCK ERP" (v1.25.0, módulos do Master).
+  const plano = !!(await erpPlanoDaEmpresa(orgOf(req)));
+  const liberado = superAdmin || plano || (await erpLiberado(orgOf(req))); // erpLiberado inclui a empresa da MCK
+  res.json({ liberado, planoCompleto: plano, superAdmin, motivo: liberado ? null : await erpPlanoMsg(), planos: liberado ? [] : await planosComErp() });
 }));
 erpRouter.use('/core', coreRouter);
 erpRouter.use('/crm/parceiros', parceirosRouter);
