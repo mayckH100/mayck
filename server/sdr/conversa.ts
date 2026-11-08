@@ -93,7 +93,7 @@ export function polirResposta(text: string, o: { usaEmoji: boolean; nome?: strin
   if (o.nomeRecente && first && first.length >= 2) {
     const n = first.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     t = t.replace(new RegExp(`^((?:oi|olá|ola|bom dia|boa tarde|boa noite|certo|claro|tudo bem)),?\\s+${n}([,!.]?)`, 'i'), (_m, g: string, p: string) => `${g}${p || ','}`)
-      .replace(new RegExp(`,\\s*${n}(?=[,!.?])`, 'gi'), ''
+      .replace(new RegExp(`,\\s*${n}(?=[,!.?])`, 'gi'), '')
       .replace(new RegExp(`^[\\s,.!]*${n}[!,.]\\s*`, 'i'), '');
   }
   t = t.replace(/[ \t]{2,}/g, ' ').replace(/\s+([,.!?])/g, '$1').replace(/^[\s,.!]+/, '').replace(/\n{3,}/g, '\n\n').trim();
