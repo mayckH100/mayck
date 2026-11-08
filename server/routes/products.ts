@@ -10,7 +10,8 @@ import { ah, notFound, badRequest } from '../lib/http.js';
 import { orgOf, requireRole } from '../auth/session.js';
 import { audit } from '../lib/audit.js';
 import { sanitizeText } from '../lib/contacts-import.js';
-import { PRODUCT_LIMITS, STOCK, filterProducts, isHttpsUrl, productTemplateCsv, readProductsCsv, matchProducts, formatProductsContext } from '../ai/products.js';
+import { PRODUCT_LIMITS, STOCK, filterProducts, isHttpsUrl, productTemplateCsv, readProductsCsv } from '../ai/products.js';
+import { PRODUCT_SOURCES, ERP_SEM_PLANO_MSG, erpLiberadoParaIa, productContextFor, type ProductSource } from '../ai/productSource.js';
 
 export const productsRouter = Router();
 const admins = requireRole('OWNER', 'ADMIN');
@@ -56,12 +57,62 @@ productsRouter.get('/template', ah(async (_req, res) => {
   res.send(productTemplateCsv());
 }));
 
-/** Prévia do que a IA receberia para uma mensagem (ajuda o cliente a testar o catálogo). */
+// ---- v1.24.0 De onde a IA consulta os produtos (Produtos, ERP ou os dois) ----
+const sourceSchema = z.object({
+  productSource: z.enum(PRODUCT_SOURCES),
+  erpShowQuantity: z.boolean().optional(),
+  erpDepositoId: z.string().trim().min(1).max(64).nullable().optional(),
+});
+
+/** Configuração atual + se o ERP está liberado + depósitos da empresa (só id e nome) para o seletor. */
+productsRouter.get('/source', ah(async (req, res) => {
+  const orgId = orgOf(req);
+  const [s, erpLiberado] = await Promise.all([
+    prisma.aiSettings.findUnique({ where: { orgId }, select: { productSource: true, erpShowQuantity: true, erpDepositoId: true } }),
+    erpLiberadoParaIa(orgId).catch(() => false),
+  ]);
+  const depositos = erpLiberado ? await prisma.erpDeposito.findMany({ where: { orgId, ativo: true }, select: { id: true, nome: true }, orderBy: { nome: 'asc' } }) : [];
+  const productSource = (s?.productSource ?? 'catalogo') as ProductSource;
+  res.json({
+    productSource, erpShowQuantity: s?.erpShowQuantity ?? false, erpDepositoId: s?.erpDepositoId ?? null,
+    erpLiberado, motivo: erpLiberado ? null : ERP_SEM_PLANO_MSG, depositos,
+    efetivo: productSource !== 'catalogo' && !erpLiberado ? 'catalogo' : productSource,
+  });
+}));
+
+productsRouter.put('/source', admins, ah(async (req, res) => {
+  const body = sourceSchema.parse(req.body);
+  const orgId = orgOf(req);
+  if (body.productSource !== 'catalogo' && !(await erpLiberadoParaIa(orgId))) throw badRequest(ERP_SEM_PLANO_MSG);
+  if (body.erpDepositoId && !(await prisma.erpDeposito.findFirst({ where: { id: body.erpDepositoId, orgId }, select: { id: true } }))) throw notFound('Depósito');
+  const data = {
+    productSource: body.productSource,
+    ...(body.erpShowQuantity !== undefined ? { erpShowQuantity: body.erpShowQuantity } : {}),
+    ...(body.erpDepositoId !== undefined ? { erpDepositoId: body.erpDepositoId } : {}),
+  };
+  const s = await prisma.aiSettings.upsert({ where: { orgId }, create: { orgId, ...data }, update: data, select: { productSource: true, erpShowQuantity: true, erpDepositoId: true } });
+  await audit(req, 'ai.product_source', { entity: 'ai_settings', meta: { ...s } });
+  res.json(s);
+}));
+
+/**
+ * Prévia do que a IA receberia para uma mensagem (ajuda o cliente a testar). Segue a fonte salva da empresa; a tela
+ * pode mandar a fonte escolhida (ainda não salva) para testar antes — com a mesma regra de plano e o mesmo recuo.
+ */
 productsRouter.post('/preview', ah(async (req, res) => {
-  const { message } = z.object({ message: z.string().trim().min(1).max(2000) }).parse(req.body);
-  const list = await prisma.product.findMany({ where: { orgId: orgOf(req), active: true }, take: PRODUCT_LIMITS.total });
-  const hits = matchProducts(message, list);
-  res.json({ products: hits.map((p) => ({ id: p.id, name: p.name })), context: formatProductsContext(hits) });
+  const b = z.object({
+    message: z.string().trim().min(1).max(2000),
+    productSource: z.enum(PRODUCT_SOURCES).optional(),
+    erpShowQuantity: z.boolean().optional(),
+    erpDepositoId: z.string().trim().min(1).max(64).nullable().optional(),
+  }).parse(req.body);
+  const orgId = orgOf(req);
+  if (b.erpDepositoId && !(await prisma.erpDeposito.findFirst({ where: { id: b.erpDepositoId, orgId }, select: { id: true } }))) throw notFound('Depósito');
+  const r = await productContextFor(orgId, b.message, b.productSource ? { source: b.productSource, showQty: b.erpShowQuantity ?? false, depositoId: b.erpDepositoId ?? null } : {});
+  res.json({
+    products: r.products.map((p) => ({ id: p.id, name: p.name, origem: p.origem })), context: r.context,
+    source: r.source, requested: r.requested, fallback: r.fallback,
+  });
 }));
 
 productsRouter.post('/', admins, ah(async (req, res) => {
