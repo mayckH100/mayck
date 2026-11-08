@@ -19,6 +19,8 @@ import { productContextFor } from './productSource.js';
 import { sdrPromptSection, sdrForcesBooking } from '../sdr/ai.js';
 import { applyOrderTag, intentFromText, ordersPromptSection, tagConversation } from '../agenda/orders.js';
 import { notAutoReply } from '../sdr/autoReply.js';
+import { detectVoicePreference, decideWithPreference, historyContent, isVoicePreference, MARK_CLIENT_AUDIO, stripVoiceMarkers, voicePromptSection, type VoicePreference } from './voice/preference.js';
+import { isAudioType } from './voice/spoken.js';
 
 export interface AiReply {
   text: string | null; // texto a enviar ao contato (null = nada)
@@ -48,11 +50,13 @@ export async function retrieve(orgId: string, query: string, k = 3) {
   return rank(query, chunks.map((c) => { const title = titles.get(c.docId) ?? ''; return { ...c, text: c.text, title, scoreText: `${title}\n${title}\n${c.text}` }; }), k);
 }
 
-export function buildSystemPrompt(s: { instructions: string; tone: string }, context: string, contactNotes = ''): string {
+export function buildSystemPrompt(s: { instructions: string; tone: string }, context: string, contactNotes = '', voice = ''): string {
   return [
-    'Você é o assistente virtual de atendimento no WhatsApp desta empresa. Responda em português do Brasil, em mensagens curtas e claras.',
+    'Você faz o atendimento desta empresa no WhatsApp. Responda em português do Brasil, em mensagens curtas, claras e humanas.',
     `Tom de voz: ${s.tone || 'cordial e objetivo'}.`,
     s.instructions ? `Instruções da empresa:\n${s.instructions}` : '',
+    // v1.25: o que a IA realmente consegue (áudio/texto) e como se apresenta — nunca "só converso por texto".
+    voice,
     'COMO ATENDER:',
     '- Você pode e deve informar preços, valores, planos, prazos, políticas e passo a passo, dar instruções e tirar dúvidas, usando as Instruções da empresa e o CONTEXTO abaixo.',
     '- Use os valores exatamente como aparecem nas Instruções ou no CONTEXTO. Se um valor ou regra não aparecer em nenhum dos dois, diga que vai confirmar com a equipe em vez de inventar.',
@@ -108,6 +112,26 @@ export const freeSearchModel = (model: string) => /^gemini-2\.5-flash(-lite)?(\b
 export function mentionsCompetitor(text: string): boolean {
   const t = normalize(text);
   return /\b(concorr\w*|outras? empresas?|outros? sistemas?|outras? plataformas?|outros? apps?|outros? aplicativos?|melhor(es)? que|pior(es)? que|mais barat\w* que|compar\w*|diferenca|diferencial|diferenciais|versus|vs|ja uso o|ja uso a|ja tenho o)\b/.test(t);
+}
+
+/**
+ * Voz por conversa (automática): grava a preferência quando o cliente pede áudio ou texto e devolve a parte
+ * do prompt com a capacidade real (voz ligada/desligada, esta resposta vai em áudio ou texto).
+ */
+async function voiceContext(orgId: string, conversationId: string, text: string, s: { voiceEnabled: boolean; voiceReplyMode: string }, inboundWasAudio: boolean): Promise<string> {
+  let pref: VoicePreference | null = null;
+  if (conversationId) {
+    const conv = await prisma.conversation.findFirst({ where: { id: conversationId, orgId }, select: { voicePreference: true } });
+    pref = isVoicePreference(conv?.voicePreference) ? conv.voicePreference : null;
+    const asked = detectVoicePreference(text);
+    if (asked && asked !== pref) {
+      await prisma.conversation.update({ where: { id: conversationId }, data: { voicePreference: asked } });
+      console.info('[voz] preferência do cliente nesta conversa', { orgId, conversationId, preferencia: asked });
+      pref = asked;
+    }
+  }
+  const org = await prisma.organization.findUnique({ where: { id: orgId }, select: { name: true } });
+  return voicePromptSection({ voiceEnabled: !!s.voiceEnabled, replyAsAudio: decideWithPreference(s, inboundWasAudio, pref), pref, company: org?.name });
 }
 
 const startOfDay = (d = new Date()) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
@@ -189,6 +213,11 @@ async function generateAiReplyInner(args: { orgId: string; conversationId: strin
     where: { orgId, conversationId, direction: { in: ['IN', 'OUT'] }, status: { not: 'FAILED' }, ...notAutoReply },
     orderBy: { createdAt: 'desc' }, take: 10,
   });
+  // Voz: preferência do cliente nesta conversa (pedido explícito de áudio/texto, detector por palavras) e
+  // o que a IA de fato consegue fazer aqui. Falha aqui nunca derruba a resposta.
+  const lastIn = history.find((m) => m.direction === 'IN');
+  const inboundWasAudio = !!lastIn && history[0]?.id === lastIn.id && isAudioType(lastIn.type);
+  const voice = await voiceContext(orgId, conversationId, text, s, inboundWasAudio).catch(() => '');
   // Agenda: horários livres + regra do marcador [AGENDAR:{...}] (só se a empresa ligou o agendamento pela IA).
   // SDR com IA: perguntas de qualificação que faltam e, no modo automático, agenda pela IA para o lead.
   const sdrBook = await sdrForcesBooking(orgId, conversationId).catch(() => false);
@@ -203,10 +232,11 @@ async function generateAiReplyInner(args: { orgId: string; conversationId: strin
   // Kanban automático (desligado por padrão): etapas e o marcador [ETAPA:nome].
   const kanban = s.kanbanAuto ? await kanbanPromptSection(orgId, conversationId).catch(() => '') : '';
   const messages: ChatMessage[] = [
-    { role: 'system', content: buildSystemPrompt({ instructions: [s.instructions, args.extraInstructions, agenda, pedidos, prod.rules, site, kanban, sdr].filter(Boolean).join('\n'), tone: s.tone }, context, contactNotes) },
+    { role: 'system', content: buildSystemPrompt({ instructions: [s.instructions, args.extraInstructions, agenda, pedidos, prod.rules, site, kanban, sdr].filter(Boolean).join('\n'), tone: s.tone }, context, contactNotes, voice) },
     // Links da agenda/Meet já enviados saem do histórico: a IA não deve copiá-los numa nova resposta.
-    ...history.reverse().slice(0, -1).map((m) => ({ role: (m.direction === 'IN' ? 'user' : 'assistant') as 'user' | 'assistant', content: m.direction === 'IN' ? m.transcript ?? m.body ?? '' : stripSystemLinks(m.body ?? '') })),
-    { role: 'user', content: text },
+    // Áudios ficam marcados: [enviado como áudio] (nota de voz da IA) e [áudio do cliente, transcrito].
+    ...history.reverse().slice(0, -1).map((m) => ({ role: (m.direction === 'IN' ? 'user' : 'assistant') as 'user' | 'assistant', content: historyContent(m, stripSystemLinks) })),
+    { role: 'user', content: inboundWasAudio ? `${MARK_CLIENT_AUDIO} ${text}` : text },
   ];
 
   const started = Date.now();
@@ -270,7 +300,7 @@ async function generateAiReplyInner(args: { orgId: string; conversationId: strin
       }
       // Kanban automático: marcador [ETAPA:nome] move o contato (sempre retirado do texto).
       if (s.kanbanAuto || /\[ETAPA:/i.test(booked.text)) booked = { ...booked, text: await applyKanbanTag(orgId, conversationId, booked.text, s.kanbanAuto).catch(() => booked.text.replace(/\[ETAPA:[^\]]*\]/gi, '').trim()) };
-      const out = booked.text || cleanAiText(r.text);
+      const out = stripVoiceMarkers(booked.text || cleanAiText(r.text));
       if (!out) {
         console.warn('[ia] resposta sem texto útil: texto de falha enviado, sem transferir', { orgId, conversationId: conversationId || null });
         return { text: fail, handoff: false, failed: true, reason: 'IA não soube responder', usedContext };

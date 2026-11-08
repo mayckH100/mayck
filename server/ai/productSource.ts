@@ -4,14 +4,13 @@
  *  - erp: só os produtos ativos do MCK ERP, com o saldo em tempo real;
  *  - ambos: Produtos para descrição/promoção/link + ERP para o saldo (liga pelo SKU ou pelo nome).
  *
- * ERP só para quem tem o ERP liberado (Plano Completo ativo/teste ou a empresa da própria MCK). Sem isso, ou se a
+ * ERP só para quem tem o ERP liberado (plano com o MCK ERP ativo/teste — padrão Plano Completo — ou a empresa da própria MCK). Sem isso, ou se a
  * consulta ao ERP falhar, volta para o catálogo e a IA responde normalmente.
  * Nunca vai para o prompt: custo médio, custos adicionais, fornecedor, lote, endereço ou qualquer dado interno —
  * a consulta ao ErpProduto seleciona só os campos públicos abaixo.
  */
 import { prisma } from '../db.js';
-import { planoCompletoAtivo } from '../billing/service.js';
-import { isMckOrg } from '../sdr/access.js';
+import { erpLiberado } from '../billing/erpAccess.js';
 import { saldosParaSaida } from '../erp/estoque/servico.js';
 import { planejarAlocacao, type SaldoLinha } from '../erp/estoque/saldo.js';
 import {
@@ -25,10 +24,12 @@ export const isProductSource = (v: unknown): v is ProductSource => (PRODUCT_SOUR
 
 export const ERP_SEM_PLANO_MSG = 'O estoque do MCK ERP faz parte do Plano Completo (ERP + MCKBOT + MCK Mensagens). Sem ele, a IA usa só os Produtos cadastrados.';
 
-/** O ERP pode alimentar a IA desta empresa? Mesma regra de acesso do ERP (Plano Completo) + empresa da própria MCK. */
+/**
+ * O ERP pode alimentar a IA desta empresa? Mesma regra de acesso do ERP (v1.25.0: plano com o módulo MCK ERP no
+ * Master, padrão Plano Completo) + empresa da própria MCK. Sem isso, 'erp'/'ambos' voltam ao catálogo.
+ */
 export async function erpLiberadoParaIa(orgId: string): Promise<boolean> {
-  if (await planoCompletoAtivo(orgId)) return true;
-  return isMckOrg(orgId);
+  return erpLiberado(orgId);
 }
 
 // ---------------- Regras puras (testadas em tests/unit/ia-fonte-produtos.test.ts) ----------------
