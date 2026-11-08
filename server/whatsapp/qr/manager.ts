@@ -25,6 +25,8 @@ export interface QrSocket {
   /** Código de pareamento (Conectar com número de telefone). Só antes de registrar o aparelho. */
   requestPairingCode?(phoneNumber: string): Promise<string>;
   user?: { id: string; lid?: string } | null;
+  /** "gravando áudio..." / "digitando..." para o contato (opcional; usado pela voz da IA). */
+  sendPresenceUpdate?(type: 'recording' | 'composing' | 'paused' | 'available' | 'unavailable', toJid?: string): Promise<void>;
   /** Baileys 7: mapeamento LID ↔ número (só conhece pares já vistos no tráfego/sincronização). */
   signalRepository?: { lidMapping?: { getPNForLID(lid: string): Promise<string | null>; getLIDForPN?(pn: string): Promise<string | null> } };
   /** Baileys 7: ressincronizar coleções do app-state (agenda do celular = "critical_unblock_low"). */
@@ -696,6 +698,13 @@ class QrSessionManager {
     } catch {
       return d;
     }
+  }
+
+  /** Mostra "gravando áudio..." (ou para) ao contato. Nunca lança: é só um detalhe visual. */
+  async presence(channelId: string, waId: string, state: 'recording' | 'composing' | 'paused'): Promise<void> {
+    const s = this.sessions.get(channelId);
+    if (!s?.sock?.sendPresenceUpdate || s.status !== 'CONNECTED') return;
+    await s.sock.sendPresenceUpdate(state, waIdToJid(waId)).catch(() => undefined);
   }
 
   async send(channelId: string, waId: string, payload: OutboundPayload): Promise<{ waMessageId: string }> {

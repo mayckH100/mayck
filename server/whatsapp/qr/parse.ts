@@ -144,6 +144,9 @@ export function buildQrContent(p: OutboundPayload): AnyMessageContent {
       return /^image\/(jpeg|png|webp)$/.test(p.mime)
         ? { image: p.data, caption: p.caption, mimetype: p.mime }
         : { document: p.data, fileName: p.filename, mimetype: p.mime, caption: p.caption };
+    case 'voice':
+      // Nota de voz (microfone, baixa sozinha). Com duração e forma de onda prontas o Baileys não precisa de ffmpeg.
+      return { audio: p.data, mimetype: 'audio/ogg; codecs=opus', ptt: true, seconds: Math.max(1, Math.round(p.seconds)), ...(p.waveform ? { waveform: p.waveform } : {}) };
     case 'media_id': throw new Error('Mídia por id só existe na API oficial');
     case 'template': throw new Error('Modelos (templates) só existem na API oficial. No modo QR envie uma mensagem de texto.');
   }
