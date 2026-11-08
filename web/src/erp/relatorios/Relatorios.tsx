@@ -3,7 +3,6 @@ import { useState } from 'react';
 import { post } from '../../api';
 import { useApi, Async, useAction } from '../../ui';
 import { useAuth } from '../../auth';
-import ErpNav from '../ErpNav';
 import { brl } from '../format';
 
 const hoje = () => new Date().toLocaleDateString('sv-SE', { timeZone: 'America/Sao_Paulo' });
@@ -23,7 +22,6 @@ export default function RelatoriosErp() {
           {can('OWNER', 'ADMIN') && <button className="btn primary" disabled={busy} onClick={() => run(() => post(`/erp/relatorios/dia/enviar?data=${dia}`), 'Relatório enviado ao proprietário')}>Enviar agora</button>}
         </div>
       </div>
-      <ErpNav />
       <Async state={state}>{(r) => (
         <>
           <div className="grid g4" style={{ marginBottom: 12 }}>
