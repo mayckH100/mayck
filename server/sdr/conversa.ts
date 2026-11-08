@@ -51,3 +51,50 @@ export const EMOJI_RE = /\p{Extended_Pictographic}|[\u{1F1E6}-\u{1F1FF}]/gu;
 export function empresaUsaEmoji(...textos: (string | null | undefined)[]): boolean {
   return textos.some((t) => !!t && new RegExp(EMOJI_RE.source, 'u').test(t));
 }
+
+// ---------- 2) Estilo WhatsApp humano ----------
+export function estiloLines(o: { usaEmoji: boolean }): string[] {
+  return [
+    'ESTILO (WhatsApp, como uma pessoa da equipe):',
+    '- Mensagens curtas: 1 a 3 frases. Nada de listas longas, a não ser que o lead peça.',
+    '- No máximo UMA pergunta por mensagem, no final.',
+    '- Espelhe o tom do lead: se ele escreve curto e informal, responda curto e informal; se é formal, seja formal.',
+    '- Sem bajulação e sem frases de robô ("Entendido perfeitamente", "Ótima pergunta", "Fico feliz em ajudar", "Espero ter ajudado", "Não hesite em perguntar").',
+    '- Use o nome do lead com moderação (no máximo uma vez a cada várias mensagens), nunca em toda resposta.',
+    o.usaEmoji ? '- Emojis: no máximo 1, e só se combinar com o tom do lead.' : '- Não use emojis.',
+  ];
+}
+
+const ROBO: RegExp[] = [
+  /(?<!\p{L})(entendido|entendi) perfeitamente[.!,]?\s*/giu,
+  /(?<!\p{L})(ótima|excelente|boa) pergunta[.!,]?\s*/giu,
+  /\bfico (muito )?feliz em (poder )?(te )?ajudar[.!,]?\s*/giu,
+  /\bagradeço (muito )?(pelo|o) seu contato[.!,]?\s*/giu,
+  /\bespero ter (te )?ajudado[.!]?\s*/giu,
+  /\bnão hesite em (me )?(perguntar|chamar|entrar em contato)[^.!?]*[.!]?\s*/giu,
+  /\bestou (aqui )?(à|a) (sua )?disposição para (qualquer|quaisquer) (outra |outras )?(dúvida|dúvidas|coisa)[^.!?]*[.!]?\s*/giu,
+  /\bcomo (um |uma )?(assistente virtual|inteligência artificial|modelo de linguagem)[^,.!?]*,\s*/giu,
+];
+
+/** Frases de robô que ainda aparecem no texto (para a checagem final). */
+export function frasesDeRobo(text: string): string[] {
+  return ROBO.flatMap((re) => [...text.matchAll(new RegExp(re.source, 'giu'))].map((m) => m[0].trim())).filter(Boolean);
+}
+
+/**
+ * Polimento local (sem IA, sem custo): tira frases de robô, emojis quando a empresa não usa e o nome repetido quando
+ * a IA já chamou o lead pelo nome há pouco. Mantém o sentido do texto.
+ */
+export function polirResposta(text: string, o: { usaEmoji: boolean; nome?: string | null; nomeRecente?: boolean }): string {
+  let t = text;
+  for (const re of ROBO) t = t.replace(new RegExp(re.source, 'giu'), '');
+  if (!o.usaEmoji) t = t.replace(new RegExp(EMOJI_RE.source, 'gu'), '').replace(/\uFE0F|\u200D/g, '');
+  const first = (o.nome ?? '').trim().split(/\s+/)[0];
+  if (o.nomeRecente && first && first.length >= 2) {
+    const n = first.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    t = t.replace(new RegExp(`^((?:oi|olá|ola|bom dia|boa tarde|boa noite|certo|claro|tudo bem)),?\\s+${n}([,!.]?)`, 'i'), (_m, g: string, p: string) => `${g}${p || ','}`)
+      .replace(new RegExp(`,\\s*${n}(?=[,!.?])`, 'gi'), '');
+  }
+  t = t.replace(/[ \t]{2,}/g, ' ').replace(/\s+([,.!?])/g, '$1').replace(/^[\s,.!]+/, '').replace(/\n{3,}/g, '\n\n').trim();
+  return t ? t[0].toUpperCase() + t.slice(1) : t;
+}

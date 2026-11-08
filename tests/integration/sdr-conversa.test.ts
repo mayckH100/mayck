@@ -72,4 +72,14 @@ describe('IA conversacional avançada', () => {
     // Histórico: mais de 10 mensagens anteriores vão ao prompt (antes eram 10).
     expect(fakeAi.calls[0].filter((m) => m.role !== 'system').length).toBeGreaterThan(20);
   });
+
+  it('2) estilo WhatsApp: regras no prompt e texto final sem frase de robô nem emoji (empresa não usa)', async () => {
+    const { conv } = await leadComConversa();
+    fakeAi.script = ['Entendido perfeitamente! 😊 O seguro empresarial começa em R$ 89,90 por mês.'];
+    const r = await generateAiReply({ orgId: orgA(), conversationId: conv.id, text: 'quanto custa?' });
+    expect(r.text).toBe('O seguro empresarial começa em R$ 89,90 por mês.');
+    const sys = systemOf(fakeAi.calls[0]);
+    expect(sys).toContain('No máximo UMA pergunta por mensagem');
+    expect(sys).toContain('Não use emojis.');
+  });
 });

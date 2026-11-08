@@ -17,7 +17,7 @@ import { agendaPromptSection, applyAgendaTag, cleanAiText, stripJsonMarkers, str
 import { productsPromptSection } from './products.js';
 import { productContextFor } from './productSource.js';
 import { sdrPromptSection, sdrForcesBooking } from '../sdr/ai.js';
-import { conversaAvancadaFor, conversaPromptSection, HISTORICO_AVANCADO } from '../sdr/conversaService.js';
+import { conversaAvancadaFor, conversaPromptSection, estiloFinal, HISTORICO_AVANCADO } from '../sdr/conversaService.js';
 import { applyOrderTag, intentFromText, ordersPromptSection, tagConversation } from '../agenda/orders.js';
 import { notAutoReply } from '../sdr/autoReply.js';
 import { detectVoicePreference, decideWithPreference, historyContent, isVoicePreference, MARK_CLIENT_AUDIO, stripVoiceMarkers, voicePromptSection, type VoicePreference } from './voice/preference.js';
@@ -304,7 +304,8 @@ async function generateAiReplyInner(args: { orgId: string; conversationId: strin
       }
       // Kanban automático: marcador [ETAPA:nome] move o contato (sempre retirado do texto).
       if (s.kanbanAuto || /\[ETAPA:/i.test(booked.text)) booked = { ...booked, text: await applyKanbanTag(orgId, conversationId, booked.text, s.kanbanAuto).catch(() => booked.text.replace(/\[ETAPA:[^\]]*\]/gi, '').trim()) };
-      const out = stripVoiceMarkers(booked.text || cleanAiText(r.text));
+      let out = stripVoiceMarkers(booked.text || cleanAiText(r.text));
+      if (adv && out) out = estiloFinal(adv, out, [...history].reverse()); // v1.26.0: estilo WhatsApp (sem custo)
       if (!out) {
         console.warn('[ia] resposta sem texto útil: texto de falha enviado, sem transferir', { orgId, conversationId: conversationId || null });
         return { text: fail, handoff: false, failed: true, reason: 'IA não soube responder', usedContext };

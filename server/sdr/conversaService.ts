@@ -5,7 +5,7 @@ import { getIntelConfig, questionsFor, type IntelConfig } from './intelConfig.js
 import { leadEmpresa } from './cnpj.js';
 import { STAGE_LABEL, type Answers, type Stage } from './core.js';
 import type { Metodo } from './intel.js';
-import { contextoLines, empresaUsaEmoji, type LeadContexto } from './conversa.js';
+import { contextoLines, empresaUsaEmoji, estiloLines, polirResposta, type LeadContexto } from './conversa.js';
 
 /**
  * IA conversacional avançada (v1.26.0) — parte com banco. `conversaAvancadaFor` diz se a conversa usa a IA
@@ -73,5 +73,17 @@ export async function conversaAvancadaFor(orgId: string, conversationId: string,
 
 /** Trecho do prompt da IA conversacional avançada (vai junto das Instruções da empresa). */
 export function conversaPromptSection(c: ConversaCtx): string {
-  return ['### IA CONVERSACIONAL AVANÇADA', ...contextoLines(c.contexto), '### FIM DA IA CONVERSACIONAL'].join('\n');
+  return ['### IA CONVERSACIONAL AVANÇADA', ...contextoLines(c.contexto), ...estiloLines({ usaEmoji: c.usaEmoji }), '### FIM DA IA CONVERSACIONAL'].join('\n');
+}
+
+/** A IA chamou o lead pelo nome nas últimas 3 respostas? (para não repetir o nome em toda mensagem) */
+export function nomeUsadoRecente(nome: string | null | undefined, history: { direction: string; body: string | null }[]): boolean {
+  const first = (nome ?? '').trim().split(/\s+/)[0]?.toLowerCase();
+  if (!first || first.length < 2) return false;
+  return history.filter((m) => m.direction === 'OUT').slice(0, 3).some((m) => (m.body ?? '').toLowerCase().includes(first));
+}
+
+/** Estilo aplicado ao texto final da IA (parte 2). */
+export function estiloFinal(c: ConversaCtx, text: string, historyNewestFirst: { direction: string; body: string | null }[]): string {
+  return polirResposta(text, { usaEmoji: c.usaEmoji, nome: c.contexto?.nome, nomeRecente: nomeUsadoRecente(c.contexto?.nome, historyNewestFirst) });
 }
