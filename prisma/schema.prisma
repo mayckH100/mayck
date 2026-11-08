@@ -498,6 +498,12 @@ model AiSettings {
   transcribeAudio    Boolean  @default(true)
   /// Motor da transcrição: auto (o mesmo da IA de texto) | gemini | openai | elevenlabs.
   transcribeProvider String   @default("auto")
+  /// v1.24.0 De onde a IA consulta os produtos: catalogo (padrão, só Produtos) | erp (só ERP com saldo) | ambos.
+  productSource      String   @default("catalogo")
+  /// ERP: false = só a situação (disponível / poucas unidades / sem estoque / sob encomenda); true = quantidade exata.
+  erpShowQuantity    Boolean  @default(false)
+  /// ERP: restringe o saldo a um depósito (ErpDeposito da mesma organização). Nulo = todos.
+  erpDepositoId      String?
   updatedAt          DateTime @updatedAt
 }
 
