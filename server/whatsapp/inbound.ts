@@ -1,9 +1,9 @@
 import { prisma } from '../db.js';
 import { parseWebhook, downloadCloudMedia, type InboundMessage } from './cloudClient.js';
 import { decryptOrNull } from '../lib/crypto.js';
-import { downloadMediaMessage } from '@whiskeysockets/baileys';
+import { downloadMediaMessage, normalizeMessageContent } from '@whiskeysockets/baileys';
 import { receberMidiaWhatsApp } from '../mckmensagem/automacoes/comprovantes.js';
-import { applyStatus } from './messaging.js';
+import { applyStatus, sendOutbound } from './messaging.js';
 import { automateInbound, withConversationLock } from '../flows/engine.js';
 import { normalize } from '../flows/logic.js';
 import { parseBaileysMessage, mapBaileysStatus } from './qr/parse.js';
@@ -20,8 +20,40 @@ import { checkWhatsappAutoReply, onWhatsappAutoReply } from '../sdr/autoReplySer
 import { autoMarkOf } from '../sdr/autoReply.js';
 import { openConversationFor, redirectIfActiveElsewhere } from './multiCanal.js';
 import { safeSyncContactsToLeads, safeOnContactUpdated } from '../mckmensagem/contactSync.js';
+import { transcribeAudio, type TranscribeOutcome } from '../ai/voice/service.js';
+import { isAudioType } from '../ai/voice/spoken.js';
+import { isProductActive } from '../billing/service.js';
 
 const OPT_OUT = new Set(['sair', 'parar', 'stop', 'descadastrar']);
+
+/** Texto ao cliente quando o áudio não pôde ser ouvido (a IA não responde "[audio]" às cegas). */
+export function audioFallbackText(code: string): string {
+  if (code === 'longo' || code === 'grande') return 'Seu áudio ficou um pouco longo para eu ouvir por aqui. Pode me mandar um áudio mais curto (até 2 minutos) ou escrever sua mensagem, por favor?';
+  if (code === 'inaudivel') return 'Não consegui entender bem o seu áudio. Pode repetir ou escrever sua mensagem, por favor?';
+  return 'Desculpe, não consegui ouvir seu áudio agora. Pode me escrever sua mensagem, por favor?';
+}
+
+/**
+ * v1.23.0: ouve (transcreve) o áudio do cliente com a IA da organização e grava a transcrição na mensagem.
+ * Nunca lança. Sem download possível ou com a transcrição desligada → { ok: false, code: 'desligada' }.
+ */
+async function transcribeInbound(orgId: string, conversationId: string, messageId: string, baixar?: BaixarMidia): Promise<TranscribeOutcome> {
+  if (!baixar) return { ok: false, code: 'desligada', reason: 'Sem mídia para baixar' };
+  const s = await prisma.aiSettings.findUnique({ where: { orgId }, select: { enabled: true, transcribeAudio: true } }).catch(() => null);
+  if (!s?.enabled || !s.transcribeAudio) return { ok: false, code: 'desligada', reason: 'Transcrição de áudio desligada' };
+  if (!(await isProductActive(orgId, 'MCKBOT').catch(() => false))) return { ok: false, code: 'desligada', reason: 'Assinatura inativa' };
+  let r: TranscribeOutcome;
+  try {
+    const midia = await baixar();
+    r = await transcribeAudio({ orgId, conversationId, audio: midia.dados, mime: midia.mime ?? 'audio/ogg', seconds: midia.segundos ?? null });
+  } catch (e) {
+    console.warn('[voz] falha ao baixar o áudio recebido', { orgId, conversationId, error: (e as Error).message });
+    r = { ok: false, code: 'falha', reason: 'Falha ao baixar o áudio' };
+  }
+  if (r.ok) await prisma.message.update({ where: { id: messageId }, data: { transcript: r.text } }).catch(() => undefined);
+  else if (r.code !== 'desligada') await prisma.message.create({ data: { orgId, conversationId, direction: 'INTERNAL', sender: 'system', type: 'note', body: `Áudio não transcrito: ${r.reason}.`, status: 'NOTE' } }).catch(() => undefined);
+  return r;
+}
 
 export interface InboundResult { received: number; duplicates: number; statuses: number; ignored: number }
 
@@ -41,7 +73,7 @@ export async function processWebhook(channel: Channel, body: unknown): Promise<I
   return result;
 }
 
-export type BaixarMidia = () => Promise<{ dados: Buffer; nome: string; mime?: string }>;
+export type BaixarMidia = () => Promise<{ dados: Buffer; nome: string; mime?: string; /** áudio: duração informada pelo WhatsApp */ segundos?: number }>;
 
 const EXT: Record<string, string> = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'application/pdf': 'pdf' };
 const nomeMidia = (type: string, mime?: string, nome?: string) => nome || `comprovante.${EXT[mime ?? ''] ?? (type === 'image' ? 'jpg' : 'pdf')}`;
@@ -148,6 +180,17 @@ export async function handleInboundMessage(channel: Channel, m: InboundMessage, 
       return 'ok' as const;
     }
 
+    // v1.23.0: áudio do cliente → transcrição pela IA; daqui em diante vale como se ele tivesse escrito o texto
+    // (opt-out, SDR, qualificação, fluxos e IA). Contato salvo na agenda do celular (sem resposta automática) não é transcrito.
+    let text = m.text ?? '';
+    let asText = m.type === 'text';
+    let audioFail: TranscribeOutcome | null = null;
+    if (isAudioType(m.type) && !skipAutoReply) {
+      const tr = await transcribeInbound(orgId, conv.id, message.id, baixar ?? baixarCloud(channel, m));
+      if (tr.ok) { text = tr.text; asText = true; message = { ...message, body: tr.text, transcript: tr.text }; }
+      else if (tr.code !== 'desligada') audioFail = tr;
+    }
+
     // MCK Mensagens: imagem/PDF de cliente com cobrança em aberto (ou que fala de pagamento) vira comprovante em análise.
     if (m.type === 'image' || m.type === 'document') {
       const dl = baixar ?? baixarCloud(channel, m);
@@ -161,7 +204,7 @@ export async function handleInboundMessage(channel: Channel, m: InboundMessage, 
     }
 
     // v1.21.0: além de SAIR/PARAR, frases como "não quero mais receber" quando o opt-out automático do SDR está ligado.
-    const isOptOut = OPT_OUT.has(normalize(m.text)) || (m.type === 'text' && isOptOutPhrase(m.text ?? '') && (await getIntelConfig(orgId).then((c) => c.optOutAuto).catch(() => false)));
+    const isOptOut = OPT_OUT.has(normalize(text)) || (asText && isOptOutPhrase(text) && (await getIntelConfig(orgId).then((c) => c.optOutAuto).catch(() => false)));
     if (!isOptOut) await onLeadInbound(orgId, contact);
     if (isOptOut) {
       await prisma.contact.update({ where: { id: contact.id }, data: { optOut: true } });
@@ -170,17 +213,27 @@ export async function handleInboundMessage(channel: Channel, m: InboundMessage, 
       return 'ok' as const;
     }
     // SDR com IA (segundo plano): captura quem chamou, para a cadência quando o lead responde e qualifica pela IA.
-    if (!contact.optOut) sdrOnInboundInBackground({ conv, contact, text: m.type === 'text' ? m.text ?? '' : '', isFirst, autoReplySkipped: skipAutoReply });
+    if (!contact.optOut) sdrOnInboundInBackground({ conv, contact, text: asText ? text : '', isFirst, autoReplySkipped: skipAutoReply });
     if (conv.mode === 'HUMAN' || contact.optOut || skipAutoReply) return 'ok' as const;
     // Cliente já em atendimento por outro WhatsApp da organização: não abre atendimento paralelo aqui.
     if (await redirectIfActiveElsewhere(conv, contact, channel, now)) return 'ok' as const;
     // "Quem responde automaticamente" deste canal: flows | ai | both (padrão, comportamento original).
     const mode = autoReplyModeOf(channel);
+    if (audioFail) {
+      // Áudio que a IA não conseguiu ouvir: com a IA respondendo neste canal, pede para o cliente escrever
+      // (em vez de responder "[audio]" às cegas). Sem IA automática, segue o caminho de sempre (fluxos).
+      const ai = await prisma.aiSettings.findUnique({ where: { orgId }, select: { enabled: true, autoReply: true } }).catch(() => null);
+      if (mode !== 'flows' && ai?.enabled && ai.autoReply && (await isProductActive(orgId, 'MCKBOT').catch(() => false))) {
+        await sendOutbound({ conversation: conv, contact, payload: { type: 'text', text: audioFallbackText(audioFail.code) }, sender: 'ai' }).catch(() => undefined);
+        return 'ok' as const;
+      }
+    }
+    const finalMessage = message;
     await withConversationLock(conv.id, async () => {
       // MCK Mensagens: lead abordado por campanha que respondeu → qualificação do SDR com IA (quando ligada).
       // No modo "Só fluxos" a IA não responde neste canal, então a qualificação também não roda.
-      if (mode !== 'flows' && m.type === 'text' && (await qualifyLeadInbound(conv!, contact!, m.text ?? ''))) return;
-      await automateInbound(conv!, contact!, message, { isFirst, replyId: m.replyId, mode });
+      if (mode !== 'flows' && asText && (await qualifyLeadInbound(conv!, contact!, text))) return;
+      await automateInbound(conv!, contact!, finalMessage, { isFirst, replyId: m.replyId, mode });
     });
     return 'ok' as const;
   });
@@ -195,7 +248,14 @@ export async function handleQrMessage(channelId: string, raw: WAMessage): Promis
   const channel = await prisma.channel.findUnique({ where: { id: channelId } });
   if (!channel) return 'ignored';
   await prisma.channel.update({ where: { id: channel.id }, data: { lastWebhookAt: new Date() } });
-  const baixar: BaixarMidia | undefined = m.type === 'image' || m.type === 'document'
+  const audio = normalizeMessageContent(raw.message)?.audioMessage ?? null;
+  const baixar: BaixarMidia | undefined = m.type === 'audio'
+    ? async () => {
+      const dados = await downloadMediaMessage(raw, 'buffer', {});
+      const segundos = Number(audio?.seconds ?? 0) || undefined;
+      return { dados: Buffer.from(dados), mime: audio?.mimetype ?? 'audio/ogg; codecs=opus', nome: 'audio.ogg', segundos };
+    }
+    : m.type === 'image' || m.type === 'document'
     ? async () => {
       const dados = await downloadMediaMessage(raw, 'buffer', {});
       const c = raw.message?.documentMessage ?? raw.message?.documentWithCaptionMessage?.message?.documentMessage ?? null;

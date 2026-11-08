@@ -13,8 +13,10 @@ export type OutboundPayload =
   | { type: 'template'; name: string; language: string }
   /** Arquivo em memória (anexos do MCK Mensagens): QR envia o buffer; a Cloud API faz upload e envia pelo id. */
   | { type: 'file'; data: Buffer; filename: string; mime: string; caption?: string }
-  /** Mídia já enviada à Meta (upload em /media). */
-  | { type: 'media_id'; kind: 'image' | 'document'; id: string; caption?: string; filename?: string };
+  /** Mídia já enviada à Meta (upload em /media). `voice`: áudio OGG/Opus mostrado como nota de voz. */
+  | { type: 'media_id'; kind: 'image' | 'document' | 'audio'; id: string; caption?: string; filename?: string; voice?: boolean }
+  /** v1.23.0: nota de voz gerada pela IA (OGG/Opus mono). `text` = o que foi falado (Inbox e histórico da IA). */
+  | { type: 'voice'; data: Buffer; mime: string; seconds: number; waveform?: Uint8Array; text: string };
 
 export const isImageMime = (mime: string) => /^image\/(jpeg|png|webp)$/.test(mime);
 
@@ -31,12 +33,14 @@ export function buildGraphBody(to: string, p: OutboundPayload): Record<string, u
     case 'template':
       return { ...base, type: 'template', template: { name: p.name, language: { code: p.language } } };
     case 'media_id': {
-      const media: Record<string, string> = { id: p.id };
-      if (p.caption) media.caption = p.caption;
+      const media: Record<string, string | boolean> = { id: p.id };
+      if (p.caption && p.kind !== 'audio') media.caption = p.caption;
       if (p.filename && p.kind === 'document') media.filename = p.filename;
+      if (p.kind === 'audio' && p.voice) media.voice = true;
       return { ...base, type: p.kind, [p.kind]: media };
     }
     case 'file':
+    case 'voice':
       throw new Error('Arquivo precisa ser enviado à Meta (upload) antes da mensagem');
     default: {
       const media: Record<string, string> = { link: p.link };

@@ -25,8 +25,9 @@ export function windowApplies(channel?: Pick<Channel, 'provider'> | null): boole
   return !isQrChannel(channel);
 }
 
-function describe(p: OutboundPayload, qr = false): { type: string; body: string | null; mediaUrl: string | null } {
+function describe(p: OutboundPayload, qr = false): { type: string; body: string | null; mediaUrl: string | null; transcript?: string } {
   switch (p.type) {
+    case 'voice': return { type: 'audio', body: p.text, mediaUrl: null, transcript: p.text };
     case 'text': return { type: 'text', body: p.text, mediaUrl: null };
     case 'buttons': return qr
       ? { type: 'text', body: numberedOptions(p.text, p.buttons), mediaUrl: null }
@@ -71,6 +72,7 @@ export async function sendOutbound(args: {
     data: {
       orgId: conversation.orgId, conversationId: conversation.id, channelId: channel?.id ?? null,
       direction: 'OUT', sender, type: d.type, body: d.body, mediaUrl: d.mediaUrl, status: 'QUEUED', authorUserId: args.authorUserId,
+      ...(d.transcript ? { transcript: d.transcript } : {}),
     },
   });
   const fail = async (error: string, attempts = 0) =>
@@ -90,7 +92,10 @@ export async function sendOutbound(args: {
     const creds = { phoneNumberId: channel.phoneNumberId, accessToken };
     const final: OutboundPayload = payload.type === 'file'
       ? { type: 'media_id', kind: isImageMime(payload.mime) ? 'image' : 'document', id: await uploadCloudMedia(creds, payload.data, payload.mime, payload.filename), caption: payload.caption, filename: payload.filename }
-      : payload;
+      : payload.type === 'voice'
+        // Nota de voz: upload do OGG/Opus como audio/ogg e envio com "voice": true (microfone, baixa sozinha).
+        ? { type: 'media_id', kind: 'audio', id: await uploadCloudMedia(creds, payload.data, 'audio/ogg', 'voz.ogg'), voice: true }
+        : payload;
     const r = await sendCloudMessage(creds, contact.waId, final);
     const now = new Date();
     const updated = await prisma.message.update({ where: { id: msg.id }, data: { status: 'SENT', waMessageId: r.waMessageId, attempts: r.attempts } });
