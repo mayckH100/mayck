@@ -1,10 +1,11 @@
 /** Pedidos de venda: lista por status e criação de orçamento com preço da tabela e faixa de volume. */
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { get, post } from '../../api';
-import { useApi, Async, Empty, Modal, Field, useAction, fmtDate } from '../../ui';
+import { useApi, Async, Empty, Modal, Field, useAction, useToast, fmtDate } from '../../ui';
 import ErpNav from '../ErpNav';
 import VendaBalcao from './Balcao';
+import { CaixaBanner, AbrirCaixaModal, CaixasHistorico, type EstadoCaixa } from './Caixa';
 import { brl, toCents, toMil, qtd, STATUS_PEDIDO } from '../format';
 
 export const GRUPOS: { label: string; status: string; origem?: 'balcao' }[] = [
@@ -29,9 +30,20 @@ export default function Pedidos({ balcao: abrirBalcao = false }: { balcao?: bool
   const [sp] = useSearchParams();
   const [grupo, setGrupo] = useState(abrirBalcao ? 'Vendas balcão' : 'Todos');
   const g = GRUPOS.find((x) => x.label === grupo) ?? GRUPOS[0];
-  const state = useApi<any[]>(urlPedidos(g), [grupo]);
+  const caixasAba = grupo === 'Caixas';
+  const state = useApi<any[]>(caixasAba ? null : urlPedidos(g), [grupo]);
   const [novo, setNovo] = useState(!!sp.get('parceiroId'));
-  const [balcao, setBalcao] = useState(abrirBalcao);
+  const caixa = useApi<EstadoCaixa>('/erp/vendas/caixa');
+  const toast = useToast();
+  const [sessaoEscolhida, setSessaoEscolhida] = useState<string | null>(null);
+  const abertas = caixa.data?.abertas ?? [];
+  const sessaoId = (sessaoEscolhida && abertas.some((s) => s.id === sessaoEscolhida) ? sessaoEscolhida : null) ?? caixa.data?.sessaoPadraoId ?? null;
+  // Venda balcão exige caixa aberto: sem caixa, o botão abre "Abrir caixa" primeiro.
+  const [balcao, setBalcao] = useState(false);
+  const [abrirCaixa, setAbrirCaixa] = useState<'venda' | 'so' | null>(null);
+  const iniciarVenda = () => { if (sessaoId) setBalcao(true); else if (abertas.length > 1) toast('Escolha na faixa acima em qual caixa a venda entra', 'err'); else setAbrirCaixa('venda'); };
+  const [autoAberto, setAutoAberto] = useState(false);
+  useEffect(() => { if (abrirBalcao && !autoAberto && caixa.data) { setAutoAberto(true); if (sessaoId) setBalcao(true); else if (!abertas.length) setAbrirCaixa('venda'); } }, [abrirBalcao, autoAberto, caixa.data, sessaoId, abertas.length]);
   const nav = useNavigate();
   return (
     <>
@@ -39,21 +51,24 @@ export default function Pedidos({ balcao: abrirBalcao = false }: { balcao?: bool
         <div><h1>{abrirBalcao ? 'Venda balcão (PDV)' : 'Pedidos de venda'}</h1><p className="muted">{abrirBalcao ? 'Venda na hora: baixa o estoque e já lança no caixa. As vendas feitas aparecem logo abaixo.' : 'Do orçamento à entrega: aprovação, reserva de estoque, separação por QR e faturamento.'}</p></div>
         <div className="row" style={{ gap: 6 }}>
           <button className="btn" onClick={() => setNovo(true)}>+ Orçamento</button>
-          <button className="btn primary" onClick={() => setBalcao(true)}>Venda balcão</button>
+          <button className="btn primary" onClick={iniciarVenda}>Venda balcão</button>
         </div>
       </div>
       <ErpNav />
-      <div className="row" style={{ marginBottom: 10, flexWrap: 'wrap' }}>{GRUPOS.map((x) => <button key={x.label} className={`btn sm ${grupo === x.label ? 'primary' : ''}`} onClick={() => setGrupo(x.label)}>{x.label}</button>)}</div>
-      <Async state={state}>{(d) => d.length === 0 ? <div className="card"><Empty title={g.origem ? 'Nenhuma venda balcão ainda' : 'Nenhum pedido aqui'}>{g.origem ? 'Clique em “Venda balcão” para vender na hora: a venda aparece aqui, em Todos e em Encerrados.' : 'Crie um orçamento para um cliente ou faça uma venda balcão.'}</Empty></div> : (
+      {(abrirBalcao || abertas.length > 0) && <CaixaBanner estado={caixa.data} sessaoId={sessaoId} onEscolher={setSessaoEscolhida} onAbrir={() => setAbrirCaixa('so')} onReload={caixa.reload} />}
+      <div className="row" style={{ marginBottom: 10, flexWrap: 'wrap' }}>{GRUPOS.map((x) => <button key={x.label} className={`btn sm ${grupo === x.label ? 'primary' : ''}`} onClick={() => setGrupo(x.label)}>{x.label}</button>)}
+        <button className={`btn sm ${caixasAba ? 'primary' : ''}`} onClick={() => setGrupo('Caixas')}>Caixas</button></div>
+      {caixasAba ? <CaixasHistorico /> : <Async state={state}>{(d) => d.length === 0 ? <div className="card"><Empty title={g.origem ? 'Nenhuma venda balcão ainda' : 'Nenhum pedido aqui'}>{g.origem ? 'Clique em “Venda balcão” para vender na hora: a venda aparece aqui, em Todos e em Encerrados.' : 'Crie um orçamento para um cliente ou faça uma venda balcão.'}</Empty></div> : (
         <div className="card table-wrap"><table>
           <thead><tr><th>Nº</th><th>Cliente</th><th>Status</th><th>Total</th><th>Criado</th><th></th></tr></thead>
           <tbody>{d.map((p) => (
             <tr key={p.id}><td><strong>{p.numero}</strong></td><td>{p.parceiro?.fantasia || p.parceiro?.nome}</td><td>{badgeStatus(p.statusOperacional)}{p.balcao && <span className="badge" style={{ marginLeft: 4 }}>Balcão</span>}</td><td>{brl(p.totalCents)}</td><td>{fmtDate(p.createdAt)}</td><td><button className="btn sm" onClick={() => nav(`/erp/pedidos/${p.id}`)}>Abrir</button></td></tr>
           ))}</tbody>
         </table></div>
-      )}</Async>
+      )}</Async>}
+      {abrirCaixa && <AbrirCaixaModal estado={caixa.data} onClose={() => setAbrirCaixa(null)} onOpened={(s) => { const venda = abrirCaixa === 'venda'; setAbrirCaixa(null); setSessaoEscolhida(s.id); caixa.reload(); if (venda) setBalcao(true); }} />}
       {novo && <NovoPedido parceiroId={sp.get('parceiroId')} oportunidadeId={sp.get('oportunidadeId')} onClose={() => setNovo(false)} onSaved={(p) => nav(`/erp/pedidos/${p.id}`)} />}
-      {balcao && <VendaBalcao onClose={() => setBalcao(false)} onDone={() => { setBalcao(false); if (grupo === 'Todos' || grupo === 'Vendas balcão' || grupo === 'Encerrados') state.reload(); else setGrupo('Vendas balcão'); }} />}
+      {balcao && sessaoId && <VendaBalcao caixaSessaoId={sessaoId} onClose={() => { setBalcao(false); caixa.reload(); }} onDone={() => { setBalcao(false); caixa.reload(); if (grupo === 'Todos' || grupo === 'Vendas balcão' || grupo === 'Encerrados') state.reload(); else setGrupo('Vendas balcão'); }} />}
     </>
   );
 }

@@ -1,4 +1,5 @@
-/** Venda balcão: leitor de código de barras ou busca, cliente opcional, pagamento na hora; baixa o estoque e já recebe. */
+/** Venda balcão: leitor de código de barras ou busca, cliente opcional, pagamento na hora; baixa o estoque e já recebe.
+ * Entra no caixa aberto (caixaSessaoId); dinheiro vai para a conta do caixa, Pix/cartão para a conta escolhida. */
 import { useRef, useState } from 'react';
 import { get, post } from '../../api';
 import { useApi, Modal, Field, useAction } from '../../ui';
@@ -8,7 +9,7 @@ import { BuscaParceiro } from '../comum';
 const FORMAS = [['DINHEIRO', 'Dinheiro'], ['PIX', 'Pix'], ['CARTAO', 'Cartão']] as const;
 const reais = (c: number) => (c / 100).toFixed(2).replace('.', ',');
 
-export default function VendaBalcao({ onClose, onDone }: { onClose: () => void; onDone: (p: any) => void }) {
+export default function VendaBalcao({ caixaSessaoId, onClose, onDone }: { caixaSessaoId: string; onClose: () => void; onDone: (p: any) => void }) {
   const contas = useApi<any[]>('/erp/vendas/balcao/contas');
   const [itens, setItens] = useState<{ produto: any; qtd: string; preco: string }[]>([]);
   const [busca, setBusca] = useState(''); const [ops, setOps] = useState<any[]>([]);
@@ -40,7 +41,7 @@ export default function VendaBalcao({ onClose, onDone }: { onClose: () => void; 
   const troco = forma === 'DINHEIRO' && recebido ? toCents(recebido) - total : 0;
 
   async function finalizar() {
-    const p = await run(() => post('/erp/vendas/balcao', { parceiroId: cliente?.id ?? null, nomeCliente: cliente ? null : nome || null, forma, contaId: contaId || contas.data?.[0]?.id || null, descontoCents: toCents(desconto), itens: itens.map((x) => ({ produtoId: x.produto.id, qtdMil: toMil(x.qtd), precoUnitCents: toCents(x.preco) })) }), 'Venda concluída');
+    const p = await run(() => post('/erp/vendas/balcao', { parceiroId: cliente?.id ?? null, nomeCliente: cliente ? null : nome || null, forma, caixaSessaoId, contaId: forma === 'DINHEIRO' ? null : contaId || contas.data?.[0]?.id || null, descontoCents: toCents(desconto), itens: itens.map((x) => ({ produtoId: x.produto.id, qtdMil: toMil(x.qtd), precoUnitCents: toCents(x.preco) })) }), 'Venda concluída');
     if (p) setFeito(p);
   }
 
@@ -79,7 +80,7 @@ export default function VendaBalcao({ onClose, onDone }: { onClose: () => void; 
       </div>
       <Field label="Pagamento"><div className="row" style={{ gap: 6 }}>{FORMAS.map(([v, r]) => <button key={v} type="button" className={`btn ${forma === v ? 'primary' : ''}`} onClick={() => setForma(v)}>{r}</button>)}</div></Field>
       <div className="grid g2">
-        {(contas.data?.length ?? 0) > 1 && <Field label="Receber na conta"><select value={contaId} onChange={(e) => setContaId(e.target.value)}>{contas.data!.map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}</select></Field>}
+        {forma !== 'DINHEIRO' && (contas.data?.length ?? 0) > 1 && <Field label="Receber na conta"><select value={contaId} onChange={(e) => setContaId(e.target.value)}>{contas.data!.map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}</select></Field>}
         {forma === 'DINHEIRO' && <Field label="Valor recebido (R$)" hint={troco > 0 ? `Troco: ${brl(troco)}` : undefined}><input value={recebido} onChange={(e) => setRecebido(e.target.value)} inputMode="decimal" placeholder={reais(total)} /></Field>}
       </div>
       <div className="row between" style={{ marginTop: 10 }}>
