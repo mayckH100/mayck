@@ -219,6 +219,8 @@ export class FakeProvider implements AiProvider {
     const system = messages.find((m) => m.role === 'system')?.content ?? '';
     if (/falhar/i.test(user)) throw new Error('Falha simulada do provedor');
     if (/inventar/i.test(user)) return { text: 'Custa apenas R$ 9,99 hoje!', promptTokens: 10, completionTokens: 5 };
+    // Voz (testes): reescrita em estilo falado devolve o próprio texto.
+    if (system.startsWith('Você reescreve respostas de atendimento')) return { text: user, promptTokens: 10, completionTokens: 10 };
     // SDR com IA (testes): extração das respostas por palavras da conversa.
     if (system.startsWith('Você analisa uma conversa de WhatsApp')) {
       const t = user.toLowerCase();

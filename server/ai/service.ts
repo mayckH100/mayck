@@ -203,7 +203,7 @@ async function generateAiReplyInner(args: { orgId: string; conversationId: strin
   const messages: ChatMessage[] = [
     { role: 'system', content: buildSystemPrompt({ instructions: [s.instructions, args.extraInstructions, agenda, pedidos, prod.rules, site, kanban, sdr].filter(Boolean).join('\n'), tone: s.tone }, context, contactNotes) },
     // Links da agenda/Meet já enviados saem do histórico: a IA não deve copiá-los numa nova resposta.
-    ...history.reverse().slice(0, -1).map((m) => ({ role: (m.direction === 'IN' ? 'user' : 'assistant') as 'user' | 'assistant', content: m.direction === 'IN' ? m.body ?? '' : stripSystemLinks(m.body ?? '') })),
+    ...history.reverse().slice(0, -1).map((m) => ({ role: (m.direction === 'IN' ? 'user' : 'assistant') as 'user' | 'assistant', content: m.direction === 'IN' ? m.transcript ?? m.body ?? '' : stripSystemLinks(m.body ?? '') })),
     { role: 'user', content: text },
   ];
 
