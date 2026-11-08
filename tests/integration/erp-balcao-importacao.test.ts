@@ -10,6 +10,8 @@ describe('ERP · venda balcão e planilhas', () => {
     const end = (await owner.post('/api/erp/estoque/depositos', { nome: 'Loja', enderecos: ['B-01'] })).body.enderecos[0].id;
     prodId = (await owner.post('/api/erp/produtos', { sku: 'BAL-1', nome: 'Balcão', precoBaseCents: 1500 })).body.id;
     await owner.post('/api/erp/estoque/entrada', { produtoId: prodId, enderecoId: end, qtdMil: 5_000, custoUnitCents: 700 });
+    // Venda balcão exige caixa aberto (v1.25): abre com R$ 0 de troco.
+    expect((await owner.post('/api/erp/vendas/caixa/abrir', { valorAberturaCents: 0 })).status).toBe(201);
   });
 
   it('venda balcão: entrega, baixa estoque e liquida', async () => {
@@ -79,6 +81,7 @@ describe('ERP · custo da NF-e protegido por senha', () => {
     const p = (await c.post('/api/erp/produtos', { sku: 'XML-1', nome: 'Da nota', precoBaseCents: 2000, custoMedioCents: 500 })).body;
     await c.post('/api/erp/estoque/entrada', { produtoId: p.id, enderecoId: end, qtdMil: 2_000, custoUnitCents: 500 });
     await prisma.erpMovimento.updateMany({ where: { produtoId: p.id }, data: { docTipo: 'nfe_entrada' } });
+    expect((await c.post('/api/erp/vendas/caixa/abrir', { valorAberturaCents: 0 })).status).toBe(201);
     const base = { sku: 'XML-1', nome: 'Da nota', precoBaseCents: 2000 };
     expect((await c.put(`/api/erp/produtos/${p.id}`, { ...base, custoMedioCents: 900 })).status).toBe(403);
     expect((await c.put(`/api/erp/produtos/${p.id}`, { ...base, custoMedioCents: 900, senhaCusto: 'errada' })).status).toBe(403);
@@ -102,6 +105,7 @@ describe('ERP · relatório do dia e áreas de acesso', () => {
     const end = (await c.post('/api/erp/estoque/depositos', { nome: 'D', enderecos: ['A'] })).body.enderecos[0].id;
     const p = (await c.post('/api/erp/produtos', { sku: 'REL-1', nome: 'Rel', precoBaseCents: 1000, custoMedioCents: 400 })).body;
     await c.post('/api/erp/estoque/entrada', { produtoId: p.id, enderecoId: end, qtdMil: 3_000, custoUnitCents: 400 });
+    expect((await c.post('/api/erp/vendas/caixa/abrir', { valorAberturaCents: 0 })).status).toBe(201);
     await c.post('/api/erp/vendas/balcao', { forma: 'DINHEIRO', itens: [{ produtoId: p.id, qtdMil: 1_000 }] });
     await c.put(`/api/erp/produtos/${p.id}`, { sku: 'REL-1', nome: 'Rel', precoBaseCents: 1000, custoMedioCents: 450 });
     const r = (await c.get('/api/erp/relatorios/dia')).body;
