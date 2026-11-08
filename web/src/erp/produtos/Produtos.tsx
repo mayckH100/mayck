@@ -3,7 +3,6 @@ import { useState } from 'react';
 import { post, put } from '../../api';
 import { useAuth } from '../../auth';
 import { useApi, Async, Empty, Modal, Field, useAction } from '../../ui';
-import ErpNav from '../ErpNav';
 import ImportarExportar from '../ImportarExportar';
 import { brl, qtd, toCents, fromCents, toMil } from '../format';
 
@@ -24,7 +23,6 @@ export default function Produtos() {
           <button className="btn primary" onClick={() => setEdit({})}>+ Produto</button>
         </div>
       </div>
-      <ErpNav />
       <Async state={state}>{(d) => d.items.length === 0 ? <div className="card"><Empty title="Nenhum produto ainda">Cadastre o primeiro produto para começar a vender e controlar estoque.</Empty></div> : (
         <div className="card table-wrap"><table>
           <thead><tr><th>SKU</th><th>Produto</th><th>Preço</th><th>Disponível</th><th>Reservado</th><th>Custo total</th><th></th></tr></thead>
