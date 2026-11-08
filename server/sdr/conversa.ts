@@ -145,3 +145,105 @@ export function extrairPlano(text: string): { plano: Plano | null; texto: string
   const texto = text.replace(/\[\s*PLANO\s*:?[^\]]*\]\s*/gi, '').replace(/^\s*PLANO\s*:[^\n]*\n/i, '').trim();
   return { plano, texto };
 }
+
+// ---------- 4) Guardrails com autoverificação ----------
+export type Problema = 'longa' | 'perguntas' | 'robo' | 'valor_fora' | 'dado_sensivel' | 'provedor';
+export const MAX_CHARS = 500;
+/** Texto quando a IA não tem a informação nas Instruções (nunca inventa). */
+export const TEXTO_ESPECIALISTA = 'Essa informação eu prefiro confirmar com o especialista para não te passar nada errado. Já te retorno por aqui.';
+/** Mensagem de erro para a empresa (nunca o nome do provedor). */
+export const MCK_IA_INDISPONIVEL = 'MCK IA indisponível no momento';
+
+export function guardrailLines(): string[] {
+  return [
+    'REGRAS DE SEGURANÇA (obrigatórias):',
+    '- Preços, valores, coberturas, condições e prazos: só os que estão nas Instruções da empresa ou no CONTEXTO, exatamente iguais. Se não estiver lá, NÃO invente: diga que confirma com o especialista.',
+    '- Nunca peça nem repita CPF, cartão, senha ou dados de outras pessoas. Nunca diga qual tecnologia, empresa de IA ou modelo você usa.',
+  ];
+}
+
+/** Número de um texto ("1.234,56", "89,90", "89.9", "2") → valor; null se não for número. */
+function num(tok: string): number | null {
+  let t = tok.trim().replace(/[.,]$/, '');
+  if (/^\d{1,3}(\.\d{3})+(,\d+)?$/.test(t)) t = t.replace(/\./g, '').replace(',', '.');
+  else t = t.replace(',', '.');
+  const v = Number(t);
+  return Number.isFinite(v) ? Math.round(v * 100) / 100 : null;
+}
+/** Valores (R$, reais, %) e prazos (dias, horas, semanas, meses, anos) citados num texto. */
+function valoresDe(text: string): RegExpMatchArray[] {
+  return [
+    ...text.matchAll(/R\$\s?(\d[\d.,]*)/gi),
+    ...text.matchAll(/(\d[\d.,]*)\s?(?:reais)(?!\p{L})/giu),
+    ...text.matchAll(/(\d[\d.,]*)\s?%/g),
+    ...text.matchAll(/(\d+)\s?(?:dias?|horas?|semanas?|meses|mês|anos?)(?!\p{L})/giu),
+  ];
+}
+const digits = (s: string) => s.replace(/\D/g, '');
+
+const PROVEDORES = /(?<!\p{L})(gemini|openai|open ai|chatgpt|gpt-?[0-9o]|claude|anthropic|llama|deepseek|groq|mistral)(?!\p{L})/giu;
+
+/**
+ * Checagem final da resposta (local, sem custo): tamanho, uma pergunta só, frases de robô, valores/prazos fora das
+ * fontes (Instruções + CONTEXTO + conversa), dados sensíveis e nome de provedor de IA.
+ */
+export function verificarResposta(text: string, o: { fontes: string }): { problemas: Problema[]; detalhes: string[] } {
+  const problemas = new Set<Problema>();
+  const detalhes: string[] = [];
+  if (text.length > MAX_CHARS) { problemas.add('longa'); detalhes.push(`resposta com ${text.length} caracteres (máximo ${MAX_CHARS})`); }
+  const q = (text.match(/\?+/g) ?? []).length;
+  if (q > 1) { problemas.add('perguntas'); detalhes.push(`${q} perguntas na mesma mensagem`); }
+  const robo = frasesDeRobo(text);
+  if (robo.length) { problemas.add('robo'); detalhes.push(`frase de robô: "${robo[0]}"`); }
+  // Só conta como fonte um número que aparece nas fontes também como valor, percentual ou prazo (ou com centavos).
+  const fontesNums = new Set<number>([...valoresDe(o.fontes).map((m) => num(m[1])), ...[...o.fontes.matchAll(/\d[\d.]*,\d{2}(?!\d)/g)].map((m) => num(m[0]))].filter((v): v is number => v !== null));
+  const valores = valoresDe(text);
+  for (const m of valores) {
+    const v = num(m[1]);
+    if (v !== null && !fontesNums.has(v)) { problemas.add('valor_fora'); detalhes.push(`"${m[0].trim()}" não está nas Instruções nem no CONTEXTO`); }
+  }
+  const fd = digits(o.fontes);
+  const sens: [RegExp, string][] = [
+    [/(?<!\d)\d{3}\.?\d{3}\.?\d{3}-?\d{2}(?!\d)/g, 'CPF'],
+    [/(?<!\d)(?:\d[ -]?){13,19}(?!\d)/g, 'número de cartão'],
+    [/(?:sk-[A-Za-z0-9_-]{12,}|AIza[0-9A-Za-z_-]{20,}|xox[bp]-[A-Za-z0-9-]{10,})/g, 'chave secreta'],
+  ];
+  for (const [re, label] of sens) for (const m of text.matchAll(re)) {
+    if (label === 'chave secreta' || !fd.includes(digits(m[0]))) { problemas.add('dado_sensivel'); detalhes.push(`${label} na resposta`); }
+  }
+  for (const m of text.matchAll(/[\w.+-]+@[\w-]+\.[\w.]+/g)) if (!o.fontes.toLowerCase().includes(m[0].toLowerCase())) { problemas.add('dado_sensivel'); detalhes.push('e-mail que não está nas fontes'); }
+  for (const m of text.matchAll(/(?:\+?55\s?)?\(?\d{2}\)?\s?9?\d{4}[-\s]?\d{4}(?!\d)/g)) {
+    const d = digits(m[0]);
+    if (d.length >= 10 && !fd.includes(d.slice(-8))) { problemas.add('dado_sensivel'); detalhes.push('telefone que não está nas fontes'); }
+  }
+  for (const m of text.matchAll(PROVEDORES)) if (!new RegExp(`(?<!\\p{L})${m[1]}(?!\\p{L})`, 'iu').test(o.fontes)) { problemas.add('provedor'); detalhes.push('nome de provedor de IA'); }
+  return { problemas: [...problemas], detalhes: [...new Set(detalhes)] };
+}
+
+/** Problemas que tornam a resposta insegura (não dá para consertar cortando texto). */
+export const GRAVES: Problema[] = ['valor_fora', 'dado_sensivel', 'provedor'];
+
+/** Instrução para a (única) nova tentativa. */
+export function criticaPara(v: { detalhes: string[] }): string {
+  return [
+    '### REVISÃO DA SUA RESPOSTA ANTERIOR (interno)',
+    'A resposta anterior não pode ser enviada. Problemas:',
+    ...v.detalhes.map((d) => `- ${d}`),
+    'Escreva de novo a mensagem para o lead corrigindo TODOS os problemas: curta, no máximo uma pergunta, sem frases de robô, sem dados sensíveis, e só com valores, coberturas e prazos que estão nas Instruções/CONTEXTO (se não estiverem, diga que confirma com o especialista).',
+    'Mantenha o plano na primeira linha: [PLANO: intencao=...; objetivo=...]',
+  ].join('\n');
+}
+
+/** Ajuste sem IA para problemas leves: corta perguntas extras e o excesso de tamanho (por frases). */
+export function ajusteMecanico(text: string): string {
+  let t = text.trim();
+  const qi = t.indexOf('?');
+  if (qi >= 0 && t.slice(qi + 1).includes('?')) t = t.slice(0, qi + 1).trim();
+  if (t.length > MAX_CHARS) {
+    const frases = t.match(/[^.!?\n]+[.!?]*\s*/g) ?? [t];
+    let acc = '';
+    for (const f of frases) { if ((acc + f).length > MAX_CHARS) break; acc += f; }
+    t = (acc || t.slice(0, MAX_CHARS - 1) + '…').trim();
+  }
+  return t;
+}

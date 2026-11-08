@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { contextoLines, empresaUsaEmoji, polirResposta, frasesDeRobo, extrairPlano, objetivoSugerido, planejamentoLines } from '../../server/sdr/conversa.js';
+import { contextoLines, empresaUsaEmoji, polirResposta, frasesDeRobo, extrairPlano, objetivoSugerido, planejamentoLines, verificarResposta, ajusteMecanico } from '../../server/sdr/conversa.js';
 
 /** v1.26.0: IA conversacional avançada — funções puras (dados fictícios). */
 describe('IA conversacional avançada (puro)', () => {
@@ -32,5 +32,19 @@ describe('IA conversacional avançada (puro)', () => {
     expect(objetivoSugerido({ ...base, temperatura: 'QUENTE' }, 'OUTRO')).toBe('AGENDAR');
     expect(objetivoSugerido(null, 'OUTRO')).toBe('RESPONDER');
     expect(planejamentoLines({ metodo: 'SPIN', sugerido: 'QUALIFICAR', handoff: false }).join('\n')).toMatch(/SPIN: situação[\s\S]*Não use PASSAR_VENDEDOR/);
+  });
+
+  it('checagem final: valores/prazos fora das fontes, dados sensíveis, provedor, tamanho e perguntas', () => {
+    const fontes = 'Plano Básico R$ 89,90 por mês. Vistoria em até 2 dias úteis. Desconto de 10% no anual. Contato: (11) 3000-1234.';
+    expect(verificarResposta('O Básico sai R$ 89,90 e a vistoria leva 2 dias. No anual tem 10%.', { fontes }).problemas).toEqual([]);
+    expect(verificarResposta('Sai R$ 79,90 com entrega em 5 dias.', { fontes }).problemas).toEqual(['valor_fora']);
+    expect(verificarResposta('Me passa seu CPF 123.456.789-09?', { fontes }).problemas).toContain('dado_sensivel');
+    expect(verificarResposta('Fale com o Pedro: pedro@exemplo.com', { fontes }).problemas).toContain('dado_sensivel');
+    expect(verificarResposta('Ligue (11) 3000-1234.', { fontes }).problemas).toEqual([]);
+    expect(verificarResposta('Eu uso o Gemini para responder.', { fontes }).problemas).toEqual(['provedor']);
+    expect(verificarResposta('Quer o básico? Ou o completo?', { fontes }).problemas).toEqual(['perguntas']);
+    expect(verificarResposta('a'.repeat(600), { fontes }).problemas).toEqual(['longa']);
+    expect(ajusteMecanico('Temos dois planos. Quer o básico? Ou o completo?')).toBe('Temos dois planos. Quer o básico?');
+    expect(ajusteMecanico('Frase curta. '.repeat(60)).length).toBeLessThanOrEqual(500);
   });
 });

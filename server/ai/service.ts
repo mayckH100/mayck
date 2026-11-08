@@ -17,7 +17,7 @@ import { agendaPromptSection, applyAgendaTag, cleanAiText, stripJsonMarkers, str
 import { productsPromptSection } from './products.js';
 import { productContextFor } from './productSource.js';
 import { sdrPromptSection, sdrForcesBooking } from '../sdr/ai.js';
-import { conversaAvancadaFor, conversaPromptSection, estiloFinal, HISTORICO_AVANCADO } from '../sdr/conversaService.js';
+import { conversaAvancadaFor, conversaPromptSection, estiloFinal, revisarResposta, cotaPermiteExtra, registrarTarefaEspecialista, erroAutoverificacao, HISTORICO_AVANCADO } from '../sdr/conversaService.js';
 import { extrairPlano, type Plano } from '../sdr/conversa.js';
 import { applyOrderTag, intentFromText, ordersPromptSection, tagConversation } from '../agenda/orders.js';
 import { notAutoReply } from '../sdr/autoReply.js';
@@ -312,6 +312,34 @@ async function generateAiReplyInner(args: { orgId: string; conversationId: strin
       if (s.kanbanAuto || /\[ETAPA:/i.test(booked.text)) booked = { ...booked, text: await applyKanbanTag(orgId, conversationId, booked.text, s.kanbanAuto).catch(() => booked.text.replace(/\[ETAPA:[^\]]*\]/gi, '').trim()) };
       let out = stripVoiceMarkers(booked.text || cleanAiText(raw));
       if (adv && out) out = estiloFinal(adv, out, [...history].reverse()); // v1.26.0: estilo WhatsApp (sem custo)
+      // v1.26.0: checagem final (parte 4). Nova tentativa só se não houve agendamento/pedido nesta resposta (as ações já
+      // foram feitas) e se a cota permitir; no máximo 1 chamada extra.
+      if (adv && out) {
+        const newest = [...history].reverse();
+        const fontes = messages.map((m) => m.content).join('\n');
+        const acted = !!booked.appointmentId || raw !== noOrder;
+        const rv = await revisarResposta(adv, {
+          texto: out, plano, fontes, historyNewestFirst: newest,
+          podeExtra: !acted && (await cotaPermiteExtra(orgId, s, today)),
+          regenerar: async (critica) => {
+            const t0 = Date.now();
+            try {
+              const p2 = createProvider(s.provider, apiKey, s.baseUrl);
+              const msgs2: ChatMessage[] = [{ ...messages[0], content: `${messages[0].content}\n${critica}` }, ...messages.slice(1)];
+              const tm = Math.min(aiTimeoutMs(), Math.max(3000, budget - (Date.now() - started)));
+              const r2: ChatResult = await withTimeout(p2.chat(msgs2, { model, temperature: s.temperature, maxTokens: s.maxTokens, timeoutMs: tm }), tm + 500, () => new AiProviderError('timeout', 'Autoverificação sem resposta', true));
+              await prisma.aiUsage.create({ data: { orgId, conversationId, provider: s.provider, model: usedModel, promptTokens: r2.promptTokens, completionTokens: r2.completionTokens, latencyMs: Date.now() - t0, success: true } }).catch(() => undefined);
+              return r2.text ? stripVoiceMarkers(cleanAiText(stripJsonMarkers(r2.text, 'PEDIDO')).replace(/\[(AGENDAR|ETAPA|TIPO)[^\]]*\]/gi, '').trim()) : null;
+            } catch (e) {
+              await prisma.aiUsage.create({ data: { orgId, conversationId: conversationId || null, provider: s.provider, model: s.model, success: false, error: erroAutoverificacao(s.provider, e), latencyMs: Date.now() - t0 } }).catch(() => undefined);
+              return null;
+            }
+          },
+        });
+        out = rv.texto;
+        plano = rv.plano;
+        if (rv.especialista) await registrarTarefaEspecialista(adv, text, rv.problemas);
+      }
       if (!out) {
         console.warn('[ia] resposta sem texto útil: texto de falha enviado, sem transferir', { orgId, conversationId: conversationId || null });
         return { text: fail, handoff: false, failed: true, reason: 'IA não soube responder', usedContext };

@@ -5,7 +5,9 @@ import { getIntelConfig, questionsFor, type IntelConfig } from './intelConfig.js
 import { leadEmpresa } from './cnpj.js';
 import { STAGE_LABEL, type Answers, type Stage } from './core.js';
 import type { Metodo } from './intel.js';
-import { contextoLines, empresaUsaEmoji, estiloLines, polirResposta, objetivoSugerido, planejamentoLines, type LeadContexto } from './conversa.js';
+import { contextoLines, empresaUsaEmoji, estiloLines, polirResposta, objetivoSugerido, planejamentoLines, guardrailLines, verificarResposta, criticaPara, ajusteMecanico, extrairPlano, GRAVES, TEXTO_ESPECIALISTA, MCK_IA_INDISPONIVEL, type LeadContexto, type Plano, type Problema } from './conversa.js';
+import { mckQuotaStatus } from '../ai/mckQuota.js';
+import { logEvent } from './service.js';
 import { detectIntent } from './intel.js';
 
 /**
@@ -75,7 +77,7 @@ export async function conversaAvancadaFor(orgId: string, conversationId: string,
 /** Trecho do prompt da IA conversacional avançada (vai junto das Instruções da empresa). */
 export function conversaPromptSection(c: ConversaCtx, textoLead = ''): string {
   const sugerido = objetivoSugerido(c.contexto, detectIntent(textoLead).intencao);
-  return ['### IA CONVERSACIONAL AVANÇADA', ...contextoLines(c.contexto), ...estiloLines({ usaEmoji: c.usaEmoji }), ...planejamentoLines({ metodo: c.metodo, sugerido, handoff: c.cfg.handoff }), '### FIM DA IA CONVERSACIONAL'].join('\n');
+  return ['### IA CONVERSACIONAL AVANÇADA', ...contextoLines(c.contexto), ...estiloLines({ usaEmoji: c.usaEmoji }), ...planejamentoLines({ metodo: c.metodo, sugerido, handoff: c.cfg.handoff }), ...guardrailLines(), '### FIM DA IA CONVERSACIONAL'].join('\n');
 }
 
 /** A IA chamou o lead pelo nome nas últimas 3 respostas? (para não repetir o nome em toda mensagem) */
@@ -89,3 +91,62 @@ export function nomeUsadoRecente(nome: string | null | undefined, history: { dir
 export function estiloFinal(c: ConversaCtx, text: string, historyNewestFirst: { direction: string; body: string | null }[]): string {
   return polirResposta(text, { usaEmoji: c.usaEmoji, nome: c.contexto?.nome, nomeRecente: nomeUsadoRecente(c.contexto?.nome, historyNewestFirst) });
 }
+
+/**
+ * Cabe a chamada extra da autoverificação? (no máximo 1 por resposta). Pula quando a cota está no fim: MCK IA com
+ * menos de 10% (ou 5 respostas) restantes no dia, ou o limite diário da própria empresa a 1 resposta do fim.
+ */
+export async function cotaPermiteExtra(orgId: string, s: { provider: string; dailyLimit: number }, usadasHoje: number): Promise<boolean> {
+  try {
+    if (usadasHoje + 2 > s.dailyLimit) return false;
+    if (s.provider === 'mck') {
+      const q = await mckQuotaStatus(orgId);
+      if (q.reached) return false;
+      if (q.remaining !== null && (q.remaining <= 5 || (q.limit > 0 && q.remaining / q.limit < 0.1))) return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export interface Revisao { texto: string; plano: Plano | null; problemas: Problema[]; tentou: boolean; especialista: boolean }
+
+/**
+ * Parte 4: checagem final antes de enviar. Problema → (se ligado e houver cota) UMA nova tentativa com a crítica;
+ * ainda grave (valor/prazo fora das Instruções, dado sensível, provedor) → texto do especialista; leve → ajuste local.
+ * `regenerar` devolve o texto bruto da nova tentativa (ou null em falha). Nunca lança.
+ */
+export async function revisarResposta(c: ConversaCtx, a: { texto: string; plano: Plano | null; fontes: string; podeExtra: boolean; historyNewestFirst: { direction: string; body: string | null }[]; regenerar: (critica: string) => Promise<string | null> }): Promise<Revisao> {
+  let texto = a.texto;
+  let plano = a.plano;
+  let v = verificarResposta(texto, { fontes: a.fontes });
+  let tentou = false;
+  if (v.problemas.length && c.cfg.autoverificacao && a.podeExtra) {
+    tentou = true;
+    const raw = await a.regenerar(criticaPara(v)).catch(() => null);
+    if (raw) {
+      const ex = extrairPlano(raw);
+      const t2 = estiloFinal(c, ex.texto, a.historyNewestFirst);
+      const v2 = verificarResposta(t2, { fontes: a.fontes });
+      if (t2 && v2.problemas.length <= v.problemas.length) { texto = t2; v = v2; plano = ex.plano ?? plano; }
+    }
+  }
+  const graves = v.problemas.filter((p) => GRAVES.includes(p));
+  if (graves.length) {
+    console.warn('[ia-conversa] resposta barrada na checagem final', { orgId: c.orgId, conversationId: c.conversationId || null, problemas: v.problemas, tentou });
+    return { texto: TEXTO_ESPECIALISTA, plano, problemas: v.problemas, tentou, especialista: true };
+  }
+  return { texto: v.problemas.length ? ajusteMecanico(texto) : texto, plano, problemas: v.problemas, tentou, especialista: false };
+}
+
+/** Tarefa para a equipe quando a IA disse que confirma com o especialista (nota no Inbox + histórico do lead). */
+export async function registrarTarefaEspecialista(c: ConversaCtx, textoLead: string, motivo: Problema[]): Promise<void> {
+  if (!c.conversationId) return;
+  const body = `Tarefa para a equipe: a IA disse ao lead que confirma com o especialista (a resposta não estava nas Instruções; ${motivo.join(', ')}). Pergunta do lead: "${textoLead.slice(0, 300)}"`;
+  await prisma.message.create({ data: { orgId: c.orgId, conversationId: c.conversationId, direction: 'INTERNAL', sender: 'system', type: 'note', body, status: 'NOTE' } }).catch(() => undefined);
+  if (c.sdrLeadId) await logEvent(c.orgId, c.sdrLeadId, 'TAREFA', 'WHATSAPP', `Confirmar com o especialista: ${textoLead.slice(0, 200)}`);
+}
+
+/** Erro da nova tentativa visto pela empresa: nunca o nome do provedor. */
+export const erroAutoverificacao = (provider: string, e: unknown) => (provider === 'mck' ? MCK_IA_INDISPONIVEL : `Autoverificação: ${(e as Error)?.message ?? 'falha'}`.slice(0, 300));

@@ -94,4 +94,31 @@ describe('IA conversacional avançada', () => {
     expect(sys).toMatch(/Objetivo sugerido pelo estado do lead: QUALIFICAR\. Método: BANT/);
     await a.put('/api/sdr/inteligencia', { metodo: 'PADRAO' });
   });
+
+  it('4) guardrails: valor inventado → 1 nova tentativa; persistiu → "confirmo com o especialista" + tarefa; sem cota, não tenta de novo', async () => {
+    const { conv, lead } = await leadComConversa();
+    // Nova tentativa corrige.
+    fakeAi.script = ['[PLANO: intencao=preco; objetivo=QUALIFICAR]\nSai R$ 59,90 por mês.', '[PLANO: intencao=preco; objetivo=QUALIFICAR]\nComeça em R$ 89,90 por mês. É para quantos funcionários?'];
+    const r1 = await generateAiReply({ orgId: orgA(), conversationId: conv.id, text: 'quanto fica?' });
+    expect(r1.text).toBe('Começa em R$ 89,90 por mês. É para quantos funcionários?');
+    expect(fakeAi.calls).toHaveLength(2);
+    expect(systemOf(fakeAi.calls[1])).toContain('"R$ 59,90" não está nas Instruções');
+    // Insistiu no erro: nunca envia o valor inventado.
+    fakeAi.calls = [];
+    fakeAi.script = ['A cobertura de enchente sai R$ 15 a mais.', 'Enchente custa R$ 15 a mais.'];
+    const r2 = await generateAiReply({ orgId: orgA(), conversationId: conv.id, text: 'cobre enchente?' });
+    expect(r2.text).toMatch(/confirmar com o especialista/);
+    expect(r2.text).not.toContain('R$ 15');
+    expect(fakeAi.calls).toHaveLength(2);
+    expect((await prisma.message.findFirstOrThrow({ where: { conversationId: conv.id, direction: 'INTERNAL' }, orderBy: { createdAt: 'desc' } })).body).toContain('Tarefa para a equipe');
+    expect(await prisma.sdrEvent.findFirst({ where: { leadId: lead.id, type: 'TAREFA' } })).toBeTruthy();
+    // Cota no fim: sem chamada extra (só a checagem local).
+    await a.put('/api/ai/settings', { dailyLimit: (await prisma.aiUsage.count({ where: { orgId: orgA() } })) + 1 });
+    fakeAi.calls = [];
+    fakeAi.script = ['Sai R$ 59,90.'];
+    const r3 = await generateAiReply({ orgId: orgA(), conversationId: conv.id, text: 'e o valor?' });
+    expect(fakeAi.calls).toHaveLength(1);
+    expect(r3.text).toMatch(/especialista/);
+    await a.put('/api/ai/settings', { dailyLimit: 1000 });
+  });
 });
