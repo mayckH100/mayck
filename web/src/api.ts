@@ -79,3 +79,27 @@ export async function upload<T = any>(path: string, file: File | Blob, name?: st
   }
   return data as T;
 }
+
+/** POST que devolve um arquivo (ex.: prévia da voz da IA em audio/ogg). Erros chegam como JSON { error }. */
+export async function postBlob(path: string, body: unknown, o: { timeoutMs?: number } = {}): Promise<Blob> {
+  const ctrl = o.timeoutMs ? new AbortController() : null;
+  const timer = ctrl ? setTimeout(() => ctrl.abort(), o.timeoutMs) : null;
+  let res: Response;
+  try {
+    res = await fetch('/api' + path, {
+      method: 'POST', credentials: 'same-origin', body: JSON.stringify(body ?? {}), signal: ctrl?.signal,
+      headers: { 'x-requested-with': 'mckbot', ...(csrfToken ? { 'x-csrf-token': csrfToken } : {}), 'content-type': 'application/json' },
+    });
+  } catch {
+    if (ctrl?.signal.aborted) throw new ApiError('O servidor demorou demais para gerar o áudio. Tente de novo.', 0);
+    throw new ApiError('Sem conexão com o servidor. Verifique sua internet.', 0);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+  if (!res.ok) {
+    const data = await res.json().catch(() => null);
+    if (res.status === 402) window.dispatchEvent(new CustomEvent('mck:payment-required', { detail: data?.error ?? null }));
+    throw new ApiError(data?.error ?? FRIENDLY[res.status] ?? `Erro ${res.status}`, res.status, data?.details);
+  }
+  return res.blob();
+}
