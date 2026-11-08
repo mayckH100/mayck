@@ -6,10 +6,11 @@ import { audit } from '../lib/audit.js';
 import { maskSecret } from '../lib/crypto.js';
 import { checkMpCredential } from '../billing/mercadopago.js';
 import {
-  PRODUCTS, PLAN_PRODUCTS, CYCLES, type Product, type SubStatus,
+  PRODUCTS, PLAN_PRODUCTS, CYCLES, type Product, type PlanProduct, type SubStatus, SettingsError,
   effectiveStatus, getSettings, getSubscription, getWebhookSecret, updateSettings,
   renew, block, unblock, activateManual, setValidUntil,
 } from '../billing/service.js';
+import { PLAN_MODULES, planApps, type PlanCatalog } from '../billing/planCatalog.js';
 import { COUPON_CYCLES, COUPON_PRODUCTS, CODE_RE, MIN_FINAL_CENTS, normalizeCode } from '../billing/coupons.js';
 import { DEFAULT_SITE, getSiteSettings, updateSiteSettings } from '../lib/site-settings.js';
 import { backupDestinations, backupFileName, createBackupFile, runBackup } from '../lib/backup.js';
@@ -319,25 +320,65 @@ masterRouter.get('/activity', ah(async (req, res) => {
 }));
 
 // ---------- Configurações ----------
+/**
+ * v1.25.0 — Assinantes de cada plano hoje (pelas assinaturas, conforme os módulos do plano): pagantes = todos os
+ * apps do plano ATIVA; emTeste = todos ativos com algum em teste. Usado no aviso ao tirar o MCK ERP de um plano.
+ */
+async function planSubscriberStats(plans: PlanCatalog) {
+  const subs = await prisma.subscription.findMany({ select: { orgId: true, product: true, status: true, validUntil: true } });
+  const byOrg = new Map<string, typeof subs>();
+  for (const s of subs) { const l = byOrg.get(s.orgId) ?? []; l.push(s); byOrg.set(s.orgId, l); }
+  const now = new Date();
+  const out = {} as Record<PlanProduct, { pagantes: number; emTeste: number }>;
+  for (const code of PLAN_PRODUCTS) {
+    const apps = planApps(plans[code]);
+    let pagantes = 0, emTeste = 0;
+    for (const list of byOrg.values()) {
+      const st = apps.map((p) => { const x = list.find((y) => y.product === p); return x ? effectiveStatus(x, now) : null; });
+      if (!apps.length || st.some((v) => v !== 'ATIVA' && v !== 'TRIAL')) continue;
+      if (st.every((v) => v === 'ATIVA')) pagantes++; else emTeste++;
+    }
+    out[code] = { pagantes, emTeste };
+  }
+  return out;
+}
+
 async function settingsView() {
   const s = await getSettings();
   const secret = await getWebhookSecret();
   const mpCheck = await checkMpCredential();
-  return { prices: s.prices, trialDays: s.trialDays, mpWebhookSecret: maskSecret(secret), mpWebhookSecretConfigured: !!secret, mpConfigured: !!process.env.MP_ACCESS_TOKEN, mpCheck, products: PLAN_PRODUCTS, cycles: CYCLES };
+  return { prices: s.prices, plans: s.plans, planStats: await planSubscriberStats(s.plans), modules: PLAN_MODULES, trialDays: s.trialDays, mpWebhookSecret: maskSecret(secret), mpWebhookSecretConfigured: !!secret, mpConfigured: !!process.env.MP_ACCESS_TOKEN, mpCheck, products: PLAN_PRODUCTS, cycles: CYCLES };
 }
 
 masterRouter.get('/settings', ah(async (_req, res) => res.json(await settingsView())));
 
-const cents = z.number().int().positive().max(100_000_000);
+// 0 = ciclo fora de venda (o checkout recusa); negativo nunca.
+const cents = z.number().int().min(0).max(100_000_000);
+const planRow = z.object({
+  name: z.string().max(200).optional(),
+  desc: z.string().max(1000).optional(),
+  features: z.array(z.string().max(500)).max(30).optional(),
+  modules: z.object({ MCKBOT: z.boolean().optional(), MCKMENSAGEM: z.boolean().optional(), ERP: z.boolean().optional() }).optional(),
+  visible: z.boolean().optional(),
+});
 const priceRow = z.object({ MENSAL: cents.optional(), ANUAL: cents.optional() });
 masterRouter.put('/settings', ah(async (req, res) => {
   const body = z.object({
     trialDays: z.number().int().min(0).max(365).optional(),
     prices: z.object({ MCKBOT: priceRow.optional(), MCKMENSAGEM: priceRow.optional(), COMBO: priceRow.optional() }).optional(),
+    plans: z.object({ MCKBOT: planRow.optional(), MCKMENSAGEM: planRow.optional(), COMBO: planRow.optional() }).optional(),
     mpWebhookSecret: z.string().trim().max(500).nullable().optional(),
   }).parse(req.body);
-  await updateSettings({ ...body, mpWebhookSecret: body.mpWebhookSecret === undefined ? undefined : body.mpWebhookSecret || null });
-  await audit(req, 'master.settings.update', { orgId: null, entity: 'platform_settings', entityId: 'default', meta: { trialDays: body.trialDays, prices: body.prices, mpWebhookSecretChanged: body.mpWebhookSecret !== undefined } });
+  const before = body.plans ? (await getSettings()).plans : null;
+  try {
+    await updateSettings({ ...body, mpWebhookSecret: body.mpWebhookSecret === undefined ? undefined : body.mpWebhookSecret || null });
+  } catch (e) {
+    if (e instanceof SettingsError) throw badRequest(e.message);
+    throw e;
+  }
+  // Auditoria: o que mudou nos planos (módulos e "visível" de cada um), sem textos longos.
+  const plansMeta = before && body.plans ? Object.fromEntries(Object.keys(body.plans).map((k) => [k, { modules: body.plans![k as PlanProduct]?.modules, visible: body.plans![k as PlanProduct]?.visible, name: body.plans![k as PlanProduct]?.name, before: { modules: before[k as PlanProduct].modules, visible: before[k as PlanProduct].visible } }])) : undefined;
+  await audit(req, 'master.settings.update', { orgId: null, entity: 'platform_settings', entityId: 'default', meta: { trialDays: body.trialDays, prices: body.prices, plans: plansMeta, mpWebhookSecretChanged: body.mpWebhookSecret !== undefined } });
   res.json(await settingsView());
 }));
 

@@ -11,7 +11,8 @@ import { orgOf, requireRole } from '../auth/session.js';
 import { audit } from '../lib/audit.js';
 import { sanitizeText } from '../lib/contacts-import.js';
 import { PRODUCT_LIMITS, STOCK, filterProducts, isHttpsUrl, productTemplateCsv, readProductsCsv } from '../ai/products.js';
-import { PRODUCT_SOURCES, ERP_SEM_PLANO_MSG, erpLiberadoParaIa, productContextFor, type ProductSource } from '../ai/productSource.js';
+import { erpPlanoMsg } from '../billing/erpAccess.js';
+import { PRODUCT_SOURCES, erpLiberadoParaIa, productContextFor, type ProductSource } from '../ai/productSource.js';
 
 export const productsRouter = Router();
 const admins = requireRole('OWNER', 'ADMIN');
@@ -75,7 +76,7 @@ productsRouter.get('/source', ah(async (req, res) => {
   const productSource = (s?.productSource ?? 'catalogo') as ProductSource;
   res.json({
     productSource, erpShowQuantity: s?.erpShowQuantity ?? false, erpDepositoId: s?.erpDepositoId ?? null,
-    erpLiberado, motivo: erpLiberado ? null : ERP_SEM_PLANO_MSG, depositos,
+    erpLiberado, motivo: erpLiberado ? null : await erpPlanoMsg('ia'), depositos,
     efetivo: productSource !== 'catalogo' && !erpLiberado ? 'catalogo' : productSource,
   });
 }));
@@ -83,7 +84,7 @@ productsRouter.get('/source', ah(async (req, res) => {
 productsRouter.put('/source', admins, ah(async (req, res) => {
   const body = sourceSchema.parse(req.body);
   const orgId = orgOf(req);
-  if (body.productSource !== 'catalogo' && !(await erpLiberadoParaIa(orgId))) throw badRequest(ERP_SEM_PLANO_MSG);
+  if (body.productSource !== 'catalogo' && !(await erpLiberadoParaIa(orgId))) throw badRequest(await erpPlanoMsg('ia'));
   if (body.erpDepositoId && !(await prisma.erpDeposito.findFirst({ where: { id: body.erpDepositoId, orgId }, select: { id: true } }))) throw notFound('Depósito');
   const data = {
     productSource: body.productSource,

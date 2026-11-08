@@ -4,6 +4,7 @@ import { ah } from '../lib/http.js';
 import { orgOf } from '../auth/session.js';
 import { billingConfigured } from '../billing/mercadopago.js';
 import { getSettings, PLAN_PRODUCTS, type PlanProduct } from '../billing/service.js';
+import { DEFAULT_PLAN_CATALOG, planModules } from '../billing/planCatalog.js';
 
 /**
  * Planos do MCKBOT. Não há cobrança integrada: a troca de plano depende de
@@ -25,26 +26,30 @@ plansRouter.get('/', ah(async (req, res) => {
 }));
 
 /**
- * Vitrine pública (sem login), só leitura: mesmos preços e período de teste que o Master edita
- * em Configurações da plataforma (PlatformSettings via getSettings()).
+ * Vitrine pública (sem login), só leitura: nomes, descrições, itens, módulos e "visível para venda" editados no
+ * Master (v1.25.0, PlatformSettings.plansJson) + os mesmos preços e período de teste (PlatformSettings via getSettings()).
+ * Plano oculto não aparece aqui (site /empresa, cadastro e vitrine do app leem este endpoint).
  */
-export const PUBLIC_PLAN_INFO: Record<PlanProduct, { label: string; desc: string; features: string[] }> = {
-  MCKBOT: { label: 'MCKBOT', desc: 'Atendimento automatizado no WhatsApp com fluxos e IA.', features: ['Conexão por QR code ou Cloud API', 'Fluxos e automações', 'Inbox e Kanban', 'IA com a sua própria chave'] },
-  MCKMENSAGEM: { label: 'MCK Mensagens', desc: 'Campanhas no WhatsApp para contatos com consentimento.', features: ['Contatos com origem do consentimento', 'Mensagens personalizadas com {nome}', 'Limites seguros e janela de horário', 'Opt-out automático'] },
-  COMBO: { label: 'Plano Completo: MCK ERP + MCKBOT + MCK Mensagens', desc: 'Tudo incluso: ERP, atendimento no WhatsApp e campanhas. Uma só cobrança. O MCK ERP só vem neste plano.', features: ['MCK ERP: vendas, estoque, compras, financeiro, fiscal e BI', 'SDR com IA: pré-vendas automática (qualifica, acompanha e marca reuniões)', 'Tudo do MCKBOT', 'Tudo do MCK Mensagens', 'Uma só cobrança'] },
-};
+/** Textos padrão (fallback); os exibidos vêm do Master. */
+export const PUBLIC_PLAN_INFO: Record<PlanProduct, { label: string; desc: string; features: string[] }> = Object.fromEntries(
+  PLAN_PRODUCTS.map((id) => [id, { label: DEFAULT_PLAN_CATALOG[id].name, desc: DEFAULT_PLAN_CATALOG[id].desc, features: DEFAULT_PLAN_CATALOG[id].features }]),
+) as Record<PlanProduct, { label: string; desc: string; features: string[] }>;
 
-export const publicPlansRouter = Router();
-publicPlansRouter.get('/', ah(async (_req, res) => {
-  const { prices, trialDays } = await getSettings();
-  res.set('Cache-Control', 'public, max-age=300');
-  res.json({
+export async function publicPlanList() {
+  const { prices, plans, trialDays } = await getSettings();
+  return {
     trialDays,
     currency: 'BRL',
-    plans: PLAN_PRODUCTS.map((id) => ({
-      id, ...PUBLIC_PLAN_INFO[id],
+    plans: PLAN_PRODUCTS.filter((id) => plans[id].visible).map((id) => ({
+      id, label: plans[id].name, desc: plans[id].desc, features: plans[id].features, modules: planModules(plans[id]),
       prices: { MENSAL: prices[id].MENSAL, ANUAL: prices[id].ANUAL },
       annualSavings: Math.max(0, prices[id].MENSAL * 12 - prices[id].ANUAL),
     })),
-  });
+  };
+}
+
+export const publicPlansRouter = Router();
+publicPlansRouter.get('/', ah(async (_req, res) => {
+  res.set('Cache-Control', 'public, max-age=300');
+  res.json(await publicPlanList());
 }));
