@@ -4,7 +4,7 @@ import { post } from '../api';
 import { useAuth } from '../auth';
 import { Field, useApi, Loading, ErrorBox } from '../ui';
 import { InstallButton } from '../pwa';
-import { PlansShowcase, ForgotPassword, ResetPassword, VerifyEmail } from './PublicAuth';
+import { PlansShowcase, ForgotPassword, ResetPassword, VerifyEmail, usePlanNames } from './PublicAuth';
 import { normalizeCoupon, storedCoupon } from '../billing';
 import { MfaLoginStep } from './Security';
 import { SignupFlow, CompleteCadastro } from './Cadastro';
@@ -20,7 +20,6 @@ export const Reset = () => <ResetPassword app="mckbot" Wrap={AuthWrap} Brand={Br
 export const Verify = () => <VerifyEmail Wrap={AuthWrap} Brand={Brand} />;
 export const Completar = () => <CompleteCadastro Wrap={AuthWrap} Brand={Brand} />;
 
-const PLAN_NAME: Record<string, string> = { MCKBOT: 'MCKBOT', MCKMENSAGEM: 'MCK Mensagens', COMBO: 'Plano Completo: MCK ERP + MCKBOT + MCK Mensagens' };
 
 export function Login() {
   const { setMe } = useAuth();
@@ -71,6 +70,7 @@ export function Register() {
   const nav = useNavigate();
   const [sp] = useSearchParams();
   const plano = sp.get('plano');
+  const PLAN_NAME = usePlanNames(); // nomes do Master; plano fora de venda não aparece
   const cupom = normalizeCoupon(sp.get('cupom')) || storedCoupon();
   return (
     <div className="auth">

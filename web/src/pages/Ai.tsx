@@ -192,7 +192,7 @@ function VoiceSettings({ f, setF, s, ro, voiceKey, setVoiceKey, busy, clearVoice
         <div className="stack">
           <h3 style={{ margin: 0 }}>Falar</h3>
           <label className="row"><input type="checkbox" checked={!!f.voiceEnabled} onChange={(e) => setF({ ...f, voiceEnabled: e.target.checked })} /> Responder com áudio (nota de voz)</label>
-          <Field label="Quando responder em áudio"><select value={f.voiceReplyMode ?? 'espelhar'} onChange={(e) => setF({ ...f, voiceReplyMode: e.target.value })}>
+          <Field label="Quando responder em áudio" hint="Automático: se o cliente pedir áudio (“pode ser por áudio?”) ou texto (“prefiro por escrito”), a IA passa a responder assim naquela conversa."><select value={f.voiceReplyMode ?? 'espelhar'} onChange={(e) => setF({ ...f, voiceReplyMode: e.target.value })}>
             <option value="espelhar">Espelhar o cliente (áudio responde áudio, texto responde texto)</option>
             <option value="sempre_audio">Sempre em áudio</option>
             <option value="nunca_audio">Nunca em áudio (só ouvir)</option>

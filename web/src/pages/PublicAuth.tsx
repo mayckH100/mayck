@@ -2,13 +2,25 @@ import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { get, post } from '../api';
 import { Field, Loading } from '../ui';
-import { fmtBRL, type Cycle, type PlanProduct } from '../billing';
+import { fmtBRL, PRODUCT_LABEL, type Cycle, type PlanProduct } from '../billing';
 
 export type AppKind = 'mckbot' | 'mensagem';
 type Wrap = (p: { children: ReactNode }) => JSX.Element;
 
 export interface PublicPlan { id: PlanProduct; label: string; desc: string; features: string[]; prices: Record<Cycle, number>; annualSavings: number }
 export interface PublicPlans { trialDays: number; plans: PublicPlan[] }
+
+/**
+ * Nome dos planos à venda (v1.25.0, editados no Master) para o aviso "Plano escolhido" do cadastro.
+ * Até carregar, usa os nomes padrão; plano oculto (fora de venda) some depois de carregar.
+ */
+export function usePlanNames(): Record<string, string> {
+  const [names, setNames] = useState<Record<string, string>>({ ...PRODUCT_LABEL, MCKMENSAGEM: 'MCK Mensagens' });
+  useEffect(() => {
+    get<PublicPlans>('/public/plans').then((d) => setNames(Object.fromEntries(d.plans.map((p) => [p.id, p.label])))).catch(() => { /* mantém o padrão */ });
+  }, []);
+  return names;
+}
 
 /** Vitrine de planos (sem login), lida de /api/public/plans — a mesma fonte de preços que o Master edita. */
 export function PlansShowcase({ registerTo = '/cadastro', highlight, title = 'Planos e preços' }: { registerTo?: string; highlight?: PlanProduct; title?: string }) {

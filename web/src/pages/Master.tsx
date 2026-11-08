@@ -9,6 +9,7 @@ import MasterSdr from './MasterSdr';
 import {
   CYCLES, CYCLE_LABEL, KIND_LABEL, PLAN_PRODUCTS, PRODUCTS, PRODUCT_LABEL, SOURCE_LABEL, STATUSES, STATUS_LABEL,
   SubBadge, centsToInput, daysLeft, fmtBRL, fmtDay, fmtMonth, parseBRL, toDateInput, type Cycle, type PlanProduct,
+  MODULE_LABEL, PLAN_MODULES, type PlanModule,
 } from '../billing';
 
 // ---------- Tipos ----------
@@ -32,7 +33,10 @@ interface Dash {
   totalClients: number; byProduct: Record<string, Counts>; totals: Counts; revenueMonthCents: number; revenueTotalCents: number; mrrCents: number;
   revenueByMonth: { month: string; amountCents: number }[]; lastPayments: Payment[];
 }
+/** Plano editável (v1.25.0): o código (MCKBOT/MCKMENSAGEM/COMBO) nunca muda; o resto é do Master. */
+interface PlanCfg { name: string; desc: string; features: string[]; modules: Record<PlanModule, boolean>; visible: boolean }
 interface Settings {
+  plans?: Record<PlanProduct, PlanCfg>; planStats?: Record<PlanProduct, { pagantes: number; emTeste: number }>;
   prices: Record<PlanProduct, Record<Cycle, number>>; trialDays: number; mpWebhookSecret: string | null; mpWebhookSecretConfigured: boolean; mpConfigured: boolean;
   mpCheck?: { ok: boolean; message: string };
 }
@@ -468,38 +472,83 @@ function Activity() {
   );
 }
 
+/** Rascunho do cartão de um plano (textos como digitados). */
+interface PlanDraft { name: string; desc: string; features: string; modules: Record<PlanModule, boolean>; visible: boolean; MENSAL: string; ANUAL: string }
+const MODULE_HINT: Record<PlanModule, string> = { MCKBOT: 'Atendimento, fluxos, IA, Inbox e Kanban', MCKMENSAGEM: 'Campanhas e SDR de respostas', ERP: 'Vendas, estoque, compras, financeiro, fiscal e BI' };
+
+/** Validação do cartão (a mesma regra do servidor): nome, pelo menos um app, preços ≥ 0. */
+export function planDraftError(code: PlanProduct, d: PlanDraft): string | null {
+  const label = d.name.trim() || PRODUCT_LABEL[code];
+  if (!d.name.trim()) return `Informe o nome do plano (${PRODUCT_LABEL[code]}).`;
+  if (!PLAN_MODULES.some((m) => d.modules[m])) return `Escolha pelo menos um módulo em ${label}.`;
+  if (!d.modules.MCKBOT && !d.modules.MCKMENSAGEM) return `${label}: marque o MCKBOT ou o MCK Mensagens (o MCK ERP vem junto com um deles).`;
+  for (const c of CYCLES) {
+    const v = parseBRL(d[c]);
+    if (v === null) return `Preço inválido em ${label} (${CYCLE_LABEL[c]}). Use, por exemplo, 39,90 (0 = ciclo fora de venda).`;
+  }
+  return null;
+}
+
 function PlatformSettingsForm() {
   const state = useApi<Settings>('/master/settings');
-  const [prices, setPrices] = useState<Record<string, string>>({});
+  const [plans, setPlans] = useState<Record<string, PlanDraft>>({});
   const [trial, setTrial] = useState('');
   const [secret, setSecret] = useState('');
   const [clearSecret, setClearSecret] = useState(false);
+  const [error, setError] = useState('');
+  const [confirm, setConfirm] = useState<{ body: Record<string, unknown>; avisos: string[] } | null>(null);
   const { busy, run } = useAction();
   useEffect(() => {
     if (!state.data) return;
-    const p: Record<string, string> = {};
-    for (const pr of PLAN_PRODUCTS) for (const c of CYCLES) p[`${pr}.${c}`] = centsToInput(state.data.prices[pr]?.[c]);
-    setPrices(p);
-    setTrial(String(state.data.trialDays));
-  }, [state.data]);
-  const submit = async (e: FormEvent) => {
-    e.preventDefault();
-    const out: Record<string, Record<string, number>> = {};
+    const d = state.data;
+    const p: Record<string, PlanDraft> = {};
     for (const pr of PLAN_PRODUCTS) {
-      out[pr] = {};
-      for (const c of CYCLES) {
-        const v = parseBRL(prices[`${pr}.${c}`] ?? '');
-        if (v === null || v <= 0) { alert(`Preço inválido em ${PRODUCT_LABEL[pr]} (${CYCLE_LABEL[c]}). Use, por exemplo, 39,90.`); return; }
-        out[pr][c] = v;
-      }
+      const cfg = d.plans?.[pr];
+      p[pr] = {
+        name: cfg?.name ?? PRODUCT_LABEL[pr], desc: cfg?.desc ?? '', features: (cfg?.features ?? []).join('\n'),
+        modules: { ...(cfg?.modules ?? { MCKBOT: pr !== 'MCKMENSAGEM', MCKMENSAGEM: pr !== 'MCKBOT', ERP: pr === 'COMBO' }) },
+        visible: cfg?.visible ?? true,
+        MENSAL: centsToInput(d.prices[pr]?.MENSAL), ANUAL: centsToInput(d.prices[pr]?.ANUAL),
+      };
     }
-    const td = Number(trial);
-    if (!Number.isInteger(td) || td < 0 || td > 365) { alert('Dias de teste deve ser um número inteiro entre 0 e 365.'); return; }
-    const body: Record<string, unknown> = { prices: out, trialDays: td };
-    if (clearSecret) body.mpWebhookSecret = null;
-    else if (secret.trim()) body.mpWebhookSecret = secret.trim();
+    setPlans(p);
+    setTrial(String(d.trialDays));
+  }, [state.data]);
+  const setPlan = (pr: PlanProduct, patch: Partial<PlanDraft>) => setPlans((cur) => ({ ...cur, [pr]: { ...cur[pr], ...patch } }));
+  const save = async (body: Record<string, unknown>) => {
+    setConfirm(null);
     const r = await run(() => put<Settings>('/master/settings', body), 'Configurações salvas');
     if (r) { state.setData(r); setSecret(''); setClearSecret(false); }
+  };
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    setError('');
+    const prices: Record<string, Record<string, number>> = {};
+    const outPlans: Record<string, unknown> = {};
+    for (const pr of PLAN_PRODUCTS) {
+      const d = plans[pr];
+      if (!d) continue;
+      const err = planDraftError(pr, d);
+      if (err) { setError(err); return; }
+      prices[pr] = { MENSAL: parseBRL(d.MENSAL)!, ANUAL: parseBRL(d.ANUAL)! };
+      outPlans[pr] = { name: d.name.trim(), desc: d.desc.trim(), features: d.features.split('\n').map((x) => x.trim()).filter(Boolean), modules: d.modules, visible: d.visible };
+    }
+    const td = Number(trial);
+    if (!Number.isInteger(td) || td < 0 || td > 365) { setError('Dias de teste deve ser um número inteiro entre 0 e 365.'); return; }
+    const body: Record<string, unknown> = { prices, plans: outPlans, trialDays: td };
+    if (clearSecret) body.mpWebhookSecret = null;
+    else if (secret.trim()) body.mpWebhookSecret = secret.trim();
+    // Tirar o MCK ERP de um plano com assinantes corta o ERP deles: pede confirmação (Modal, sem window.confirm).
+    const avisos: string[] = [];
+    for (const pr of PLAN_PRODUCTS) {
+      const before = state.data?.plans?.[pr];
+      const st = state.data?.planStats?.[pr];
+      if (before?.modules.ERP && !plans[pr]?.modules.ERP && st && st.pagantes + st.emTeste > 0) {
+        avisos.push(`${before.name}: ${st.pagantes} empresa(s) pagante(s) e ${st.emTeste} em teste perdem o acesso ao MCK ERP (os dados ficam guardados e podem ser baixados).`);
+      }
+    }
+    if (avisos.length) { setConfirm({ body, avisos }); return; }
+    await save(body);
   };
   return (
     <Async state={state}>{(s) => (
@@ -516,25 +565,50 @@ function PlatformSettingsForm() {
           </div>
         )}
         <div className="card stack">
-          <h2>Preços (R$)</h2>
-          <div className="table-wrap">
-            <table>
-              <thead><tr><th>Produto</th>{CYCLES.map((c) => <th key={c}>{CYCLE_LABEL[c]}</th>)}</tr></thead>
-              <tbody>{PLAN_PRODUCTS.map((pr) => (
-                <tr key={pr}>
-                  <td><strong>{PRODUCT_LABEL[pr]}</strong></td>
-                  {CYCLES.map((c) => (
-                    <td key={c} style={{ minWidth: 130 }}>
-                      <div className="row" style={{ flexWrap: 'nowrap' }}><span className="muted">R$</span>
-                        <input inputMode="decimal" aria-label={`${PRODUCT_LABEL[pr]} ${CYCLE_LABEL[c]}`} value={prices[`${pr}.${c}`] ?? ''} onChange={(e) => setPrices({ ...prices, [`${pr}.${c}`]: e.target.value })} />
-                      </div>
-                    </td>
-                  ))}
-                </tr>
-              ))}</tbody>
-            </table>
+          <h2 style={{ margin: 0 }}>Planos e preços (R$)</h2>
+          <p className="small muted" style={{ margin: 0 }}>Nome, descrição, o que está incluso, módulos, preços e se o plano está à venda. Plano fora de venda some do site e do checkout para novos clientes; quem já assina continua com o acesso e pode renovar.</p>
+          <div className="grid g3" style={{ gap: 12 }}>
+            {PLAN_PRODUCTS.map((pr) => {
+              const d = plans[pr];
+              if (!d) return null;
+              const st = s.planStats?.[pr];
+              return (
+                <fieldset key={pr} className="card stack" data-testid={`plano-${pr}`} style={{ boxShadow: 'none', margin: 0, minWidth: 0, opacity: d.visible ? 1 : 0.85 }}>
+                  <div className="row between" style={{ flexWrap: 'wrap', gap: 6 }}>
+                    <span className="small muted mono">{pr}</span>
+                    <label className="row small" style={{ gap: 6 }}>
+                      <input type="checkbox" checked={d.visible} onChange={(e) => setPlan(pr, { visible: e.target.checked })} aria-label={`Visível para venda: ${d.name}`} />
+                      Visível para venda
+                    </label>
+                  </div>
+                  {!d.visible && <span className="badge amber" style={{ alignSelf: 'flex-start' }}>Fora de venda</span>}
+                  <Field label="Nome"><input value={d.name} maxLength={80} required onChange={(e) => setPlan(pr, { name: e.target.value })} /></Field>
+                  <Field label="Descrição curta"><textarea rows={2} maxLength={300} value={d.desc} onChange={(e) => setPlan(pr, { desc: e.target.value })} /></Field>
+                  <Field label="O que está incluso" hint="Um item por linha (até 12).">
+                    <textarea rows={4} value={d.features} onChange={(e) => setPlan(pr, { features: e.target.value })} />
+                  </Field>
+                  <div className="stack" style={{ gap: 4 }} role="group" aria-label={`Módulos de ${d.name}`}>
+                    <strong className="small">Módulos liberados</strong>
+                    {PLAN_MODULES.map((m) => (
+                      <label key={m} className="row small" style={{ gap: 6, alignItems: 'flex-start' }}>
+                        <input type="checkbox" checked={d.modules[m]} onChange={(e) => setPlan(pr, { modules: { ...d.modules, [m]: e.target.checked } })} />
+                        <span><strong>{MODULE_LABEL[m]}</strong> <span className="muted">· {MODULE_HINT[m]}</span></span>
+                      </label>
+                    ))}
+                  </div>
+                  <div className="grid g2" style={{ gap: 8 }}>
+                    {CYCLES.map((c) => (
+                      <Field key={c} label={`${CYCLE_LABEL[c]} (R$)`}>
+                        <input inputMode="decimal" aria-label={`${d.name} ${CYCLE_LABEL[c]}`} value={d[c]} onChange={(e) => setPlan(pr, { [c]: e.target.value } as Partial<PlanDraft>)} />
+                      </Field>
+                    ))}
+                  </div>
+                  {st && <p className="small muted" style={{ margin: 0 }}>Hoje: {st.pagantes} pagante(s), {st.emTeste} em teste.</p>}
+                </fieldset>
+              );
+            })}
           </div>
-          <p className="small muted">Os novos preços valem para os próximos pagamentos. Pagamentos já aprovados não mudam.</p>
+          <p className="small muted" style={{ margin: 0 }}>Os novos preços valem para os próximos pagamentos; pagamentos já aprovados não mudam. Preço 0 deixa aquele ciclo fora de venda. Os códigos dos planos não mudam, então assinaturas, cupons e pagamentos continuam funcionando.</p>
         </div>
         <div className="grid g2">
           <div className="card stack">
@@ -552,10 +626,23 @@ function PlatformSettingsForm() {
             {s.mpWebhookSecretConfigured && <label className="row small"><input type="checkbox" checked={clearSecret} onChange={(e) => setClearSecret(e.target.checked)} /> Remover o segredo salvo</label>}
           </div>
         </div>
-        <div className="row" style={{ justifyContent: 'flex-end' }}>
-          <button type="button" className="btn" onClick={state.reload}>Descartar alterações</button>
+        {error && <div className="alert err" role="alert">{error}</div>}
+        <div className="row" style={{ justifyContent: 'flex-end', flexWrap: 'wrap', gap: 8 }}>
+          <button type="button" className="btn" onClick={() => { setError(''); state.reload(); }}>Descartar alterações</button>
           <button className="btn primary" disabled={busy}>{busy ? 'Salvando…' : 'Salvar configurações'}</button>
         </div>
+        {confirm && (
+          <Modal title="Tirar o MCK ERP do plano?" onClose={() => setConfirm(null)}>
+            <div className="stack">
+              {confirm.avisos.map((a) => <div key={a} className="alert warn small" style={{ margin: 0 }}>{a}</div>)}
+              <p className="small muted" style={{ margin: 0 }}>Se a ideia é só parar de vender o plano, desmarque "Visível para venda" e mantenha o MCK ERP: quem já assina continua com tudo.</p>
+              <div className="row" style={{ justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap' }}>
+                <button type="button" className="btn" onClick={() => setConfirm(null)}>Voltar</button>
+                <button type="button" className="btn primary" disabled={busy} onClick={() => void save(confirm.body)}>Salvar mesmo assim</button>
+              </div>
+            </div>
+          </Modal>
+        )}
       </form>
     )}</Async>
   );

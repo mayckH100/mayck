@@ -124,6 +124,7 @@ function Chat({ id, onChange }: { id: string; onChange: () => void }) {
             </select>
             {d.conversation.mode === 'BOT' && d.conversation.status !== 'CLOSED' && <button className="btn sm" disabled={busy} onClick={() => action('take', 'Você assumiu a conversa')}>Assumir</button>}
             {d.conversation.mode === 'HUMAN' && d.conversation.status !== 'CLOSED' && <button className="btn sm" disabled={busy} onClick={() => action('to_bot', 'Conversa devolvida ao robô')}>Devolver ao robô</button>}
+            {(d.conversation.voicePreference === 'audio' || d.conversation.voicePreference === 'texto') && <span className="badge" title="O cliente pediu nesta conversa; a IA segue automaticamente (quando a voz está ligada)">{d.conversation.voicePreference === 'audio' ? '🔊 Prefere áudio' : '✍️ Prefere texto'}</span>}
             {d.contact && <button className="btn sm" onClick={() => setShowAiNotes((v) => !v)} title="Observações sobre este contato que a IA considera ao responder (o cliente não vê)">🧠 Notas para a IA ({(d.aiNotes ?? []).length})</button>}
             {d.conversation.status !== 'CLOSED'
               ? <button className="btn sm" disabled={busy} onClick={() => action('close', 'Conversa encerrada')}>Encerrar</button>
@@ -146,7 +147,9 @@ function Chat({ id, onChange }: { id: string; onChange: () => void }) {
                 {m.type === 'audio' && !m.mediaUrl ? (
                   // v1.23.0: áudio recebido (com a transcrição da IA) ou nota de voz enviada pela IA (texto falado).
                   <div>
-                    <div className="small" style={{ fontWeight: 600 }}>🎤 {m.direction === 'OUT' ? 'Áudio enviado' : 'Áudio'}</div>
+                    {m.direction === 'OUT'
+                      ? <div className="small"><span className="badge" title="A resposta foi enviada ao cliente como nota de voz; abaixo, o texto falado">🔊 enviado em áudio</span></div>
+                      : <div className="small" style={{ fontWeight: 600 }}>🎤 Áudio</div>}
                     {m.transcript ? <div className="small" style={{ fontStyle: 'italic', whiteSpace: 'pre-wrap' }} title={m.direction === 'OUT' ? 'Texto falado no áudio' : 'Transcrição feita pela IA'}>“{m.transcript}”</div>
                       : m.body && !/^\[.*\]$/.test(m.body) ? m.body : <div className="small muted">sem transcrição</div>}
                   </div>

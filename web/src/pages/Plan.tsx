@@ -3,13 +3,15 @@ import { useSearchParams } from 'react-router-dom';
 import { post } from '../api';
 import { useAuth, type SubscriptionView, type SubStatus } from '../auth';
 import { useApi, Async, Loading, useAction } from '../ui';
-import { CYCLE_LABEL, PLAN_PRODUCTS, PRODUCT_LABEL, SubBadge, clearStoredCoupon, couponLabel, daysLeft, fmtBRL, fmtDay, normalizeCoupon, storedCoupon, type AppliedCoupon, type Cycle, type PlanProduct } from '../billing';
+import { CYCLE_LABEL, MIN_CHARGE_CENTS, PLAN_PRODUCTS, PRODUCT_LABEL, SubBadge, type PlanInfo, clearStoredCoupon, couponLabel, daysLeft, fmtBRL, fmtDay, normalizeCoupon, storedCoupon, type AppliedCoupon, type Cycle, type PlanProduct } from '../billing';
 
 export interface BillingStatus {
   subscriptions: SubscriptionView[];
   prices: Record<PlanProduct, Record<Cycle, number>>;
   trialDays: number;
   configured: boolean;
+  /** v1.25.0: planos do Master oferecidos a esta empresa (à venda + oculto que ela já assina). */
+  plans?: PlanInfo[];
 }
 export interface ConfirmResult { ok: boolean; renewed: boolean; duplicated?: boolean; reason?: string; subscriptions: SubscriptionView[] }
 
@@ -30,6 +32,19 @@ export function reasonText(r: ConfirmResult): { kind: 'ok' | 'warn' | 'err'; tex
   if (reason === 'valor_divergente') return { kind: 'err', text: 'O valor pago não confere com o preço do plano. Fale com o suporte.' };
   if (reason === 'outra_organizacao') return { kind: 'err', text: 'Este pagamento pertence a outra organização.' };
   return { kind: 'warn', text: `Não foi possível confirmar o pagamento agora (${reason || 'motivo desconhecido'}). Se o valor foi debitado, a renovação acontece automaticamente em alguns minutos.` };
+}
+
+/** Planos de fábrica (servidor antigo, sem `plans`). */
+const DEFAULT_APPS: Record<PlanProduct, PlanInfo['apps']> = { MCKBOT: ['MCKBOT'], MCKMENSAGEM: ['MCKMENSAGEM'], COMBO: ['MCKBOT', 'MCKMENSAGEM'] };
+export function plansOf(b: BillingStatus): PlanInfo[] {
+  if (b.plans?.length) return b.plans;
+  return PLAN_PRODUCTS.map((id) => ({ id, name: PRODUCT_LABEL[id], desc: DESC[id], features: [], modules: id === 'COMBO' ? ['MCKBOT', 'MCKMENSAGEM', 'ERP'] : [id], apps: DEFAULT_APPS[id], visible: true }));
+}
+/** Situação do plano na empresa: um app = a assinatura dele; vários = o "pior" deles (comboView). */
+export function planSub(plan: PlanInfo, subs: SubscriptionView[]) {
+  const list = subs.filter((s) => plan.apps.includes(s.product));
+  if (plan.apps.length === 1) return list[0] ?? null;
+  return comboView(list);
 }
 
 /** Status do combo: o "pior" dos dois produtos e a menor validade. */
@@ -90,12 +105,14 @@ export function CouponBox({ state }: { state: CouponState }) {
   );
 }
 
-export function ProductCard({ product, sub, prices, configured, app, desc, label, coupon }: { product: PlanProduct; sub: { status: SubStatus; validUntil: string; cycle?: string } | null; prices: Record<Cycle, number>; configured: boolean; app?: 'mckbot' | 'mensagem'; desc?: string; label?: string; coupon?: AppliedCoupon | null }) {
+export function ProductCard({ product, sub, prices, configured, app, desc, label, coupon, features, hidden }: { product: PlanProduct; sub: { status: SubStatus; validUntil: string; cycle?: string } | null; prices: Record<Cycle, number>; configured: boolean; app?: 'mckbot' | 'mensagem'; desc?: string; label?: string; coupon?: AppliedCoupon | null; features?: string[]; hidden?: boolean }) {
   const [cycle, setCycle] = useState<Cycle>('MENSAL');
   const { busy, run } = useAction();
   const left = sub ? daysLeft(sub.validUntil) : 0;
   const saving = prices.MENSAL * 12 - prices.ANUAL;
   const q = coupon?.quotes[product]?.[cycle] ?? null;
+  const forSale = (c: Cycle) => prices[c] >= MIN_CHARGE_CENTS; // preço 0 no Master = ciclo fora de venda
+  useEffect(() => { if (!forSale(cycle) && forSale(cycle === 'MENSAL' ? 'ANUAL' : 'MENSAL')) setCycle(cycle === 'MENSAL' ? 'ANUAL' : 'MENSAL'); }, [prices.MENSAL, prices.ANUAL]);
   const pay = async () => {
     const body: Record<string, string> = { product, cycle };
     if (app) body.app = app;
@@ -107,6 +124,8 @@ export function ProductCard({ product, sub, prices, configured, app, desc, label
     <div className="card stack" style={product === 'COMBO' ? { borderColor: 'var(--brand-2)' } : undefined}>
       <div className="row between"><h2 style={{ margin: 0 }}>{label ?? PRODUCT_LABEL[product]}</h2>{sub && <SubBadge status={sub.status} />}</div>
       <p className="small muted" style={{ margin: 0 }}>{desc ?? DESC[product]}</p>
+      {features && features.length > 0 && <ul className="small" style={{ margin: 0, paddingLeft: 18, lineHeight: 1.6 }}>{features.map((f) => <li key={f}>{f}</li>)}</ul>}
+      {hidden && <div className="small muted">Este plano não é mais vendido para novos clientes; como você já é assinante, pode continuar renovando.</div>}
       {sub && (
         <div className="small">
           {sub.status === 'BLOQUEADA' ? <>Acesso bloqueado pelo administrador. Fale com o suporte.</>
@@ -120,8 +139,8 @@ export function ProductCard({ product, sub, prices, configured, app, desc, label
           const cq = coupon?.quotes[product]?.[c] ?? null;
           return (
           <label key={c} className="card" style={{ padding: 10, cursor: 'pointer', boxShadow: 'none', borderColor: cycle === c ? 'var(--brand)' : undefined }}>
-            <div className="row"><input type="radio" name={`cycle-${product}`} checked={cycle === c} onChange={() => setCycle(c)} /> <strong>{CYCLE_LABEL[c]}</strong></div>
-            {cq ? <div><s className="small muted">{fmtBRL(cq.originalCents)}</s> <span style={{ fontSize: 18, fontWeight: 700 }}>{fmtBRL(cq.finalCents)}</span></div>
+            <div className="row"><input type="radio" name={`cycle-${product}`} checked={cycle === c} disabled={!forSale(c)} onChange={() => setCycle(c)} /> <strong>{CYCLE_LABEL[c]}</strong></div>
+            {!forSale(c) ? <div className="small muted">Indisponível</div> : cq ? <div><s className="small muted">{fmtBRL(cq.originalCents)}</s> <span style={{ fontSize: 18, fontWeight: 700 }}>{fmtBRL(cq.finalCents)}</span></div>
               : <div style={{ fontSize: 18, fontWeight: 700 }}>{fmtBRL(prices[c])}</div>}
             <div className="small muted">{c === 'MENSAL' ? 'por mês' : saving > 0 ? `por ano · economize ${fmtBRL(saving)}` : 'por ano'}</div>
           </label>
@@ -136,7 +155,7 @@ export function ProductCard({ product, sub, prices, configured, app, desc, label
         </div>
       )}
       {coupon && !q && <div className="small muted">O cupom {coupon.coupon.code} não vale para este plano/ciclo.</div>}
-      <button className="btn primary" disabled={!configured || busy} onClick={pay}>
+      <button className="btn primary" disabled={!configured || busy || !forSale(cycle)} onClick={pay}>
         {busy ? 'Abrindo pagamento…' : `Pagar ${fmtBRL(q ? q.finalCents : prices[cycle])} (Pix ou cartão)`}
       </button>
     </div>
@@ -215,7 +234,6 @@ export default function Plan() {
       {result && <div className={`alert ${result.kind}`} role="status" style={{ marginBottom: 12 }}>{result.text}</div>}
       <Async state={state}>{(b) => {
         const subs = b.subscriptions;
-        const combo = comboView(subs);
         const paid = subs.filter((x) => x.status === 'ATIVA');
         const showCompare = compare || paid.length === 0 || !!coupon.applied;
         return (
@@ -232,10 +250,10 @@ export default function Plan() {
                 <h2 style={{ margin: '8px 0 0' }}>{paid.length ? 'Renovar ou trocar de plano' : 'Escolha seu plano'}</h2>
                 <CouponBox state={coupon} />
                 <div className="grid g3">
-                  {PLAN_PRODUCTS.map((p) => {
-                    const s = p === 'COMBO' ? combo : subs.find((x) => x.product === p) ?? null;
-                    return <ProductCard key={p} product={p} sub={s} prices={b.prices[p]} configured={b.configured} coupon={coupon.applied} />;
-                  })}
+                  {plansOf(b).map((pl) => (
+                    <ProductCard key={pl.id} product={pl.id} sub={planSub(pl, subs)} prices={b.prices[pl.id]} configured={b.configured} coupon={coupon.applied}
+                      label={pl.name} desc={pl.desc || undefined} features={pl.features} hidden={!pl.visible} />
+                  ))}
                 </div>
                 <p className="small muted">O pagamento é processado pelo Mercado Pago. Ao renovar antes do vencimento, o novo período é somado ao que ainda resta. Novos clientes têm {b.trialDays} dia(s) de teste grátis.</p>
               </>
