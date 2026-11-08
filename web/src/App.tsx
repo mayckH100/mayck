@@ -1,8 +1,10 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { Routes, Route, Navigate, NavLink, useLocation, useNavigate } from 'react-router-dom';
-import { useAuth, ROLE_LABEL, type Role } from './auth';
-import { post, get } from './api';
-import { Loading, useApi, useToast } from './ui';
+import { useAuth } from './auth';
+import { get } from './api';
+import { Loading, useApi } from './ui';
+import { MODULOS, acaoDaRota, gruposComunsVisiveis, moduloDaRota, modulosVisiveis, rotaAtiva, secaoDaRota, type Modulo, type ModuloId, type NavItem } from './modulos';
+import { AcaoDoTopo, MenuConta, ModuloTitulo } from './Topo';
 import { Login, Register, AcceptInvite, NoOrg, Forgot, Reset, Verify, Completar } from './pages/Auth';
 import { InstallButton } from './pwa';
 import Dashboard from './pages/Dashboard';
@@ -40,7 +42,7 @@ import ErpFiscal from './erp/fiscal/Fiscal';
 import ErpBi from './erp/bi/Bi';
 import Sdr from './pages/Sdr';
 import ErpAlertas from './erp/alertas/Alertas';
-import { ERP_ITENS } from './erp/ErpNav';
+import { ErpAbas } from './erp/ErpNav';
 import ErpGate from './erp/ErpGate';
 import Tutorials from './Tutorials';
 import SubscriptionGate from './SubscriptionGate';
@@ -50,79 +52,49 @@ import NovidadeBanner from './NovidadeBanner';
 import { STATUS_LABEL, fmtDay } from './billing';
 import { Versoes, VersaoRodape } from './Versao';
 
-type NavItem = { to: string; label: string; icon?: string; roles?: Role[]; superAdmin?: boolean; module?: string; sub?: string; href?: string; end?: boolean };
-/** Menu por categoria: os três produtos primeiro (MCK ERP, MCKBOT, MCK Mensagens), depois gestão e conta. */
-const NAV_GROUPS: { id: string; label: string; icon: string; items: NavItem[] }[] = [
-  { id: 'erp', label: 'MCK ERP', icon: '◆', items: [
-    ...ERP_ITENS.map((i) => ({ module: 'erp_crm', ...i })),
-    { to: '/erp/relatorios', label: 'Relatórios', module: 'erp_relatorios' },
-    { to: '/erp/funcionarios', label: 'Funcionários', module: 'equipe', roles: ['OWNER', 'ADMIN'] },
-  ] },
-  { id: 'bot', label: 'MCKBOT', icon: '✉', items: [
-    { to: '/', label: 'Visão geral', icon: '◧', end: true },
-    { to: '/inbox', module: 'inbox', label: 'Inbox', icon: '✉', sub: 'Atendimento' },
-    { to: '/kanban', module: 'kanban', label: 'Kanban', icon: '▦' },
-    { to: '/sdr', module: 'sdr', label: 'SDR com IA', icon: '🎯' },
-    { to: '/agenda', module: 'agenda', label: 'Agenda', icon: '📅' },
-    { to: '/contatos', module: 'contatos', label: 'Contatos', icon: '☺' },
-    { to: '/fluxos', module: 'fluxos', label: 'Fluxos', icon: '⇄', sub: 'Automação' },
-    { to: '/ia', module: 'ia', label: 'Inteligência artificial', icon: '✦' },
-    { to: '/produtos', module: 'ia', label: 'Produtos', icon: '▣' },
-    { to: '/canais', module: 'canais', label: 'Canais WhatsApp', icon: '☏' },
-    { to: '/integracoes', module: 'integracoes', label: 'Integrações', icon: '⚙', roles: ['OWNER', 'ADMIN'] },
-  ] },
-  { id: 'msg', label: 'MCK Mensagens', icon: '✆', items: [
-    { to: '/mensagem/', href: '/mensagem/', label: 'Abrir MCK Mensagens ↗', icon: '↗', roles: ['OWNER', 'ADMIN'], module: 'mensagens|automacoes' },
-  ] },
-  { id: 'gestao', label: 'Gestão', icon: '▤', items: [
-    { to: '/relatorios', module: 'relatorios', label: 'Relatórios', icon: '▤' },
-    { to: '/equipe', module: 'equipe', label: 'Equipe', icon: '♟' },
-    { to: '/plano', module: 'plano', label: 'Plano', icon: '◈' },
-    { to: '/auditoria', module: 'auditoria', label: 'Auditoria', icon: '☰', roles: ['OWNER', 'ADMIN'] },
-  ] },
-  { id: 'conta', label: 'Conta', icon: '☻', items: [
-    { to: '/perfil', label: 'Perfil', icon: '☻' },
-    { to: '/tutoriais', label: 'Tutoriais', icon: '▶' },
-    { to: '/boas-praticas', label: 'Boas práticas', icon: '?' },
-  ] },
-  { id: 'plataforma', label: 'Plataforma', icon: '♛', items: [
-    { to: '/master', label: 'Painel Master', icon: '♛', superAdmin: true },
-  ] },
-];
-
-const ativo = (to: string, end: boolean | undefined, path: string) => (end || to === '/' ? path === to : path === to || path.startsWith(`${to}/`));
-
-/** Menu lateral em categorias que abrem e fecham; a categoria da página atual abre sozinha. */
-function SideNav() {
+/** Menu lateral (☰ no celular): só os itens do módulo em uso, depois Gestão e Conta, e "Trocar módulo". */
+function SideNav({ atual, modulos }: { atual: Modulo; modulos: Modulo[] }) {
   const { me, can, hasModule } = useAuth();
   const loc = useLocation();
-  const visivel = (n: NavItem) => (!n.roles || can(...n.roles)) && (!n.module || n.module.split('|').some((m) => hasModule(m))) && (!n.superAdmin || me?.isSuperAdmin);
-  const grupos = NAV_GROUPS.map((g) => ({ ...g, items: g.items.filter(visivel) })).filter((g) => g.items.length);
-  const atual = grupos.find((g) => g.items.some((i) => !i.href && ativo(i.to, i.end, loc.pathname)))?.id;
-  const [abertos, setAbertos] = useState<string[]>(() => { try { return JSON.parse(localStorage.getItem('nav-abertos') ?? '["erp"]'); } catch { return ['erp']; } });
-  useEffect(() => { if (atual && !abertos.includes(atual)) setAbertos((a) => [...a, atual]); }, [atual]); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => { localStorage.setItem('nav-abertos', JSON.stringify(abertos)); }, [abertos]);
+  const grupos = gruposComunsVisiveis({ can, hasModule, superAdmin: !!me?.isSuperAdmin });
+  const grupoAtual = grupos.find((g) => g.items.some((i) => rotaAtiva(i.to, i.end, loc.pathname)))?.id;
+  const [abertos, setAbertos] = useState<string[]>(() => { try { const v = JSON.parse(localStorage.getItem('nav-abertos-comuns') ?? '[]'); return Array.isArray(v) ? v : []; } catch { return []; } });
+  useEffect(() => { if (grupoAtual && !abertos.includes(grupoAtual)) setAbertos((a) => [...a, grupoAtual]); }, [grupoAtual]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { localStorage.setItem('nav-abertos-comuns', JSON.stringify(abertos)); }, [abertos]);
   const alternar = (id: string) => setAbertos((a) => (a.includes(id) ? a.filter((x) => x !== id) : [...a, id]));
+  const link = (n: NavItem) => (
+    <div key={n.to}>
+      {n.sub && <div className="sep">{n.sub}</div>}
+      {n.href
+        ? <a href={n.href}><span aria-hidden>{n.icon}</span>{n.label}</a>
+        : <NavLink to={n.to} end={n.end || n.to === '/'} className={({ isActive }) => (isActive ? 'active' : '')}>{n.icon && <span aria-hidden>{n.icon}</span>}{n.label}</NavLink>}
+    </div>
+  );
+  const outros = modulos.filter((m) => m.id !== atual.id);
   return (
-    <nav className="nav">
+    <nav className="nav" aria-label={`Menu do ${atual.label}`}>
+      <div className="nav-group current">
+        <div className="nav-items nav-modulo">{atual.items.map(link)}</div>
+      </div>
       {grupos.map((g) => {
         const aberto = abertos.includes(g.id);
         return (
-          <div key={g.id} className={`nav-group ${g.id === atual ? 'current' : ''}`}>
+          <div key={g.id} className={`nav-group ${g.id === grupoAtual ? 'current' : ''}`}>
             <button type="button" className="nav-cat" aria-expanded={aberto} onClick={(e) => { e.stopPropagation(); alternar(g.id); }}>
               <span aria-hidden>{g.icon}</span><span style={{ flex: 1 }}>{g.label}</span><span aria-hidden className="nav-caret">{aberto ? '▾' : '▸'}</span>
             </button>
-            {aberto && <div className="nav-items">{g.items.map((n) => (
-              <div key={n.to}>
-                {n.sub && <div className="sep">{n.sub}</div>}
-                {n.href
-                  ? <a href={n.href}><span aria-hidden>{n.icon}</span>{n.label}</a>
-                  : <NavLink to={n.to} end={n.end || n.to === '/'} className={({ isActive }) => (isActive ? 'active' : '')}>{n.icon && <span aria-hidden>{n.icon}</span>}{n.label}</NavLink>}
-              </div>
-            ))}</div>}
+            {aberto && <div className="nav-items">{g.items.map(link)}</div>}
           </div>
         );
       })}
+      {outros.length > 0 && (
+        <div className="nav-group nav-trocar">
+          <div className="sep">Trocar módulo</div>
+          {outros.map((m) => (m.href
+            ? <a key={m.id} href={m.href}><span aria-hidden>{m.icon}</span><span>{m.label}</span></a>
+            : <NavLink key={m.id} to={m.home} end={m.home === '/'}><span aria-hidden>{m.icon}</span><span>{m.label}</span></NavLink>))}
+        </div>
+      )}
     </nav>
   );
 }
@@ -223,48 +195,47 @@ function AppSplash() {
   );
 }
 
+const MODULO_KEY = 'mck:modulo';
+
 function Shell({ children }: { children: ReactNode }) {
-  const { me, setMe, logout, can, hasModule } = useAuth();
+  const { me, logout, can, hasModule } = useAuth();
   const [open, setOpen] = useState(false);
   const nav = useNavigate();
-  const toast = useToast();
   const loc = useLocation();
   const channels = useApi<any[]>('/channels', [me?.org?.id]);
   const connected = channels.data?.some((c) => c.status === 'CONNECTED');
-  const switchOrg = async (orgId: string) => {
-    try {
-      setMe(await post('/auth/switch-org', { orgId }));
-      nav('/');
-    } catch (e) { toast((e as Error).message, 'err'); }
-  };
+  const acesso = { can, hasModule, superAdmin: !!me?.isSuperAdmin };
+  const modulos = modulosVisiveis(acesso);
+  // Páginas comuns (Plano, Perfil…) mantêm no topo o último módulo usado.
+  const [ultimo, setUltimo] = useState<ModuloId | null>(() => { try { return localStorage.getItem(MODULO_KEY) as ModuloId | null; } catch { return null; } });
+  const rota = moduloDaRota(loc.pathname, ultimo);
+  useEffect(() => { if (!rota.comum && rota.id !== ultimo) { setUltimo(rota.id); try { localStorage.setItem(MODULO_KEY, rota.id); } catch { /* sem localStorage */ } } }, [rota.id, rota.comum]); // eslint-disable-line react-hooks/exhaustive-deps
+  const atual = modulos.find((m) => m.id === rota.id) ?? { ...MODULOS.find((m) => m.id === rota.id)!, items: [] };
+  const secao = secaoDaRota(loc.pathname);
+  const naErp = loc.pathname === '/erp' || loc.pathname.startsWith('/erp/');
+  useEffect(() => { setOpen(false); }, [loc.pathname]);
   return (
     <div className="app">
       <aside className={`sidebar ${open ? 'open' : ''}`} onClick={() => setOpen(false)}>
-        <div className="brand"><img src="/logo.svg" alt="" /> MCKBOT</div>
-        <SideNav />
+        <div className="brand"><img src="/logo.svg" alt="" /> {atual.label}</div>
+        <SideNav atual={atual} modulos={modulos} />
         <div className="side-foot" onClick={(e) => e.stopPropagation()}>
-          <label className="small" htmlFor="org-sel">Organização</label>
-          <select id="org-sel" value={me?.org?.id} onChange={(e) => switchOrg(e.target.value)}>
-            {me?.orgs.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
-          </select>
           <InstallButton appName="MCKBOT" />
           <button className="btn sm" data-sub-exempt onClick={async () => { await logout(); nav('/login'); }}>Sair</button>
           <VersaoRodape />
         </div>
       </aside>
+      {open && <div className="side-veu" aria-hidden onClick={() => setOpen(false)} />}
       <div className="main">
         <header className="topbar">
-          <div className="row">
-            <button className="btn sm menu-btn" data-sub-exempt onClick={() => setOpen(true)} aria-label="Abrir menu">☰</button>
-            <strong>{me?.org?.name}</strong>
-            <span className="badge">{me?.role ? ROLE_LABEL[me.role] : ''}</span>
-          </div>
-          <div className="row">
-            {can('OWNER', 'ADMIN') && hasModule('fluxos') && <button className="btn primary sm" onClick={() => nav('/fluxos?novo=1')}>+ Criar fluxo</button>}
-            <NavLink to="/perfil" className="small">{me?.user.name}</NavLink>
+          <button className="btn sm menu-btn" data-sub-exempt onClick={() => setOpen(true)} aria-label="Abrir menu" aria-expanded={open}>☰</button>
+          <ModuloTitulo atual={atual} secao={secao} modulos={modulos} />
+          <div className="topo-dir">
+            <AcaoDoTopo acao={acaoDaRota(loc.pathname, acesso)} />
+            <MenuConta />
           </div>
         </header>
-        {channels.data && !connected && !loc.pathname.startsWith('/canais') && (
+        {channels.data && !connected && !loc.pathname.startsWith('/canais') && !naErp && (
           <div className="alert warn" style={{ margin: '12px 24px 0', borderRadius: 10 }}>
             WhatsApp <strong>não conectado</strong>: nenhuma mensagem será enviada até você configurar a WhatsApp Cloud API. <NavLink to="/canais">Configurar canal →</NavLink>
           </div>
@@ -276,7 +247,7 @@ function Shell({ children }: { children: ReactNode }) {
         <SubscriptionGate app="mckbot" />
         <Announcements app="mckbot" />
         <NovidadeBanner />
-        <main className="content">{loc.pathname.startsWith('/erp') ? <ErpGate>{children}</ErpGate> : children}</main>
+        <main className="content">{naErp ? <ErpGate><ErpAbas />{children}</ErpGate> : children}</main>
       </div>
     </div>
   );
