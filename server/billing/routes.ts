@@ -4,7 +4,8 @@ import { prisma } from '../db.js';
 import { ah, badRequest, HttpError } from '../lib/http.js';
 import { orgOf } from '../auth/session.js';
 import { audit } from '../lib/audit.js';
-import { PRODUCTS, PRODUCT_LABEL, CYCLES, PLAN_PRODUCTS, getSettings, getSubscriptionView, getWebhookSecret, renew, revokePayment } from './service.js';
+import { PRODUCTS, CYCLES, PLAN_PRODUCTS, getSettings, getSubscriptionView, getWebhookSecret, planosOferecidos, renew, revokePayment } from './service.js';
+import { planApps, planModules } from './planCatalog.js';
 import { CouponError, MIN_FINAL_CENTS, loadValidCoupon, priceWithCoupon, publicCouponView, quotesFor } from './coupons.js';
 import { billingConfigured, createPreference, getPayment, MpError, mpFriendly, parseReference, verifySignature } from './mercadopago.js';
 
@@ -69,8 +70,16 @@ export const billingRouter = Router();
 billingRouter.get('/status', ah(async (req, res) => {
   const orgId = orgOf(req);
   const subscriptions = await Promise.all(PRODUCTS.map((p) => getSubscriptionView(orgId, p)));
-  const { prices, trialDays } = await getSettings();
-  res.json({ subscriptions, prices, trialDays, products: PLAN_PRODUCTS.map((id) => ({ id, name: PRODUCT_LABEL[id] })), cycles: CYCLES, configured: billingConfigured() });
+  const { prices, trialDays, plans } = await getSettings();
+  // v1.25.0: planos do Master. "offered" = à venda (visível) ou oculto que a empresa já assinou (pode renovar).
+  const offered = new Set(await planosOferecidos(orgId));
+  res.json({
+    subscriptions, prices, trialDays, cycles: CYCLES, configured: billingConfigured(),
+    products: PLAN_PRODUCTS.map((id) => ({ id, name: plans[id].name })),
+    plans: PLAN_PRODUCTS.filter((id) => offered.has(id)).map((id) => ({
+      id, name: plans[id].name, desc: plans[id].desc, features: plans[id].features, modules: planModules(plans[id]), apps: planApps(plans[id]), visible: plans[id].visible,
+    })),
+  });
 }));
 
 // app: de qual frontend veio o pagamento ("mensagem" = MCK Mensagens), para o Mercado Pago devolver ao app certo.
@@ -80,7 +89,10 @@ billingRouter.post('/checkout', ah(async (req, res) => {
   const orgId = orgOf(req);
   const { product, cycle, app, coupon: couponCode } = checkoutSchema.parse(req.body);
   if (!billingConfigured()) throw new HttpError(503, 'Pagamento online ainda não configurado');
-  const { prices } = await getSettings();
+  const { prices, plans } = await getSettings();
+  // Plano oculto (fora de venda): só quem já assinou pode renovar; ciclo com preço abaixo do mínimo não é vendido.
+  if (!(await planosOferecidos(orgId)).includes(product)) throw badRequest('Este plano não está mais à venda.');
+  if (prices[product][cycle] < MIN_FINAL_CENTS) throw badRequest('Este ciclo do plano não está à venda.');
   let amountCents = prices[product][cycle];
   let applied: { id: string; code: string; discountCents: number } | null = null;
   if (couponCode) {
@@ -97,7 +109,7 @@ billingRouter.post('/checkout', ah(async (req, res) => {
   try {
     const pref = await createPreference({
       orgId, product, cycle, amountCents, coupon: applied ? { id: applied.id, discountCents: applied.discountCents } : null, baseUrl: baseUrlOf(req), payerEmail: user?.email, returnPath: app === 'mensagem' ? '/mensagem/assinatura' : '/',
-      title: `${PRODUCT_LABEL[product]} — plano ${cycle === 'ANUAL' ? 'anual' : 'mensal'}${applied ? ` (cupom ${applied.code})` : ''}`,
+      title: `${plans[product].name} — plano ${cycle === 'ANUAL' ? 'anual' : 'mensal'}${applied ? ` (cupom ${applied.code})` : ''}`,
     });
     await audit(req, 'billing.checkout', { entity: 'preference', entityId: pref.id, meta: { product, cycle, amountCents, ...(applied ? { coupon: applied.code, discountCents: applied.discountCents } : {}) } });
     res.json({ init_point: pref.init_point, preferenceId: pref.id, amountCents, ...(applied ? { coupon: applied.code, discountCents: applied.discountCents, originalCents: prices[product][cycle] } : {}) });

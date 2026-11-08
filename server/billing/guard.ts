@@ -1,6 +1,7 @@
 import type { Request, Response, NextFunction } from 'express';
 import { orgOf } from '../auth/session.js';
-import { isProductActive, planoCompletoAtivo } from './service.js';
+import { isProductActive } from './service.js';
+import { erpLiberado, erpPlanoMsg } from './erpAccess.js';
 
 /** MCKBOT vencido/bloqueado: leitura continua liberada, escrita responde 402 (o app mostra o aviso para renovar). */
 export function requireMckbotForWrites(req: Request, res: Response, next: NextFunction) {
@@ -12,6 +13,7 @@ export function requireMckbotForWrites(req: Request, res: Response, next: NextFu
 
 /** Código da resposta 402 do ERP: o app mostra "O ERP faz parte do Plano Completo" (e não o pop-up de renovação). */
 export const ERP_PLANO_COMPLETO = 'ERP_PLANO_COMPLETO';
+/** Texto padrão (planos de fábrica). O aviso enviado usa os planos do Master: erpPlanoMsg() (v1.25.0). */
 export const ERP_PLANO_COMPLETO_MSG = 'O MCK ERP faz parte do Plano Completo (ERP + MCKBOT + MCK Mensagens). Faça o upgrade para continuar usando.';
 
 /**
@@ -37,7 +39,8 @@ export const erpLivreSemPlano = (method: string, path: string) =>
 export function requirePlanoCompletoErp(req: Request, res: Response, next: NextFunction) {
   if (req.method === 'OPTIONS' || req.auth?.isSuperAdmin) return next();
   if (erpLivreSemPlano(req.method, req.path)) return next();
-  planoCompletoAtivo(orgOf(req))
-    .then((ok) => (ok ? next() : res.status(402).json({ error: ERP_PLANO_COMPLETO_MSG, code: ERP_PLANO_COMPLETO })))
+  // v1.25.0: segue os módulos dos planos no Master (padrão: Plano Completo); a empresa da MCK sempre tem.
+  erpLiberado(orgOf(req))
+    .then(async (ok) => (ok ? next() : res.status(402).json({ error: await erpPlanoMsg(), code: ERP_PLANO_COMPLETO })))
     .catch(next);
 }

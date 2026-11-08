@@ -1,5 +1,6 @@
 import { prisma } from '../db.js';
 import { decryptOrNull, encryptOrNull } from '../lib/crypto.js';
+import { applyPlanInput, erpBySubscriptions, parsePlanCatalog, planApps, validatePlanInput, PLAN_CODES, type PlanCatalog, type PlanInput } from './planCatalog.js';
 
 /**
  * Cobrança por produto. Cada organização tem uma assinatura por app
@@ -20,13 +21,24 @@ export const DEFAULT_PRICES: Prices = {
   COMBO: { MENSAL: 10000, ANUAL: 100000 }, // Plano Completo (ERP + MCKBOT + Mensagens): R$ 100/mês
 };
 
+/** Nomes padrão (fallback). O nome exibido vem do Master: (await getSettings()).plans[code].name (v1.25.0). */
 export const PRODUCT_LABEL: Record<PlanProduct, string> = { MCKBOT: 'MCKBOT', MCKMENSAGEM: 'MCKMENSAGEM', COMBO: 'Plano Completo: MCK ERP + MCKBOT + MCK Mensagens' };
 
 const DAY = 24 * 60 * 60 * 1000;
 export const isProduct = (v: unknown): v is Product => typeof v === 'string' && (PRODUCTS as readonly string[]).includes(v);
 export const isPlanProduct = (v: unknown): v is PlanProduct => typeof v === 'string' && (PLAN_PRODUCTS as string[]).includes(v);
 export const isCycle = (v: unknown): v is Cycle => typeof v === 'string' && (CYCLES as readonly string[]).includes(v);
+/** Assinaturas padrão de cada plano (antes da v1.25.0; continua sendo o padrão). */
 export const productsOf = (p: PlanProduct): Product[] => (p === 'COMBO' ? [...PRODUCTS] : [p]);
+/** Assinaturas que o plano renova conforme os módulos editados no Master (MCKBOT / MCK Mensagens). */
+export async function planProducts(p: PlanProduct): Promise<Product[]> {
+  const { plans } = await getSettings();
+  const apps = planApps(plans[p]);
+  return apps.length ? apps : productsOf(p);
+}
+
+/** Erro de validação das configurações (a rota do Master responde 400 com a mensagem). */
+export class SettingsError extends Error {}
 
 // ---------- Configurações da plataforma ----------
 /**
@@ -52,7 +64,8 @@ export async function getSettings() {
     const parsed = JSON.parse(s.pricesJson);
     prices = Object.fromEntries(PLAN_PRODUCTS.map((p) => [p, { MENSAL: Number(parsed?.[p]?.MENSAL ?? DEFAULT_PRICES[p].MENSAL), ANUAL: Number(parsed?.[p]?.ANUAL ?? DEFAULT_PRICES[p].ANUAL) }])) as Prices;
   } catch { /* mantém padrão */ }
-  return { trialDays: s.trialDays, prices, webhookSecretConfigured: !!s.mpWebhookSecretEnc, raw: s };
+  const plans: PlanCatalog = parsePlanCatalog((s as { plansJson?: string }).plansJson);
+  return { trialDays: s.trialDays, prices, plans, webhookSecretConfigured: !!s.mpWebhookSecretEnc, raw: s };
 }
 
 export async function getWebhookSecret(): Promise<string | null> {
@@ -60,15 +73,26 @@ export async function getWebhookSecret(): Promise<string | null> {
   return decryptOrNull(s?.mpWebhookSecretEnc ?? null);
 }
 
-export async function updateSettings(input: { trialDays?: number; prices?: Partial<Record<PlanProduct, Partial<Record<Cycle, number>>>>; mpWebhookSecret?: string | null }) {
+export async function updateSettings(input: { trialDays?: number; prices?: Partial<Record<PlanProduct, Partial<Record<Cycle, number>>>>; plans?: Partial<Record<PlanProduct, PlanInput>>; mpWebhookSecret?: string | null }) {
   const cur = await getSettings();
-  const data: { trialDays?: number; pricesJson?: string; mpWebhookSecretEnc?: string | null } = {};
+  const data: { trialDays?: number; pricesJson?: string; plansJson?: string; mpWebhookSecretEnc?: string | null } = {};
+  if (input.plans) {
+    const next = JSON.parse(JSON.stringify(cur.plans)) as PlanCatalog;
+    for (const code of PLAN_CODES) {
+      const pi = input.plans[code];
+      if (!pi) continue;
+      const err = validatePlanInput(code, cur.plans[code], pi);
+      if (err) throw new SettingsError(err);
+      next[code] = applyPlanInput(cur.plans[code], pi);
+    }
+    data.plansJson = JSON.stringify(next);
+  }
   if (input.trialDays !== undefined) data.trialDays = Math.max(0, Math.floor(input.trialDays));
   if (input.prices) {
     const next: Prices = JSON.parse(JSON.stringify(cur.prices));
     for (const p of PLAN_PRODUCTS) for (const c of CYCLES) {
       const v = input.prices[p]?.[c];
-      if (v !== undefined && Number.isInteger(v) && v > 0) next[p][c] = v;
+      if (v !== undefined && Number.isInteger(v) && v >= 0) next[p][c] = v; // 0 = ciclo fora de venda (o checkout recusa)
     }
     data.pricesJson = JSON.stringify(next);
   }
@@ -134,6 +158,34 @@ export async function planoCompletoAtivo(orgId: string, now = new Date()): Promi
   });
 }
 
+/**
+ * v1.25.0 — Plano que libera o MCK ERP para esta empresa pelas assinaturas, conforme os planos do Master
+ * (módulo ERP marcado; plano oculto só para quem já paga). null = nenhum. Mesma criação de teste sob demanda
+ * de planoCompletoAtivo (só para quem nunca pagou nada). A empresa da própria MCK é tratada em erpAccess.ts.
+ */
+export async function erpPlanoDaEmpresa(orgId: string, now = new Date()): Promise<PlanProduct | null> {
+  const { plans } = await getSettings();
+  let subs = await prisma.subscription.findMany({ where: { orgId, product: { in: [...PRODUCTS] } } });
+  if (subs.length < PRODUCTS.length && subs.every((s) => s.source === 'TRIAL')) {
+    subs = await Promise.all(PRODUCTS.map((p) => getSubscription(orgId, p)));
+  }
+  return erpBySubscriptions(plans, subs, (s, n) => effectiveStatus(s, n), now);
+}
+
+/** A empresa já pagou este plano alguma vez (Mercado Pago ou ajuste manual do Master)? Plano oculto continua renovável para ela. */
+export async function empresaJaAssinou(orgId: string, plan: PlanProduct): Promise<boolean> {
+  const ev = await prisma.billingEvent.findFirst({ where: { orgId, product: plan, kind: { in: ['MP', 'MANUAL'] } }, select: { id: true } });
+  return !!ev;
+}
+
+/** Planos que esta empresa pode contratar/renovar: os visíveis + os ocultos que ela já assinou. */
+export async function planosOferecidos(orgId: string): Promise<PlanProduct[]> {
+  const { plans } = await getSettings();
+  const out: PlanProduct[] = [];
+  for (const p of PLAN_PRODUCTS) if (plans[p].visible || (await empresaJaAssinou(orgId, p))) out.push(p);
+  return out;
+}
+
 function addCycle(from: Date, cycle: Cycle): Date {
   const d = new Date(from.getTime());
   if (cycle === 'ANUAL') d.setFullYear(d.getFullYear() + 1);
@@ -148,7 +200,7 @@ function addCycle(from: Date, cycle: Cycle): Date {
  */
 export async function renew(orgId: string, product: PlanProduct, cycle: Cycle, opts: { source?: 'MANUAL' | 'MP'; mpPaymentId?: string; amountCents?: number; actorUserId?: string } = {}) {
   const source = opts.source ?? (opts.mpPaymentId ? 'MP' : 'MANUAL');
-  const products = productsOf(product);
+  const products = await planProducts(product); // módulos do plano no Master (padrão: COMBO = os dois)
   for (const p of products) await getSubscription(orgId, p);
   try {
     return await prisma.$transaction(async (tx) => {
@@ -183,7 +235,8 @@ export async function renew(orgId: string, product: PlanProduct, cycle: Cycle, o
 export async function revokePayment(mpPaymentId: string, reason: string) {
   const ev = await prisma.billingEvent.findUnique({ where: { mpPaymentId } });
   if (!ev || ev.kind !== 'MP' || !isPlanProduct(ev.product) || !isCycle(ev.cycle)) return { revoked: false as const, reason: 'sem_renovacao' };
-  const products = productsOf(ev.product);
+  // Plano com os módulos de hoje (se o Master mudou os módulos depois do pagamento, vale a configuração atual).
+  const products = await planProducts(ev.product);
   try {
     return await prisma.$transaction(async (tx) => {
       await tx.billingEvent.create({ data: { orgId: ev.orgId, product: ev.product, kind: 'MP_ESTORNO', cycle: ev.cycle, amountCents: ev.amountCents, mpPaymentId: `${mpPaymentId}-estorno`, prevValidUntil: ev.newValidUntil, newValidUntil: null } });
@@ -214,7 +267,7 @@ export async function revokePayment(mpPaymentId: string, reason: string) {
 }
 
 export async function setBlocked(orgId: string, product: PlanProduct, blocked: boolean, actorUserId?: string) {
-  const products = productsOf(product);
+  const products = await planProducts(product);
   for (const p of products) {
     const s = await getSubscription(orgId, p);
     const status = blocked ? 'BLOQUEADA' : s.source === 'TRIAL' ? 'TRIAL' : 'ATIVA';
@@ -227,7 +280,7 @@ export const unblock = (orgId: string, product: PlanProduct, actorUserId?: strin
 
 /** Ativa manualmente (ATIVA por 1 ciclo a partir de agora), inclusive desbloqueando. */
 export async function activateManual(orgId: string, product: PlanProduct, cycle: Cycle, actorUserId?: string) {
-  const products = productsOf(product);
+  const products = await planProducts(product);
   const now = new Date();
   const validUntil = addCycle(now, cycle);
   let prevMax: Date | null = null;
@@ -241,7 +294,7 @@ export async function activateManual(orgId: string, product: PlanProduct, cycle:
 
 /** Define manualmente a data de validade. Não altera bloqueio. */
 export async function setValidUntil(orgId: string, product: PlanProduct, validUntil: Date, actorUserId?: string) {
-  const products = productsOf(product);
+  const products = await planProducts(product);
   let prevMax: Date | null = null;
   for (const p of products) {
     const s = await getSubscription(orgId, p);
