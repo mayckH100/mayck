@@ -2,6 +2,8 @@
  * Venda balcão (PDV): uma tela, um clique. Cria o pedido e passa por toda a máquina na mesma transação
  * (aprovar → reservar → separar/conferir → faturar → entregar), dá baixa no estoque (FEFO/FIFO),
  * gera o título a receber e já o liquida na conta escolhida. Cliente opcional: sem cadastro vai como "Consumidor final".
+ * Exige caixa aberto (409 "Abra o caixa antes de vender"): a venda e o recebimento ficam ligados à sessão do caixa,
+ * e o dinheiro entra na conta do caixa aberto (Pix/cartão seguem a conta escolhida).
  */
 import { Router } from 'express';
 import { z } from 'zod';
@@ -16,6 +18,7 @@ import { titulosDoPedido, recalcularTitulo } from '../financeiro/servico.js';
 import { aplicar, itemSchema, montarItens, PREFIXO_BALCAO } from './pedidos.routes.js';
 import { configDa } from '../produtos/produtos.routes.js';
 import { avisarPedidoErp } from './avisoPedido.js';
+import { sessaoParaVenda, travarSessaoParaVenda } from './caixa.routes.js';
 
 export const balcaoRouter = Router();
 export const DOC_CONSUMIDOR = '00000000000';
@@ -26,6 +29,7 @@ const schema = z.object({
   descontoCents: z.number().int().min(0).max(2_000_000_000).default(0),
   forma: z.enum(['DINHEIRO', 'PIX', 'CARTAO']).default('DINHEIRO'), contaId: z.string().nullish(),
   depositoId: z.string().nullish(), observacoes: z.string().trim().max(1000).nullish(),
+  caixaSessaoId: z.string().nullish(),
 });
 
 /** Contas para receber no balcão (cria "Caixa" se a empresa ainda não tem nenhuma). */
@@ -45,13 +49,18 @@ balcaoRouter.post('/', ah(async (req, res) => {
     : await prisma.erpParceiro.upsert({ where: { orgId_documento: { orgId, documento: DOC_CONSUMIDOR } }, update: {}, create: { orgId, documento: DOC_CONSUMIDOR, tipoPessoa: 'PF', nome: 'Consumidor final', ehCliente: true, origem: 'balcao' } });
   if (!cliente) throw badRequest('Cliente não encontrado');
   if (cliente.status === 'BLOQUEADO') throw badRequest('Cliente bloqueado');
-  const conta = b.contaId
+  const sessao = await sessaoParaVenda(orgId, userId, b.caixaSessaoId);
+  // Dinheiro vai para a gaveta: conta do caixa aberto. Pix/cartão: conta escolhida (ou a padrão, como antes).
+  const conta = b.forma === 'DINHEIRO'
+    ? await prisma.erpContaFinanceira.findFirst({ where: { id: sessao.contaFinanceiraId, orgId } })
+    : b.contaId
     ? await prisma.erpContaFinanceira.findFirst({ where: { id: b.contaId, orgId, ativa: true } })
     : await prisma.erpContaFinanceira.findFirst({ where: { orgId, ativa: true }, orderBy: [{ tipo: 'asc' }] }) ?? await prisma.erpContaFinanceira.create({ data: { orgId, nome: 'Caixa', tipo: 'CAIXA' } });
   if (!conta) throw badRequest('Conta para receber inválida');
   const cfg = await configDa(orgId);
 
   const pedido = await prisma.$transaction(async (tx) => {
+    await travarSessaoParaVenda(tx, sessao.id);
     const { itens, tot, maxItemBp } = await montarItens(tx, orgId, { itens: b.itens, tabelaPrecoId: null, descontoCents: b.descontoCents, freteCents: 0 });
     if (tot.totalCents <= 0) throw badRequest('Venda com total zero');
     const descBp = tot.subtotalCents > 0 ? Math.round((tot.descontoCents / tot.subtotalCents) * 10_000) : 0;
@@ -62,7 +71,7 @@ balcaoRouter.post('/', ah(async (req, res) => {
     const correlationId = randomUUID();
     const obs = [b.nomeCliente && !b.parceiroId ? `Cliente: ${b.nomeCliente}` : null, b.observacoes, `Venda balcão · ${b.forma}`].filter(Boolean).join('\n');
     let p = await tx.erpPedidoVenda.create({
-      data: { orgId, numero, parceiroId: cliente.id, vendedorId: userId, depositoId: b.depositoId ?? null, observacoes: obs, subtotalCents: tot.subtotalCents, descontoCents: tot.descontoCents, freteCents: 0, totalCents: tot.totalCents, descontoMaxItemBp: maxItemBp, validadeOrcamento: new Date(), correlationId, itens: { create: itens } },
+      data: { orgId, numero, parceiroId: cliente.id, vendedorId: userId, depositoId: b.depositoId ?? null, observacoes: obs, subtotalCents: tot.subtotalCents, descontoCents: tot.descontoCents, freteCents: 0, totalCents: tot.totalCents, descontoMaxItemBp: maxItemBp, validadeOrcamento: new Date(), correlationId, caixaSessaoId: sessao.id, itens: { create: itens } },
       include: { itens: true },
     });
     await emitir(tx, { orgId, tipo: 'vendas.pedido.criado', agregado: 'pedido_venda', agregadoId: p.id, correlationId, payload: { numero, parceiroId: cliente.id, totalCents: p.totalCents } });
@@ -90,14 +99,14 @@ balcaoRouter.post('/', ah(async (req, res) => {
     await titulosDoPedido(tx, orgId, p.id);
     const titulos = await tx.erpTitulo.findMany({ where: { orgId, docTipo: 'pedido_venda', docId: p.id } });
     for (const t of titulos) {
-      const bx = await tx.erpBaixa.create({ data: { tituloId: t.id, contaId: conta.id, data: new Date(), valorCents: t.valorCents, jurosCents: 0, descontoCents: 0, forma: b.forma, userId } });
+      const bx = await tx.erpBaixa.create({ data: { tituloId: t.id, contaId: conta.id, data: new Date(), valorCents: t.valorCents, jurosCents: 0, descontoCents: 0, forma: b.forma, userId, caixaSessaoId: sessao.id } });
       await tx.erpLancamento.create({ data: { orgId, contaId: conta.id, data: new Date(), valorCents: t.valorCents, descricao: t.descricao, origemTipo: 'baixa', origemId: bx.id, categoriaId: t.categoriaId } });
       await recalcularTitulo(tx, t.id);
     }
     return tx.erpPedidoVenda.findUniqueOrThrow({ where: { id: p.id }, include: { itens: true } });
   });
   despacharEmBreve();
-  await auditar(req, 'pedido.balcao', 'erp_pedido_venda', pedido.id, null, { numero: pedido.numero, totalCents: pedido.totalCents, forma: b.forma });
+  await auditar(req, 'pedido.balcao', 'erp_pedido_venda', pedido.id, null, { numero: pedido.numero, totalCents: pedido.totalCents, forma: b.forma, caixaSessaoId: sessao.id });
   avisarPedidoErp(pedido, { balcao: true });
   res.status(201).json(pedido);
 }));
