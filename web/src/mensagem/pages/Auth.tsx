@@ -5,7 +5,7 @@ import { useAuth } from '../../auth';
 import { Field } from '../../ui';
 import { MCKBOT_URL } from '../common';
 import { InstallButton } from '../../pwa';
-import { PlansShowcase, ForgotPassword, ResetPassword, VerifyEmail } from '../../pages/PublicAuth';
+import { PlansShowcase, ForgotPassword, ResetPassword, VerifyEmail, usePlanNames } from '../../pages/PublicAuth';
 import { normalizeCoupon, storedCoupon } from '../../billing';
 import { MfaLoginStep } from '../../pages/Security';
 import { SignupFlow, CompleteCadastro } from '../../pages/Cadastro';
@@ -19,7 +19,6 @@ export const MmForgot = () => <ForgotPassword app="mensagem" Wrap={AuthLayout} B
 export const MmReset = () => <ResetPassword app="mensagem" Wrap={AuthLayout} Brand={MmBrand} />;
 export const MmVerify = () => <VerifyEmail Wrap={AuthLayout} Brand={MmBrand} />;
 export const MmCompletar = () => <CompleteCadastro Wrap={AuthLayout} Brand={MmBrand} />;
-const PLAN_NAME: Record<string, string> = { MCKBOT: 'MCKBOT', MCKMENSAGEM: 'MCK Mensagens', COMBO: 'Plano Completo: MCK ERP + MCKBOT + MCK Mensagens' };
 
 function AuthLayout({ children }: { children: ReactNode }) {
   return (
@@ -90,6 +89,7 @@ export function MmRegister() {
   const nav = useNavigate();
   const [sp] = useSearchParams();
   const plano = sp.get('plano');
+  const PLAN_NAME = usePlanNames(); // nomes do Master; plano fora de venda não aparece
   const cupom = normalizeCoupon(sp.get('cupom')) || storedCoupon();
   return (
     <AuthLayout>

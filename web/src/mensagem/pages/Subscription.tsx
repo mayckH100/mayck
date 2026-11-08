@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { post } from '../../api';
 import { useAuth } from '../../auth';
 import { useApi, Async, Loading } from '../../ui';
-import { ProductCard, CurrentPlan, CouponBox, comboView, reasonText, useCoupon, type BillingStatus, type ConfirmResult } from '../../pages/Plan';
+import { ProductCard, CurrentPlan, CouponBox, planSub, plansOf, reasonText, useCoupon, type BillingStatus, type ConfirmResult } from '../../pages/Plan';
 import { clearStoredCoupon } from '../../billing';
 import { IndiqueGanheCard } from '../../Indicacao';
 
@@ -55,10 +55,11 @@ export default function MmSubscription() {
             {!b.configured && <div className="alert warn">Pagamento online ainda não configurado. Enquanto isso, fale com o suporte para ativar ou renovar a sua assinatura.</div>}
             <CouponBox state={coupon} />
             <div className="grid g2">
-              <ProductCard product="MCKMENSAGEM" label="MCK Mensagens" app="mensagem" sub={mm} prices={b.prices.MCKMENSAGEM} configured={b.configured} coupon={coupon.applied}
-                desc="Contatos com consentimento, campanhas personalizadas com {nome}, limites seguros e métricas de resposta e conversão." />
-              <ProductCard product="COMBO" label="Plano Completo: MCK ERP + MCKBOT + MCK Mensagens" app="mensagem" sub={comboView(b.subscriptions)} prices={b.prices.COMBO} configured={b.configured} coupon={coupon.applied}
-                desc="Atendimento automatizado (MCKBOT) e campanhas (MCK Mensagens) juntos, com desconto. Renova os dois de uma vez." />
+              {/* v1.25.0: planos do Master que incluem o MCK Mensagens (nome, descrição e "à venda" editáveis). */}
+              {plansOf(b).filter((pl) => pl.apps.includes('MCKMENSAGEM')).map((pl) => (
+                <ProductCard key={pl.id} product={pl.id} label={pl.name} app="mensagem" sub={planSub(pl, b.subscriptions)} prices={b.prices[pl.id]} configured={b.configured} coupon={coupon.applied}
+                  desc={pl.desc || undefined} features={pl.features} hidden={!pl.visible} />
+              ))}
             </div>
             <p className="small muted">Com a assinatura inativa você continua consultando e exportando seus contatos e métricas, mas não pode criar, importar nem disparar campanhas. Ao renovar antes do vencimento, o novo período é somado ao que resta. Novos clientes têm {b.trialDays} dia(s) de teste grátis.</p>
             </>}
