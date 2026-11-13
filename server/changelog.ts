@@ -21,6 +21,15 @@ export type EntradaChangelog = {
 
 export const CHANGELOG: EntradaChangelog[] = [
   {
+    versao: '1.27.3',
+    data: '12/11/2026',
+    titulo: 'Respostas em áudio mais inteligentes',
+    itens: [
+      'Quando o cliente pede áudio, a IA responde em áudio mesmo quando o assunto é longo: ela fala de forma mais direta e, se precisar, manda em mais de uma nota de voz.',
+      'A IA não escreve mais marcações como "[enviado como áudio]" nas respostas.',
+    ],
+  },
+  {
     versao: '1.27.2',
     data: '12/11/2026',
     titulo: 'Sem limite também no áudio',

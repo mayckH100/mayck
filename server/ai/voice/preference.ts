@@ -12,7 +12,8 @@ export const isVoicePreference = (v: unknown): v is VoicePreference => v === 'au
 /** Marcadores do histórico enviado à IA (nunca vão para o cliente; saem da resposta se a IA copiar). */
 export const MARK_AI_AUDIO = '[enviado como áudio]';
 export const MARK_CLIENT_AUDIO = '[áudio do cliente, transcrito]';
-const MARKER_RE = /\[\s*(?:enviado como [áa]udio|[áa]udio do cliente(?:,\s*transcrito)?)\s*\]\s*/gi;
+// v1.27.3: aceita variações que a IA inventa ao copiar ("[enviado as áudio]", "[enviado em áudio]", "[áudio]").
+const MARKER_RE = /\[\s*(?:(?:enviad[oa]|mandad[oa]|respondid[oa])\s+(?:como|as|em|por|no|via)\s+[áa]udio|[áa]udio(?:\s+do\s+cliente)?(?:,?\s*transcrito)?|nota de voz|mensagem de voz)\s*\]\s*/gi;
 export const stripVoiceMarkers = (t: string) => t.replace(MARKER_RE, '').replace(/[ \t]{2,}/g, ' ').trim();
 
 // Palavras que nomeiam o áudio (texto já normalizado: sem acento, minúsculo).
@@ -86,7 +87,7 @@ export function voicePromptSection(a: { voiceEnabled: boolean; replyAsAudio: boo
       '- Você pode responder por áudio (nota de voz); o sistema converte sua resposta em áudio quando apropriado. Nunca diga que só conversa por texto, nem que não consegue mandar ou ouvir áudio, nem negue áudios que você já mandou.',
       '- Se o cliente pedir áudio, simplesmente responda (ex.: "Claro! ..."), sem anunciar nada técnico: sua resposta já vai em áudio. Se pedir texto, simplesmente escreva, sem comentar a troca.',
       a.replyAsAudio
-        ? '- Esta resposta vai como ÁUDIO: escreva como fala natural de WhatsApp, frases curtas, sem listas longas, sem emojis e sem escrever "[áudio]".'
+        ? '- Esta resposta vai como ÁUDIO: escreva como fala natural de WhatsApp, frases curtas, sem listas longas, sem emojis e sem escrever nada entre colchetes (como "[áudio]" ou "[enviado como áudio]"). Seja direta: no máximo umas 5 frases curtas (uns 30 segundos de fala). Se o assunto for grande, dê o essencial e pergunte se o cliente quer saber mais.'
         : a.pref === 'texto'
           ? '- O cliente prefere texto nesta conversa: esta resposta vai por escrito.'
           : '- Esta resposta vai por escrito.',

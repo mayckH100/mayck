@@ -14,6 +14,18 @@ import { synthesizeReply } from './service.js';
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/** Divide um texto longo em partes de até `maxChars` caracteres, sem cortar frases (v1.27.3). */
+export function splitIntoVoiceChunks(text: string, maxChars: number): string[] {
+  const sentences = text.replace(/\r/g, '').split(/(?<=[.!?…])\s+|\n+/).map((x) => x.trim()).filter(Boolean);
+  const out: string[] = [];
+  let cur = '';
+  for (const sent of sentences) {
+    if (cur && (cur + ' ' + sent).length > maxChars) { out.push(cur); cur = sent; } else cur = cur ? `${cur} ${sent}` : sent;
+  }
+  if (cur) out.push(cur);
+  return out;
+}
+
 /** A última mensagem do cliente nesta conversa foi um áudio? */
 export async function lastInboundWasAudio(conversationId: string): Promise<boolean> {
   const m = await prisma.message.findFirst({ where: { conversationId, direction: 'IN' }, orderBy: { createdAt: 'desc' }, select: { type: true } });
@@ -36,6 +48,26 @@ export async function sendAiReply(conv: Conversation, contact: Contact, text: st
     if (qr) await qrManager.presence(qr, contact.waId, 'recording');
     const started = Date.now();
     const v = await synthesizeReply({ orgId: conv.orgId, conversationId: conv.id, text, settings: s });
+    if (!v.ok && /longa demais|longo demais/i.test(v.reason)) {
+      // v1.27.3: o cliente quer áudio e a resposta é longa → manda em várias notas de voz curtas, em ordem.
+      const parts = splitIntoVoiceChunks(text, Math.max(5, s.voiceMaxSeconds || 45) * 14);
+      let first: Message | null = null;
+      let extras: string[] = [];
+      let okAll = parts.length > 1;
+      for (const part of okAll ? parts : []) {
+        if (qr) await qrManager.presence(qr, contact.waId, 'recording');
+        const pv = await synthesizeReply({ orgId: conv.orgId, conversationId: conv.id, text: part, settings: s });
+        if (!pv.ok) { okAll = false; if (first) { await sendText(part); continue; } break; }
+        const pm = await sendOutbound({ conversation: conv, contact, sender: 'ai', payload: { type: 'voice', data: pv.audio.ogg, mime: 'audio/ogg; codecs=opus', seconds: pv.audio.seconds, waveform: pv.audio.waveform, text: pv.spoken } });
+        if (pm.status === 'FAILED') { if (first) { await sendText(part); continue; } okAll = false; break; }
+        first = first ?? pm;
+        if (pv.extra) extras.push(pv.extra);
+      }
+      if (qr) await qrManager.presence(qr, contact.waId, 'paused');
+      if (first) { if (extras.length) await sendText([...new Set(extras)].join('\n')); return first; }
+      if (!okAll) console.warn('[voz] partes em áudio falharam; resposta vai por texto', { orgId: conv.orgId, conversationId: conv.id });
+      return sendText(text);
+    }
     if (!v.ok) {
       if (qr) await qrManager.presence(qr, contact.waId, 'paused');
       console.warn('[voz] resposta vai por texto', { orgId: conv.orgId, conversationId: conv.id, reason: v.reason });
