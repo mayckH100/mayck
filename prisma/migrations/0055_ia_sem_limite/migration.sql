@@ -1,0 +1,1 @@
+ALTER TABLE "AiSettings" ADD COLUMN "usageLimitEnabled" BOOLEAN NOT NULL DEFAULT true;

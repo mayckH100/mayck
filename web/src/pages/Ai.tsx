@@ -57,7 +57,7 @@ function Config() {
         e.preventDefault();
         const body: any = {
           enabled: f.enabled, autoReply: f.autoReply, provider: f.provider, model: f.model, baseUrl: f.provider === 'openai' ? f.baseUrl : '',
-          instructions: f.instructions, tone: f.tone, temperature: Number(f.temperature), maxTokens: Number(f.maxTokens), dailyLimit: Number(f.dailyLimit), monthlyTokenLimit: Number(f.monthlyTokenLimit),
+          instructions: f.instructions, tone: f.tone, temperature: Number(f.temperature), maxTokens: Number(f.maxTokens), usageLimitEnabled: f.usageLimitEnabled !== false, dailyLimit: Number(f.dailyLimit), monthlyTokenLimit: Number(f.monthlyTokenLimit),
           handoffKeywords: f.handoffKeywords.split(',').map((x: string) => x.trim()).filter(Boolean), fallbackMessage: f.fallbackMessage,
           failureMessage: f.failureMessage ?? '', competitorNotes: f.competitorNotes ?? '', webSearch: !!f.webSearch, kanbanAuto: !!f.kanbanAuto,
           ...(superAdmin ? { useMckSite: !!f.useMckSite } : {}),
@@ -94,9 +94,14 @@ function Config() {
           <div className="grid g2">
             <Field label="Temperatura"><input type="number" step="0.1" min={0} max={2} value={f.temperature} onChange={(e) => setF({ ...f, temperature: e.target.value })} /></Field>
             <Field label="Máx. tokens por resposta"><input type="number" min={50} max={4000} value={f.maxTokens} onChange={(e) => setF({ ...f, maxTokens: e.target.value })} /></Field>
-            <Field label="Limite de respostas por dia"><input type="number" min={0} value={f.dailyLimit} onChange={(e) => setF({ ...f, dailyLimit: e.target.value })} /></Field>
-            <Field label="Limite de tokens por mês"><input type="number" min={0} value={f.monthlyTokenLimit} onChange={(e) => setF({ ...f, monthlyTokenLimit: e.target.value })} /></Field>
           </div>
+          <label className="row"><input type="checkbox" checked={f.usageLimitEnabled !== false} onChange={(e) => setF({ ...f, usageLimitEnabled: e.target.checked })} /> Usar limite de uso da IA</label>
+          {f.usageLimitEnabled !== false ? (
+            <div className="grid g2">
+              <Field label="Limite de respostas por dia"><input type="number" min={0} value={f.dailyLimit} onChange={(e) => setF({ ...f, dailyLimit: e.target.value })} /></Field>
+              <Field label="Limite de tokens por mês"><input type="number" min={0} value={f.monthlyTokenLimit} onChange={(e) => setF({ ...f, monthlyTokenLimit: e.target.value })} /></Field>
+            </div>
+          ) : <div className="alert info small">Sem limite: a IA responde todas as mensagens, sem teto por dia ou por mês.</div>}
         </fieldset>
         <fieldset disabled={ro} className="card stack" style={{ margin: 0 }}>
           <h2>Comportamento</h2>

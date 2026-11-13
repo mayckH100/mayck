@@ -190,7 +190,8 @@ async function generateAiReplyInner(args: { orgId: string; conversationId: strin
     prisma.aiUsage.aggregate({ where: { orgId, createdAt: { gte: startOfMonth() } }, _sum: { promptTokens: true, completionTokens: true } }),
   ]);
   const monthTokens = (monthAgg._sum.promptTokens ?? 0) + (monthAgg._sum.completionTokens ?? 0);
-  if (today >= s.dailyLimit || monthTokens >= s.monthlyTokenLimit) {
+  // v1.27.1: "Usar limite de uso" desligado = IA sem limite (nem por dia nem por mês).
+  if (s.usageLimitEnabled !== false && (today >= s.dailyLimit || monthTokens >= s.monthlyTokenLimit)) {
     await prisma.aiUsage.create({ data: { orgId, conversationId, provider: s.provider, model: s.model, success: false, handoff: false, error: 'Limite de uso da IA atingido' } });
     console.warn('[ia] limite de uso atingido: texto de falha enviado, sem transferir', { orgId, conversationId: conversationId || null });
     return { text: fail, handoff: false, failed: true, reason: 'Limite de uso da IA atingido', usedContext: false };

@@ -1,6 +1,6 @@
 {
   "name": "mckbot",
-  "version": "1.27.0",
+  "version": "1.27.1",
   "private": true,
   "description": "MCKBOT — plataforma SaaS de automação de atendimento no WhatsApp (QR code via Baileys; Cloud API oficial opcional) com IA",
   "type": "module",

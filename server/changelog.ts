@@ -21,6 +21,14 @@ export type EntradaChangelog = {
 
 export const CHANGELOG: EntradaChangelog[] = [
   {
+    versao: '1.27.1',
+    data: '12/11/2026',
+    titulo: 'IA sem limite de uso, se você quiser',
+    itens: [
+      'Na configuração da IA, a opção "Usar limite de uso da IA" pode ser desligada. Desligada, a IA responde todas as mensagens, sem limite por dia ou por mês.',
+    ],
+  },
+  {
     versao: '1.27.0',
     data: '08/11/2026',
     titulo: 'Plano Completo com preço de entrada para empresas novas',

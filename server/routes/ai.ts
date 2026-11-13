@@ -44,6 +44,7 @@ aiRouter.put('/settings', admins, ah(async (req, res) => {
     clearApiKey: z.boolean().optional(),
     instructions: z.string().max(8000).optional(), tone: z.string().max(200).optional(),
     temperature: z.number().min(0).max(2).optional(), maxTokens: z.number().int().min(50).max(4000).optional(),
+    usageLimitEnabled: z.boolean().optional(),
     dailyLimit: z.number().int().min(0).max(100000).optional(), monthlyTokenLimit: z.number().int().min(0).max(100000000).optional(),
     handoffKeywords: z.array(z.string().trim().min(1).max(50)).max(30).optional(),
     fallbackMessage: z.string().trim().min(1).max(1000).optional(),
