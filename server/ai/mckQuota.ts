@@ -64,7 +64,16 @@ export function quotaView(tier: MckTier, used: number, limit: number): MckQuota 
   };
 }
 
+/** v1.27.2: organizações sem cota da MCK IA (env MCK_IA_UNLIMITED_ORGS, ids separados por vírgula). */
+export function mckUnlimitedOrg(orgId: string, env: Env = process.env): boolean {
+  return (env.MCK_IA_UNLIMITED_ORGS ?? '').split(/[\s,;]+/).filter(Boolean).includes(orgId);
+}
+
 export async function mckQuotaStatus(orgId: string, now = new Date()): Promise<MckQuota> {
+  if (mckUnlimitedOrg(orgId)) {
+    const tier = await mckTierOf(orgId, now);
+    return quotaView(tier, 0, 0);
+  }
   const [tier, used] = await Promise.all([
     mckTierOf(orgId, now),
     prisma.aiUsage.count({ where: { orgId, provider: 'mck', success: true, createdAt: { gte: spDayStart(now) } } }),

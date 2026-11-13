@@ -34,7 +34,8 @@ export async function voiceQuotaBlock(orgId: string, s: AiSettings, usageProvide
     prisma.aiUsage.aggregate({ where: { orgId, createdAt: { gte: startOfMonth() } }, _sum: { promptTokens: true, completionTokens: true } }),
   ]);
   const monthTokens = (monthAgg._sum.promptTokens ?? 0) + (monthAgg._sum.completionTokens ?? 0);
-  if (today >= s.dailyLimit || monthTokens >= s.monthlyTokenLimit) return 'Limite de uso da IA atingido';
+  // v1.27.2: "Usar limite de uso" desligado vale também para ouvir e responder áudio.
+  if (s.usageLimitEnabled !== false && (today >= s.dailyLimit || monthTokens >= s.monthlyTokenLimit)) return 'Limite de uso da IA atingido';
   if (usageProvider === 'mck') {
     const q = await mckQuotaStatus(orgId).catch(() => null);
     if (q?.reached) return 'Limite diário da MCK IA atingido';

@@ -21,6 +21,14 @@ export type EntradaChangelog = {
 
 export const CHANGELOG: EntradaChangelog[] = [
   {
+    versao: '1.27.2',
+    data: '12/11/2026',
+    titulo: 'Sem limite também no áudio',
+    itens: [
+      'Com "Usar limite de uso da IA" desligado, a IA também ouve e responde áudios sem limite.',
+    ],
+  },
+  {
     versao: '1.27.1',
     data: '12/11/2026',
     titulo: 'IA sem limite de uso, se você quiser',
