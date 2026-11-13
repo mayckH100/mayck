@@ -17,6 +17,7 @@ export const ERP_ITENS: { to: string; label: string; end?: boolean; module?: str
   { to: '/erp/producao', label: 'Produção' },
   { to: '/erp/financeiro', label: 'Financeiro' },
   { to: '/erp/fiscal', label: 'Fiscal' },
+  { to: '/erp/maquininhas', label: 'Maquininhas', module: 'erp_vendas' },
   { to: '/erp/bi', label: 'BI' },
   { to: '/erp/alertas', label: 'Alertas' },
 ];

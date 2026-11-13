@@ -39,6 +39,7 @@ import ErpCompras from './erp/compras/Compras';
 import ErpProducao from './erp/producao/Producao';
 import ErpFinanceiro from './erp/financeiro/Financeiro';
 import ErpFiscal from './erp/fiscal/Fiscal';
+import ErpMaquininhas from './erp/vendas/Maquininhas';
 import ErpBi from './erp/bi/Bi';
 import Sdr from './pages/Sdr';
 import ErpAlertas from './erp/alertas/Alertas';
@@ -325,6 +326,7 @@ export default function App() {
             <Route path="/erp/producao" element={<ErpProducao />} />
             <Route path="/erp/financeiro" element={<ErpFinanceiro />} />
             <Route path="/erp/fiscal" element={<ErpFiscal />} />
+            <Route path="/erp/maquininhas" element={<ErpMaquininhas />} />
             <Route path="/erp/bi" element={<ErpBi />} />
             <Route path="/relatorios" element={<Reports />} />
             <Route path="/equipe" element={<Team />} />

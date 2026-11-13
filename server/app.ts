@@ -14,6 +14,7 @@ import { announcementsRouter } from './routes/announcements.js';
 import { mckmensagemRouter } from './mckmensagem/routes.js';
 import { automacoesRouter } from './mckmensagem/automacoes/routes.js';
 import { billingRouter, billingWebhookRouter } from './billing/routes.js';
+import { maquininhaWebhookRouter } from './erp/maquininhas/maquininhas.routes.js';
 import { referralRouter, publicReferralRouter } from './billing/referrals.js';
 import { requireMckbotForWrites, requirePlanoCompletoErp } from './billing/guard.js';
 import { authRouter } from './auth/routes.js';
@@ -74,6 +75,8 @@ export function createApp() {
 
   // Webhook antes do JSON parser: precisa do corpo bruto para validar a assinatura.
   app.use('/api/webhooks', webhookRouter);
+  // Maquininhas do PDV (ex.: Mercado Pago Point): URL com chave secreta por empresa; o status é sempre reconsultado na API.
+  app.use('/api/webhooks/maquininhas', rateLimit({ windowMs: 60 * 1000, limit: 240, standardHeaders: 'draft-7', legacyHeaders: false }), maquininhaWebhookRouter);
   // SDR: resposta do lead por e-mail (Inbound parsing do Brevo). Desligado sem SDR_INBOUND_SECRET; segredo conferido na rota.
   app.use('/api/public/sdr/email', sdrInboundRouter);
   // Webhook do Mercado Pago: público (sem sessão/CSRF), validado por assinatura + consulta à API.

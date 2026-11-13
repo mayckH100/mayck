@@ -21,6 +21,18 @@ export type EntradaChangelog = {
 
 export const CHANGELOG: EntradaChangelog[] = [
   {
+    versao: '1.28.0',
+    data: '13/11/2026',
+    titulo: 'PDV com maquininha de cartão (Mercado Pago Point)',
+    itens: [
+      'Na venda balcão, ao escolher Cartão, a cobrança vai direto para a sua maquininha Mercado Pago Point, com crédito à vista, parcelado ou débito.',
+      'A tela mostra "aguardando pagamento na maquininha" e a venda só é registrada, com baixa no estoque e entrada no caixa, quando o pagamento é aprovado. Pagamento recusado, cancelado ou expirado não gera venda.',
+      'Dá para cancelar a cobrança pelo PDV enquanto o cliente ainda não pagou.',
+      'Nova tela Maquininhas no ERP: cole a chave de acesso (credencial de produção) da sua conta do Mercado Pago, busque as maquininhas, ative o modo PDV e escolha a do caixa. A chave fica guardada de forma cifrada.',
+      'Stone, PagBank e Cielo aparecem como "em breve". Sem maquininha configurada, o cartão continua sendo lançado manualmente, como antes.',
+    ],
+  },
+  {
     versao: '1.27.3',
     data: '12/11/2026',
     titulo: 'Respostas em áudio mais inteligentes',

@@ -2253,6 +2253,51 @@ model ErpCaixaMovimento {
 }
 
 /**
+ * Maquininha de cartão integrada ao PDV (uma configuração por empresa). Cada empresa usa a PRÓPRIA credencial do
+ * provedor (ex.: access token do Mercado Pago dela), guardada cifrada (AES-256-GCM, lib/crypto). Terminal padrão do caixa.
+ */
+model ErpMaquininhaConfig {
+  orgId            String   @id
+  provedor         String   @default("mercadopago_point") // mercadopago_point | stone_connect | pagbank_smart | cielo
+  ativo            Boolean  @default(true)
+  accessTokenEnc   String?
+  terminalPadraoId String?
+  webhookChave     String   @unique // parte secreta da URL do webhook desta empresa
+  webhookSecretEnc String? // chave secreta das notificações (x-signature), opcional
+  updatedAt        DateTime @updatedAt
+}
+
+/**
+ * Cobrança enviada à maquininha a partir do PDV. A venda (pedido, baixa de estoque e recebimento no caixa) só é criada
+ * quando o provedor confirma o pagamento; recusada/cancelada/expirada não gera venda.
+ */
+model ErpCobrancaCartao {
+  id                     String   @id @default(cuid())
+  orgId                  String
+  provedor               String
+  terminalId             String
+  referencia             String   @unique // external_reference enviado ao provedor
+  externalId             String? // id da cobrança no provedor (ex.: ORD... do Mercado Pago)
+  valorCents             Int
+  tipo                   String // CREDITO | DEBITO
+  parcelas               Int      @default(1)
+  status                 String   @default("PENDENTE") // PENDENTE | APROVADA | RECUSADA | CANCELADA | EXPIRADA | ERRO_VENDA
+  statusProvedor         String?
+  detalhe                String?
+  cancelamentoSolicitado Boolean  @default(false)
+  venda                  String // JSON com os dados da venda balcão (itens, cliente, desconto, conta)
+  userId                 String?
+  gestor                 Boolean  @default(false)
+  caixaSessaoId          String
+  pedidoId               String?  @unique
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+
+  @@index([orgId, createdAt])
+  @@index([orgId, externalId])
+}
+
+/**
  * Linha do extrato bancário importado (OFX) para conciliação.
  */
 model ErpExtratoLinha {
