@@ -11,6 +11,7 @@ import { auditar } from '../shared/auditoria.js';
 import { configDa } from '../produtos/produtos.routes.js';
 import { parcelar, encargos, pixCopiaECola, lerOfx, sugerirConciliacao, aging, fluxoProjetado, dre } from './calculo.js';
 import { garantirPlano, recalcularTitulo } from './servico.js';
+import { gerarParcelas, conferirParcelas, isoValida, MAX_PARCELAS } from './parcelas.js';
 
 export const financeiroRouter = Router();
 const gestor = (req: { auth?: { role?: string | null } }) => req.auth?.role === 'OWNER' || req.auth?.role === 'ADMIN';
@@ -21,6 +22,7 @@ export const NATUREZAS = ['FORNECEDOR', 'AGUA', 'LUZ', 'INTERNET', 'TELEFONE', '
 const naturezaSchema = z.enum(NATUREZAS).nullish();
 /** Categoria padrão do plano de contas para cada conta da empresa (quando o usuário não escolhe). */
 const CATEGORIA_DA_NATUREZA: Record<string, string> = { AGUA: '4.03', LUZ: '4.03', INTERNET: '4.03', TELEFONE: '4.03', ALUGUEL: '4.02', IMPOSTO: '6.01', FORNECEDOR: '3.01' };
+const NATUREZA_ROTULO: Record<string, string> = { FORNECEDOR: 'Fornecedor', AGUA: 'Água', LUZ: 'Luz', INTERNET: 'Internet', TELEFONE: 'Telefone', ALUGUEL: 'Aluguel', IMPOSTO: 'Imposto', OUTRA_CONTA: 'Outra conta' };
 
 async function saldosContas(orgId: string) {
   const [contas, g] = await Promise.all([
@@ -56,19 +58,120 @@ financeiroRouter.get('/categorias', ah(async (req, res) => {
   await prisma.$transaction((tx) => garantirPlano(tx, orgId));
   res.json(await prisma.erpCategoriaFinanceira.findMany({ where: { orgId }, orderBy: { codigo: 'asc' } }));
 }));
-const catSchema = z.object({ codigo: z.string().trim().regex(/^\d+(\.\d+)*$/, 'Código no formato 4.06'), nome: z.string().trim().min(2).max(80), tipo: z.enum(['RECEITA', 'DESPESA']), grupo: z.enum(['RECEITA_BRUTA', 'DEDUCAO', 'CUSTO', 'OPERACIONAL', 'FINANCEIRA', 'IMPOSTO']), ativa: z.boolean().default(true) });
+const GRUPOS = ['RECEITA_BRUTA', 'DEDUCAO', 'CUSTO', 'OPERACIONAL', 'FINANCEIRA', 'IMPOSTO'] as const;
+/** Código e grupo são opcionais na criação: sem código, o sistema numera (4.06; subcategoria 4.06.01); sem grupo, herda da mãe. */
+const catSchema = z.object({ codigo: z.string().trim().regex(/^\d+(\.\d+)*$/, 'Código no formato 4.06').max(20).nullish(), nome: z.string().trim().min(2).max(80), tipo: z.enum(['RECEITA', 'DESPESA']), grupo: z.enum(GRUPOS).nullish(), paiId: z.string().nullish(), ativa: z.boolean().default(true) });
+const catEdicaoSchema = z.object({ codigo: z.string().trim().regex(/^\d+(\.\d+)*$/, 'Código no formato 4.06').max(20).optional(), nome: z.string().trim().min(2).max(80).optional(), tipo: z.enum(['RECEITA', 'DESPESA']).optional(), grupo: z.enum(GRUPOS).optional(), ativa: z.boolean().optional() });
+/** Primeiro número do código por grupo do DRE (segue o plano padrão). */
+const MAIOR_DO_GRUPO = (tipo: string, grupo: string) => ({ RECEITA_BRUTA: 1, DEDUCAO: 2, CUSTO: 3, OPERACIONAL: 4, FINANCEIRA: tipo === 'RECEITA' ? 1 : 5, IMPOSTO: 6 } as Record<string, number>)[grupo] ?? 9;
+async function proximoCodigo(orgId: string, prefixo: string) {
+  const usados = new Set((await prisma.erpCategoriaFinanceira.findMany({ where: { orgId, codigo: { startsWith: `${prefixo}.` } }, select: { codigo: true } })).map((c) => c.codigo));
+  for (let i = 1; i < 1000; i++) { const c = `${prefixo}.${String(i).padStart(2, '0')}`; if (!usados.has(c)) return c; }
+  throw badRequest('Não há mais códigos livres neste grupo');
+}
+const mesmoNome = (a: string, b: string) => a.localeCompare(b, 'pt-BR', { sensitivity: 'base' }) === 0;
+
 financeiroRouter.post('/categorias', ah(async (req, res) => {
-  if (!gestor(req)) throw forbidden();
+  if (!gestor(req)) throw forbidden('Só proprietário ou administrador cria categoria');
   const orgId = orgOf(req); const b = catSchema.parse(req.body);
-  if (await prisma.erpCategoriaFinanceira.findUnique({ where: { orgId_codigo: { orgId, codigo: b.codigo } } })) throw badRequest('Código já existe');
-  res.status(201).json(await prisma.erpCategoriaFinanceira.create({ data: { orgId, ...b } }));
+  await garantirPlano(prisma, orgId);
+  let grupo: string = b.grupo ?? (b.tipo === 'RECEITA' ? 'RECEITA_BRUTA' : 'OPERACIONAL');
+  let prefixo: string;
+  if (b.paiId) {
+    const pai = await prisma.erpCategoriaFinanceira.findFirst({ where: { id: b.paiId, orgId } });
+    if (!pai) throw badRequest('Categoria-mãe inválida');
+    if (pai.paiId) throw badRequest('Subcategoria não pode ter outra subcategoria dentro');
+    if (pai.tipo !== b.tipo) throw badRequest('A subcategoria precisa ser do mesmo tipo da categoria-mãe');
+    grupo = b.grupo ?? pai.grupo;
+    prefixo = pai.codigo;
+  } else prefixo = String(MAIOR_DO_GRUPO(b.tipo, grupo));
+  const irmas = await prisma.erpCategoriaFinanceira.findMany({ where: { orgId, tipo: b.tipo, paiId: b.paiId ?? null }, select: { nome: true } });
+  if (irmas.some((c) => mesmoNome(c.nome, b.nome))) throw badRequest(b.paiId ? 'Já existe uma subcategoria com esse nome nesta categoria' : 'Já existe uma categoria com esse nome');
+  const codigo = b.codigo ?? await proximoCodigo(orgId, prefixo);
+  if (await prisma.erpCategoriaFinanceira.findUnique({ where: { orgId_codigo: { orgId, codigo } } })) throw badRequest('Código já existe');
+  const c = await prisma.erpCategoriaFinanceira.create({ data: { orgId, codigo, nome: b.nome, tipo: b.tipo, grupo, paiId: b.paiId ?? null, ativa: b.ativa } });
+  await auditar(req, 'categoria_financeira.criar', 'erp_categoria_financeira', c.id, null, { nome: c.nome, paiId: c.paiId });
+  res.status(201).json(c);
 }));
+/** Edição parcial (renomear, ativar/desativar, trocar grupo ou código). A categoria-mãe não muda depois de criada. */
 financeiroRouter.put('/categorias/:id', ah(async (req, res) => {
-  if (!gestor(req)) throw forbidden();
+  if (!gestor(req)) throw forbidden('Só proprietário ou administrador altera categoria');
   const orgId = orgOf(req);
   const c = await prisma.erpCategoriaFinanceira.findFirst({ where: { id: req.params.id, orgId } });
   if (!c) throw notFound('Categoria');
-  res.json(await prisma.erpCategoriaFinanceira.update({ where: { id: c.id }, data: catSchema.parse(req.body) }));
+  const b = catEdicaoSchema.parse(req.body);
+  if (b.tipo && b.tipo !== c.tipo && (c.paiId || await prisma.erpCategoriaFinanceira.count({ where: { orgId, paiId: c.id } }))) throw badRequest('Categoria com subcategorias (ou subcategoria) não muda de tipo');
+  if (b.nome && !mesmoNome(b.nome, c.nome)) {
+    const irmas = await prisma.erpCategoriaFinanceira.findMany({ where: { orgId, tipo: b.tipo ?? c.tipo, paiId: c.paiId, NOT: { id: c.id } }, select: { nome: true } });
+    if (irmas.some((x) => mesmoNome(x.nome, b.nome!))) throw badRequest('Já existe uma categoria com esse nome');
+  }
+  if (b.codigo && b.codigo !== c.codigo && await prisma.erpCategoriaFinanceira.findUnique({ where: { orgId_codigo: { orgId, codigo: b.codigo } } })) throw badRequest('Código já existe');
+  const n = await prisma.erpCategoriaFinanceira.update({ where: { id: c.id }, data: b });
+  await auditar(req, 'categoria_financeira.editar', 'erp_categoria_financeira', c.id, { nome: c.nome, ativa: c.ativa }, { nome: n.nome, ativa: n.ativa });
+  res.json(n);
+}));
+/** Exclui se nunca foi usada; se já foi usada (títulos, lançamentos, subcategorias ou tipos de conta), só desativa. */
+financeiroRouter.delete('/categorias/:id', ah(async (req, res) => {
+  if (!gestor(req)) throw forbidden('Só proprietário ou administrador exclui categoria');
+  const orgId = orgOf(req);
+  const c = await prisma.erpCategoriaFinanceira.findFirst({ where: { id: req.params.id, orgId } });
+  if (!c) throw notFound('Categoria');
+  const [tit, lanc, filhas, tipos] = await Promise.all([
+    prisma.erpTitulo.count({ where: { orgId, categoriaId: c.id } }),
+    prisma.erpLancamento.count({ where: { orgId, categoriaId: c.id } }),
+    prisma.erpCategoriaFinanceira.count({ where: { orgId, paiId: c.id } }),
+    prisma.erpTipoConta.count({ where: { orgId, categoriaId: c.id } }),
+  ]);
+  if (tit + lanc + filhas + tipos > 0) {
+    await prisma.erpCategoriaFinanceira.update({ where: { id: c.id }, data: { ativa: false } });
+    await auditar(req, 'categoria_financeira.desativar', 'erp_categoria_financeira', c.id, { ativa: c.ativa }, { ativa: false });
+    return res.json({ excluida: false, desativada: true, motivo: 'Categoria em uso: foi desativada e não aparece mais nas novas contas.' });
+  }
+  await prisma.erpCategoriaFinanceira.delete({ where: { id: c.id } });
+  await auditar(req, 'categoria_financeira.excluir', 'erp_categoria_financeira', c.id, { nome: c.nome }, null);
+  res.json({ excluida: true, desativada: false });
+}));
+
+// ---------------- Tipos de conta a pagar criados pela empresa ----------------
+const tipoContaSchema = z.object({ nome: z.string().trim().min(2).max(60), categoriaId: z.string().nullish(), ativo: z.boolean().default(true) });
+async function validarCategoriaDespesa(orgId: string, categoriaId?: string | null) {
+  if (!categoriaId) return;
+  const c = await prisma.erpCategoriaFinanceira.findFirst({ where: { id: categoriaId, orgId } });
+  if (!c || c.tipo !== 'DESPESA') throw badRequest('Categoria inválida');
+}
+financeiroRouter.get('/tipos-conta', ah(async (req, res) => res.json(await prisma.erpTipoConta.findMany({ where: { orgId: orgOf(req) }, orderBy: { nome: 'asc' } }))));
+financeiroRouter.post('/tipos-conta', ah(async (req, res) => {
+  if (!gestor(req)) throw forbidden('Só proprietário ou administrador cria tipo de conta');
+  const orgId = orgOf(req); const b = tipoContaSchema.parse(req.body);
+  const fixos = Object.values(NATUREZA_ROTULO);
+  if (fixos.some((n) => mesmoNome(n, b.nome)) || (await prisma.erpTipoConta.findMany({ where: { orgId }, select: { nome: true } })).some((t) => mesmoNome(t.nome, b.nome))) throw badRequest('Já existe um tipo de conta com esse nome');
+  await validarCategoriaDespesa(orgId, b.categoriaId);
+  const t = await prisma.erpTipoConta.create({ data: { orgId, nome: b.nome, categoriaId: b.categoriaId ?? null, ativo: b.ativo } });
+  await auditar(req, 'tipo_conta.criar', 'erp_tipo_conta', t.id, null, { nome: t.nome });
+  res.status(201).json(t);
+}));
+financeiroRouter.put('/tipos-conta/:id', ah(async (req, res) => {
+  if (!gestor(req)) throw forbidden('Só proprietário ou administrador altera tipo de conta');
+  const orgId = orgOf(req);
+  const t = await prisma.erpTipoConta.findFirst({ where: { id: req.params.id, orgId } });
+  if (!t) throw notFound('Tipo de conta');
+  const b = tipoContaSchema.partial().parse(req.body);
+  if (b.nome && !mesmoNome(b.nome, t.nome) && (await prisma.erpTipoConta.findMany({ where: { orgId, NOT: { id: t.id } }, select: { nome: true } })).some((x) => mesmoNome(x.nome, b.nome!))) throw badRequest('Já existe um tipo de conta com esse nome');
+  await validarCategoriaDespesa(orgId, b.categoriaId);
+  res.json(await prisma.erpTipoConta.update({ where: { id: t.id }, data: b }));
+}));
+financeiroRouter.delete('/tipos-conta/:id', ah(async (req, res) => {
+  if (!gestor(req)) throw forbidden('Só proprietário ou administrador exclui tipo de conta');
+  const orgId = orgOf(req);
+  const t = await prisma.erpTipoConta.findFirst({ where: { id: req.params.id, orgId } });
+  if (!t) throw notFound('Tipo de conta');
+  if (await prisma.erpTitulo.count({ where: { orgId, tipoContaId: t.id } })) {
+    await prisma.erpTipoConta.update({ where: { id: t.id }, data: { ativo: false } });
+    return res.json({ excluido: false, desativado: true, motivo: 'Tipo em uso: foi desativado e não aparece mais nas novas contas.' });
+  }
+  await prisma.erpTipoConta.delete({ where: { id: t.id } });
+  await auditar(req, 'tipo_conta.excluir', 'erp_tipo_conta', t.id, { nome: t.nome }, null);
+  res.json({ excluido: true, desativado: false });
 }));
 
 // ---------------- Títulos ----------------
@@ -86,7 +189,9 @@ financeiroRouter.get('/titulos', ah(async (req, res) => {
   });
   const ps = await prisma.erpParceiro.findMany({ where: { orgId, id: { in: l.map((t) => t.parceiroId).filter(Boolean) as string[] } }, select: { id: true, nome: true, fantasia: true } });
   const P = new Map(ps.map((p) => [p.id, p.fantasia || p.nome]));
-  res.json(l.map((t) => ({ ...t, parceiro: t.parceiroId ? P.get(t.parceiroId) ?? null : null, saldoCents: t.status === 'CANCELADO' ? 0 : t.valorCents - t.pagoCents, vencido: ['EM_ABERTO', 'PARCIAL'].includes(t.status) && t.vencimento < hoje })));
+  const tcIds = [...new Set(l.map((t) => t.tipoContaId).filter(Boolean) as string[])];
+  const TC = new Map((tcIds.length ? await prisma.erpTipoConta.findMany({ where: { orgId, id: { in: tcIds } }, select: { id: true, nome: true } }) : []).map((x) => [x.id, x.nome]));
+  res.json(l.map((t) => ({ ...t, parceiro: t.parceiroId ? P.get(t.parceiroId) ?? null : null, tipoConta: t.tipoContaId ? TC.get(t.tipoContaId) ?? null : null, saldoCents: t.status === 'CANCELADO' ? 0 : t.valorCents - t.pagoCents, vencido: ['EM_ABERTO', 'PARCIAL'].includes(t.status) && t.vencimento < hoje })));
 }));
 
 financeiroRouter.get('/titulos/:id', ah(async (req, res) => {
@@ -98,16 +203,43 @@ financeiroRouter.get('/titulos/:id', ah(async (req, res) => {
   res.json({ ...t, saldoCents: saldo, encargosHoje: t.tipo === 'RECEBER' && t.status !== 'CANCELADO' ? encargos(saldo, t.vencimento, new Date(), cfg.multaAtrasoBp, cfg.jurosMesBp) : null });
 }));
 
+/**
+ * Cria a conta (uma ou várias parcelas). Três formas de informar as parcelas, nesta prioridade:
+ *  1) `parcelas`: lista explícita [{ vencimento: 'AAAA-MM-DD', valorCents }] (a tela manda assim, inclusive depois de editar);
+ *     a soma tem de bater exatamente `valorCents`; até 120; datas reais; numeradas pela ordem de vencimento.
+ *  2) `qtdParcelas` (+ `intervaloDias` opcional): o servidor divide e calcula mensal (mesmo dia; sem o dia, último do mês).
+ *  3) `prazos` (legado): dias após o 1º vencimento, ex. [0, 30, 60].
+ */
+const parcelaSchema = z.object({ vencimento: z.string().refine(isoValida, 'Data de vencimento inválida'), valorCents: cents.min(1) });
 financeiroRouter.post('/titulos', ah(async (req, res) => {
   const orgId = orgOf(req);
-  const b = z.object({ tipo: z.enum(['RECEBER', 'PAGAR']), parceiroId: z.string().nullish(), descricao: z.string().trim().min(2).max(200), valorCents: cents.min(1), primeiroVencimento: z.coerce.date(), prazos: z.array(z.number().int().min(0).max(3650)).max(120).default([0]), competencia: z.coerce.date().nullish(), categoriaId: z.string().nullish(), centroCustoId: z.string().nullish(), observacoes: z.string().trim().max(1000).nullish(), natureza: naturezaSchema }).parse(req.body);
-  const natureza = b.tipo === 'PAGAR' ? (b.natureza ?? 'FORNECEDOR') : null;
+  const b = z.object({ tipo: z.enum(['RECEBER', 'PAGAR']), parceiroId: z.string().nullish(), descricao: z.string().trim().min(2).max(200), valorCents: cents.min(1), primeiroVencimento: z.coerce.date().optional(), prazos: z.array(z.number().int().min(0).max(3650)).max(MAX_PARCELAS).default([0]), qtdParcelas: z.number().int().min(1).max(MAX_PARCELAS).optional(), intervaloDias: z.number().int().min(1).max(365).nullish(), parcelas: z.array(parcelaSchema).min(1).max(MAX_PARCELAS).optional(), competencia: z.coerce.date().nullish(), categoriaId: z.string().nullish(), centroCustoId: z.string().nullish(), observacoes: z.string().trim().max(1000).nullish(), natureza: naturezaSchema, tipoContaId: z.string().nullish() }).parse(req.body);
+  if (!b.parcelas && !b.primeiroVencimento) throw badRequest('Informe o 1º vencimento');
+  let natureza = b.tipo === 'PAGAR' ? (b.natureza ?? 'FORNECEDOR') : null;
+  let tipoContaId: string | null = null;
+  if (b.tipo === 'PAGAR' && b.tipoContaId) {
+    const tc = await prisma.erpTipoConta.findFirst({ where: { id: b.tipoContaId, orgId } });
+    if (!tc) throw badRequest('Tipo de conta inválido');
+    tipoContaId = tc.id; natureza = 'OUTRA_CONTA';
+    if (!b.categoriaId && tc.categoriaId) b.categoriaId = tc.categoriaId;
+  }
   if (natureza && !b.categoriaId && CATEGORIA_DA_NATUREZA[natureza]) { await garantirPlano(prisma, orgId); b.categoriaId = (await prisma.erpCategoriaFinanceira.findUnique({ where: { orgId_codigo: { orgId, codigo: CATEGORIA_DA_NATUREZA[natureza] } } }))?.id ?? null; }
   if (b.parceiroId && !(await prisma.erpParceiro.findFirst({ where: { id: b.parceiroId, orgId } }))) throw badRequest('Parceiro inválido');
   if (b.categoriaId && !(await prisma.erpCategoriaFinanceira.findFirst({ where: { id: b.categoriaId, orgId } }))) throw badRequest('Categoria inválida');
-  const ps = parcelar(b.valorCents, b.prazos, b.primeiroVencimento);
+  let ps: { parcela: number; parcelas: number; valorCents: number; vencimento: Date }[];
+  const dataIso = (iso: string) => new Date(`${iso}T00:00:00.000Z`);
+  if (b.parcelas) {
+    const conf = conferirParcelas(b.parcelas, b.valorCents);
+    if (!conf.ok) throw badRequest(conf.diferencaCents !== 0 && conf.erro?.startsWith('A soma') ? `A soma das parcelas (R$ ${(conf.somaCents / 100).toFixed(2).replace('.', ',')}) está diferente do valor total (R$ ${(b.valorCents / 100).toFixed(2).replace('.', ',')})` : conf.erro ?? 'Parcelas inválidas');
+    const ord = b.parcelas.map((p, i) => ({ ...p, i })).sort((x, y) => x.vencimento.localeCompare(y.vencimento) || x.i - y.i);
+    ps = ord.map((p, i) => ({ parcela: i + 1, parcelas: ord.length, valorCents: p.valorCents, vencimento: dataIso(p.vencimento) }));
+  } else if (b.qtdParcelas) {
+    const g = gerarParcelas(b.valorCents, b.qtdParcelas, b.primeiroVencimento!.toISOString().slice(0, 10), b.intervaloDias ? { tipo: 'DIAS', dias: b.intervaloDias } : { tipo: 'MENSAL' });
+    ps = g.map((p) => ({ ...p, vencimento: dataIso(p.vencimento) }));
+  } else ps = parcelar(b.valorCents, b.prazos, b.primeiroVencimento!);
+  const primeiro = ps[0].vencimento;
   const docId = `manual-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-  const criados = await prisma.$transaction(ps.map((x) => prisma.erpTitulo.create({ data: { orgId, tipo: b.tipo, parceiroId: b.parceiroId ?? null, descricao: ps.length > 1 ? `${b.descricao} (${x.parcela}/${x.parcelas})` : b.descricao, docTipo: 'manual', docId, parcela: x.parcela, parcelas: x.parcelas, valorCents: x.valorCents, vencimento: x.vencimento, competencia: b.competencia ?? b.primeiroVencimento, categoriaId: b.categoriaId ?? null, centroCustoId: b.centroCustoId ?? null, observacoes: b.observacoes ?? null, natureza } })));
+  const criados = await prisma.$transaction(ps.map((x) => prisma.erpTitulo.create({ data: { orgId, tipo: b.tipo, parceiroId: b.parceiroId ?? null, descricao: ps.length > 1 ? `${b.descricao} (${x.parcela}/${x.parcelas})` : b.descricao, docTipo: 'manual', docId, parcela: x.parcela, parcelas: x.parcelas, valorCents: x.valorCents, vencimento: x.vencimento, competencia: b.competencia ?? b.primeiroVencimento ?? primeiro, categoriaId: b.categoriaId ?? null, centroCustoId: b.centroCustoId ?? null, observacoes: b.observacoes ?? null, natureza, tipoContaId } })));
   await auditar(req, 'titulo.criar', 'erp_titulo', criados[0].id, null, { tipo: b.tipo, valorCents: b.valorCents, parcelas: ps.length });
   res.status(201).json(criados);
 }));

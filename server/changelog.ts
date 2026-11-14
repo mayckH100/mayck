@@ -21,6 +21,21 @@ export type EntradaChangelog = {
 
 export const CHANGELOG: EntradaChangelog[] = [
   {
+    versao: '1.29.0',
+    data: '13/11/2026',
+    titulo: 'Contas a pagar e a receber mais fáceis, com parcelas automáticas',
+    itens: [
+      'Para parcelar, basta informar o valor total, a quantidade de parcelas e o 1º vencimento: o sistema calcula o valor e a data de cada parcela, todo mês no mesmo dia (se o dia não existir no mês, usa o último dia).',
+      'Antes de salvar aparece a lista das parcelas, e dá para ajustar o valor ou a data de qualquer uma. Se a soma ficar diferente do valor total, a tela avisa e oferece usar a nova soma como total ou refazer as parcelas.',
+      'Também dá para repetir a cada X dias, em vez de todo mês.',
+      'Crie categorias e subcategorias direto na tela da conta, pela opção "+ Nova categoria" ou "+ Nova subcategoria".',
+      'Nas contas a pagar, crie seus próprios tipos de conta (como Condomínio ou Contador) pela opção "+ Novo tipo de conta".',
+      'Novo botão Categorias no Financeiro para renomear, desativar ou excluir categorias, subcategorias e tipos de conta. O que já foi usado em alguma conta é desativado em vez de apagado, para o histórico continuar certo.',
+      'O exemplo do campo Descrição agora combina com o tipo de conta escolhido.',
+      'Tela ajustada para ficar mais confortável no celular.',
+    ],
+  },
+  {
     versao: '1.28.0',
     data: '13/11/2026',
     titulo: 'PDV com maquininha de cartão (Mercado Pago Point)',

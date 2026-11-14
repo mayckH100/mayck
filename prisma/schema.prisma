@@ -2131,8 +2131,22 @@ model ErpCategoriaFinanceira {
   tipo   String // RECEITA | DESPESA
   grupo  String  @default("OPERACIONAL") // RECEITA_BRUTA | DEDUCAO | CUSTO | OPERACIONAL | FINANCEIRA | IMPOSTO
   ativa  Boolean @default(true)
+  paiId  String? // subcategoria: id da categoria-mãe (mesma organização e mesmo tipo; só 2 níveis)
 
   @@unique([orgId, codigo])
+  @@index([orgId, paiId])
+}
+
+/// Tipos de conta a pagar criados pela empresa (além dos fixos: água, luz, internet...).
+model ErpTipoConta {
+  id          String   @id @default(cuid())
+  orgId       String
+  nome        String
+  categoriaId String? // categoria sugerida quando o usuário não escolhe
+  ativo       Boolean  @default(true)
+  createdAt   DateTime @default(now())
+
+  @@index([orgId])
 }
 
 model ErpTitulo {
@@ -2157,6 +2171,7 @@ model ErpTitulo {
   centroCustoId   String?
   contaPrevistaId String?
   natureza        String? // a pagar: FORNECEDOR (nulo = fornecedor) | AGUA | LUZ | INTERNET | TELEFONE | ALUGUEL | IMPOSTO | OUTRA_CONTA
+  tipoContaId     String? // a pagar: tipo criado pela empresa (ErpTipoConta); natureza fica OUTRA_CONTA
   observacoes     String?
   createdAt       DateTime   @default(now())
   baixas          ErpBaixa[]
