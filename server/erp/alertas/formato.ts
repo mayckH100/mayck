@@ -120,7 +120,11 @@ function secaoEstoque(itens: ItemEstoqueBaixo[], codigo: string | null | undefin
   L.push(...resto(itens.length));
   if (codigo || previa) {
     const cod = codigo ? `*${codigo}*` : '(gerado no envio)';
-    L.push('', `👉 *Para comprar:* responda *APROVADO* para gerar o pedido de compra dos itens acima, ou *APROVADO 1,3* para só alguns. Código ${cod}, vale por 48 h.`,
+    const n = lista.length;
+    const ex = n >= 3 ? '1,3' : '1';
+    L.push('', n === 1
+      ? `👉 *Para comprar:* responda *APROVADO* para gerar o pedido de compra do item acima. Código ${cod}, vale por 48 h.`
+      : `👉 *Para comprar:* responda *APROVADO* para gerar o pedido de compra dos itens acima, ou *APROVADO ${ex}* para só ${n >= 3 ? 'alguns' : 'o 1º'}. Código ${cod}, vale por 48 h.`,
       '_O pedido fica em rascunho no ERP. Nada é enviado ao fornecedor sem você._');
   }
   return L;
@@ -192,7 +196,7 @@ export function acoesSugeridas(d: DadosAlerta, codigo?: string | null): string[]
     const zer = d.estoqueBaixo.filter((i) => i.saldoMil <= 0).length;
     if (zer) A.push(`Prioridade: ${plural(zer, 'produto já está', 'produtos já estão')} sem estoque.`);
     A.push(codigo
-      ? `Aprovar a compra de ${plural(n, 'item', 'itens')}${est ? ` (≈ ${brl(est)})` : ''}: responda *APROVADO* (ou *APROVADO 1,2*).`
+      ? `Aprovar a compra de ${plural(n, 'item', 'itens')}${est ? ` (≈ ${brl(est)})` : ''}: responda *APROVADO*${n > 1 ? ` (ou só alguns: *APROVADO ${n >= 3 ? '1,3' : '1'}*)` : ''}.`
       : `Fazer o pedido de compra de ${plural(n, 'item', 'itens')}${est ? ` (≈ ${brl(est)})` : ''} em ERP › Compras.`);
   }
   if (d.validade?.lotes.length) {
@@ -208,7 +212,7 @@ export function acoesSugeridas(d: DadosAlerta, codigo?: string | null): string[]
   }
   const precos = (d.alteracoes ?? []).filter((a) => a.tipo === 'preco' || a.tipo === 'custo').length;
   const est = (d.alteracoes ?? []).filter((a) => a.tipo === 'estoque').length;
-  if (precos) A.push(`Revisar ${plural(precos, 'mudança', 'mudanças')} de preço/custo feitas ontem.`);
+  if (precos) A.push(`Revisar ${plural(precos, 'mudança de preço/custo feita', 'mudanças de preço/custo feitas')} ontem.`);
   if (est) A.push(`Confirmar ${plural(est, 'ajuste manual', 'ajustes manuais')} de estoque de ontem.`);
   return A;
 }
