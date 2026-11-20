@@ -21,6 +21,22 @@ export type EntradaChangelog = {
 
 export const CHANGELOG: EntradaChangelog[] = [
   {
+    versao: '1.30.0',
+    data: '19/11/2026',
+    titulo: 'Alerta diário do ERP no WhatsApp mais completo, com compra aprovada por resposta',
+    itens: [
+      'O alerta diário chega mais organizado: nome da empresa e data no topo, um resumo do dia, seções numeradas, totais e, no fim, uma lista de ações sugeridas. Se ficar longo, vem em mais de uma mensagem.',
+      'Estoque baixo: mostra o saldo, o mínimo, quanto falta, o consumo médio dos últimos 30 dias e quanto comprar, com o último fornecedor e o último custo.',
+      'Compra aprovada pelo WhatsApp: os itens com estoque baixo vêm numerados com um código. Responda APROVADO para gerar o pedido de compra de todos ou APROVADO 1,3 para só alguns. O pedido fica em rascunho no ERP, separado por fornecedor, e nada é enviado ao fornecedor sem você.',
+      'Item sem fornecedor cadastrado: o sistema pergunta se você tem preferência. Responda com o nome do fornecedor ou NÃO.',
+      'Validade: lotes vencidos e que vencem nos próximos dias (30 por padrão), com quantidade e valor.',
+      'Produtos parados: há quantos dias estão sem venda, a quantidade e o valor parado no estoque.',
+      'Caixa de ontem: abertura, vendas por forma de pagamento, retiradas e reforços, diferença no fechamento e quem fez cada coisa.',
+      'Alterações de ontem: mudanças de preço e de custo e ajustes manuais de estoque, com quem fez e a hora.',
+      'Em ERP › Alertas você liga ou desliga cada parte, escolhe os dias de validade e de produto parado e vê as compras aprovadas pelo WhatsApp.',
+    ],
+  },
+  {
     versao: '1.29.0',
     data: '13/11/2026',
     titulo: 'Contas a pagar e a receber mais fáceis, com parcelas automáticas',
