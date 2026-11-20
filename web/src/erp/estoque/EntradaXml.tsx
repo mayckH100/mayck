@@ -5,7 +5,9 @@ import { useApi, Async, Empty, Modal, Field, useAction, useToast, fmtDate } from
 import { useAuth } from '../../auth';
 import { ApiError } from '../../api';
 import { brl, qtd, toMil } from '../format';
-import { imprimirZebra, imprimirComum } from './impressao';
+import { imprimirComum } from './impressao';
+import { CampoLeitura } from '../leitura/Leitor';
+import { BotaoZebra } from './ZebraImprimir';
 
 export default function EntradaXml({ depositos, onLancada }: { depositos: any[]; onLancada: (r?: any) => void }) {
   const lista = useApi<any[]>('/erp/estoque/nfe');
@@ -65,11 +67,8 @@ function NfeDetalhe({ id, depositos, onClose, onLancada }: { id: string; deposit
     const r = await run(() => put<any>(`/erp/estoque/nfe/${id}/conferencia`, { itens }), 'Conferência salva');
     if (r) { if (r.divergentes) toast(`${r.divergentes} item(ns) com quantidade diferente da nota`, 'err'); setConf({}); st.reload(); }
   }
-  async function etiquetas(n: any, zebra: boolean) {
-    const itens = n.itens.flatMap((i: any) => i.lotesGerados.map((l: any) => ({ loteId: l.id, copias: 1 })));
-    if (zebra) { const { zpl } = await post<any>('/erp/estoque/etiquetas/zpl', { itens }); toast((await imprimirZebra(zpl)) === 'impresso' ? 'Enviado para a Zebra' : 'Zebra Browser Print não encontrado: arquivo .zpl baixado'); }
-    else imprimirComum(await post<any>('/erp/estoque/etiquetas', { itens }), 'a4');
-  }
+  const itensEtq = (n: any) => n.itens.flatMap((i: any) => i.lotesGerados.map((l: any) => ({ loteId: l.id, copias: 1 })));
+  async function etiquetas(n: any) { imprimirComum(await post<any>('/erp/estoque/etiquetas', { itens: itensEtq(n) }), 'a4'); }
   return (
     <Modal title="NF-e de entrada" onClose={onClose}>
       <Async state={st}>{(n) => (
@@ -81,6 +80,17 @@ function NfeDetalhe({ id, depositos, onClose, onLancada }: { id: string; deposit
               <option value="">Sem pedido</option>{n.pedidosAbertos.map((p: any) => <option key={p.id} value={p.id}>Nº {p.numero} · {brl(p.totalCents)}</option>)}
             </select>
             {n.cego && <span className="badge">recebimento cego</span>}
+          </div>}
+          {n.status === 'PENDENTE' && <div style={{ margin: '8px 0' }}>
+            <CampoLeitura autoFocus={false} placeholder="Conferir lendo: código de barras da caixa/produto" dicaCamera="Leia cada volume recebido: cada leitura soma 1 na conferência do item." onCodigo={async (c) => {
+              const cod = c.trim(); const nums = cod.replace(/^0+/, '');
+              let item = n.itens.find((i: any) => (i.ean && i.ean.replace(/^0+/, '') === nums && nums) || (i.codigo && i.codigo.toUpperCase() === cod.toUpperCase()));
+              if (!item) { try { const r = await get<any>(`/erp/estoque/ler?codigo=${encodeURIComponent(cod)}`); item = n.itens.find((i: any) => i.produtoId === r.produto.id); if (!item) return { ok: false, msg: `${r.produto.nome} não está nesta nota: separe e avise o comprador.` }; } catch { return { ok: false, msg: `Código ${cod.slice(0, 30)} não está nesta nota.` }; } }
+              const it = item;
+              setConf((x) => ({ ...x, [it.id]: String(((Number(String(x[it.id] ?? '').replace(',', '.')) || 0) + 1)).replace('.', ',') }));
+              return { ok: true, msg: `+1 ${it.unidade} · ${it.descricao}` };
+            }} />
+            <div className="small muted">Cada leitura soma 1 ({'na unidade da nota'}) no item. Ao terminar, toque em "Salvar conferência".</div>
           </div>}
           <table><thead><tr><th>#</th><th>Item do fornecedor</th><th>Qtd</th>{n.status === 'PENDENTE' && <th>Conferido</th>}<th>Produto interno</th><th>Lotes</th></tr></thead>
             <tbody>{n.itens.map((i: any) => (
@@ -118,8 +128,8 @@ function NfeDetalhe({ id, depositos, onClose, onLancada }: { id: string; deposit
           </> : (
             <div className="row" style={{ justifyContent: 'flex-end', marginTop: 10 }}>
               <span className="small muted">Lançada {fmtDate(n.lancadaEm)}</span>
-              <button className="btn" onClick={() => etiquetas(n, false)}>Etiquetas (impressora comum)</button>
-              <button className="btn primary" onClick={() => etiquetas(n, true)}>Etiquetas Zebra</button>
+              <button className="btn" onClick={() => etiquetas(n)}>Etiquetas (impressora comum)</button>
+              <BotaoZebra className="btn primary" rotulo="Etiquetas Zebra" obterZpl={async () => (await post<any>('/erp/estoque/etiquetas/zpl', { itens: itensEtq(n) })).zpl} />
             </div>
           )}
           {vinc && <Vincular nfeId={n.id} item={vinc} onClose={() => setVinc(null)} onDone={() => { setVinc(null); st.reload(); }} />}

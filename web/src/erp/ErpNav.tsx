@@ -2,6 +2,7 @@
 import { useEffect, useRef } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import { useAuth } from '../auth';
+import { BotaoLerCodigo } from './leitura/LerCodigo';
 
 export const ERP_ITENS: { to: string; label: string; end?: boolean; module?: string }[] = [
   { to: '/erp', label: 'Painel CRM', end: true },
@@ -11,6 +12,8 @@ export const ERP_ITENS: { to: string; label: string; end?: boolean; module?: str
   { to: '/erp/clientes', label: 'Clientes' },
   { to: '/erp/fornecedores', label: 'Fornecedores' },
   { to: '/erp/pedidos', label: 'Pedidos' },
+  // v1.34.0: localizar pedido por leitura (QR/código de barras) ou digitação.
+  { to: '/erp/localizar', label: 'Localizar pedido' },
   { to: '/erp/produtos', label: 'Produtos' },
   { to: '/erp/estoque', label: 'Estoque' },
   // v1.33.0: rastreabilidade de lote (busca única: produto, lote, lote do fornecedor, nota, pedido).
@@ -49,6 +52,7 @@ export function ErpAbas() {
   const itens = ERP_ITENS.filter((i) => !i.module || hasModule(i.module));
   return (
     <div className="erp-abas" ref={barra} role="group" aria-label="Seções do MCK ERP" data-testid="erp-abas">
+      <BotaoLerCodigo />
       {itens.map((i) => (
         <NavLink key={i.to} to={i.to} end={i.end} className={() => (i.to === ativa ? 'active' : '')} aria-current={i.to === ativa ? 'page' : undefined}>{i.label}</NavLink>
       ))}

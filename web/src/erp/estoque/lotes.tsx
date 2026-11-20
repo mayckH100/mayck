@@ -3,12 +3,12 @@
  * (com quantidade sugerida e editável), leitor de código de barras/QR pela câmera do celular e campo de leitura
  * (leitor USB/Bluetooth digita + Enter).
  */
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { post } from '../../api';
-import { useApi, Async, Empty, Modal, useToast } from '../../ui';
+import { useApi, Async, Empty, Modal } from '../../ui';
 import { qtdUn } from '../../../../server/erp/shared/unidade';
-import { imprimirZebra } from './impressao';
+import { BotaoZebra } from './ZebraImprimir';
 
 export const dataBr = (d?: string | null) => (d ? new Date(d).toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' }) : '');
 export const dataValidade = (d?: string | null) => (d ? String(d).slice(0, 10).split('-').reverse().join('/') : '');
@@ -23,7 +23,6 @@ export function abrirPdfEtiquetas(itens: { loteId: string; copias: number }[], f
 export function ImprimirEtiquetas({ itens, onClose, titulo = 'Entrada registrada' }: { itens: { loteId: string; numero: string; produto?: string; sugeridas: number }[]; onClose: () => void; titulo?: string }) {
   const [copias, setCopias] = useState<Record<string, string>>(() => Object.fromEntries(itens.map((i) => [i.loteId, String(i.sugeridas)])));
   const [formato, setFormato] = useState<'rolo' | 'a4'>(() => (localStorage.getItem('mck:etiqueta:formato') as 'rolo' | 'a4') || 'rolo');
-  const toast = useToast();
   const lista = itens.map((i) => ({ loteId: i.loteId, copias: Number(copias[i.loteId]) || 0 }));
   const total = lista.reduce((a, i) => a + i.copias, 0);
   const gerar = () => { localStorage.setItem('mck:etiqueta:formato', formato); abrirPdfEtiquetas(lista, formato); };
@@ -46,7 +45,7 @@ export function ImprimirEtiquetas({ itens, onClose, titulo = 'Entrada registrada
       </label>
       <div className="row" style={{ justifyContent: 'flex-end', gap: 6, flexWrap: 'wrap' }}>
         <button className="btn" onClick={onClose}>Agora não</button>
-        <button className="btn ghost" disabled={!total} onClick={async () => { try { const { zpl } = await post<any>('/erp/estoque/etiquetas/zpl', { itens: lista.filter((x) => x.copias > 0) }); toast((await imprimirZebra(zpl)) === 'impresso' ? 'Enviado para a Zebra' : 'Arquivo .zpl baixado'); } catch (e) { toast((e as Error).message, 'err'); } }}>Zebra (ZPL)</button>
+        <BotaoZebra className="btn ghost" disabled={!total} rotulo="Zebra" obterZpl={async () => (await post<any>('/erp/estoque/etiquetas/zpl', { itens: lista.filter((x) => x.copias > 0) })).zpl} />
         <button className="btn primary" disabled={!total} onClick={gerar}>🖨️ Gerar etiqueta e imprimir ({total})</button>
       </div>
     </Modal>
@@ -103,65 +102,5 @@ export function LotesProduto({ produto, onClose }: { produto: any; onClose: () =
   );
 }
 
-type Detector = { detect: (src: CanvasImageSource) => Promise<{ rawValue: string }[]> };
-/**
- * Câmera do celular lendo código de barras (EAN, Code 128/GS1-128, UPC...) e QR, sem instalar nada.
- * Usa o leitor nativo do navegador (Chrome no Android). Lê sem parar: o mesmo código só conta de novo depois de 1,5 s.
- */
-export function LeitorCamera({ onLer, onClose, continuo = true }: { onLer: (codigo: string) => void; onClose: () => void; continuo?: boolean }) {
-  const video = useRef<HTMLVideoElement>(null);
-  const [erro, setErro] = useState<string | null>(null);
-  const [ultimo, setUltimo] = useState('');
-  const cb = useRef(onLer); cb.current = onLer;
-  useEffect(() => {
-    let parar = false; let stream: MediaStream | null = null; let ult = ''; let quando = 0;
-    const BD = (window as unknown as { BarcodeDetector?: new (o: { formats: string[] }) => Detector }).BarcodeDetector;
-    if (!BD) { setErro('Este navegador não lê código pela câmera. Use o Chrome no Android, um leitor de código de barras ou digite o código.'); return; }
-    const det = new BD({ formats: ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128', 'code_39', 'itf', 'qr_code', 'data_matrix'] });
-    (async () => {
-      try {
-        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
-        if (!video.current) return;
-        video.current.srcObject = stream; await video.current.play();
-        while (!parar) {
-          const r = await det.detect(video.current).catch(() => []);
-          const v = r[0]?.rawValue;
-          if (v && (v !== ult || Date.now() - quando > 1500)) {
-            ult = v; quando = Date.now(); setUltimo(v);
-            try { navigator.vibrate?.(60); } catch { /* sem vibração */ }
-            cb.current(v);
-            if (!continuo) { parar = true; break; }
-          }
-          await new Promise((ok) => setTimeout(ok, 180));
-        }
-      } catch { setErro('Não foi possível abrir a câmera. Permita o uso da câmera para este site e tente de novo.'); }
-    })();
-    return () => { parar = true; stream?.getTracks().forEach((t) => t.stop()); };
-  }, [continuo]);
-  return (
-    <Modal title="Ler com a câmera" onClose={onClose}>
-      {erro ? <p>{erro}</p> : <>
-        <video ref={video} muted playsInline style={{ width: '100%', maxHeight: '55vh', background: '#000', borderRadius: 8 }} />
-        <p className="small muted">Aponte para o código de barras do produto ou para a etiqueta do lote.{continuo ? ' Cada leitura conta 1.' : ''}</p>
-        {ultimo && <p className="small">Último lido: <code>{ultimo.replace(/[\x00-\x1f]/g, ' ').slice(0, 60)}</code></p>}
-      </>}
-      <div className="row" style={{ justifyContent: 'flex-end' }}><button className="btn primary" onClick={onClose}>Pronto</button></div>
-    </Modal>
-  );
-}
-
-/** Campo de leitura: leitor de código de barras (digita + Enter), digitação ou câmera. */
-export function CampoLeitura({ onCodigo, placeholder = 'Leia o código de barras ou digite', continuo = true, autoFocus = true }: { onCodigo: (c: string) => void; placeholder?: string; continuo?: boolean; autoFocus?: boolean }) {
-  const [v, setV] = useState(''); const [cam, setCam] = useState(false);
-  const ref = useRef<HTMLInputElement>(null);
-  return (
-    <>
-      <form className="row" style={{ gap: 6 }} onSubmit={(e) => { e.preventDefault(); if (v.trim()) { onCodigo(v); setV(''); ref.current?.focus(); } }}>
-        <input ref={ref} autoFocus={autoFocus} value={v} onChange={(e) => setV(e.target.value)} placeholder={placeholder} style={{ flex: 1, minWidth: 0 }} aria-label="Código lido" inputMode="text" autoComplete="off" />
-        <button type="button" className="btn" onClick={() => setCam(true)} aria-label="Ler com a câmera">📷</button>
-        <button className="btn primary">OK</button>
-      </form>
-      {cam && <LeitorCamera continuo={continuo} onLer={(c) => { onCodigo(c); if (!continuo) setCam(false); }} onClose={() => setCam(false)} />}
-    </>
-  );
-}
+// v1.34.0: leitor de câmera e campo de leitura viraram o componente único em ../leitura/Leitor (reexportados aqui).
+export { LeitorCamera, CampoLeitura } from '../leitura/Leitor';

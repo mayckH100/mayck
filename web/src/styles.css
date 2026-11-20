@@ -77,6 +77,8 @@ p { margin: 0 0 8px; }
 .erp-abas a { flex: none; padding: 10px 12px; color: var(--muted); font-weight: 600; font-size: 13px; white-space: nowrap; border-bottom: 2px solid transparent; margin-bottom: -1px; }
 .erp-abas a:hover { color: var(--ink); text-decoration: none; }
 .erp-abas a.active { color: var(--brand); border-bottom-color: var(--brand); }
+.erp-abas .erp-ler { flex: none; margin: 4px 6px 4px 0; padding: 6px 10px; border: 1px solid var(--brand); color: var(--brand); background: var(--panel); border-radius: 8px; font-weight: 700; font-size: 13px; white-space: nowrap; cursor: pointer; position: sticky; left: 0; z-index: 1; }
+.erp-abas .erp-ler:hover { background: var(--brand); color: #fff; }
 .erp-abas a:focus-visible { outline: 2px solid var(--brand); outline-offset: -2px; border-radius: 6px; }
 .content { padding: 24px; max-width: 1280px; width: 100%; }
 .page-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 18px; flex-wrap: wrap; }

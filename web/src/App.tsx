@@ -36,6 +36,7 @@ import ErpRastreio from './erp/estoque/Rastreio';
 import ErpPedidos from './erp/vendas/Pedidos';
 import ErpRelatorioCaixa from './erp/vendas/Caixa';
 import ErpPedido from './erp/vendas/Pedido';
+import ErpLocalizar from './erp/vendas/Localizar';
 import ErpCompras from './erp/compras/Compras';
 import ErpProducao from './erp/producao/Producao';
 import ErpFinanceiro from './erp/financeiro/Financeiro';
@@ -323,6 +324,7 @@ export default function App() {
             <Route path="/erp/pedidos" element={<ErpPedidos key="pedidos" />} />
             <Route path="/erp/balcao" element={<ErpPedidos key="balcao" balcao />} />
             <Route path="/erp/pedidos/:id" element={<ErpPedido />} />
+            <Route path="/erp/localizar" element={<ErpLocalizar />} />
             <Route path="/erp/caixa/:id" element={<ErpRelatorioCaixa />} />
             <Route path="/erp/compras" element={<ErpCompras />} />
             <Route path="/erp/producao" element={<ErpProducao />} />

@@ -46,7 +46,7 @@ export default function Estoque() {
 
       {aba === 'saldos' && <div className="card" style={{ marginBottom: 10 }}>
         <div className="small muted" style={{ marginBottom: 4 }}>Leia o código de barras ou a etiqueta do lote para achar o saldo e mover, dar baixa ou corrigir.</div>
-        <CampoLeitura continuo={false} autoFocus={false} onCodigo={async (c) => { try { const r = await apiGet<any>(`/erp/estoque/ler?codigo=${encodeURIComponent(c)}`); setFiltro({ produtoId: r.produto.id, loteId: r.lote?.id ?? null, texto: `${r.produto.sku} · ${r.produto.nome}${r.lote ? ` · lote ${r.lote.numero}` : ''}` }); } catch (e) { toastE((e as Error).message, 'err'); } }} />
+        <CampoLeitura continuo={false} autoFocus={false} onCodigo={async (c) => { try { const r = await apiGet<any>(`/erp/estoque/ler?codigo=${encodeURIComponent(c)}`); setFiltro({ produtoId: r.produto.id, loteId: r.lote?.id ?? null, texto: `${r.produto.sku} · ${r.produto.nome}${r.lote ? ` · lote ${r.lote.numero}` : ''}` }); return true; } catch (e) { toastE((e as Error).message, 'err'); return false; } }} />
         {filtro && <div className="row small" style={{ marginTop: 6, gap: 6 }}>Mostrando: <b>{filtro.texto}</b><button className="btn sm ghost" onClick={() => setFiltro(null)}>Mostrar tudo</button></div>}
       </div>}
       {aba === 'lotes' && <Async state={lotesSaldo}>{(d) => d.length === 0 ? <div className="card"><Empty title="Nenhum lote com saldo">Os lotes aparecem aqui assim que entram no estoque.</Empty></div> : <>{d.map((l) => <LoteCard key={l.id} l={l} />)}</>}</Async>}
@@ -131,7 +131,9 @@ function Movimento({ modal, depositos, onClose, onDone }: { modal: any; deposito
     <Modal title={titulo ?? ''} onClose={onClose}>
       {modal.tipo === 'entrada' && <>
         {f.produto ? <div className="row between"><strong>{f.produto.sku} · {f.produto.nome}</strong><button className="btn ghost sm" onClick={() => setF({ ...f, produto: null })}>Trocar</button></div> : (
-          <Field label="Produto"><input value={f.busca} onChange={(e) => procurar(e.target.value)} placeholder="Nome ou SKU" autoFocus />{opcoes.map((o) => <button key={o.id} type="button" className="btn ghost sm" style={{ display: 'block' }} onClick={() => setF({ ...f, produto: o })}>{o.sku} · {o.nome}</button>)}</Field>
+          <Field label="Produto" hint="Leia o código de barras / etiqueta (leitor ou câmera 📷) ou digite nome/código">
+            <CampoLeitura continuo={false} placeholder="Ler código de barras do produto" onCodigo={async (c) => { const r = await apiGet<any>(`/erp/estoque/ler?codigo=${encodeURIComponent(c)}`); const p = (await apiGet<any>(`/erp/produtos?q=${encodeURIComponent(r.produto.sku)}`)).items.find((x: any) => x.id === r.produto.id) ?? r.produto; setF({ ...f, produto: p }); return { ok: true, msg: `${r.produto.sku} · ${r.produto.nome}` }; }} />
+            <input style={{ marginTop: 6 }} value={f.busca} onChange={(e) => procurar(e.target.value)} placeholder="ou procure por nome / código" />{opcoes.map((o) => <button key={o.id} type="button" className="btn ghost sm" style={{ display: 'block' }} onClick={() => setF({ ...f, produto: o })}>{o.sku} · {o.nome}</button>)}</Field>
         )}
         <Field label="Endereço"><select value={f.enderecoId} onChange={set('enderecoId')}><option value="">Escolha…</option>{enderecos.map((e) => <option key={e.id} value={e.id}>{e.label}</option>)}</select></Field>
         <div className="grid g2">

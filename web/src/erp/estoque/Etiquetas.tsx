@@ -2,16 +2,16 @@
 import { useState } from 'react';
 import { post, put } from '../../api';
 import { useAuth } from '../../auth';
-import { useApi, Async, Empty, Modal, Field, useAction, useToast } from '../../ui';
-import { imprimirZebra } from './impressao';
+import { useApi, Async, Empty, Modal, Field, useAction } from '../../ui';
+import { BotaoZebra, LocalizarImpressora } from './ZebraImprimir';
 import { abrirPdfEtiquetas } from './lotes';
 
 export default function Etiquetas() {
   const [q, setQ] = useState(''); const [query, setQuery] = useState('');
   const lotes = useApi<any[]>(`/erp/estoque/lotes?q=${encodeURIComponent(query)}`, [query]);
   const [sel, setSel] = useState<Record<string, number>>({});
-  const [cfg, setCfg] = useState(false);
-  const toast = useToast(); const { can } = useAuth();
+  const [cfg, setCfg] = useState(false); const [impressora, setImpressora] = useState(false);
+  const { can } = useAuth();
   const itens = Object.entries(sel).filter(([, c]) => c > 0).map(([loteId, copias]) => ({ loteId, copias }));
   return (
     <>
@@ -20,7 +20,8 @@ export default function Etiquetas() {
         {/* v1.33.0: PDF pronto (código de barras GS1-128 + QR + empresa, código, lote, fabricação e validade). */}
         <button className="btn primary" disabled={!itens.length} onClick={() => abrirPdfEtiquetas(itens, 'rolo')}>🖨️ PDF para impressora de etiqueta</button>
         <button className="btn" disabled={!itens.length} onClick={() => abrirPdfEtiquetas(itens, 'a4')}>PDF em folha A4</button>
-        <button className="btn" disabled={!itens.length} onClick={async () => { const { zpl } = await post<any>('/erp/estoque/etiquetas/zpl', { itens }); toast((await imprimirZebra(zpl)) === 'impresso' ? 'Enviado para a Zebra' : 'Zebra Browser Print não encontrado: arquivo .zpl baixado'); }}>Imprimir na Zebra</button>
+        <BotaoZebra disabled={!itens.length} obterZpl={async () => (await post<any>('/erp/estoque/etiquetas/zpl', { itens })).zpl} />
+        <button className="btn ghost" onClick={() => setImpressora(true)}>Localizar impressora</button>
         {can('OWNER', 'ADMIN') && <button className="btn ghost" onClick={() => setCfg(true)}>Tamanho e formato</button>}
       </div>
       <Async state={lotes}>{(d) => d.length === 0 ? <div className="card"><Empty title="Nenhum lote">Todo lote nasce sozinho na entrada de estoque (manual, por XML ou produção), com número do sistema.</Empty></div> : (
@@ -29,7 +30,8 @@ export default function Etiquetas() {
           <tbody>{d.map((l) => <tr key={l.id}><td><input type="number" min={0} max={999} style={{ width: 64 }} value={sel[l.id] ?? 0} onChange={(e) => setSel({ ...sel, [l.id]: Number(e.target.value) })} aria-label="Cópias" /></td><td><b>{l.numero}</b></td><td>{l.loteFornecedor ?? '—'}</td><td>{l.produto?.sku} · {l.produto?.nome}</td><td>{l.validade ? new Date(l.validade).toLocaleDateString('pt-BR', { timeZone: 'UTC' }) : l.produto?.controlaValidade ? <span className="badge red">sem data</span> : <span className="muted">não controla</span>}</td><td>{l.status}</td></tr>)}</tbody>
         </table></div>
       )}</Async>
-      <p className="small muted">Zebra: instale o Zebra Browser Print (gratuito, site da Zebra) no computador ligado à impressora. Sem ele, o sistema baixa o arquivo .zpl.</p>
+      <p className="small muted">Zebra: toque em <b>Localizar impressora</b> uma vez neste aparelho (Bluetooth no celular Android, USB no computador com Chrome, ou Zebra Browser Print para USB/rede). Depois, "Imprimir na Zebra" envia direto, sem baixar arquivo.</p>
+      {impressora && <LocalizarImpressora onClose={() => setImpressora(false)} />}
       {cfg && <ConfigEtiqueta onClose={() => setCfg(false)} />}
     </>
   );

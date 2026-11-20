@@ -1,5 +1,5 @@
 /** Pedido de venda: itens, ações permitidas pela máquina de estados, lista de separação e conferência por QR. */
-import { useState, useRef } from 'react';
+import { useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { post } from '../../api';
 import { useAuth } from '../../auth';
@@ -7,6 +7,8 @@ import { useApi, Async, Modal, Field, useAction, useToast, fmtDate } from '../..
 import { NfeDoPedido } from '../fiscal/Fiscal';
 import { brl, qtd, toMil } from '../format';
 import { badgeStatus } from './Pedidos';
+import { CampoLeitura } from '../leitura/Leitor';
+import { imprimirDocumento, type TipoDocumento } from './documento';
 
 const ROTULO: Record<string, string> = { ENVIAR: 'Enviar para aprovação', APROVAR: 'Aprovar', REPROVAR: 'Reprovar', RESERVAR: 'Tentar reservar de novo', SEPARAR: 'Liberar separação', CONFERIR: 'Concluir conferência', FATURAR: 'Faturar', EXPEDIR: 'Expedir', ENTREGAR: 'Confirmar entrega', ENTREGAR_PARCIAL: 'Entrega parcial', DEVOLVER: 'Devolução', CANCELAR: 'Cancelar pedido' };
 const PEDE: Record<string, { campo: string; label: string }[]> = {
@@ -38,6 +40,7 @@ export default function Pedido() {
             <div className="row" style={{ flexWrap: 'wrap' }}>
               <Link className="btn" to="/erp/pedidos">Voltar</Link>
               <Link className="btn" to={`/erp/rastreio?pedido=${p.id}`}>🔎 Lotes deste pedido</Link>
+              <Imprimir pedidoId={p.id} balcao={!!p.nfNumero?.startsWith('BALCAO-')} />
               {p.acoes.filter((a: string) => !OCULTAS.has(a) && (a !== 'APROVAR' || can('OWNER', 'ADMIN'))).map((a: string) => (
                 <button key={a} className={`btn ${a === 'CANCELAR' || a === 'REPROVAR' || a === 'DEVOLVER' ? 'ghost' : 'primary'}`} disabled={busy} onClick={() => (PEDE[a] ? setPedindo(a) : acao(a))}>{ROTULO[a] ?? a}</button>
               ))}
@@ -66,23 +69,29 @@ export default function Pedido() {
   );
 }
 
-/** Leitor: funciona com leitor de código de barras/QR USB (digita + Enter) ou digitando o lote. */
-function Leitor({ pedidoId, onLido }: { pedidoId: string; onLido: () => void }) {
-  const [codigo, setCodigo] = useState(''); const [q, setQ] = useState('1');
-  const ref = useRef<HTMLInputElement>(null);
+/** Imprimir pedido / romaneio / recibo (todos com QR e código de barras do pedido para localizar depois). */
+function Imprimir({ pedidoId, balcao }: { pedidoId: string; balcao: boolean }) {
   const toast = useToast();
-  async function ler() {
-    if (!codigo.trim()) return;
-    try { const r = await post<any>(`/erp/vendas/pedidos/${pedidoId}/conferencia`, { codigo, qtdMil: toMil(q) }); toast(r.tudoSeparado ? 'Tudo conferido: conclua a conferência' : 'Conferido'); onLido(); }
-    catch (e) { toast((e as Error).message, 'err'); }
-    setCodigo(''); ref.current?.focus();
-  }
+  const ir = (t: TipoDocumento) => imprimirDocumento(t, pedidoId).catch((e) => toast((e as Error).message, 'err'));
+  return <>
+    {balcao && <button className="btn" onClick={() => ir('recibo')}>🧾 Recibo</button>}
+    <button className="btn" onClick={() => ir('pedido')}>🖨️ Pedido</button>
+    <button className="btn" onClick={() => ir('romaneio')}>📦 Romaneio</button>
+  </>;
+}
+
+/**
+ * Separação: leitor USB/Bluetooth, câmera ou digitação (componente único de leitura). Confere o código lido com o
+ * pedido: item ou lote errado → alerta (bipe grave + mensagem com o lote certo).
+ */
+function Leitor({ pedidoId, onLido }: { pedidoId: string; onLido: () => void }) {
+  const [q, setQ] = useState('1');
   return (
-    <form className="row" style={{ marginBottom: 10 }} onSubmit={(e) => { e.preventDefault(); ler(); }}>
-      <input ref={ref} autoFocus value={codigo} onChange={(e) => setCodigo(e.target.value)} placeholder="Leia o QR do lote ou o código de barras" style={{ flex: 1 }} aria-label="Código lido" />
-      <input value={q} onChange={(e) => setQ(e.target.value)} style={{ width: 70 }} aria-label="Quantidade" inputMode="decimal" />
-      <button className="btn primary">Conferir</button>
-    </form>
+    <div style={{ marginBottom: 10 }}>
+      <CampoLeitura placeholder="Leia a etiqueta do lote ou o código de barras do produto" rotuloOk="Conferir" dicaCamera="Leia a etiqueta de cada volume separado."
+        extra={<input value={q} onChange={(e) => setQ(e.target.value)} style={{ width: 60 }} aria-label="Quantidade por leitura" title="Quantidade por leitura" inputMode="decimal" />}
+        onCodigo={async (codigo) => { const r = await post<any>(`/erp/vendas/pedidos/${pedidoId}/conferencia`, { codigo, qtdMil: toMil(q) }); onLido(); return { ok: true, msg: r.tudoSeparado ? 'Tudo conferido: toque em "Concluir conferência"' : 'Conferido' }; }} />
+    </div>
   );
 }
 

@@ -1,9 +1,14 @@
 /** Venda balcão: leitor de código de barras ou busca, cliente opcional, pagamento na hora; baixa o estoque e já recebe.
+ * v1.34.0: cada leitura (leitor USB/Bluetooth, câmera do celular ou digitação) soma +1; etiqueta do lote (GS1/QR) →
+ * a baixa sai DAQUELE lote; sem lote, mostra o lote que sai pela regra (FEFO/FIFO). Recibo com QR do pedido.
  * Entra no caixa aberto (caixaSessaoId); dinheiro vai para a conta do caixa, Pix/cartão para a conta escolhida.
  * Cartão com maquininha configurada: a cobrança vai para o terminal e a venda só fecha quando o pagamento é aprovado. */
 import { useEffect, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { get, post, ApiError } from '../../api';
-import { useApi, Modal, Field, useAction } from '../../ui';
+import { useApi, Modal, Field, useAction, useToast } from '../../ui';
+import { LeitorCamera, sinal } from '../leitura/Leitor';
+import { imprimirDocumento } from './documento';
 import { brl, toCents, toMil } from '../format';
 import { BuscaParceiro } from '../comum';
 
@@ -13,7 +18,10 @@ const FIM_COBRANCA: Record<string, string> = { RECUSADA: 'Pagamento recusado na 
 
 export default function VendaBalcao({ caixaSessaoId, onClose, onDone }: { caixaSessaoId: string; onClose: () => void; onDone: (p: any) => void }) {
   const contas = useApi<any[]>('/erp/vendas/balcao/contas');
-  const [itens, setItens] = useState<{ produto: any; qtd: string; preco: string }[]>([]);
+  type Linha = { produto: any; lote: any | null; sugestao: any | null; aviso: string | null; qtd: string; preco: string };
+  const [itens, setItens] = useState<Linha[]>([]);
+  const [cam, setCam] = useState(false); const [msg, setMsg] = useState<{ ok: boolean; t: string } | null>(null);
+  const toast = useToast();
   const [busca, setBusca] = useState(''); const [ops, setOps] = useState<any[]>([]);
   const [cliente, setCliente] = useState<any>(null); const [nome, setNome] = useState('');
   const [forma, setForma] = useState<string>('DINHEIRO'); const [contaId, setContaId] = useState('');
@@ -27,27 +35,40 @@ export default function VendaBalcao({ caixaSessaoId, onClose, onDone }: { caixaS
   const { busy, run } = useAction();
   const ref = useRef<HTMLInputElement>(null);
 
-  const add = (p: any) => {
+  const chave = (x: { produto: any; lote: any | null }) => `${x.produto.id}:${x.lote?.id ?? ''}`;
+  /** Cada leitura soma +1 na linha do mesmo produto + lote (ou cria a linha). */
+  const add = (p: any, extra: { lote?: any; sugestao?: any; aviso?: string | null } = {}) => {
     setBusca(''); setOps([]);
-    setItens((l) => { const i = l.findIndex((x) => x.produto.id === p.id); if (i >= 0) return l.map((x, k) => (k === i ? { ...x, qtd: String((Number(x.qtd.replace(',', '.')) || 0) + 1).replace('.', ',') } : x)); return [...l, { produto: p, qtd: '1', preco: reais(p.precoBaseCents ?? 0) }]; });
+    const nova: Linha = { produto: p, lote: extra.lote ?? null, sugestao: extra.sugestao ?? null, aviso: extra.aviso ?? null, qtd: '1', preco: reais(p.precoBaseCents ?? 0) };
+    setItens((l) => { const i = l.findIndex((x) => chave(x) === chave(nova)); if (i >= 0) return l.map((x, k) => (k === i ? { ...x, aviso: nova.aviso, qtd: String((Number(x.qtd.replace(',', '.')) || 0) + 1).replace('.', ',') } : x)); return [...l, nova]; });
     ref.current?.focus();
   };
   const buscar = async (q: string) => { setBusca(q); setOps(q.trim().length >= 2 ? (await get<any>(`/erp/produtos?ativos=1&q=${encodeURIComponent(q.trim())}`)).items.slice(0, 8) : []); };
-  // Enter no campo: leitor de código de barras (ou SKU exato) entra direto.
-  const enter = async () => {
-    const q = busca.trim(); if (!q) return;
-    const r = (await get<any>(`/erp/produtos?ativos=1&q=${encodeURIComponent(q)}`)).items as any[];
-    const exato = r.find((p) => p.codigoBarras === q || p.sku === q.toUpperCase()) ?? (r.length === 1 ? r[0] : null);
-    if (exato) add(exato); else setOps(r.slice(0, 8));
+  /** Leitura (leitor que digita + Enter, câmera ou Enter no campo): produto, etiqueta do lote ou código. */
+  const ler = async (codigo: string) => {
+    const q = codigo.replace(/[\r\n]+/g, '').trim(); if (!q) return;
+    try {
+      const r = await get<any>(`/erp/vendas/balcao/ler?codigo=${encodeURIComponent(q)}`);
+      if (r.lote && (r.lote.vencido || r.lote.disponivelMil <= 0)) { sinal(false); setMsg({ ok: false, t: r.aviso }); return; }
+      add(r.produto, { lote: r.lote, sugestao: r.sugestao, aviso: r.aviso });
+      sinal(!r.aviso); setMsg(r.aviso ? { ok: false, t: r.aviso } : { ok: true, t: `+1 ${r.produto.nome}${r.lote ? ` · lote ${r.lote.numero}` : ''}` });
+    } catch (e) {
+      // Não é código: procura por nome/código (digitação).
+      const lista = (await get<any>(`/erp/produtos?ativos=1&q=${encodeURIComponent(q)}`).catch(() => ({ items: [] }))).items as any[];
+      if (lista.length === 1) { add(lista[0]); sinal(true); setMsg({ ok: true, t: `+1 ${lista[0].nome}` }); return; }
+      if (lista.length) { setOps(lista.slice(0, 8)); setMsg(null); return; }
+      sinal(false); setMsg({ ok: false, t: e instanceof ApiError ? e.message : 'Produto não encontrado' });
+    }
   };
+  const enter = () => ler(busca);
   // Aviso antes de finalizar: o servidor recusa a venda sem estoque ("Sem estoque disponível").
-  const semEstoque = (x: { produto: any; qtd: string }) => x.produto.tipo !== 'SERVICO' && !!x.produto.saldo && x.produto.saldo.disponivelMil < toMil(x.qtd);
+  const semEstoque = (x: Linha) => x.produto.tipo !== 'SERVICO' && (x.lote ? x.lote.disponivelMil < toMil(x.qtd) : !!x.produto.saldo && x.produto.saldo.disponivelMil < toMil(x.qtd));
   const linha = (x: { qtd: string; preco: string }) => Math.round((toMil(x.qtd) * toCents(x.preco)) / 1000);
   const subtotal = itens.reduce((a, x) => a + linha(x), 0);
   const total = Math.max(0, subtotal - toCents(desconto));
   const troco = forma === 'DINHEIRO' && recebido ? toCents(recebido) - total : 0;
 
-  const corpo = () => ({ parceiroId: cliente?.id ?? null, nomeCliente: cliente ? null : nome || null, forma, caixaSessaoId, contaId: forma === 'DINHEIRO' ? null : contaId || contas.data?.[0]?.id || null, descontoCents: toCents(desconto), itens: itens.map((x) => ({ produtoId: x.produto.id, qtdMil: toMil(x.qtd), precoUnitCents: toCents(x.preco) })) });
+  const corpo = () => ({ parceiroId: cliente?.id ?? null, nomeCliente: cliente ? null : nome || null, forma, caixaSessaoId, contaId: forma === 'DINHEIRO' ? null : contaId || contas.data?.[0]?.id || null, descontoCents: toCents(desconto), itens: itens.map((x) => ({ produtoId: x.produto.id, qtdMil: toMil(x.qtd), precoUnitCents: toCents(x.preco), loteId: x.lote?.id ?? null })) });
   async function finalizar() {
     if (usaMaquininha) {
       const c = await run(async () => {
@@ -108,31 +129,47 @@ export default function VendaBalcao({ caixaSessaoId, onClose, onDone }: { caixaS
     <Modal title="Venda concluída" onClose={() => onDone(feito)}>
       <p style={{ fontSize: 18 }}>Venda nº <b>{feito.numero}</b> · <b>{brl(feito.totalCents)}</b> recebido em {FORMAS.find((f) => f[0] === forma)?.[1]}.</p>
       {troco > 0 && <p style={{ fontSize: 22 }}>Troco: <b>{brl(troco)}</b></p>}
-      <p className="small muted">Estoque baixado e valor lançado no caixa.</p>
-      <div className="row" style={{ justifyContent: 'flex-end', gap: 6 }}>
+      <p className="small muted">Estoque baixado (com o lote) e valor lançado no caixa. Para achar esta venda depois, leia o QR do recibo ou procure por <b>PV-{feito.numero}</b> em Localizar pedido.</p>
+      <div className="row" style={{ justifyContent: 'flex-end', gap: 6, flexWrap: 'wrap' }}>
+        <button className="btn" onClick={() => imprimirDocumento('recibo', feito.id).catch((e) => toast((e as Error).message, 'err'))}>🧾 Imprimir recibo</button>
+        <Link className="btn" to={`/erp/pedidos/${feito.id}`} title="Abre a venda; lá dá para emitir NF-e (homologação) se o cliente pedir">Nota fiscal / abrir venda</Link>
         <button className="btn" onClick={() => onDone(feito)}>Fechar</button>
-        <button className="btn primary" onClick={() => { setFeito(null); setItens([]); setCliente(null); setNome(''); setDesconto(''); setRecebido(''); }}>Nova venda</button>
+        <button className="btn primary" onClick={() => { setFeito(null); setMsg(null); setItens([]); setCliente(null); setNome(''); setDesconto(''); setRecebido(''); }}>Nova venda</button>
       </div>
     </Modal>
   );
 
   return (
     <Modal title="Venda balcão" onClose={onClose}>
-      <Field label="Produto" hint="Use o leitor de código de barras ou digite nome/SKU e tecle Enter">
+      <Field label="Produto" hint="Leitor de código de barras/QR (USB ou Bluetooth), câmera 📷 ou digite nome/código e tecle Enter. Cada leitura soma 1.">
         <div style={{ position: 'relative' }}>
-          <input ref={ref} autoFocus value={busca} placeholder="Código de barras, SKU ou nome" onChange={(e) => buscar(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); enter(); } }} aria-label="Produto" />
+          <div className="row" style={{ gap: 6, flexWrap: 'nowrap' }}>
+            <input ref={ref} autoFocus value={busca} placeholder="Leia o código ou digite" onChange={(e) => buscar(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); enter(); } }} aria-label="Produto" autoComplete="off" autoCapitalize="off" spellCheck={false} enterKeyHint="go" style={{ flex: 1, minWidth: 0 }} />
+            <button type="button" className="btn" onClick={() => setCam(true)} aria-label="Ler com a câmera">📷</button>
+          </div>
           {ops.length > 0 && <div className="card" style={{ position: 'absolute', zIndex: 5, left: 0, right: 0, padding: 4 }}>{ops.map((p) => <button key={p.id} type="button" className="btn ghost sm" style={{ display: 'block', width: '100%', textAlign: 'left' }} onClick={() => add(p)}>{p.sku} · {p.nome} — {brl(p.precoBaseCents)}{p.saldo ? ` · ${p.saldo.disponivelMil / 1000} disp.` : ''}</button>)}</div>}
         </div>
+        {msg && <div role="status" className="small" style={{ marginTop: 4, padding: '6px 8px', borderRadius: 6, background: msg.ok ? '#ecfdf5' : '#fef2f2', color: msg.ok ? '#065f46' : '#991b1b', fontWeight: 600 }}>{msg.ok ? '✔ ' : '⚠️ '}{msg.t}</div>}
       </Field>
-      {itens.length > 0 && <div className="table-wrap"><table><thead><tr><th>Produto</th><th>Qtd</th><th>Preço (R$)</th><th>Total</th><th></th></tr></thead><tbody>
-        {itens.map((x, i) => <tr key={x.produto.id}>
-          <td className="small">{x.produto.nome}{semEstoque(x) && <div style={{ color: '#dc2626' }}>Sem estoque suficiente ({(x.produto.saldo?.disponivelMil ?? 0) / 1000} disp.): dê entrada em Estoque antes de vender.</div>}</td>
-          <td><input style={{ width: 64 }} value={x.qtd} inputMode="decimal" aria-label="Quantidade" onChange={(e) => setItens(itens.map((y, k) => (k === i ? { ...y, qtd: e.target.value } : y)))} /></td>
-          <td><input style={{ width: 80 }} value={x.preco} inputMode="decimal" aria-label="Preço" onChange={(e) => setItens(itens.map((y, k) => (k === i ? { ...y, preco: e.target.value } : y)))} /></td>
-          <td>{brl(linha(x))}</td>
-          <td><button className="btn ghost sm" onClick={() => setItens(itens.filter((_, k) => k !== i))} aria-label="Remover">✕</button></td>
-        </tr>)}
-      </tbody></table></div>}
+      {cam && <LeitorCamera dica="Aponte para o código de barras do produto ou a etiqueta do lote." onLer={(c) => { ler(c); }} onClose={() => { setCam(false); ref.current?.focus(); }} />}
+      {itens.length > 0 && <div className="balcao-itens">
+        {itens.map((x, i) => <div key={chave(x)} className="card" style={{ padding: 8, marginBottom: 6 }} data-testid="balcao-item">
+          <div className="row between" style={{ gap: 6, flexWrap: 'nowrap', alignItems: 'flex-start' }}>
+            <div style={{ minWidth: 0 }}>
+              <b className="small">{x.produto.nome}</b> <span className="small muted">{x.produto.sku}</span>
+              {x.lote ? <div className="small">🏷️ Lote <b>{x.lote.numero}</b> (da etiqueta){x.lote.validade ? ` · val. ${String(x.lote.validade).slice(0, 10).split('-').reverse().join('/')}` : ''}</div>
+                : x.sugestao ? <div className="small muted">Sai do lote {x.sugestao.numero} ({x.sugestao.regra === 'FEFO' ? 'vence primeiro' : 'mais antigo'})</div> : null}
+              {semEstoque(x) && <div className="small" style={{ color: '#dc2626' }}>Sem estoque suficiente ({((x.lote ? x.lote.disponivelMil : x.produto.saldo?.disponivelMil) ?? 0) / 1000} disp.{x.lote ? ' neste lote' : ''}).</div>}
+            </div>
+            <button className="btn ghost sm" onClick={() => setItens(itens.filter((_, k) => k !== i))} aria-label="Remover">✕</button>
+          </div>
+          <div className="row" style={{ gap: 6, marginTop: 4, flexWrap: 'nowrap' }}>
+            <label className="small row" style={{ gap: 4, flexWrap: 'nowrap' }}>Qtd <input style={{ width: 64 }} value={x.qtd} inputMode="decimal" aria-label="Quantidade" onChange={(e) => setItens(itens.map((y, k) => (k === i ? { ...y, qtd: e.target.value } : y)))} /></label>
+            <label className="small row" style={{ gap: 4, flexWrap: 'nowrap' }}>R$ <input style={{ width: 80 }} value={x.preco} inputMode="decimal" aria-label="Preço" onChange={(e) => setItens(itens.map((y, k) => (k === i ? { ...y, preco: e.target.value } : y)))} /></label>
+            <b style={{ marginLeft: 'auto' }}>{brl(linha(x))}</b>
+          </div>
+        </div>)}
+      </div>}
       <div className="grid g2">
         <Field label="Cliente (opcional)">{cliente ? <div className="row between"><strong>{cliente.fantasia || cliente.nome}</strong><button className="btn ghost sm" onClick={() => setCliente(null)}>Trocar</button></div> : <><BuscaParceiro tipo="cliente" placeholder="Buscar cliente cadastrado" onPick={setCliente} /><input style={{ marginTop: 4 }} value={nome} onChange={(e) => setNome(e.target.value)} placeholder="ou só o nome (consumidor final)" aria-label="Nome do cliente" /></>}</Field>
         <Field label="Desconto (R$)"><input value={desconto} onChange={(e) => setDesconto(e.target.value)} inputMode="decimal" placeholder="0,00" /></Field>

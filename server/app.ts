@@ -56,7 +56,7 @@ export function createApp() {
       useDefaults: true,
       directives: {
         defaultSrc: ["'self'"], imgSrc: ["'self'", 'data:', 'blob:', 'https:'], mediaSrc: ["'self'", 'blob:', 'data:'], styleSrc: ["'self'", "'unsafe-inline'"],
-        scriptSrc: ["'self'"], connectSrc: ["'self'", 'http://localhost:9100'], // 9100: Zebra Browser Print local (etiquetas)
+        scriptSrc: ["'self'"], connectSrc: ["'self'", 'http://localhost:9100', 'https://localhost:9101'], // Zebra Browser Print local (etiquetas): 9100 http, 9101 https
         frameAncestors: ["'none'"], objectSrc: ["'none'"], baseUri: ["'self'"],
         formAction: ["'self'"], workerSrc: ["'self'"], manifestSrc: ["'self'"],
       },
@@ -69,7 +69,7 @@ export function createApp() {
   }));
   app.use((_req, res, next) => {
     // Recursos sensíveis do aparelho desligados para qualquer página/iframe.
-    res.setHeader('Permissions-Policy', 'camera=(self), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()');
+    res.setHeader('Permissions-Policy', 'camera=(self), microphone=(), geolocation=(), payment=(), usb=(self), bluetooth=(self), interest-cohort=()');
     next();
   });
 

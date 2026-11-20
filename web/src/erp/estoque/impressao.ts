@@ -1,12 +1,11 @@
 /**
  * Impressão de etiquetas.
- *  - Zebra: envia ZPL pelo Zebra Browser Print (app gratuito da Zebra instalado no computador ligado à impressora,
- *    USB ou rede). Sem o app, baixa o arquivo .zpl para enviar pela ferramenta da Zebra.
+ *  - Zebra (v1.34.0): impressão direta em ./zebra.ts (Bluetooth, USB, Browser Print); veja <BotaoZebra>.
  *  - Comum: abre a folha de etiquetas no navegador e chama a impressão (A4 ou impressora de rolo comum).
  */
 import JsBarcode from 'jsbarcode';
+import { impressoraSalva, tentarBrowserPrintPadrao, imprimirNaSalva, baixarZpl } from './zebra';
 
-const BP = 'http://localhost:9100';
 
 /** Código de barras Code 128 em SVG (texto) para a folha de etiquetas. */
 function barrasSvg(valor: string, alturaMm: number) {
@@ -19,21 +18,12 @@ function barrasSvg(valor: string, alturaMm: number) {
   } catch { return ''; }
 }
 
+/** Compatibilidade: imprime na impressora guardada (ou Browser Print padrão); sem nenhuma, baixa o .zpl. Prefira <BotaoZebra>. */
 export async function imprimirZebra(zpl: string): Promise<'impresso' | 'baixado'> {
   try {
-    const ctrl = new AbortController(); const t = setTimeout(() => ctrl.abort(), 2500);
-    const dev = await fetch(`${BP}/default?type=printer`, { signal: ctrl.signal }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
-    clearTimeout(t);
-    if (dev?.uid || dev?.name) {
-      // text/plain evita preflight de CORS no Browser Print
-      const r = await fetch(`${BP}/write`, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=UTF-8' }, body: JSON.stringify({ device: dev, data: zpl }) });
-      if (r.ok) return 'impresso';
-    }
-  } catch { /* cai no download */ }
-  const url = URL.createObjectURL(new Blob([zpl], { type: 'text/plain' }));
-  const a = document.createElement('a'); a.href = url; a.download = `etiquetas-${Date.now()}.zpl`; a.click();
-  setTimeout(() => URL.revokeObjectURL(url), 5000);
-  return 'baixado';
+    if (!impressoraSalva() && !(await tentarBrowserPrintPadrao())) throw new Error('sem impressora');
+    await imprimirNaSalva(zpl); return 'impresso';
+  } catch { baixarZpl(zpl); return 'baixado'; }
 }
 
 const esc = (s: unknown) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));

@@ -79,7 +79,10 @@ function ListaNfe() {
 export function NfeDoPedido({ pedido, onFaturar }: { pedido: any; onFaturar: (nfNumero: string) => void }) {
   const l = useApi<any[]>(`/erp/fiscal/nfe?pedidoId=${pedido.id}`, [pedido.id, pedido.statusOperacional]);
   const a = useAcoesNfe(() => l.reload()); const { busy, run } = useAction(); const { can } = useAuth();
-  if (pedido.statusOperacional !== 'SEPARADO' && !(l.data ?? []).length) return null;
+  // v1.34.0: venda balcão concluída também pode emitir NF-e depois (se o cliente pedir).
+  const balcao = pedido.statusOperacional === 'ENTREGUE' && !!pedido.nfNumero?.startsWith('BALCAO-');
+  const podeEmitir = pedido.statusOperacional === 'SEPARADO' || balcao;
+  if (!podeEmitir && !(l.data ?? []).length) return null;
   return (
     <div className="card" style={{ marginTop: 14 }}>
       <h3>Nota fiscal</h3>
@@ -87,7 +90,8 @@ export function NfeDoPedido({ pedido, onFaturar }: { pedido: any; onFaturar: (nf
         const viva = d.find((n) => n.status !== 'CANCELADA');
         return <>
           {d.map((n) => <div key={n.id} className="row between small" style={{ flexWrap: 'wrap' }}><span>NF-e {n.numero}/{n.serie} · {ST[n.status]}{n.motivo && n.status === 'REJEITADA' ? ` · ${n.cStat} ${n.motivo}` : ''}</span><BotoesNfe n={n} a={a} gestor={can('OWNER', 'ADMIN')} /></div>)}
-          {pedido.statusOperacional === 'SEPARADO' && !viva && <button className="btn primary" disabled={busy} onClick={async () => { if (await run(() => post('/erp/fiscal/nfe/pedido/' + pedido.id, {}), 'NF-e montada e assinada')) l.reload(); }}>Emitir NF-e</button>}
+          {balcao && !viva && <p className="small muted" style={{ margin: '0 0 6px' }}>Venda balcão: emita a NF-e só se o cliente pedir nota (precisa de CPF/CNPJ e endereço do cliente). NFC-e ainda não disponível. Enquanto a SEFAZ estiver em homologação, a nota não tem valor fiscal.</p>}
+          {podeEmitir && !viva && <button className="btn primary" disabled={busy} onClick={async () => { if (await run(() => post('/erp/fiscal/nfe/pedido/' + pedido.id, {}), 'NF-e montada e assinada')) l.reload(); }}>Emitir NF-e</button>}
           {pedido.statusOperacional === 'SEPARADO' && viva?.status === 'AUTORIZADA' && <button className="btn primary" style={{ marginTop: 6 }} onClick={() => onFaturar(String(viva.numero))}>Faturar com a NF-e {viva.numero}</button>}
         </>;
       }}</Async>

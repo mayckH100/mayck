@@ -53,26 +53,29 @@ function Inventario({ id, depositos, onClose, onAjustado }: { id: string; deposi
   const { busy, run } = useAction(); const toast = useToast(); const { can } = useAuth();
   const enderecos = depositos.flatMap((d) => d.enderecos.map((e: any) => ({ codigo: e.codigo, label: `${d.nome} · ${e.codigo}` })));
 
-  async function contar(corpo: { codigo?: string; loteId?: string; qtdMil?: number; modo: 'LEITURA' | 'MANUAL' }) {
-    if (!endereco) { toast('Escolha ou leia primeiro o endereço (local)', 'err'); return; }
+  async function contar(corpo: { codigo?: string; loteId?: string; qtdMil?: number; modo: 'LEITURA' | 'MANUAL' }): Promise<boolean> {
+    if (!endereco) { toast('Escolha ou leia primeiro o endereço (local)', 'err'); return false; }
     try {
       const r = await post<any>(`/erp/estoque/inventarios/${id}/contar`, { endereco, ...corpo });
       setUltimo(r); st.reload();
-      try { navigator.vibrate?.(40); } catch { /* */ }
+      return true;
     } catch (e) {
       const det = e instanceof ApiError ? (e.details as any) : null;
       if (det?.escolherLote && corpo.codigo) {
         const fixo = det.produto && loteFixo[det.produto.id];
         if (fixo && det.escolherLote.some((l: any) => l.id === fixo)) return contar({ ...corpo, codigo: undefined, loteId: fixo });
         setEscolha({ codigo: corpo.codigo, produto: det.produto, lotes: det.escolherLote, modo: corpo.modo, qtdMil: corpo.qtdMil });
-      } else toast((e as Error).message, 'err');
+        return true;
+      }
+      toast((e as Error).message, 'err');
+      return false;
     }
   }
   // Leitura: se o código for de um endereço, troca o local; senão conta 1 (código de barras do produto ou etiqueta do lote).
   async function lido(c: string) {
     const cod = c.trim().toUpperCase();
-    if (enderecos.some((e) => e.codigo === cod)) { setEndereco(cod); toast(`Local: ${cod}`); return; }
-    await contar({ codigo: c, modo: 'LEITURA' });
+    if (enderecos.some((e) => e.codigo === cod)) { setEndereco(cod); toast(`Local: ${cod}`); return true; }
+    return contar({ codigo: c, modo: 'LEITURA' });
   }
 
   return (
