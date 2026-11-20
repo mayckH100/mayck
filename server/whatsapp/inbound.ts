@@ -23,6 +23,7 @@ import { safeSyncContactsToLeads, safeOnContactUpdated } from '../mckmensagem/co
 import { transcribeAudio, type TranscribeOutcome } from '../ai/voice/service.js';
 import { isAudioType } from '../ai/voice/spoken.js';
 import { isProductActive } from '../billing/service.js';
+import { tratarRespostaAprovacao } from '../erp/alertas/aprovacao.js';
 
 const OPT_OUT = new Set(['sair', 'parar', 'stop', 'descadastrar']);
 
@@ -124,6 +125,14 @@ export async function handleInboundMessage(channel: Channel, m: InboundMessage, 
   // Idempotência rápida: a Meta reenvia o mesmo evento em caso de timeout.
   const already = await prisma.message.findUnique({ where: { channelId_waMessageId: { channelId: channel.id, waMessageId: m.waMessageId } } });
   if (already) return 'duplicate';
+
+  // v1.30.0: resposta de um número de alerta do ERP (ou do proprietário) a uma aprovação de compra pendente
+  // ("APROVADO", "APROVADO 1,3", nome do fornecedor...). Tratada aqui, antes de contato/SDR/IA/fluxos:
+  // mensagem da equipe não vira contato nem lead. Sem aprovação pendente para esse número, segue o caminho normal.
+  if (m.type === 'text' && m.text?.trim()) {
+    const tratada = await tratarRespostaAprovacao(channel, m).catch((e) => { console.error('[erp-aprovacao] inbound', orgId, (e as Error).message); return false; });
+    if (tratada) return 'ok';
+  }
 
   let contact = await findOrCreateContact(orgId, m);
   const isFirst = !contact.lastMessageAt;
