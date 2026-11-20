@@ -15,16 +15,16 @@ export default function Etiquetas() {
   return (
     <>
       <div className="row" style={{ marginBottom: 10, flexWrap: 'wrap' }}>
-        <form onSubmit={(e) => { e.preventDefault(); setQuery(q); }}><input placeholder="Lote interno ou do fornecedor" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Buscar lote" /></form>
+        <form onSubmit={(e) => { e.preventDefault(); setQuery(q); }}><input placeholder="Lote interno ou do fabricante" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Buscar lote" /></form>
         <button className="btn" disabled={!itens.length} onClick={async () => imprimirComum(await post<any>('/erp/estoque/etiquetas', { itens }), 'a4')}>Imprimir em folha A4</button>
         <button className="btn" disabled={!itens.length} onClick={async () => imprimirComum(await post<any>('/erp/estoque/etiquetas', { itens }), 'rolo')}>Impressora de rolo comum</button>
         <button className="btn primary" disabled={!itens.length} onClick={async () => { const { zpl } = await post<any>('/erp/estoque/etiquetas/zpl', { itens }); toast((await imprimirZebra(zpl)) === 'impresso' ? 'Enviado para a Zebra' : 'Zebra Browser Print não encontrado: arquivo .zpl baixado'); }}>Imprimir na Zebra</button>
         {can('OWNER', 'ADMIN') && <button className="btn ghost" onClick={() => setCfg(true)}>Tamanho e formato</button>}
       </div>
-      <Async state={lotes}>{(d) => d.length === 0 ? <div className="card"><Empty title="Nenhum lote">Lotes nascem na entrada por XML ou na entrada manual de produtos com lote.</Empty></div> : (
+      <Async state={lotes}>{(d) => d.length === 0 ? <div className="card"><Empty title="Nenhum lote">Todo lote nasce sozinho na entrada de estoque (manual, por XML ou produção), com número do sistema.</Empty></div> : (
         <div className="card table-wrap"><table>
-          <thead><tr><th>Cópias</th><th>Lote</th><th>Lote do fornecedor</th><th>Produto</th><th>Validade</th><th>Status</th></tr></thead>
-          <tbody>{d.map((l) => <tr key={l.id}><td><input type="number" min={0} max={999} style={{ width: 64 }} value={sel[l.id] ?? 0} onChange={(e) => setSel({ ...sel, [l.id]: Number(e.target.value) })} aria-label="Cópias" /></td><td><b>{l.numero}</b></td><td>{l.loteFornecedor ?? '—'}</td><td>{l.produto?.sku} · {l.produto?.nome}</td><td>{l.validade ? new Date(l.validade).toLocaleDateString('pt-BR') : '—'}</td><td>{l.status}</td></tr>)}</tbody>
+          <thead><tr><th>Cópias</th><th>Lote interno</th><th>Lote do fabricante</th><th>Produto</th><th>Validade</th><th>Status</th></tr></thead>
+          <tbody>{d.map((l) => <tr key={l.id}><td><input type="number" min={0} max={999} style={{ width: 64 }} value={sel[l.id] ?? 0} onChange={(e) => setSel({ ...sel, [l.id]: Number(e.target.value) })} aria-label="Cópias" /></td><td><b>{l.numero}</b></td><td>{l.loteFornecedor ?? '—'}</td><td>{l.produto?.sku} · {l.produto?.nome}</td><td>{l.validade ? new Date(l.validade).toLocaleDateString('pt-BR', { timeZone: 'UTC' }) : l.produto?.controlaValidade ? <span className="badge red">sem data</span> : <span className="muted">não controla</span>}</td><td>{l.status}</td></tr>)}</tbody>
         </table></div>
       )}</Async>
       <p className="small muted">Zebra: instale o Zebra Browser Print (gratuito, site da Zebra) no computador ligado à impressora. Sem ele, o sistema baixa o arquivo .zpl.</p>
@@ -41,7 +41,7 @@ function ConfigEtiqueta({ onClose }: { onClose: () => void }) {
   return (
     <Modal title="Etiquetas e lote interno" onClose={onClose}>
       {v && <>
-        <Field label="Formato do lote interno" hint="{AAAA} {AA} {MM} {DD} {SKU} {SEQ} — ex.: {AA}{MM}{DD}-{SEQ}"><input value={v.formatoLote} onChange={(e) => setF({ ...v, formatoLote: e.target.value })} /></Field>
+        <Field label="Formato do lote interno" hint="{AAAA} {AA} {MM} {DD} {SKU} {SEQ} (5 dígitos) {SEQ4} (4 dígitos) — padrão: L{AA}{MM}-{SEQ4} → L2611-0001. A sequência é única da empresa."><input value={v.formatoLote} onChange={(e) => setF({ ...v, formatoLote: e.target.value })} /></Field>
         <div className="grid g2">
           <Field label="Largura (mm)"><input value={v.etiquetaLarguraMm} onChange={(e) => setF({ ...v, etiquetaLarguraMm: e.target.value })} inputMode="numeric" /></Field>
           <Field label="Altura (mm)"><input value={v.etiquetaAlturaMm} onChange={(e) => setF({ ...v, etiquetaAlturaMm: e.target.value })} inputMode="numeric" /></Field>

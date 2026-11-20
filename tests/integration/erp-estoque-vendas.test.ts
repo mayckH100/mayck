@@ -90,7 +90,7 @@ describe('ERP · entrada por XML e inventário', () => {
     expect(saldos.map((s: any) => s.fisicoMil)).toEqual([12_000, 12_000]);
     const lotes = (await owner.get('/api/erp/estoque/lotes')).body;
     expect(lotes.map((x: any) => x.loteFornecedor).sort()).toEqual(['ABC123', 'ABC124']);
-    expect(lotes[0].numero).toMatch(/^\d{6}-\d{5}$/);
+    expect(lotes[0].numero).toMatch(/^L\d{4}-\d{4}$/); // v1.31.0: lote interno legível (L + ano/mês + sequência)
     const prod = (await owner.get('/api/erp/produtos?q=LEITE-UN')).body.items[0];
     expect(prod.custoMedioCents).toBe(550); // 132,00 ÷ 24 un
     const z = await owner.post('/api/erp/estoque/etiquetas/zpl', { itens: [{ loteId: lotes[0].id, copias: 2 }] });

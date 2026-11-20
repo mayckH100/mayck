@@ -32,8 +32,8 @@ export function zpl(d: DadosEtiqueta, o: { larguraMm: number; alturaMm: number; 
   const linhas = [
     limpa(d.nome).slice(0, 34),
     `SKU ${limpa(d.sku)}`,
-    d.lote ? `LOTE ${limpa(d.lote)}` : null,
-    d.loteFornecedor && d.loteFornecedor !== d.lote ? `LOTE FORN. ${limpa(d.loteFornecedor)}` : null,
+    d.lote ? `LOTE INT. ${limpa(d.lote)}` : null,
+    d.loteFornecedor && d.loteFornecedor !== d.lote ? `LOTE FAB. ${limpa(d.loteFornecedor)}` : null,
     d.fabricacao ? `FAB ${d.fabricacao}` : null,
     d.validade ? `VAL ${d.validade}` : null,
   ].filter(Boolean) as string[];

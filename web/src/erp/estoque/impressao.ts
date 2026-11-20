@@ -40,7 +40,7 @@ const esc = (s: unknown) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&
 
 export function imprimirComum(d: { larguraMm: number; alturaMm: number; etiquetas: any[] }, modo: 'rolo' | 'a4') {
   const cards = d.etiquetas.flatMap((e) => Array.from({ length: e.copias }, () => `
-    <div class="etq"><img src="${e.png}" alt=""><div class="txt"><b>${esc(e.nome)}</b><div>SKU ${esc(e.sku)}</div>${e.lote ? `<div>LOTE <b>${esc(e.lote)}</b></div>` : ''}${e.loteFornecedor && e.loteFornecedor !== e.lote ? `<div>Lote forn. ${esc(e.loteFornecedor)}</div>` : ''}${e.fabricacao ? `<div>Fab. ${esc(e.fabricacao)}</div>` : ''}${e.validade ? `<div>Val. <b>${esc(e.validade)}</b></div>` : ''}${e.barras ? barrasSvg(e.barras, d.alturaMm) : ''}</div></div>`)).join('');
+    <div class="etq"><img src="${e.png}" alt=""><div class="txt"><b>${esc(e.nome)}</b><div>SKU ${esc(e.sku)}</div>${e.lote ? `<div>Lote int. <b>${esc(e.lote)}</b></div>` : ''}${e.loteFornecedor && e.loteFornecedor !== e.lote ? `<div>Lote fab. ${esc(e.loteFornecedor)}</div>` : ''}${e.fabricacao ? `<div>Fab. ${esc(e.fabricacao)}</div>` : ''}${e.validade ? `<div>Val. <b>${esc(e.validade)}</b></div>` : ''}${e.barras ? barrasSvg(e.barras, d.alturaMm) : ''}</div></div>`)).join('');
   // Sem <script> inline (a CSP bloqueia): a impressão é chamada daqui depois que as imagens carregam.
   const W = d.larguraMm, H = d.alturaMm;
   const css = modo === 'rolo'

@@ -12,6 +12,7 @@ import { HttpError } from '../../lib/http.js';
 import { notificarProprietario } from '../alertas/alertas.js';
 import { unidadeValida } from '../shared/unidade.js';
 import { criarComSku } from './codigo.js';
+import { formatoLoteEfetivo } from '../estoque/nfe-xml.js';
 
 /** Custo que entra no CMV: custo médio + custos adicionais por unidade (embalagem, frete rateado...). */
 export function custoTotal(p: { custoMedioCents: number; custosAdicionais?: string | null }): number {
@@ -141,10 +142,10 @@ produtosRouter.put('/condicoes/:id', admins, ah(async (req, res) => {
 
 // ---- Regras comerciais (alçada de desconto, crédito) ----
 export const configDa = (orgId: string, db: Pick<typeof prisma, 'erpConfig'> = prisma) => db.erpConfig.upsert({ where: { orgId }, create: { orgId }, update: {} });
-produtosRouter.get('/config', ah(async (req, res) => res.json(await configDa(orgOf(req)))));
+produtosRouter.get('/config', ah(async (req, res) => { const c = await configDa(orgOf(req)); res.json({ ...c, formatoLote: formatoLoteEfetivo(c.formatoLote) }); }));
 produtosRouter.put('/config', admins, ah(async (req, res) => {
   const b = z.object({ descontoMaxBp: z.number().int().min(0).max(10_000), bloquearSemCredito: z.boolean(), validadeOrcamentoDias: z.number().int().min(1).max(365),
-    formatoLote: z.string().trim().min(3).max(40).regex(/\{SEQ\}/, 'O formato precisa ter {SEQ}').optional(), etiquetaLarguraMm: z.number().int().min(20).max(200).optional(), etiquetaAlturaMm: z.number().int().min(10).max(200).optional(), etiquetaDpi: z.union([z.literal(203), z.literal(300)]).optional(),
+    formatoLote: z.string().trim().min(3).max(40).regex(/\{SEQ4?\}/, 'O formato precisa ter {SEQ} ou {SEQ4}').optional(), etiquetaLarguraMm: z.number().int().min(20).max(200).optional(), etiquetaAlturaMm: z.number().int().min(10).max(200).optional(), etiquetaDpi: z.union([z.literal(203), z.literal(300)]).optional(),
     alcadaCompraCents: z.number().int().min(0).max(2_000_000_000).optional(), toleranciaPrecoBp: z.number().int().min(0).max(5000).optional(), recebimentoCego: z.boolean().optional(), multaAtrasoBp: z.number().int().min(0).max(200).optional(), jurosMesBp: z.number().int().min(0).max(1000).optional() }).partial({ descontoMaxBp: true, bloquearSemCredito: true, validadeOrcamentoDias: true }).parse(req.body);
   const orgId = orgOf(req);
   const antes = await configDa(orgId);

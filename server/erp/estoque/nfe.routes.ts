@@ -10,8 +10,10 @@ import { orgOf } from '../../auth/session.js';
 import { auditar } from '../shared/auditoria.js';
 import { emitir, despacharEmBreve } from '../shared/events.js';
 import { vincular } from '../shared/trace.js';
-import { lerNfe, NfeXmlErro, numeroLoteInterno, repartirLotes, type LoteXml } from './nfe-xml.js';
+import { lerNfe, NfeXmlErro, repartirLotes, type LoteXml } from './nfe-xml.js';
 import { entrada } from './servico.js';
+import { proximoSku } from '../produtos/codigo.js';
+import { unidadeLegivel } from '../shared/unidade.js';
 import { configDa } from '../produtos/produtos.routes.js';
 import { divergenciasRecebimento, maquinaCompra, type StatusCompra } from '../compras/compra.machine.js';
 import { transicionar } from '../shared/statemachine.js';
@@ -76,7 +78,7 @@ nfeRouter.post('/importar', ah(async (req, res) => {
 /** Vincula o item a um produto interno (e lembra para as próximas notas desse fornecedor). Pode criar o produto pelo item. */
 nfeRouter.put('/:id/itens/:itemId', ah(async (req, res) => {
   const orgId = orgOf(req);
-  const b = z.object({ produtoId: z.string().optional(), criarProduto: z.object({ sku: z.string().trim().min(1).max(40), precoBaseCents: z.number().int().min(0).default(0), controlaLote: z.boolean().default(false), controlaValidade: z.boolean().default(false) }).optional(), fatorMil: z.number().int().min(1).max(100_000_000).default(1000), lembrar: z.boolean().default(true) }).parse(req.body);
+  const b = z.object({ produtoId: z.string().optional(), criarProduto: z.object({ sku: z.string().trim().max(40).nullish(), precoBaseCents: z.number().int().min(0).default(0), controlaLote: z.boolean().default(false), controlaValidade: z.boolean().default(false) }).optional(), fatorMil: z.number().int().min(1).max(100_000_000).default(1000), lembrar: z.boolean().default(true) }).parse(req.body);
   const n = await prisma.erpNfeEntrada.findFirst({ where: { id: req.params.id, orgId } });
   if (!n) throw notFound('NF-e');
   if (n.status !== 'PENDENTE') throw badRequest('NF-e já lançada');
@@ -85,10 +87,11 @@ nfeRouter.put('/:id/itens/:itemId', ah(async (req, res) => {
   const r = await prisma.$transaction(async (tx) => {
     let produtoId = b.produtoId;
     if (b.criarProduto) {
-      const sku = b.criarProduto.sku.toUpperCase();
-      if (await tx.erpProduto.findUnique({ where: { orgId_sku: { orgId, sku } } })) throw badRequest(`SKU ${sku} já existe`);
+      // v1.31.0: código vazio = automático (sequencial da empresa); unidade do XML sem letra vira UN.
+      const sku = b.criarProduto.sku ? b.criarProduto.sku.toUpperCase() : await proximoSku(orgId, tx);
+      if (await tx.erpProduto.findUnique({ where: { orgId_sku: { orgId, sku } } })) throw badRequest(`Código ${sku} já existe`);
       const fator = b.fatorMil / 1000;
-      const p = await tx.erpProduto.create({ data: { orgId, sku, nome: item.descricao.slice(0, 200), codigoBarras: b.fatorMil === 1000 ? item.ean : null, ncm: item.ncm, unidade: b.fatorMil === 1000 ? item.unidade.slice(0, 6) : 'UN', precoBaseCents: b.criarProduto.precoBaseCents, controlaLote: b.criarProduto.controlaLote || b.criarProduto.controlaValidade, controlaValidade: b.criarProduto.controlaValidade, regraSaida: b.criarProduto.controlaValidade ? 'FEFO' : 'FIFO', tipo: 'REVENDA', custoMedioCents: Math.round(item.custoTotalCents / Math.max(0.001, (item.qtdMil / 1000) * fator)) } });
+      const p = await tx.erpProduto.create({ data: { orgId, sku, nome: item.descricao.slice(0, 200), codigoBarras: b.fatorMil === 1000 ? item.ean : null, ncm: item.ncm, unidade: b.fatorMil === 1000 ? unidadeLegivel(item.unidade.slice(0, 6)) : 'UN', precoBaseCents: b.criarProduto.precoBaseCents, controlaLote: b.criarProduto.controlaLote || b.criarProduto.controlaValidade, controlaValidade: b.criarProduto.controlaValidade, regraSaida: b.criarProduto.controlaValidade ? 'FEFO' : 'FIFO', tipo: 'REVENDA', custoMedioCents: Math.round(item.custoTotalCents / Math.max(0.001, (item.qtdMil / 1000) * fator)) } });
       produtoId = p.id;
     }
     if (!produtoId || !(await tx.erpProduto.findFirst({ where: { id: produtoId, orgId } }))) throw badRequest('Escolha um produto');
@@ -160,7 +163,6 @@ nfeRouter.post('/:id/lancar', ah(async (req, res) => {
   if (divergencias.length && !(req.auth?.role === 'OWNER' || req.auth?.role === 'ADMIN')) throw forbidden('Só proprietário ou administrador aceita divergência de recebimento');
   const gerados: string[] = [];
   await prisma.$transaction(async (tx) => {
-    let seq = (await tx.erpConfig.findUniqueOrThrow({ where: { orgId } })).proximoLoteInterno;
     for (const item of n.itens) {
       const p = await tx.erpProduto.findUniqueOrThrow({ where: { id: item.produtoId! } });
       if (p.tipo === 'SERVICO') continue;
@@ -168,26 +170,26 @@ nfeRouter.post('/:id/lancar', ah(async (req, res) => {
       const custoUnit = qtdTotal > 0 ? Math.round((item.custoTotalCents * 1000) / qtdTotal) : 0;
       const rastro = js<LoteXml[]>(item.lotes, []).map((l) => ({ ...l, qtdMil: Math.round((l.qtdMil * item.fatorMil) / 1000) }));
       const manuais = (b.lotesManuais[item.id] ?? []).map((l) => ({ numero: l.numero.toUpperCase(), qtdMil: l.qtdMil, validade: l.validade ?? null, fabricacao: l.fabricacao ?? null }));
-      const partes = p.controlaLote ? repartirLotes(qtdTotal, rastro.length ? rastro : manuais) : [{ numero: null, qtdMil: qtdTotal, fabricacao: null, validade: null }];
+      // v1.31.0: todo produto ganha lote interno automático; o lote do fabricante (rastro/nLote do XML ou digitado) vai junto.
+      const partes = repartirLotes(qtdTotal, rastro.length ? rastro : manuais);
       const idsItem: string[] = [];
       for (const parte of partes) {
         if (p.controlaValidade && !parte.validade) throw badRequest(`Item ${item.nItem} (${p.sku}): informe a validade do lote`);
-        const interno = p.controlaLote ? (b.usarLoteFornecedor && parte.numero ? parte.numero : numeroLoteInterno(cfg.formatoLote, seq++, p.sku)) : null;
+        // Interno: gerado pelo sistema (sequência da empresa, segura contra corrida). Só usa o do fornecedor como
+        // interno se a empresa escolheu isso na tela (opção antiga "usar lote do fornecedor").
+        const interno = p.controlaLote && b.usarLoteFornecedor && parte.numero ? parte.numero : null;
         const r = await entrada(tx, {
           orgId, produtoId: p.id, enderecoId: b.enderecoId, qtdMil: parte.qtdMil, custoUnitCents: custoUnit, tipo: 'ENTRADA', docTipo: 'nfe_entrada', docId: n.id,
           motivo: `NF-e ${n.numero}/${n.serie} · ${n.emitenteNome}`, userId: req.auth?.userId,
-          lote: { numero: interno, validade: parte.validade ? new Date(`${parte.validade.slice(0, 10)}T12:00:00Z`) : null, fabricacao: parte.fabricacao ? new Date(`${parte.fabricacao.slice(0, 10)}T12:00:00Z`) : null, status: b.quarentena ? 'QUARENTENA' : 'LIBERADO' },
+          lote: { numero: interno, fabricante: parte.numero ?? null, fornecedorId: n.parceiroId, validade: parte.validade ? new Date(`${parte.validade.slice(0, 10)}T12:00:00Z`) : null, fabricacao: parte.fabricacao ? new Date(`${parte.fabricacao.slice(0, 10)}T12:00:00Z`) : null, status: b.quarentena ? 'QUARENTENA' : 'LIBERADO' },
         });
-        if (p.controlaLote) {
-          await tx.erpLote.update({ where: { id: r.lote.id }, data: { loteFornecedor: parte.numero ?? null, fornecedorId: n.parceiroId, origemTipo: 'nfe_entrada', origemId: n.id } });
-          await vincular(tx, orgId, { tipo: 'nfe_entrada', id: n.id }, { tipo: 'lote', id: r.lote.id }, 'originou');
-        }
+        await tx.erpLote.update({ where: { id: r.lote.id }, data: { ...(parte.numero ? { loteFornecedor: parte.numero } : {}), fornecedorId: n.parceiroId, origemTipo: 'nfe_entrada', origemId: n.id } });
+        await vincular(tx, orgId, { tipo: 'nfe_entrada', id: n.id }, { tipo: 'lote', id: r.lote.id }, 'originou');
         idsItem.push(r.lote.id);
       }
       gerados.push(...idsItem);
       await tx.erpNfeEntradaItem.update({ where: { id: item.id }, data: { lotesGerados: JSON.stringify([...new Set(idsItem)]) } });
     }
-    await tx.erpConfig.update({ where: { orgId }, data: { proximoLoteInterno: seq } });
     if (pc) {
       // baixa o pendente do pedido de compra, por produto, na ordem dos itens
       const recebido = new Map<string, number>();

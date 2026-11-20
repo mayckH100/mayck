@@ -64,13 +64,18 @@ export function lerNfe(xml: string): NfeXml {
   };
 }
 
+/** Formato padrão antigo (nunca personalizado) passa a usar o novo, mais legível: L + ano/mês + sequência (v1.31.0). */
+export const FORMATO_LOTE_ANTIGO = '{AA}{MM}{DD}-{SEQ}';
+export const FORMATO_LOTE_PADRAO = 'L{AA}{MM}-{SEQ4}';
+export const formatoLoteEfetivo = (f: string | null | undefined) => (!f || f === FORMATO_LOTE_ANTIGO ? FORMATO_LOTE_PADRAO : f);
+
 /** Número do lote interno a partir do formato configurado. */
 export function numeroLoteInterno(formato: string, seq: number, sku: string, hoje = new Date()) {
   const p2 = (n: number) => String(n).padStart(2, '0');
   const out = (formato || '{AA}{MM}{DD}-{SEQ}')
     .replace(/\{AAAA\}/g, String(hoje.getFullYear())).replace(/\{AA\}/g, String(hoje.getFullYear()).slice(2))
     .replace(/\{MM\}/g, p2(hoje.getMonth() + 1)).replace(/\{DD\}/g, p2(hoje.getDate()))
-    .replace(/\{SKU\}/g, sku).replace(/\{SEQ\}/g, String(seq).padStart(5, '0'));
+    .replace(/\{SKU\}/g, sku).replace(/\{SEQ4\}/g, String(seq).padStart(4, '0')).replace(/\{SEQ\}/g, String(seq).padStart(5, '0'));
   return out.toUpperCase().replace(/[^A-Z0-9\-_./]/g, '').slice(0, 40);
 }
 

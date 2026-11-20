@@ -58,13 +58,14 @@ estoqueRouter.get('/saldos', ah(async (req, res) => {
 }));
 
 // ---- Movimentações ----
-const loteSchema = z.object({ numero: z.string().trim().max(40).nullish(), validade: z.coerce.date().nullish(), fabricacao: z.coerce.date().nullish(), status: z.enum(['LIBERADO', 'QUARENTENA']).default('LIBERADO') }).optional();
+// v1.31.0: `numero` vazio = lote interno automático; `fabricante` = lote impresso pelo fabricante (opcional).
+const loteSchema = z.object({ numero: z.string().trim().max(40).nullish(), fabricante: z.string().trim().max(40).nullish(), validade: z.coerce.date().nullish(), fabricacao: z.coerce.date().nullish(), status: z.enum(['LIBERADO', 'QUARENTENA']).default('LIBERADO') }).optional();
 
 estoqueRouter.post('/entrada', ah(async (req, res) => {
   const orgId = orgOf(req);
   const b = z.object({ produtoId: z.string(), enderecoId: z.string(), qtdMil: qtd, custoUnitCents: z.number().int().min(0).max(2_000_000_000).optional(), lote: loteSchema, motivo: z.string().trim().max(200).optional(), inicial: z.boolean().default(false) }).parse(req.body);
   const r = await prisma.$transaction((tx) => entrada(tx, { orgId, ...b, tipo: b.inicial ? 'AJUSTE' : 'ENTRADA', docTipo: b.inicial ? 'inicial' : 'ajuste', motivo: b.motivo ?? (b.inicial ? 'Saldo inicial' : 'Entrada manual'), userId: req.auth?.userId }));
-  await auditar(req, 'estoque.entrada', 'erp_saldo', r.saldo.id, null, { produtoId: b.produtoId, qtdMil: b.qtdMil, lote: r.lote.numero });
+  await auditar(req, 'estoque.entrada', 'erp_saldo', r.saldo.id, null, { produtoId: b.produtoId, qtdMil: b.qtdMil, lote: r.lote.numero, loteFabricante: r.lote.loteFornecedor });
   res.status(201).json(r);
 }));
 
@@ -164,7 +165,7 @@ estoqueRouter.get('/lotes', ah(async (req, res) => {
   const orgId = orgOf(req);
   const q = typeof req.query.q === 'string' ? req.query.q.trim().toUpperCase().slice(0, 40) : '';
   const lotes = await prisma.erpLote.findMany({ where: { orgId, numero: { not: 'UNICO' }, ...(q ? { OR: [{ numero: contem(q) }, { loteFornecedor: contem(q) }] } : {}) }, orderBy: { createdAt: 'desc' }, take: 200 });
-  const prods = await prisma.erpProduto.findMany({ where: { id: { in: lotes.map((l) => l.produtoId) } }, select: { id: true, sku: true, nome: true } });
+  const prods = await prisma.erpProduto.findMany({ where: { id: { in: lotes.map((l) => l.produtoId) } }, select: { id: true, sku: true, nome: true, controlaValidade: true, unidade: true } });
   const P = new Map(prods.map((p) => [p.id, p]));
   res.json(lotes.map((l) => ({ ...l, produto: P.get(l.produtoId) })));
 }));

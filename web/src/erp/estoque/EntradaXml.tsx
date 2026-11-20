@@ -131,10 +131,10 @@ function NfeDetalhe({ id, depositos, onClose, onLancada }: { id: string; deposit
 function Vincular({ nfeId, item, onClose, onDone }: { nfeId: string; item: any; onClose: () => void; onDone: () => void }) {
   const [busca, setBusca] = useState(''); const [ops, setOps] = useState<any[]>([]);
   const [prod, setProd] = useState<any>(null); const [criar, setCriar] = useState(false);
-  const [f, setF] = useState({ fator: '1', sku: item.codigo.toUpperCase().slice(0, 40), lote: false, validade: false });
+  const [f, setF] = useState({ fator: '1', sku: '', lote: false, validade: false }); // v1.31.0: código vazio = automático
   const { busy, run } = useAction();
   async function salvar() {
-    const body = { fatorMil: toMil(f.fator), lembrar: true, ...(criar ? { criarProduto: { sku: f.sku, controlaLote: f.lote, controlaValidade: f.validade } } : { produtoId: prod.id }) };
+    const body = { fatorMil: toMil(f.fator), lembrar: true, ...(criar ? { criarProduto: { sku: f.sku.trim() || null, controlaLote: f.lote, controlaValidade: f.validade } } : { produtoId: prod.id }) };
     if (await run(() => put(`/erp/estoque/nfe/${nfeId}/itens/${item.id}`, body), 'Item vinculado')) onDone();
   }
   return (
@@ -144,7 +144,7 @@ function Vincular({ nfeId, item, onClose, onDone }: { nfeId: string; item: any; 
         <Field label="Produto"><input autoFocus value={busca} onChange={async (e) => { setBusca(e.target.value); setOps(e.target.value.length >= 2 ? (await get<any>(`/erp/produtos?q=${encodeURIComponent(e.target.value)}`)).items.slice(0, 8) : []); }} />
           {ops.map((o) => <button key={o.id} type="button" className="btn ghost sm" style={{ display: 'block' }} onClick={() => setProd(o)}>{o.sku} · {o.nome}</button>)}</Field>
       )) : <>
-        <Field label="SKU do novo produto"><input value={f.sku} onChange={(e) => setF({ ...f, sku: e.target.value })} /></Field>
+        <Field label="Código do novo produto (automático)" hint={`Vazio = o sistema gera o próximo código. Código do fornecedor: ${item.codigo}`}><input value={f.sku} placeholder="Gerado automaticamente" onChange={(e) => setF({ ...f, sku: e.target.value })} /></Field>
         <label className="row small"><input type="checkbox" checked={f.lote} onChange={(e) => setF({ ...f, lote: e.target.checked })} /> Controla lote</label>
         <label className="row small"><input type="checkbox" checked={f.validade} onChange={(e) => setF({ ...f, validade: e.target.checked })} /> Controla validade (FEFO)</label>
       </>}

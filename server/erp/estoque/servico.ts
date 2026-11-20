@@ -9,17 +9,47 @@ import { lerCodigoEtiqueta } from './etiquetas.js';
 import type { Prisma } from '@prisma/client';
 import { HttpError } from '../../lib/http.js';
 import { planejarAlocacao, novoCustoMedio, type SaldoLinha } from './saldo.js';
+import { numeroLoteInterno, formatoLoteEfetivo } from './nfe-xml.js';
 
 type Tx = Prisma.TransactionClient;
 export class EstoqueErro extends HttpError { constructor(msg: string) { super(400, msg); } }
 
 export const LOTE_UNICO = 'UNICO';
 
-export async function garantirLote(tx: Tx, orgId: string, produtoId: string, l: { numero?: string | null; validade?: Date | null; fabricacao?: Date | null; status?: string; origemTipo?: string; origemId?: string | null }) {
+export async function garantirLote(tx: Tx, orgId: string, produtoId: string, l: { numero?: string | null; validade?: Date | null; fabricacao?: Date | null; status?: string; origemTipo?: string; origemId?: string | null; fabricante?: string | null; fornecedorId?: string | null }) {
   const numero = (l.numero || LOTE_UNICO).trim().toUpperCase();
+  const fabricante = l.fabricante ? l.fabricante.trim().toUpperCase().slice(0, 40) : null;
   const existente = await tx.erpLote.findUnique({ where: { orgId_produtoId_numero: { orgId, produtoId, numero } } });
-  if (existente) return existente;
-  return tx.erpLote.create({ data: { orgId, produtoId, numero, validade: l.validade ?? null, fabricacao: l.fabricacao ?? null, status: l.status ?? 'LIBERADO', origemTipo: l.origemTipo ?? null, origemId: l.origemId ?? null } });
+  if (existente) {
+    // Lote já existe: completa o lote do fabricante se ainda não tinha (nunca troca o que já foi gravado).
+    if (fabricante && !existente.loteFornecedor) return tx.erpLote.update({ where: { id: existente.id }, data: { loteFornecedor: fabricante, ...(l.fornecedorId && !existente.fornecedorId ? { fornecedorId: l.fornecedorId } : {}) } });
+    return existente;
+  }
+  return tx.erpLote.create({ data: { orgId, produtoId, numero, validade: l.validade ?? null, fabricacao: l.fabricacao ?? null, status: l.status ?? 'LIBERADO', origemTipo: l.origemTipo ?? null, origemId: l.origemId ?? null, loteFornecedor: fabricante, fornecedorId: l.fornecedorId ?? null } });
+}
+
+// ---------------- Lote interno automático (v1.31.0) ----------------
+export { FORMATO_LOTE_ANTIGO, FORMATO_LOTE_PADRAO, formatoLoteEfetivo } from './nfe-xml.js';
+
+/** "Hoje" no horário de Brasília, como Date local (getFullYear/getMonth/getDate devolvem o dia de Brasília). */
+export function hojeBrasilia(agora = new Date(), tz = 'America/Sao_Paulo') {
+  const p = Object.fromEntries(new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(agora).map((x) => [x.type, x.value]));
+  return new Date(Number(p.year), Number(p.month) - 1, Number(p.day), 12);
+}
+
+/**
+ * Próximo lote interno da empresa (ex.: L2611-0001). Sequência única por empresa (ErpConfig.proximoLoteInterno):
+ * o UPDATE com increment trava a linha da configuração até o fim da transação, então duas entradas ao mesmo tempo
+ * nunca recebem o mesmo número. Se o número já existir para o produto (lote digitado à mão no passado), pula.
+ */
+export async function proximoLoteInterno(tx: Tx, orgId: string, produtoId: string, sku: string, agora = new Date()): Promise<string> {
+  await tx.erpConfig.upsert({ where: { orgId }, create: { orgId }, update: {} });
+  for (let t = 0; t < 50; t++) {
+    const c = await tx.erpConfig.update({ where: { orgId }, data: { proximoLoteInterno: { increment: 1 } } });
+    const numero = numeroLoteInterno(formatoLoteEfetivo(c.formatoLote), c.proximoLoteInterno - 1, sku, hojeBrasilia(agora));
+    if (!(await tx.erpLote.findUnique({ where: { orgId_produtoId_numero: { orgId, produtoId, numero } }, select: { id: true } }))) return numero;
+  }
+  throw new EstoqueErro('Não foi possível gerar o lote interno; tente de novo');
 }
 
 async function produtoDa(tx: Tx, orgId: string, produtoId: string) {
@@ -31,16 +61,21 @@ async function produtoDa(tx: Tx, orgId: string, produtoId: string) {
 
 export interface MovBase { orgId: string; docTipo?: string | null; docId?: string | null; motivo?: string | null; userId?: string | null; correlationId?: string | null }
 
-/** Entrada (compra, produção, ajuste positivo, saldo inicial). Atualiza o custo médio. */
+/**
+ * Entrada (compra, NF-e, produção, ajuste positivo, saldo inicial, inventário, transferência). Atualiza o custo médio.
+ * v1.31.0: sem `lote.numero`, o sistema gera o lote interno (ex.: L2611-0001) — vale para TODA entrada nova.
+ * `lote.numero` informado = lote interno que já existe (transferência, inventário, legado). `lote.fabricante` = lote
+ * impresso pelo fabricante/fornecedor (digitado ou do XML da NF-e), guardado junto.
+ */
 export async function entrada(tx: Tx, e: MovBase & { produtoId: string; enderecoId: string; qtdMil: number; custoUnitCents?: number; tipo?: string;
-  lote?: { numero?: string | null; validade?: Date | null; fabricacao?: Date | null; status?: string } }) {
+  lote?: { numero?: string | null; fabricante?: string | null; fornecedorId?: string | null; validade?: Date | null; fabricacao?: Date | null; status?: string } }) {
   if (e.qtdMil <= 0) throw new EstoqueErro('Quantidade deve ser maior que zero');
   const produto = await produtoDa(tx, e.orgId, e.produtoId);
-  if (produto.controlaLote && !e.lote?.numero) throw new EstoqueErro('Este produto controla lote: informe o número do lote');
-  if (produto.controlaValidade && !e.lote?.validade) throw new EstoqueErro('Este produto controla validade: informe a data');
+  if (produto.controlaValidade && !e.lote?.validade) throw new EstoqueErro(`O produto ${produto.nome} controla validade: informe a data de validade do lote`);
   const end = await tx.erpEnderecoEstoque.findFirst({ where: { id: e.enderecoId, orgId: e.orgId, ativo: true } });
   if (!end) throw new EstoqueErro('Endereço de estoque inválido');
-  const lote = await garantirLote(tx, e.orgId, e.produtoId, { ...e.lote, origemTipo: e.docTipo ?? 'ajuste', origemId: e.docId });
+  const numero = e.lote?.numero?.trim() ? e.lote.numero : await proximoLoteInterno(tx, e.orgId, e.produtoId, produto.sku);
+  const lote = await garantirLote(tx, e.orgId, e.produtoId, { ...e.lote, numero, origemTipo: e.docTipo ?? 'ajuste', origemId: e.docId });
   const quarentena = lote.status !== 'LIBERADO';
 
   const totalAntes = await tx.erpSaldo.aggregate({ where: { orgId: e.orgId, produtoId: e.produtoId }, _sum: { fisicoMil: true } });
@@ -174,10 +209,10 @@ export async function conferir(tx: Tx, orgId: string, pedidoId: string, codigo: 
   const prodDe = new Map(produtos.map((p) => [p.id, p]));
   const casa = reservas.filter((r) => {
     const l = loteDe.get(r.loteId)!; const p = prodDe.get(r.produtoId)!;
-    return l.numero === cod || (l.numero === LOTE_UNICO && (p.sku.toUpperCase() === cod || p.codigoBarras === codigo.trim()));
+    return l.numero === cod || ((l.numero === LOTE_UNICO || !p.controlaLote) && (p.sku.toUpperCase() === cod || p.codigoBarras === codigo.trim()));
   });
   if (!casa.length) {
-    const lotesEsperados = reservas.filter((r) => r.separadoMil < r.qtdMil).map((r) => loteDe.get(r.loteId)!.numero).filter((n) => n !== LOTE_UNICO);
+    const lotesEsperados = reservas.filter((r) => r.separadoMil < r.qtdMil && prodDe.get(r.produtoId)?.controlaLote).map((r) => loteDe.get(r.loteId)!.numero).filter((n) => n !== LOTE_UNICO);
     throw new EstoqueErro(`Código ${codigo} não pertence a este pedido${lotesEsperados.length ? `. Separe o(s) lote(s): ${[...new Set(lotesEsperados)].join(', ')}` : ''}`);
   }
   let resta = qtdMil;

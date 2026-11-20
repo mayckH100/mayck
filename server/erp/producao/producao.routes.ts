@@ -14,7 +14,6 @@ import { auditar } from '../shared/auditoria.js';
 import { configDa } from '../produtos/produtos.routes.js';
 import { proximoNumero } from '../compras/compras.routes.js';
 import { entrada } from '../estoque/servico.js';
-import { numeroLoteInterno } from '../estoque/nfe-xml.js';
 import { maquinaOp, type StatusOp, type EventoOp } from './op.machine.js';
 import { criaCiclo, custoPadrao, necessidadeComponente, calcularMrp } from './mrp.js';
 import { reservarComponente, liberarReservasOp, consumirComponente } from './servico.js';
@@ -154,7 +153,7 @@ producaoRouter.post('/ops/:id/apontar', ah(async (req, res) => {
   if (!op) throw notFound('Ordem de produção');
   const r0 = transicionar(maquinaOp, op.status as StatusOp, 'APONTAR', { componentes: op.componentes.length, faltas: 0, produzidoMil: op.qtdProduzidaMil });
   if (!r0.ok) throw badRequest(op.status === 'PLANEJADA' ? 'Libere a OP antes de apontar' : r0.erro);
-  const cfg = await configDa(orgId);
+  await configDa(orgId);
   const produto = await prisma.erpProduto.findUniqueOrThrow({ where: { id: op.produtoId } });
   const estrutura = await prisma.erpEstruturaItem.findMany({ where: { orgId, produtoId: op.produtoId } });
   const ops = await prisma.erpOperacao.findMany({ where: { orgId, produtoId: op.produtoId } });
@@ -175,12 +174,8 @@ producaoRouter.post('/ops/:id/apontar', ah(async (req, res) => {
     const custoUnit = b.qtdBoaMil > 0 ? Math.round(((custoMat + custoOperacao) * 1000) / b.qtdBoaMil) : 0;
     let loteId: string | null = null;
     if (b.qtdBoaMil > 0) {
-      let numero: string | null = null;
-      if (produto.controlaLote) {
-        const c = await tx.erpConfig.update({ where: { orgId }, data: { proximoLoteInterno: { increment: 1 } } });
-        numero = numeroLoteInterno(cfg.formatoLote, c.proximoLoteInterno - 1, produto.sku);
-      }
-      const r = await entrada(tx, { orgId, produtoId: produto.id, enderecoId: b.enderecoId, qtdMil: b.qtdBoaMil, custoUnitCents: custoUnit, tipo: 'PRODUCAO', docTipo: 'op', docId: op.id, motivo, userId: req.auth?.userId, lote: { numero, validade: b.validade ?? null, fabricacao: new Date() } });
+      // v1.31.0: lote interno gerado pela entrada (sequência da empresa), para todo produto.
+      const r = await entrada(tx, { orgId, produtoId: produto.id, enderecoId: b.enderecoId, qtdMil: b.qtdBoaMil, custoUnitCents: custoUnit, tipo: 'PRODUCAO', docTipo: 'op', docId: op.id, motivo, userId: req.auth?.userId, lote: { numero: null, validade: b.validade ?? null, fabricacao: new Date() } });
       loteId = r.lote.id;
       if (produto.controlaLote) {
         await tx.erpLote.update({ where: { id: r.lote.id }, data: { origemTipo: 'op', origemId: op.id } });

@@ -35,12 +35,12 @@ export default function Estoque() {
 
       {aba === 'saldos' && <Async state={saldos}>{(d) => d.length === 0 ? <div className="card"><Empty title={deps.data?.length ? 'Sem saldo em estoque' : 'Crie um depósito primeiro'}>{deps.data?.length ? 'Lance o saldo inicial pelo botão Entrada.' : 'Na aba Depósitos e endereços.'}</Empty></div> : (
         <div className="card table-wrap"><table>
-          <thead><tr><th>Produto</th><th>Lote</th><th>Validade</th><th>Endereço</th><th>Físico</th><th>Reservado</th><th>Disponível</th><th></th></tr></thead>
+          <thead><tr><th>Produto</th><th>Lote interno / fabricante</th><th>Validade</th><th>Endereço</th><th>Físico</th><th>Reservado</th><th>Disponível</th><th></th></tr></thead>
           <tbody>{d.map((s) => (
             <tr key={s.id}>
               <td><strong>{s.produto?.nome}</strong><div className="small muted">{s.produto?.sku}</div></td>
-              <td>{s.lote?.numero === 'UNICO' ? '—' : s.lote?.numero} {s.lote?.status !== 'LIBERADO' && <span className="badge red">{s.lote?.status}</span>}</td>
-              <td>{s.lote?.validade ? new Date(s.lote.validade).toLocaleDateString('pt-BR') : '—'}</td>
+              <td>{s.lote?.numero === 'UNICO' ? '—' : s.lote?.numero}{s.lote?.loteFornecedor && s.lote.loteFornecedor !== s.lote.numero ? <div className="small muted">fab. {s.lote.loteFornecedor}</div> : null} {s.lote?.status !== 'LIBERADO' && <span className="badge red">{s.lote?.status}</span>}</td>
+              <td>{s.lote?.validade ? new Date(s.lote.validade).toLocaleDateString('pt-BR', { timeZone: 'UTC' }) : '—'}</td>
               <td>{s.endereco.deposito} · {s.endereco.codigo}</td>
               <td>{qtd(s.fisicoMil)}</td><td>{qtd(s.reservadoMil)}</td><td><strong>{qtd(s.disponivelMil)}</strong></td>
               <td className="row" style={{ gap: 4 }}>
@@ -88,7 +88,7 @@ export default function Estoque() {
 }
 
 function Movimento({ modal, depositos, onClose, onDone }: { modal: any; depositos: any[]; onClose: () => void; onDone: () => void }) {
-  const [f, setF] = useState<any>({ qtd: '', custo: '', lote: '', validade: '', quarentena: false, motivo: '', enderecoId: '', produto: null, busca: '', nome: '', codigos: '', ruas: '', prateleiras: '', posicoes: '' });
+  const [f, setF] = useState<any>({ qtd: '', custo: '', lote: '', fabricante: '', validade: '', quarentena: false, motivo: '', enderecoId: '', produto: null, busca: '', nome: '', codigos: '', ruas: '', prateleiras: '', posicoes: '' });
   const [opcoes, setOpcoes] = useState<any[]>([]);
   const { busy, run } = useAction();
   const set = (k: string) => (e: any) => setF({ ...f, [k]: e.target.type === 'checkbox' ? e.target.checked : e.target.value });
@@ -96,7 +96,7 @@ function Movimento({ modal, depositos, onClose, onDone }: { modal: any; deposito
   async function procurar(q: string) { setF({ ...f, busca: q }); setOpcoes(q.length >= 2 ? (await get<any>(`/erp/produtos?q=${encodeURIComponent(q)}&ativos=1`)).items.filter((p: any) => p.tipo !== 'SERVICO').slice(0, 8) : []); }
   async function salvar() {
     const acoes: Record<string, () => Promise<unknown>> = {
-      entrada: () => post('/erp/estoque/entrada', { produtoId: f.produto.id, enderecoId: f.enderecoId, qtdMil: toMil(f.qtd), custoUnitCents: f.custo ? toCents(f.custo) : undefined, lote: { numero: f.lote || null, validade: f.validade || null, status: f.quarentena ? 'QUARENTENA' : 'LIBERADO' }, motivo: f.motivo || undefined }),
+      entrada: () => post('/erp/estoque/entrada', { produtoId: f.produto.id, enderecoId: f.enderecoId, qtdMil: toMil(f.qtd), custoUnitCents: f.custo ? toCents(f.custo) : undefined, lote: { fabricante: f.fabricante || null, validade: f.produto?.controlaValidade ? f.validade || null : null, status: f.quarentena ? 'QUARENTENA' : 'LIBERADO' }, motivo: f.motivo || undefined }),
       ajuste: () => post('/erp/estoque/ajuste', { saldoId: modal.saldo.id, qtdMil: toMil(f.qtd), motivo: f.motivo }),
       transferencia: () => post('/erp/estoque/transferencia', { saldoId: modal.saldo.id, enderecoDestinoId: f.enderecoId, qtdMil: toMil(f.qtd) }),
       deposito: () => post('/erp/estoque/depositos', { nome: f.nome, enderecos: f.codigos ? f.codigos.split(/[\s,;]+/).filter(Boolean) : ['GERAL'] }),
@@ -115,9 +115,10 @@ function Movimento({ modal, depositos, onClose, onDone }: { modal: any; deposito
         <div className="grid g2">
           <Field label={`Quantidade${f.produto ? ` (${f.produto.unidade})` : ''}`}><input value={f.qtd} onChange={set('qtd')} inputMode="decimal" /></Field>
           <Field label="Custo unitário (R$)" hint="Entra no custo médio"><input value={f.custo} onChange={set('custo')} inputMode="decimal" /></Field>
-          {f.produto?.controlaLote && <Field label="Lote"><input value={f.lote} onChange={set('lote')} /></Field>}
-          {f.produto?.controlaValidade && <Field label="Validade"><input type="date" value={f.validade} onChange={set('validade')} /></Field>}
+          <Field label="Lote do fabricante (opcional)" hint="O que vem impresso na caixa/embalagem"><input value={f.fabricante} onChange={set('fabricante')} maxLength={40} /></Field>
+          {f.produto?.controlaValidade && <Field label="Validade *" hint="Obrigatória: este produto controla validade"><input type="date" value={f.validade} onChange={set('validade')} required /></Field>}
         </div>
+        <p className="small muted" style={{ margin: '2px 0 6px' }}>O <strong>lote interno</strong> é criado pelo sistema nesta entrada (ex.: L2611-0001) e sai na etiqueta.</p>
         {f.produto?.controlaLote && <label className="row small"><input type="checkbox" checked={f.quarentena} onChange={set('quarentena')} /> Entrar em quarentena (aguardando inspeção)</label>}
         <Field label="Motivo"><input value={f.motivo} onChange={set('motivo')} placeholder="Saldo inicial, compra avulsa…" /></Field>
       </>}
@@ -140,7 +141,7 @@ function Movimento({ modal, depositos, onClose, onDone }: { modal: any; deposito
         </div>
         <Field label="Ou códigos"><input value={f.codigos} onChange={set('codigos')} /></Field>
       </>}
-      <div className="row" style={{ justifyContent: 'flex-end', marginTop: 10 }}><button className="btn" onClick={onClose}>Cancelar</button><button className="btn primary" disabled={busy} onClick={salvar}>Confirmar</button></div>
+      <div className="row" style={{ justifyContent: 'flex-end', marginTop: 10 }}><button className="btn" onClick={onClose}>Cancelar</button><button className="btn primary" disabled={busy || (modal.tipo === 'entrada' && !!f.produto?.controlaValidade && !f.validade)} onClick={salvar}>Confirmar</button></div>
     </Modal>
   );
 }

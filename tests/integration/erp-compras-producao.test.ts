@@ -48,7 +48,7 @@ describe('ERP · compras e produção', () => {
     // custo: 10 leites × 5,50 + 21 potes × 0,20 + 20 × 1,00 de operação (36 s a R$ 100/h) = 79,20 → 3,96 por pote
     expect(ap.body.apontamentos[0].custoUnitCents).toBe(396);
     const lote = ap.body.apontamentos[0].lote;
-    expect(lote).toMatch(/^\d{6}-\d{5}$/);
+    expect(lote).toMatch(/^L\d{4}-\d{4}$/);
     const saldoLeite = (await owner.get(`/api/erp/estoque/saldos?produtoId=${leite.id}`)).body.reduce((a: number, s: any) => a + s.fisicoMil, 0);
     expect(saldoLeite).toBe(14_000);
     // FEFO: consome o lote do leite que vence antes (ABC123 → val 2027-01-20) e liga ao lote do iogurte

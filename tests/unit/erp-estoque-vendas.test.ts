@@ -70,6 +70,6 @@ describe('ERP · XML de NF-e, lote interno e etiqueta', () => {
   });
   it('ZPL com QR, tamanho e cópias', () => {
     const z = zpl({ qr: '261103-00001', sku: 'LEITE1', nome: 'Leite Ação', unidade: 'UN', lote: '261103-00001', loteFornecedor: 'ABC123', validade: '20/01/2027', fabricacao: null, fornecedor: null }, { larguraMm: 100, alturaMm: 50, dpi: 203, copias: 3 });
-    expect(z).toMatch(/^\^XA/); expect(z).toContain('^PW800'); expect(z).toContain('^FDLA,261103-00001'); expect(z).toContain('LOTE FORN. ABC123'); expect(z).toContain('Leite Acao'); expect(z).toContain('^PQ3');
+    expect(z).toMatch(/^\^XA/); expect(z).toContain('^PW800'); expect(z).toContain('^FDLA,261103-00001'); expect(z).toContain('LOTE FAB. ABC123'); expect(z).toContain('Leite Acao'); expect(z).toContain('^PQ3');
   });
 });
