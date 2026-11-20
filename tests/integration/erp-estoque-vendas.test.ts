@@ -106,7 +106,7 @@ describe('ERP · entrada por XML e inventário', () => {
     await owner.post(`/api/erp/estoque/inventarios/${inv.id}/acao`, { acao: 'ENVIAR' });
     const det = (await owner.get(`/api/erp/estoque/inventarios/${inv.id}`)).body;
     expect(det.contagens.find((c: any) => c.lote === lote.numero).diferencaMil).toBe(-2_000);
-    expect((await owner.post(`/api/erp/estoque/inventarios/${inv.id}/acao`, { acao: 'APROVAR' })).body.status).toBe('CONCLUIDO');
+    expect((await owner.post(`/api/erp/estoque/inventarios/${inv.id}/acao`, { acao: 'APROVAR', motivo: 'Inventário geral', senhaProprietario: 'senhaSegura123' })).body.status).toBe('CONCLUIDO');
     const total = (await owner.get('/api/erp/estoque/saldos')).body.reduce((a: number, s: any) => a + s.fisicoMil, 0);
     expect(total).toBe(10_000); // 10 contadas no lote lido; o outro lote não contado zerou
   });
