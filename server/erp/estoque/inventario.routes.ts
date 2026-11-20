@@ -13,7 +13,7 @@ import { ah, badRequest, forbidden, notFound, HttpError } from '../../lib/http.j
 import { orgOf } from '../../auth/session.js';
 import { auditar } from '../shared/auditoria.js';
 import { entrada, saidaDoSaldo, proximoLoteInterno, LOTE_UNICO } from './servico.js';
-import { lerCodigoEtiqueta } from './etiquetas.js';
+import { resolverCodigo } from './leitura.js';
 import { custoTotal } from '../produtos/produtos.routes.js';
 import { relatorioInventario, resumoDivergencia, csvInventario, reais, type LinhaInventario } from './inventario-relatorio.js';
 import { notificarProprietario } from '../alertas/alertas.js';
@@ -103,8 +103,9 @@ inventarioRouter.post('/', ah(async (req, res) => {
 
 /**
  * Registra contagem por lote e local. Duas maneiras:
- *  - QR (modo "QR"): cada leitura soma `qtdMil` (padrão 1 unidade). O QR pode ser da etiqueta do lote (MCK1;...),
- *    o número do lote, o código do produto ou o código de barras. Endereço também pode vir lido do QR do endereço.
+ *  - Leitura (modo "LEITURA"; caminho principal): cada leitura do CÓDIGO DE BARRAS do produto (EAN/GTIN ou código
+ *    interno), pela câmera do celular ou leitor/teclado, soma `qtdMil` (padrão 1 unidade). Também aceita o QR da
+ *    etiqueta do lote (MCK1;...) ou o número do lote. Endereço pode ser digitado ou lido do QR do endereço.
  *  - Digitada (modo "MANUAL"): grava a quantidade contada (ou soma, com `somar`).
  * Produto lido pelo código (sem lote): usa o lote dele neste local; com mais de um, pede para escolher (`loteId`).
  * Item achado fora da foto entra como linha nova (sistema 0). Produto que não controla lote e não tem lote no local
@@ -114,7 +115,9 @@ inventarioRouter.post('/:id/contar', ah(async (req, res) => {
   const orgId = orgOf(req);
   const b = z.object({
     endereco: z.string().trim().min(1).max(200), codigo: z.string().trim().min(1).max(200).optional(), loteId: z.string().optional(),
-    qtdMil: z.number().int().min(0).max(2_000_000_000).optional(), somar: z.boolean().default(false), modo: z.enum(['QR', 'MANUAL']).default('MANUAL'),
+    qtdMil: z.number().int().min(0).max(2_000_000_000).optional(), somar: z.boolean().default(false),
+    // LEITURA = código de barras do produto (EAN/GTIN ou código interno) pela câmera ou leitor; "QR" = etiqueta de lote (aceito igual).
+    modo: z.enum(['LEITURA', 'QR', 'MANUAL']).default('MANUAL'),
   }).refine((x) => x.codigo || x.loteId, 'Leia o QR do lote/produto ou escolha o lote').parse(req.body);
   const inv = await prisma.erpInventario.findFirst({ where: { id: req.params.id, orgId } });
   if (!inv) throw notFound('Inventário');
@@ -122,25 +125,19 @@ inventarioRouter.post('/:id/contar', ah(async (req, res) => {
   const endCod = b.endereco.trim().toUpperCase();
   const end = await prisma.erpEnderecoEstoque.findFirst({ where: { orgId, codigo: endCod, ...(inv.depositoId ? { depositoId: inv.depositoId } : {}) } });
   if (!end) throw badRequest(`Endereço ${b.endereco} não existe${inv.depositoId ? ' neste depósito' : ''}`);
-  const qr = b.modo === 'QR';
+  const qr = b.modo !== 'MANUAL'; // cada leitura (código de barras ou QR) soma
   const qtdMil = b.qtdMil ?? (qr ? 1000 : undefined);
   if (qtdMil == null) throw badRequest('Informe a quantidade contada');
   const somar = qr || b.somar;
   const r = await prisma.$transaction(async (tx) => {
     let lote = b.loteId ? await tx.erpLote.findFirst({ where: { id: b.loteId, orgId } }) : null;
     if (!lote && b.codigo) {
-      const lido = lerCodigoEtiqueta(b.codigo);
-      const cod = (lido.lote ?? lido.bruto).trim().toUpperCase();
-      const candidatos = await tx.erpLote.findMany({ where: { orgId, numero: cod === LOTE_UNICO ? 'L-INICIAL' : cod } });
-      if (candidatos.length === 1) lote = candidatos[0];
-      else if (candidatos.length > 1 && lido.sku) {
-        const p = await tx.erpProduto.findFirst({ where: { orgId, sku: lido.sku.toUpperCase() } });
-        lote = candidatos.find((l) => l.produtoId === p?.id) ?? null;
-      }
+      // v1.33.0: código de barras do lote (GS1-128) ou QR já dizem produto e lote; código de barras/código do produto diz só o produto.
+      const r = await resolverCodigo(tx, orgId, b.codigo);
+      if (!r) throw badRequest(`Código ${b.codigo.slice(0, 40)} não encontrado (código de barras, etiqueta do lote, lote ou código do produto)`);
+      lote = r.lote;
       if (!lote) {
-        const sku = (lido.sku ?? lido.bruto).trim();
-        const p = await tx.erpProduto.findFirst({ where: { orgId, OR: [{ sku: sku.toUpperCase() }, { codigoBarras: sku }] } });
-        if (!p) throw badRequest(`Código ${b.codigo.slice(0, 40)} não encontrado (lote, código do produto ou código de barras)`);
+        const p = r.produto;
         // Lotes do produto neste local (na foto do inventário ou com saldo).
         const [cont, sal] = await Promise.all([
           tx.erpInventarioContagem.findMany({ where: { inventarioId: inv.id, produtoId: p.id, enderecoId: end.id }, select: { loteId: true } }),
@@ -150,7 +147,7 @@ inventarioRouter.post('/:id/contar', ah(async (req, res) => {
         if (ids.length === 1) lote = await tx.erpLote.findUniqueOrThrow({ where: { id: ids[0] } });
         else if (ids.length > 1) {
           const ls = await tx.erpLote.findMany({ where: { id: { in: ids } }, select: { id: true, numero: true, loteFornecedor: true, validade: true } });
-          throw badRequest(`${p.nome} tem ${ls.length} lotes em ${end.codigo}: escolha qual está contando (ou leia a etiqueta do lote)`, { escolherLote: ls.map((l) => ({ ...l, numero: numeroLoteLegivel(l.numero) })) });
+          throw badRequest(`${p.nome} tem ${ls.length} lotes em ${end.codigo}: escolha qual está contando (ou leia a etiqueta do lote)`, { escolherLote: ls.map((l) => ({ ...l, numero: numeroLoteLegivel(l.numero) })), produto: { id: p.id, sku: p.sku, nome: p.nome } });
         } else {
           if (p.controlaLote) throw badRequest(`${p.sku} controla lote e não tem lote em ${end.codigo}: leia a etiqueta do lote`);
           const numero = await proximoLoteInterno(tx, orgId, p.id, p.sku);
@@ -162,7 +159,7 @@ inventarioRouter.post('/:id/contar', ah(async (req, res) => {
     const chave = { inventarioId_produtoId_loteId_enderecoId: { inventarioId: inv.id, produtoId: lote.produtoId, loteId: lote.id, enderecoId: end.id } };
     const atual = await tx.erpInventarioContagem.findUnique({ where: chave });
     const contado = somar && atual?.contadoMil != null ? atual.contadoMil + qtdMil : qtdMil;
-    const dados = { contadoMil: contado, contadoPorId: req.auth?.userId ?? null, contadoEm: new Date(), modo: b.modo, ...(qr ? { leituras: { increment: 1 } } : {}) };
+    const dados = { contadoMil: contado, contadoPorId: req.auth?.userId ?? null, contadoEm: new Date(), modo: qr ? 'LEITURA' : 'MANUAL', ...(qr ? { leituras: { increment: 1 } } : {}) };
     const linha = await tx.erpInventarioContagem.upsert({ where: chave, create: { inventarioId: inv.id, produtoId: lote.produtoId, loteId: lote.id, enderecoId: end.id, sistemaMil: 0, ...dados, leituras: qr ? 1 : 0 }, update: dados });
     const p = await tx.erpProduto.findUniqueOrThrow({ where: { id: lote.produtoId }, select: { sku: true, nome: true, unidade: true } });
     return { linha, lote, p };

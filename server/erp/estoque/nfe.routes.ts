@@ -12,6 +12,7 @@ import { emitir, despacharEmBreve } from '../shared/events.js';
 import { vincular } from '../shared/trace.js';
 import { lerNfe, NfeXmlErro, repartirLotes, type LoteXml } from './nfe-xml.js';
 import { entrada } from './servico.js';
+import { etiquetasSugeridas } from './codigoLote.js';
 import { proximoSku } from '../produtos/codigo.js';
 import { unidadeLegivel } from '../shared/unidade.js';
 import { configDa } from '../produtos/produtos.routes.js';
@@ -220,5 +221,10 @@ nfeRouter.post('/:id/lancar', ah(async (req, res) => {
   });
   despacharEmBreve();
   await auditar(req, 'nfe_entrada.lancar', 'erp_nfe_entrada', n.id, null, { lotes: gerados.length });
-  res.json({ ok: true, loteIds: [...new Set(gerados)], divergenciasAceitas: divergencias });
+  // v1.33.0: etiquetas sugeridas por lote (uma por embalagem/peça recebida) para imprimir na hora.
+  const movs = await prisma.erpMovimento.findMany({ where: { orgId, docTipo: 'nfe_entrada', docId: n.id, qtdMil: { gt: 0 } }, select: { loteId: true, qtdMil: true, produtoId: true } });
+  const ls = await prisma.erpLote.findMany({ where: { id: { in: [...new Set(gerados)] } }, select: { id: true, numero: true, produtoId: true } });
+  const ps = await prisma.erpProduto.findMany({ where: { id: { in: ls.map((l) => l.produtoId) } }, select: { id: true, sku: true, nome: true, unidade: true, unidadeCompra: true, fatorCompraMil: true } });
+  const etiquetas = ls.map((l) => { const q = movs.filter((m) => m.loteId === l.id).reduce((a, m) => a + m.qtdMil, 0); const p = ps.find((x) => x.id === l.produtoId)!; return { loteId: l.id, numero: l.numero, produto: `${p.sku} · ${p.nome}`, qtdMil: q, sugeridas: etiquetasSugeridas(q, p) }; });
+  res.json({ ok: true, loteIds: [...new Set(gerados)], divergenciasAceitas: divergencias, etiquetas });
 }));

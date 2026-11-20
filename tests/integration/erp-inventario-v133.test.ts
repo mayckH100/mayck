@@ -31,14 +31,29 @@ describe('ERP · inventário com relatório, aviso e senha do proprietário (v1.
     agente.csrf = r.body.csrfToken; agente.me = r.body;
   });
 
-  it('conta lendo o QR (cada leitura soma 1) e digitando; contagem fica no lote e no local', async () => {
+  it('conta lendo o código de barras (cada leitura soma 1), o QR do lote e digitando; contagem fica no lote e no local', async () => {
     invId = (await owner.post('/api/erp/estoque/inventarios', { descricao: 'Geral novembro' })).body.id;
+    // caminho principal: código de barras do produto (EAN). Caderno tem um lote só em B-01.
+    const ean = caderno.codigoBarras as string;
+    expect(ean).toMatch(/^\d{13}$/);
+    for (let i = 0; i < 2; i++) {
+      const r = await agente.post(`/api/erp/estoque/inventarios/${invId}/contar`, { endereco: 'b-01', codigo: ean, modo: 'LEITURA' });
+      expect(r.status).toBe(200);
+      expect(r.body).toMatchObject({ contadoMil: (i + 1) * 1000, leituras: i + 1, endereco: 'B-01', produto: { sku: 'CAD' } });
+    }
+    // GTIN-14 (zero à esquerda) também acha
+    expect((await agente.post(`/api/erp/estoque/inventarios/${invId}/contar`, { endereco: 'B-01', codigo: `0${ean}`, modo: 'LEITURA' })).body.contadoMil).toBe(3_000);
+    // QR da etiqueta do lote continua aceito
     const etq = `MCK1;${loteA.numero};F-1;-;MCK0001;Canetack`;
     for (let i = 0; i < 3; i++) {
       const r = await agente.post(`/api/erp/estoque/inventarios/${invId}/contar`, { endereco: 'a-01', codigo: etq, modo: 'QR' });
       expect(r.status).toBe(200);
       expect(r.body).toMatchObject({ contadoMil: (i + 1) * 1000, leituras: i + 1, lote: loteA.numero, endereco: 'A-01' });
     }
+    // código de barras de produto com 2 lotes no local: pede o lote; com o lote escolhido, a leitura soma nele
+    const amb2 = await agente.post(`/api/erp/estoque/inventarios/${invId}/contar`, { endereco: 'A-01', codigo: caneta.codigoBarras, modo: 'LEITURA' });
+    expect(amb2.status).toBe(400);
+    expect(amb2.body.details.escolherLote).toHaveLength(2);
     // digitado: substitui pela quantidade contada (8)
     expect((await agente.post(`/api/erp/estoque/inventarios/${invId}/contar`, { endereco: 'A-01', codigo: loteA.numero, qtdMil: 8_000, modo: 'MANUAL' })).body.contadoMil).toBe(8_000);
     // código do produto com 2 lotes no local: pede para escolher o lote
@@ -51,6 +66,7 @@ describe('ERP · inventário com relatório, aviso e senha do proprietário (v1.
     const det = (await owner.get(`/api/erp/estoque/inventarios/${invId}`)).body;
     const a = det.contagens.find((c: any) => c.loteId === loteA.id);
     expect(a).toMatchObject({ contadoMil: 8_000, modo: 'MANUAL', leituras: 3, contadoPor: 'Contador', lote: loteA.numero });
+    expect(det.contagens.find((c: any) => c.produto.sku === 'CAD')).toMatchObject({ contadoMil: 7_000, modo: 'MANUAL' });
     // contagem cega: quem conta não vê o sistema
     expect((await agente.get(`/api/erp/estoque/inventarios/${invId}`)).body.contagens[0].sistemaMil).toBeNull();
     expect((await agente.get(`/api/erp/estoque/inventarios/${invId}/relatorio`)).status).toBe(403);

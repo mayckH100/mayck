@@ -10,6 +10,9 @@ import { auditar } from '../shared/auditoria.js';
 import { entrada, saidaDoSaldo, transferir, mudarStatusLote } from './servico.js';
 import { disponivel } from './saldo.js';
 import { zpl, textoQr, type DadosEtiqueta } from './etiquetas.js';
+import { gs1Lote, etiquetasSugeridas } from './codigoLote.js';
+import { pdfEtiquetas } from './etiquetaPdf.js';
+import { resolverCodigo } from './leitura.js';
 import { configDa, custoTotal } from '../produtos/produtos.routes.js';
 import { buscarRastreio, rastrearLote, rastrearPedido, rastreioParaCsv, lotesDoProduto, saldoPorLote } from './rastreio.js';
 import { csvRastreio } from './rastreio-regras.js';
@@ -68,7 +71,9 @@ estoqueRouter.post('/entrada', ah(async (req, res) => {
   const b = z.object({ produtoId: z.string(), enderecoId: z.string(), qtdMil: qtd, custoUnitCents: z.number().int().min(0).max(2_000_000_000).optional(), lote: loteSchema, motivo: z.string().trim().max(200).optional(), inicial: z.boolean().default(false) }).parse(req.body);
   const r = await prisma.$transaction((tx) => entrada(tx, { orgId, ...b, tipo: b.inicial ? 'AJUSTE' : 'ENTRADA', docTipo: b.inicial ? 'inicial' : 'ajuste', motivo: b.motivo ?? (b.inicial ? 'Saldo inicial' : 'Entrada manual'), userId: req.auth?.userId }));
   await auditar(req, 'estoque.entrada', 'erp_saldo', r.saldo.id, null, { produtoId: b.produtoId, qtdMil: b.qtdMil, lote: r.lote.numero, loteFabricante: r.lote.loteFornecedor });
-  res.status(201).json(r);
+  // v1.33.0: sugestão de etiquetas para imprimir na hora (uma por embalagem/peça recebida; editável na tela).
+  const prod = await prisma.erpProduto.findUniqueOrThrow({ where: { id: b.produtoId }, select: { unidade: true, unidadeCompra: true, fatorCompraMil: true } });
+  res.status(201).json({ ...r, etiquetas: [{ loteId: r.lote.id, numero: r.lote.numero, qtdMil: b.qtdMil, sugeridas: etiquetasSugeridas(b.qtdMil, prod) }] });
 }));
 
 estoqueRouter.post('/ajuste', ah(async (req, res) => {
@@ -126,17 +131,25 @@ estoqueRouter.get('/etiqueta/:tipo/:id', ah(async (req, res) => {
 
 // ---- Etiquetas de produto (lote): ZPL para Zebra e dados para impressora comum ----
 const dataBR = (d: Date | null) => (d ? d.toISOString().slice(0, 10).split('-').reverse().join('/') : null);
+/** Nome que sai na etiqueta: nome fantasia do emitente (Fiscal) ou o nome da empresa. */
+async function nomeEmpresa(orgId: string) {
+  const [fiscal, org] = await Promise.all([prisma.erpConfigFiscal.findUnique({ where: { orgId }, select: { fantasia: true, razaoSocial: true } }), prisma.organization.findUnique({ where: { id: orgId }, select: { name: true } })]);
+  return fiscal?.fantasia || fiscal?.razaoSocial || org?.name || null;
+}
 async function dadosEtiquetas(orgId: string, loteIds: string[]) {
   const lotes = await prisma.erpLote.findMany({ where: { orgId, id: { in: loteIds } } });
-  const [prods, forns] = await Promise.all([
+  const [prods, forns, empresa] = await Promise.all([
     prisma.erpProduto.findMany({ where: { id: { in: lotes.map((l) => l.produtoId) } } }),
     prisma.erpParceiro.findMany({ where: { id: { in: lotes.map((l) => l.fornecedorId).filter(Boolean) as string[] } }, select: { id: true, nome: true, fantasia: true } }),
+    nomeEmpresa(orgId),
   ]);
   const P = new Map(prods.map((p) => [p.id, p])); const F = new Map(forns.map((f) => [f.id, f.fantasia || f.nome]));
   return loteIds.map((id) => lotes.find((l) => l.id === id)).filter(Boolean).map((l): DadosEtiqueta & { loteId: string } => {
     const p = P.get(l!.produtoId)!; const unico = l!.numero === 'UNICO';
     const lote = unico ? null : l!.numero; const validadeIso = l!.validade ? l!.validade.toISOString().slice(0, 10) : null;
-    return { loteId: l!.id, barras: lote ?? (p.codigoBarras || p.sku), qr: textoQr({ lote, loteFornecedor: l!.loteFornecedor, validadeIso, sku: p.sku, nome: p.nome }), sku: p.sku, nome: p.nome, unidade: p.unidade, lote: unico ? null : l!.numero, loteFornecedor: l!.loteFornecedor, validade: dataBR(l!.validade), fabricacao: dataBR(l!.fabricacao), fornecedor: l!.fornecedorId ? F.get(l!.fornecedorId) ?? null : null };
+    const fabricacaoIso = l!.fabricacao ? l!.fabricacao.toISOString().slice(0, 10) : null;
+    // v1.33.0: código de barras GS1-128 (produto + lote + datas) e QR com os mesmos dados + empresa.
+    return { loteId: l!.id, empresa, gs1: lote ? gs1Lote({ sku: p.sku, lote, fabricacaoIso, validadeIso }) : null, barras: lote ?? (p.codigoBarras || p.sku), qr: textoQr({ lote, loteFornecedor: l!.loteFornecedor, validadeIso, sku: p.sku, nome: p.nome, fabricacaoIso, empresa }), sku: p.sku, nome: p.nome, unidade: p.unidade, lote, loteFornecedor: l!.loteFornecedor, validade: dataBR(l!.validade), fabricacao: dataBR(l!.fabricacao), fornecedor: l!.fornecedorId ? F.get(l!.fornecedorId) ?? null : null };
   });
 }
 const etqSchema = z.object({ itens: z.array(z.object({ loteId: z.string(), copias: z.number().int().min(1).max(999).default(1) })).min(1).max(500) });
@@ -170,6 +183,44 @@ estoqueRouter.get('/lotes', ah(async (req, res) => {
   const prods = await prisma.erpProduto.findMany({ where: { id: { in: lotes.map((l) => l.produtoId) } }, select: { id: true, sku: true, nome: true, controlaValidade: true, unidade: true } });
   const P = new Map(prods.map((p) => [p.id, p]));
   res.json(lotes.map((l) => ({ ...l, produto: P.get(l.produtoId) })));
+}));
+
+/**
+ * PDF das etiquetas (v1.33.0): ?lotes=<loteId>:<cópias>,<loteId>:<cópias>&formato=rolo|a4. Abre direto no navegador
+ * (imprimir ou salvar). Rolo = uma etiqueta por página no tamanho configurado; A4 = várias por folha.
+ */
+estoqueRouter.get('/etiquetas/pdf', ah(async (req, res) => {
+  const orgId = orgOf(req);
+  const pares = String(req.query.lotes ?? '').split(',').map((x) => x.split(':')).filter((x) => x[0]).slice(0, 500).map(([id, c]) => ({ loteId: id, copias: Math.max(1, Math.min(999, Number(c) || 1)) }));
+  if (!pares.length) throw badRequest('Escolha ao menos um lote');
+  const formato = req.query.formato === 'a4' ? 'a4' : 'rolo';
+  const cfg = await configDa(orgId);
+  const dados = await dadosEtiquetas(orgId, pares.map((p) => p.loteId));
+  if (!dados.length) throw notFound('Lote');
+  const pdf = await pdfEtiquetas(dados.map((d) => ({ empresa: d.empresa ?? null, nome: d.nome, sku: d.sku, lote: d.lote, loteFornecedor: d.loteFornecedor, fabricacao: d.fabricacao, validade: d.validade, qr: d.qr, gs1: d.gs1 ?? null, barras: d.barras ?? d.sku, copias: pares.find((p) => p.loteId === d.loteId)?.copias ?? 1 })), { larguraMm: cfg.etiquetaLarguraMm, alturaMm: cfg.etiquetaAlturaMm, formato });
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', `inline; filename="etiquetas-${dados[0].lote ?? dados[0].sku}.pdf"`);
+  res.send(Buffer.from(pdf));
+}));
+
+/** Leitura (câmera, leitor ou digitado): devolve produto, lote (quando o código diz) e onde há saldo. */
+estoqueRouter.get('/ler', ah(async (req, res) => {
+  const orgId = orgOf(req);
+  const codigo = typeof req.query.codigo === 'string' ? req.query.codigo.slice(0, 200) : '';
+  if (!codigo.trim()) throw badRequest('Leia ou digite um código');
+  const r = await resolverCodigo(prisma, orgId, codigo);
+  if (!r) throw notFound('Código');
+  const saldos = await prisma.erpSaldo.findMany({ where: { orgId, produtoId: r.produto.id, ...(r.lote ? { loteId: r.lote.id } : {}), fisicoMil: { gt: 0 } } });
+  const [lotes, ends] = await Promise.all([
+    prisma.erpLote.findMany({ where: { id: { in: saldos.map((s) => s.loteId) } } }),
+    prisma.erpEnderecoEstoque.findMany({ where: { id: { in: saldos.map((s) => s.enderecoId) } }, include: { deposito: { select: { nome: true } } } }),
+  ]);
+  const L = new Map(lotes.map((l) => [l.id, l])); const E = new Map(ends.map((e) => [e.id, e]));
+  res.json({
+    tipo: r.tipo, produto: { id: r.produto.id, sku: r.produto.sku, nome: r.produto.nome, unidade: r.produto.unidade, controlaValidade: r.produto.controlaValidade, custoTotalCents: custoTotal(r.produto) },
+    lote: r.lote ? { id: r.lote.id, numero: r.lote.numero, loteFornecedor: r.lote.loteFornecedor, validade: r.lote.validade, fabricacao: r.lote.fabricacao } : null,
+    saldos: saldos.map((s) => ({ ...s, disponivelMil: disponivel(s), lote: L.get(s.loteId), endereco: { codigo: E.get(s.enderecoId)?.codigo, deposito: E.get(s.enderecoId)?.deposito.nome } })),
+  });
 }));
 
 // ---- Rastreabilidade de lote (v1.33.0) ----

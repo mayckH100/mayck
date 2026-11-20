@@ -11,6 +11,7 @@ import { HttpError } from '../../lib/http.js';
 import { planejarAlocacao, novoCustoMedio, type SaldoLinha } from './saldo.js';
 import { numeroLoteInterno, formatoLoteEfetivo } from './nfe-xml.js';
 import { qtdUn } from '../shared/unidade.js';
+import { variantesBarras } from './codigoLote.js';
 
 type Tx = Prisma.TransactionClient;
 export class EstoqueErro extends HttpError { constructor(msg: string) { super(400, msg); } }
@@ -198,9 +199,12 @@ export async function baixarReservas(tx: Tx, e: MovBase & { pedidoId: string }) 
  */
 export async function conferir(tx: Tx, orgId: string, pedidoId: string, codigo: string, qtdMil: number, userId?: string | null) {
   // QR da etiqueta (MCK1;lote;...) vira o lote interno (ou o SKU, sem lote); código simples segue igual.
+  // v1.33.0: também o código de barras GS1-128 da etiqueta do lote (produto + lote + datas).
   const lido = lerCodigoEtiqueta(codigo);
+  const lotesLidos = [lido.lote, ...lido.candidatos.map((c) => c.lote)].filter(Boolean).map((x) => x!.toUpperCase());
   codigo = lido.lote ?? lido.sku ?? lido.bruto;
   const cod = codigo.trim().toUpperCase();
+  const barras = variantesBarras(codigo);
   if (qtdMil <= 0) throw new EstoqueErro('Quantidade deve ser maior que zero');
   const itens = await tx.erpPedidoItem.findMany({ where: { pedidoId } });
   const produtos = await tx.erpProduto.findMany({ where: { id: { in: itens.map((i) => i.produtoId) } } });
@@ -210,7 +214,7 @@ export async function conferir(tx: Tx, orgId: string, pedidoId: string, codigo: 
   const prodDe = new Map(produtos.map((p) => [p.id, p]));
   const casa = reservas.filter((r) => {
     const l = loteDe.get(r.loteId)!; const p = prodDe.get(r.produtoId)!;
-    return l.numero === cod || ((l.numero === LOTE_UNICO || !p.controlaLote) && (p.sku.toUpperCase() === cod || p.codigoBarras === codigo.trim()));
+    return l.numero === cod || lotesLidos.includes(l.numero) || ((l.numero === LOTE_UNICO || !p.controlaLote) && (p.sku.toUpperCase() === cod || (!!p.codigoBarras && barras.includes(p.codigoBarras))));
   });
   if (!casa.length) {
     const lotesEsperados = reservas.filter((r) => r.separadoMil < r.qtdMil && prodDe.get(r.produtoId)?.controlaLote).map((r) => loteDe.get(r.loteId)!.numero).filter((n) => n !== LOTE_UNICO);
