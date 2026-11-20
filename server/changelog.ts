@@ -21,6 +21,22 @@ export type EntradaChangelog = {
 
 export const CHANGELOG: EntradaChangelog[] = [
   {
+    versao: '1.31.0',
+    data: '20/11/2026',
+    titulo: 'Alerta do ERP mais fácil de entender, lote e código do produto automáticos',
+    itens: [
+      'O alerta diário do WhatsApp ficou mais claro: cada produto com estoque baixo mostra, uma informação por linha, quanto tem hoje, o estoque mínimo, quanto comprar, o preço por unidade, o total da compra e o fornecedor.',
+      'A quantidade sugerida vem com o motivo em palavras simples, por exemplo "para voltar ao estoque mínimo" ou "para ficar com estoque para 30 dias de vendas".',
+      'As quantidades aparecem com a unidade por extenso (ex.: 15 unidades, 3 caixas) e os valores em negrito. Os números não ficam mais sublinhados no WhatsApp como se fossem telefone.',
+      'Produtos parados agora mostram o "dinheiro parado no estoque", pelo preço de custo. Contas, validade, caixa, alterações e a conversa de aprovação de compra também ficaram com rótulos mais claros.',
+      'Lote interno automático: toda entrada de estoque (manual, nota fiscal de entrada ou produção) ganha um número de lote do sistema, por exemplo L2611-0001, sem repetir. O lote do fabricante pode ser digitado ou vem da nota e aparece junto no estoque, nas etiquetas e no alerta de validade.',
+      'Código do produto automático: produto novo sem código recebe o próximo da sequência da sua empresa (ex.: MCK0002), também no cadastro pela nota e na planilha. Os códigos que você já tem não mudam.',
+      'Unidade de medida escolhida numa lista (Unidade, Caixa, Quilo, Litro...). Número sozinho não é mais aceito como unidade.',
+      'Na lista de produtos, cada produto tem os botões Editar e Excluir. Produto que já teve estoque, venda, compra, lote ou nota não é apagado: ele é arquivado, para não perder o histórico. Só o proprietário ou um administrador pode excluir.',
+      'Produto perecível (que controla validade) pede a data de validade na entrada de estoque e mostra a validade dos lotes no cadastro. Produto sem esse controle não mostra o campo.',
+    ],
+  },
+  {
     versao: '1.30.0',
     data: '19/11/2026',
     titulo: 'Alerta diário do ERP no WhatsApp mais completo, com compra aprovada por resposta',
