@@ -6,7 +6,7 @@
 import type { Role } from './auth';
 import { ERP_ITENS } from './erp/ErpNav';
 
-export type NavItem = { to: string; label: string; icon?: string; roles?: Role[]; superAdmin?: boolean; module?: string; sub?: string; href?: string; end?: boolean };
+export type NavItem = { to: string; label: string; icon?: string; roles?: Role[]; superAdmin?: boolean; module?: string; sub?: string; href?: string; end?: boolean; /** v1.35.0: subitem (aparece recuado abaixo do item pai). */ pai?: string };
 export type ModuloId = 'erp' | 'bot' | 'msg' | 'master';
 export interface Modulo { id: ModuloId; label: string; icon: string; home: string; href?: string; items: NavItem[] }
 export interface Grupo { id: string; label: string; icon: string; items: NavItem[] }

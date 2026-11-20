@@ -5,7 +5,7 @@ import { getIntelConfig, questionsFor, type IntelConfig } from './intelConfig.js
 import { leadEmpresa } from './cnpj.js';
 import { STAGE_LABEL, type Answers, type Stage } from './core.js';
 import type { Metodo } from './intel.js';
-import { contextoLines, empresaUsaEmoji, estiloLines, polirResposta, objetivoSugerido, planejamentoLines, guardrailLines, verificarResposta, criticaPara, ajusteMecanico, extrairPlano, GRAVES, TEXTO_ESPECIALISTA, MCK_IA_INDISPONIVEL, motivoHandoff, resumoHandoff, comPassagem, type MotivoHandoff, type LeadContexto, type Plano, type Problema } from './conversa.js';
+import { contextoLines, empresaUsaEmoji, estiloLines, polirResposta, objetivoSugerido, planejamentoLines, guardrailLines, verificarResposta, criticaPara, ajusteMecanico, extrairPlano, GRAVES, TEXTO_ESPECIALISTA, MCK_IA_INDISPONIVEL, motivoHandoff, resumoHandoff, type MotivoHandoff, type LeadContexto, type Plano, type Problema } from './conversa.js';
 import { mckQuotaStatus } from '../ai/mckQuota.js';
 import { logEvent } from './service.js';
 import { detectIntent } from './intel.js';
@@ -152,17 +152,52 @@ export async function registrarTarefaEspecialista(c: ConversaCtx, textoLead: str
 export const erroAutoverificacao = (provider: string, e: unknown) => (provider === 'mck' ? MCK_IA_INDISPONIVEL : `Autoverificação: ${(e as Error)?.message ?? 'falha'}`.slice(0, 300));
 
 /**
- * Parte 5: decide se a IA para e passa ao vendedor (lead quente, irritado, pedido de pessoa, dúvida fora do escopo).
- * Devolve o texto final (com a frase de passagem) e o motivo com o resumo, ou null para seguir com a IA.
+ * Parte 5 (v1.35.0, regra do dono): a IA NUNCA transfere sozinha. Lead quente, irritado ou dúvida fora das Instruções
+ * viram "Avisar a equipe": nota no Inbox, evento ATENCAO no lead e aviso nos Números de aviso com o resumo — a IA
+ * continua respondendo. Só o pedido explícito do cliente (atendente/humano/pessoa) transfere (service.ts).
+ * Devolve o motivo avisado (ou null). Nunca lança.
  */
-export async function decidirHandoff(c: ConversaCtx, a: { texto: string; textoLead: string; plano: Plano | null; especialista: boolean; agendou: boolean }): Promise<{ texto: string; reason: string; motivo: MotivoHandoff } | null> {
-  if (!c.cfg.handoff || !c.conversationId) return null;
-  const d = detectIntent(a.textoLead);
-  const motivo = motivoHandoff({ textoLead: a.textoLead, sentimento: d.sentimento, intencao: d.intencao, plano: a.plano, temperatura: c.contexto?.temperatura, especialista: a.especialista, agendou: a.agendou });
-  if (!motivo) return null;
-  if (c.sdrLeadId) await logEvent(c.orgId, c.sdrLeadId, 'HANDOFF', 'WHATSAPP', `Passado ao vendedor: ${motivo}`);
-  console.info('[ia-conversa] passado ao vendedor', { orgId: c.orgId, conversationId: c.conversationId, motivo });
-  return { texto: comPassagem(a.texto), reason: resumoHandoff(c.contexto, motivo, a.textoLead), motivo };
+export async function avisarEquipeSePreciso(c: ConversaCtx, a: { textoLead: string; plano: Plano | null; especialista: boolean; agendou: boolean }): Promise<MotivoHandoff | null> {
+  try {
+    if (!c.cfg.handoff || !c.conversationId) return null;
+    const d = detectIntent(a.textoLead);
+    const motivo = motivoHandoff({ textoLead: a.textoLead, sentimento: d.sentimento, intencao: d.intencao, plano: a.plano, temperatura: c.contexto?.temperatura, especialista: a.especialista, agendou: a.agendou });
+    if (!motivo || motivo === 'pedido de atendente') return null;
+    await avisarEquipe(c.orgId, c.conversationId, c.sdrLeadId, motivo, resumoHandoff(c.contexto, motivo, a.textoLead));
+    return motivo;
+  } catch {
+    return null;
+  }
+}
+
+// Um aviso por conversa e motivo a cada 30 min (o lead pode mandar várias mensagens seguidas).
+const avisados = new Map<string, number>();
+/** Nota no Inbox + evento no lead + aviso aos Números de aviso. A conversa continua com a IA. Nunca lança. */
+export async function avisarEquipe(orgId: string, conversationId: string, sdrLeadId: string | null, motivo: string, resumo: string): Promise<void> {
+  try {
+    const k = `${conversationId}:${motivo}`;
+    const last = avisados.get(k);
+    if (last && Date.now() - last < 30 * 60_000) return;
+    if (avisados.size > 5000) avisados.clear();
+    avisados.set(k, Date.now());
+    await prisma.message.create({ data: { orgId, conversationId, direction: 'INTERNAL', sender: 'system', type: 'note', body: `Atenção da equipe (a IA continua respondendo): ${resumo}`, status: 'NOTE' } }).catch(() => undefined);
+    if (sdrLeadId) await logEvent(orgId, sdrLeadId, 'ATENCAO', 'WHATSAPP', `Equipe avisada: ${motivo}`).catch(() => undefined);
+    console.info('[ia-conversa] equipe avisada (sem transferir)', { orgId, conversationId, motivo });
+    const { notifyStaffEventInBackground, contactLabel, linkFor } = await import('../whatsapp/staffAlerts.js');
+    const conv = await prisma.conversation.findFirst({ where: { id: conversationId, orgId }, select: { contactId: true, channelId: true } });
+    notifyStaffEventInBackground({
+      orgId, event: 'handoff', key: `atencao:${k}:${Math.floor(Date.now() / (30 * 60_000))}`, channelId: conv?.channelId ?? null, manual: false,
+      text: async () => [
+        '⚠️ Lead pede atenção (a IA continua respondendo)',
+        `Contato: ${(await contactLabel(orgId, conv?.contactId).catch(() => null)) ?? 'sem nome'}`,
+        `Motivo: ${motivo}`,
+        resumo.slice(0, 600),
+        `Abrir: ${linkFor(conversationId, '/inbox')}`,
+      ].join('\n'),
+    });
+  } catch (e) {
+    console.error('[ia-conversa] falha ao avisar a equipe', (e as Error).message);
+  }
 }
 
 /** Campanhas (MCK Mensagens): contexto + estilo + segurança; a resposta sai no JSON da qualificação (sem plano). */

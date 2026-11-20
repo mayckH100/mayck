@@ -10,6 +10,8 @@ import { parseJson } from '../lib/json.js';
 import { generateAiReply, reindexDoc, retrieve } from '../ai/service.js';
 import { productsRouter } from './products.js';
 import { mckIaReady } from '../ai/mckIa.js';
+import { CORRECTION_PREFIX } from '../ai/rag.js';
+import { PURPOSE_LABEL } from '../ai/prompts.js';
 import { mckQuotaStatus, clientUsageRow } from '../ai/mckQuota.js';
 import { synthesizeReply } from '../ai/voice/service.js';
 import { ElevenLabsVoice, mckVoiceReady, VOICE_ENGINES, TRANSCRIBE_ENGINES, ELEVEN_MODELS, type VoiceOption } from '../ai/voice/providers.js';
@@ -53,6 +55,8 @@ aiRouter.put('/settings', admins, ah(async (req, res) => {
     useMckSite: z.boolean().optional(),
     webSearch: z.boolean().optional(),
     kanbanAuto: z.boolean().optional(),
+    // v1.35.0: bloquear valores fora da base (padrão desligado).
+    guardValues: z.boolean().optional(),
     // v1.23.0 Voz
     voiceEnabled: z.boolean().optional(),
     voiceReplyMode: z.enum(REPLY_MODES as unknown as [string, ...string[]]).optional(),
@@ -206,4 +210,71 @@ aiRouter.delete('/knowledge/:id', admins, ah(async (req, res) => {
   await prisma.knowledgeDoc.delete({ where: { id: doc.id } });
   await audit(req, 'ai.knowledge_delete', { entity: 'knowledge_doc', entityId: doc.id });
   res.json({ ok: true });
+}));
+
+// ---- v1.35.0: "IA respondeu mal" (correção vira item da base) e Qualidade ----
+const clipTxt = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
+
+/** Monta o documento da base criado a partir de uma correção. Puro. */
+export function correctionDoc(question: string, correction: string): { title: string; content: string } {
+  const q = question.replace(/\s+/g, ' ').trim();
+  return {
+    title: `${CORRECTION_PREFIX} ${clipTxt(q || 'resposta da IA', 80)}`,
+    content: `Pergunta do cliente: ${q || '(não informada)'}\n\nResposta certa (escrita pela equipe): ${correction.trim()}`,
+  };
+}
+
+aiRouter.post('/feedback', admins, ah(async (req, res) => {
+  const body = z.object({ messageId: z.string().min(1).max(100), correction: z.string().trim().min(3).max(2000), question: z.string().trim().max(500).optional() }).parse(req.body);
+  const orgId = orgOf(req);
+  const msg = await prisma.message.findFirst({ where: { id: body.messageId, orgId, direction: 'OUT', sender: 'ai' } });
+  if (!msg) throw notFound('Resposta da IA');
+  // Pergunta = última mensagem do cliente antes da resposta (texto ou transcrição do áudio).
+  const prev = await prisma.message.findFirst({ where: { orgId, conversationId: msg.conversationId, direction: 'IN', createdAt: { lte: msg.createdAt } }, orderBy: { createdAt: 'desc' } });
+  const question = body.question || (prev ? (prev.transcript || prev.body || '') : '');
+  const d = correctionDoc(question, body.correction);
+  const doc = await prisma.knowledgeDoc.create({ data: { orgId, ...d } });
+  await reindexDoc(orgId, doc.id, doc.content);
+  const fb = await prisma.aiFeedback.create({ data: { orgId, conversationId: msg.conversationId, messageId: msg.id, question: clipTxt(question, 500), badAnswer: clipTxt(msg.transcript || msg.body || '', 2000), correction: body.correction, knowledgeDocId: doc.id, createdById: req.auth?.userId ?? null } });
+  await prisma.message.create({ data: { orgId, conversationId: msg.conversationId, direction: 'INTERNAL', sender: 'system', type: 'note', status: 'NOTE', body: `Correção da IA salva na base de conhecimento ("${d.title}"). A IA passa a usar essa resposta.` } }).catch(() => undefined);
+  await audit(req, 'ai.feedback_create', { entity: 'ai_feedback', entityId: fb.id });
+  res.status(201).json({ ...fb, knowledgeTitle: d.title });
+}));
+
+aiRouter.get('/feedback', ah(async (req, res) => {
+  const orgId = orgOf(req);
+  res.json(await prisma.aiFeedback.findMany({ where: { orgId }, orderBy: { createdAt: 'desc' }, take: 100 }));
+}));
+
+aiRouter.delete('/feedback/:id', admins, ah(async (req, res) => {
+  const orgId = orgOf(req);
+  const fb = await prisma.aiFeedback.findFirst({ where: { id: req.params.id, orgId } });
+  if (!fb) throw notFound('Correção');
+  if (fb.knowledgeDocId) {
+    await prisma.knowledgeChunk.deleteMany({ where: { orgId, docId: fb.knowledgeDocId } });
+    await prisma.knowledgeDoc.deleteMany({ where: { id: fb.knowledgeDocId, orgId } });
+  }
+  await prisma.aiFeedback.delete({ where: { id: fb.id } });
+  await audit(req, 'ai.feedback_delete', { entity: 'ai_feedback', entityId: fb.id });
+  res.json({ ok: true });
+}));
+
+/** Qualidade e consumo dos últimos 30 dias, por finalidade (o cliente nunca vê o provedor da MCK IA). */
+aiRouter.get('/quality', ah(async (req, res) => {
+  const orgId = orgOf(req);
+  const since = new Date(Date.now() - 30 * 24 * 3600e3);
+  const [groups, fails, valores, bloqueados, correcoes] = await Promise.all([
+    prisma.aiUsage.groupBy({ by: ['purpose'], where: { orgId, createdAt: { gte: since } }, _count: { _all: true }, _sum: { promptTokens: true, completionTokens: true }, _avg: { latencyMs: true } }),
+    prisma.aiUsage.groupBy({ by: ['purpose'], where: { orgId, createdAt: { gte: since }, success: false }, _count: { _all: true } }),
+    prisma.aiUsage.count({ where: { orgId, createdAt: { gte: since }, quality: { startsWith: 'valor_fora_base' } } }),
+    prisma.aiUsage.count({ where: { orgId, createdAt: { gte: since }, quality: 'valor_fora_base_bloqueado' } }),
+    prisma.aiFeedback.count({ where: { orgId, createdAt: { gte: since } } }),
+  ]);
+  const porFinalidade = groups.map((g) => {
+    const key = g.purpose ?? 'outros';
+    const falhas = fails.find((f) => f.purpose === g.purpose)?._count._all ?? 0;
+    return { finalidade: key, nome: PURPOSE_LABEL[key] ?? key, chamadas: g._count._all, falhas, taxaFalha: g._count._all ? Math.round((falhas / g._count._all) * 100) : 0, tokens: (g._sum.promptTokens ?? 0) + (g._sum.completionTokens ?? 0), latenciaMedia: Math.round(g._avg.latencyMs ?? 0) };
+  }).sort((a, b) => b.chamadas - a.chamadas);
+  const s = await prisma.aiSettings.findUnique({ where: { orgId }, select: { guardValues: true } });
+  res.json({ porFinalidade, valoresForaDaBase: valores, valoresBloqueados: bloqueados, correcoes30d: correcoes, guardValues: !!s?.guardValues });
 }));

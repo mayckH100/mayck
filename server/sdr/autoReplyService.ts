@@ -65,18 +65,16 @@ async function isRepeated(orgId: string, contactId: string, text: string): Promi
 async function askMckIa(orgId: string, conversationId: string, text: string): Promise<boolean | null> {
   const { mckQuotaStatus } = await import('../ai/mckQuota.js');
   if ((await mckQuotaStatus(orgId)).reached) return null;
-  const { createProvider } = await import('../ai/providers.js');
-  const started = Date.now();
+  const { aiChat } = await import('../ai/core.js');
   try {
-    const r = await createProvider('mck', null).chat([
+    // v1.35.0: camada única (registro com finalidade); sem nova tentativa (é só uma dúvida, o detector local decide).
+    const r = await aiChat({ orgId, conversationId, purpose: 'autoresposta', settings: { provider: 'mck', model: 'mck' }, usageModel: 'mck-autoresposta', temperature: 0, maxTokens: 5, timeoutMs: 8000, retries: 0, errorPrefix: 'Resposta automática', messages: [
       { role: 'system', content: 'Você classifica UMA mensagem recebida no WhatsApp logo depois que a empresa enviou uma mensagem. Responda só AUTO se for resposta automática (saudação/ausência de empresa, menu, horário de atendimento, "estou dirigindo", férias, não perturbe) ou HUMANO se for uma pessoa respondendo de verdade.' },
       { role: 'user', content: text.slice(0, 800) },
-    ], { model: 'mck', temperature: 0, maxTokens: 5, timeoutMs: 8000 });
-    await prisma.aiUsage.create({ data: { orgId, conversationId, provider: 'mck', model: 'mck-autoresposta', promptTokens: r.promptTokens, completionTokens: r.completionTokens, latencyMs: Date.now() - started, success: true } }).catch(() => undefined);
+    ] });
     const out = r.text.trim().toUpperCase();
     return out.startsWith('AUTO') ? true : out.startsWith('HUMANO') ? false : null;
-  } catch (e) {
-    await prisma.aiUsage.create({ data: { orgId, conversationId, provider: 'mck', model: 'mck-autoresposta', success: false, error: `Resposta automática: ${(e as Error).message}`.slice(0, 500), latencyMs: Date.now() - started } }).catch(() => undefined);
+  } catch {
     return null;
   }
 }

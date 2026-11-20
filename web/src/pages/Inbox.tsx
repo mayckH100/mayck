@@ -84,6 +84,10 @@ function Chat({ id, onChange }: { id: string; onChange: () => void }) {
   const [showFlow, setShowFlow] = useState(false);
   const [showTpl, setShowTpl] = useState(false);
   const [tpl, setTpl] = useState({ name: '', language: 'pt_BR' });
+  // v1.35.0: "IA respondeu mal" — a resposta certa vira item da base de conhecimento.
+  const { can } = useAuth();
+  const [fix, setFix] = useState<{ id: string; body: string } | null>(null);
+  const [fixText, setFixText] = useState('');
   const { busy, run } = useAction();
   const end = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -156,7 +160,8 @@ function Chat({ id, onChange }: { id: string; onChange: () => void }) {
                 ) : m.body}
                 {m.status === 'FAILED' && <div className="small" style={{ color: 'var(--danger)' }}>Não enviada: {m.error}</div>}
                 {m.direction === 'IN' && typeof m.error === 'string' && m.error.startsWith('AUTORESPOSTA') && <div className="small" title={m.error.replace(/^AUTORESPOSTA:\s*/, '')}><span className="badge">🤖 Resposta automática</span> <span className="muted">não conta como resposta</span></div>}
-                <div className="meta"><span>{fmtDate(m.createdAt)}</span>{m.direction === 'OUT' && <StatusBadge status={m.status} />}</div>
+                <div className="meta"><span>{fmtDate(m.createdAt)}</span>{m.direction === 'OUT' && <StatusBadge status={m.status} />}
+                  {m.direction === 'OUT' && m.sender === 'ai' && can('OWNER', 'ADMIN') && <button type="button" className="linklike small" title="Escreva a resposta certa: ela entra na base de conhecimento e a IA passa a usar" onClick={() => { setFix({ id: m.id, body: m.transcript || m.body || '' }); setFixText(''); }}>👎 IA respondeu mal</button>}</div>
               </div>
             ))}
             <div ref={end} />
@@ -176,6 +181,18 @@ function Chat({ id, onChange }: { id: string; onChange: () => void }) {
                 <button className="btn primary" disabled={!text.trim() || busy} onClick={send}>{aiNote ? 'Salvar nota para a IA' : note ? 'Salvar nota' : 'Enviar'}</button>
               </div>
             </div>
+          )}
+          {fix && (
+            <Modal title="IA respondeu mal" onClose={() => setFix(null)}>
+              <p className="small muted" style={{ marginTop: 0 }}>Resposta da IA: “{fix.body.slice(0, 300)}”</p>
+              <Field label="Qual seria a resposta certa?" hint="Vira um item da base de conhecimento (IA › Base de conhecimento) e passa na frente de trechos parecidos. Você pode desfazer em IA › Qualidade.">
+                <textarea rows={4} value={fixText} onChange={(e) => setFixText(e.target.value)} placeholder="Ex.: O financiamento é feito pelo banco parceiro, em até 60 vezes, sujeito a análise de crédito." />
+              </Field>
+              <div className="row" style={{ justifyContent: 'flex-end', gap: 6 }}>
+                <button className="btn" onClick={() => setFix(null)}>Cancelar</button>
+                <button className="btn primary" disabled={busy || fixText.trim().length < 3} onClick={async () => { const r = await run(() => post('/ai/feedback', { messageId: fix.id, correction: fixText.trim() }), 'Correção salva: a IA passa a usar essa resposta'); if (r) { setFix(null); refresh(); } }}>Salvar correção</button>
+              </div>
+            </Modal>
           )}
           {showFlow && (
             <Modal title="Enviar fluxo para este contato" onClose={() => setShowFlow(false)}>

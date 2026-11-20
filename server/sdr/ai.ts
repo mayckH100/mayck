@@ -1,8 +1,8 @@
 import type { Contact, Conversation, SdrLead, SdrSettings } from '@prisma/client';
 import { prisma } from '../db.js';
 import { parseJson } from '../lib/json.js';
-import { decryptOrNull } from '../lib/crypto.js';
-import { createProvider, type ChatMessage } from '../ai/providers.js';
+import { aiChat } from '../ai/core.js';
+import { type ChatMessage } from '../ai/providers.js';
 import { mckQuotaStatus } from '../ai/mckQuota.js';
 import { leadPhoneOfWaId } from '../mckmensagem/contactSync.js';
 import { answeredCount, computeScore, mergeAnswers, parseExtraction, temperatureOf, OPT_OUT_WORDS, type Answers, type Question } from './core.js';
@@ -109,14 +109,11 @@ export async function extractAnswers(orgId: string, conversationId: string, ques
   const transcript = history.reverse().map((m) => `${m.direction === 'IN' ? 'LEAD' : 'EMPRESA'}: ${(m.body ?? '').slice(0, 500)}`).join('\n');
   if (!transcript) return null;
   const msgs: ChatMessage[] = [{ role: 'system', content: extractionPrompt(questions, answers) }, { role: 'user', content: `CONVERSA:\n${transcript}` }];
-  const started = Date.now();
   try {
-    const provider = createProvider(ai.provider, decryptOrNull(ai.apiKeyEnc), ai.baseUrl);
-    const r = await provider.chat(msgs, { model: ai.model, temperature: 0.1, maxTokens: 400, timeoutMs: 20000 });
-    await prisma.aiUsage.create({ data: { orgId, conversationId, provider: ai.provider, model: ai.model, promptTokens: r.promptTokens, completionTokens: r.completionTokens, latencyMs: Date.now() - started, success: true } }).catch(() => undefined);
+    // v1.35.0: camada única (modelo reserva, timeout, registro com finalidade) + cache curto da mesma conversa.
+    const r = await aiChat({ orgId, conversationId, purpose: 'sdr-extracao', settings: ai, messages: msgs, temperature: 0.1, maxTokens: 400, timeoutMs: 20000, cacheTtlMs: 10 * 60_000, errorPrefix: 'SDR' });
     return parseExtraction(r.text);
-  } catch (e) {
-    await prisma.aiUsage.create({ data: { orgId, conversationId, provider: ai.provider, model: ai.model, success: false, error: `SDR: ${(e as Error).message}`.slice(0, 500), latencyMs: Date.now() - started } }).catch(() => undefined);
+  } catch {
     return null;
   }
 }

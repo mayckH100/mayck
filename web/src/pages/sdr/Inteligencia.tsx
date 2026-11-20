@@ -88,7 +88,7 @@ function Conversa({ f, setF }: { f: any; setF: (x: any) => void }) {
       <Toggle checked={!!c.enabled} onChange={(x) => set({ enabled: x })} label="Ligar a IA conversacional avançada" hint="A IA lê os dados do lead (empresa, CNPJ, respostas já dadas, objeções, campanha) e a conversa inteira, nunca pergunta de novo o que ele já respondeu, escreve como no WhatsApp (curto, uma pergunta por vez, no tom do lead) e decide o próximo passo pelo método escolhido." />
       {c.enabled && <>
         <Toggle checked={c.autoverificacao !== false} onChange={(x) => set({ autoverificacao: x })} label="Conferir cada resposta antes de enviar" hint="Tamanho, uma pergunta só, nada de preço, cobertura ou prazo fora das suas Instruções e nenhum dado sensível. Se algo estiver errado, a IA reescreve uma vez (conta no limite de uso e é pulada quando o limite está no fim). Sem a informação, ela diz que confirma com o especialista." />
-        <Toggle checked={c.handoff !== false} onChange={(x) => set({ handoff: x })} label="Passar ao vendedor na hora certa" hint="Lead quente, pedido para falar com uma pessoa, lead irritado ou dúvida que as Instruções não cobrem: a IA para de responder e a equipe recebe o aviso com o resumo do lead." />
+        <Toggle checked={c.handoff !== false} onChange={(x) => set({ handoff: x })} label="Avisar a equipe na hora certa" hint="Lead quente, lead irritado ou dúvida que as Instruções não cobrem: a equipe recebe o aviso com o resumo do lead e a IA continua respondendo. A IA só passa a conversa para uma pessoa quando o cliente pede explicitamente um atendente." />
       </>}
     </div>
   );

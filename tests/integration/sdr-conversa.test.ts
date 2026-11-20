@@ -111,7 +111,11 @@ describe('IA conversacional avançada', () => {
     expect(r2.text).toMatch(/confirmar com o especialista/);
     expect(r2.text).not.toContain('R$ 15');
     expect(fakeAi.calls).toHaveLength(2);
-    expect((await prisma.message.findFirstOrThrow({ where: { conversationId: conv.id, direction: 'INTERNAL' }, orderBy: { createdAt: 'desc' } })).body).toContain('Tarefa para a equipe');
+    const notas = (await prisma.message.findMany({ where: { conversationId: conv.id, direction: 'INTERNAL' } })).map((m) => m.body ?? '');
+    expect(notas.some((b) => b.includes('Tarefa para a equipe'))).toBe(true);
+    // v1.35.0: dúvida fora das Instruções avisa a equipe, sem transferir.
+    expect(notas.some((b) => b.startsWith('Atenção da equipe (a IA continua respondendo)'))).toBe(true);
+    expect(r2.handoff).toBe(false);
     expect(await prisma.sdrEvent.findFirst({ where: { leadId: lead.id, type: 'TAREFA' } })).toBeTruthy();
     // Cota no fim: sem chamada extra (só a checagem local).
     await a.put('/api/ai/settings', { dailyLimit: (await prisma.aiUsage.count({ where: { orgId: orgA() } })) + 1 });
@@ -123,27 +127,31 @@ describe('IA conversacional avançada', () => {
     await a.put('/api/ai/settings', { dailyLimit: 1000 });
   });
 
-  it('5) handoff inteligente: irritação, lead quente, plano PASSAR_VENDEDOR e pedido de pessoa levam o resumo; desligado não transfere', async () => {
+  it('5) v1.35.0 regra do dono: irritação, lead quente e plano PASSAR_VENDEDOR NÃO transferem (a equipe é avisada); só o pedido de pessoa transfere', async () => {
     const { conv } = await leadComConversa({ answers: { necessidade: { resposta: 'seguro para a clínica', nota: 90 } } });
     fakeAi.script = ['Desculpe a demora, já te explico.'];
     const r1 = await generateAiReply({ orgId: orgA(), conversationId: conv.id, text: 'já falei isso duas vezes, que saco' });
-    expect(r1.handoff).toBe(true);
-    expect(r1.text).toBe('Desculpe a demora, já te explico. Vou chamar um especialista da equipe para continuar com você por aqui.');
-    expect(r1.reason).toMatch(/^IA conversacional: lead irritado · Lead: Paula Teste \(Clínica Fictícia\)[\s\S]*Já disse: seguro para a clínica/);
-    fakeAi.script = ['[PLANO: intencao=cobertura; objetivo=PASSAR_VENDEDOR]\nIsso o especialista da equipe te explica melhor, ele já te chama.'];
+    expect(r1.handoff).toBe(false);
+    expect(r1.text).toBe('Desculpe a demora, já te explico.');
+    const nota = await prisma.message.findFirstOrThrow({ where: { conversationId: conv.id, direction: 'INTERNAL' }, orderBy: { createdAt: 'desc' } });
+    expect(nota.body).toMatch(/^Atenção da equipe \(a IA continua respondendo\): IA conversacional: lead irritado · Lead: Paula Teste \(Clínica Fictícia\)[\s\S]*Já disse: seguro para a clínica/);
+    expect((await prisma.conversation.findUniqueOrThrow({ where: { id: conv.id } })).mode).toBe('BOT');
+    fakeAi.script = ['[PLANO: intencao=cobertura; objetivo=PASSAR_VENDEDOR]\nBoa pergunta de cobertura; me conta quantos veículos são?'];
     const r2 = await generateAiReply({ orgId: orgA(), conversationId: conv.id, text: 'vocês fazem seguro de frota internacional?' });
-    expect(r2).toMatchObject({ handoff: true, text: 'Isso o especialista da equipe te explica melhor, ele já te chama.' });
-    expect(r2.reason).toContain('hora do vendedor');
+    expect(r2.handoff).toBe(false);
+    expect(r2.text).not.toMatch(/\[PLANO/);
     const quente = await leadComConversa();
     await prisma.sdrLead.update({ where: { id: quente.lead.id }, data: { temperature: 'QUENTE', score: 85 } });
     fakeAi.script = ['Perfeito, dá para começar ainda este mês.'];
     const r3 = await generateAiReply({ orgId: orgA(), conversationId: quente.conv.id, text: 'e quando começa?' });
-    expect(r3.handoff).toBe(true);
-    expect(r3.reason).toMatch(/lead quente[\s\S]*Pontuação 85\/100 \(quente\)/);
+    expect(r3.handoff).toBe(false);
+    expect(await prisma.sdrEvent.findFirst({ where: { leadId: quente.lead.id, type: 'ATENCAO' } })).toBeTruthy();
+    expect((await prisma.message.findFirstOrThrow({ where: { conversationId: quente.conv.id, direction: 'INTERNAL' }, orderBy: { createdAt: 'desc' } })).body).toMatch(/lead quente[\s\S]*Pontuação 85\/100 \(quente\)/);
+    // Pedido explícito de pessoa: a única transferência da IA.
     const r4 = await generateAiReply({ orgId: orgA(), conversationId: conv.id, text: 'quero falar com um atendente' });
     expect(r4.handoff).toBe(true);
     expect(r4.reason).toMatch(/^IA conversacional: pedido de atendente/);
-    // Handoff desligado: segue com a IA.
+    // Aviso desligado: o prompt manda não usar PASSAR_VENDEDOR.
     await a.put('/api/sdr/inteligencia', { conversa: { handoff: false } });
     fakeAi.script = ['Entendo. Me conta o que aconteceu?'];
     const r5 = await generateAiReply({ orgId: orgA(), conversationId: conv.id, text: 'que saco' });

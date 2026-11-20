@@ -1,8 +1,12 @@
 import { prisma } from '../db.js';
+import type { AiSettings } from '@prisma/client';
+import { promptVersion } from './prompts.js';
+import { contactProfileSection } from './contactProfile.js';
+import { valoresForaDaBase, TEXTO_CONFIRMAR_VALOR, criticaValores } from './valueGuard.js';
 import { decryptOrNull } from '../lib/crypto.js';
 import { parseJson } from '../lib/json.js';
 import { createProvider, aiTimeoutMs, fallbackModelFor, AiProviderError, type ChatMessage, type ChatResult } from './providers.js';
-import { rank, chunkText } from './rag.js';
+import { rank, chunkText, tokenize, boostCorrections } from './rag.js';
 import { HANDOFF_TOKEN } from './guard.js';
 import { failureText, isExplicitHumanRequest, DEFAULT_FAILURE_TEXT } from './humanRequest.js';
 import { failureTextFor } from './failurePolicy.js';
@@ -17,7 +21,7 @@ import { agendaPromptSection, applyAgendaTag, cleanAiText, stripJsonMarkers, str
 import { productsPromptSection } from './products.js';
 import { productContextFor } from './productSource.js';
 import { sdrPromptSection, sdrForcesBooking } from '../sdr/ai.js';
-import { conversaAvancadaFor, conversaPromptSection, estiloFinal, revisarResposta, cotaPermiteExtra, registrarTarefaEspecialista, erroAutoverificacao, decidirHandoff, HISTORICO_AVANCADO } from '../sdr/conversaService.js';
+import { conversaAvancadaFor, conversaPromptSection, estiloFinal, revisarResposta, cotaPermiteExtra, registrarTarefaEspecialista, erroAutoverificacao, avisarEquipeSePreciso, HISTORICO_AVANCADO } from '../sdr/conversaService.js';
 import { extrairPlano, resumoHandoff, type Plano } from '../sdr/conversa.js';
 import { applyOrderTag, intentFromText, ordersPromptSection, tagConversation } from '../agenda/orders.js';
 import { notAutoReply } from '../sdr/autoReply.js';
@@ -49,7 +53,16 @@ export async function retrieve(orgId: string, query: string, k = 3) {
   const docs = await prisma.knowledgeDoc.findMany({ where: { orgId }, select: { id: true, title: true } });
   const titles = new Map(docs.map((d) => [d.id, d.title]));
   // Título do documento entra na pontuação (2x), além do trecho.
-  return rank(query, chunks.map((c) => { const title = titles.get(c.docId) ?? ''; return { ...c, text: c.text, title, scoreText: `${title}\n${title}\n${c.text}` }; }), k);
+  const ranked = rank(query, chunks.map((c) => { const title = titles.get(c.docId) ?? ''; return { ...c, text: c.text, title, scoreText: `${title}\n${title}\n${c.text}` }; }), k * 3);
+  // v1.35.0: correções da equipe ("IA respondeu mal") passam na frente de trechos parecidos.
+  return boostCorrections(ranked).slice(0, k);
+}
+
+/** Pergunta usada na busca da base: a mensagem atual e, se ela for curta ("e quanto custa?"), a anterior do cliente. Pura. */
+export function searchQuery(text: string, previousClientTexts: string[]): string {
+  if (tokenize(text).length >= 4) return text;
+  const prev = previousClientTexts.map((t) => (t ?? '').trim()).filter(Boolean).slice(0, 2);
+  return [text, ...prev].join('\n');
 }
 
 export function buildSystemPrompt(s: { instructions: string; tone: string }, context: string, contactNotes = '', voice = ''): string {
@@ -64,6 +77,8 @@ export function buildSystemPrompt(s: { instructions: string; tone: string }, con
     '- Use os valores exatamente como aparecem nas Instruções ou no CONTEXTO. Se um valor ou regra não aparecer em nenhum dos dois, diga que vai confirmar com a equipe em vez de inventar.',
     `- TRANSFERÊNCIA PARA HUMANO É PROIBIDA, exceto quando o cliente pedir explicitamente para falar com um atendente, humano ou pessoa; só nesse caso responda exatamente ${HANDOFF_TOKEN}.`,
     '- Se não souber algo, NÃO transfira: diga com naturalidade que vai confirmar com a equipe, ofereça o que você sabe e continue ajudando. Se o cliente quiser falar com uma pessoa, ele pode escrever "atendente".',
+    '- Cada trecho do CONTEXTO começa com o nome da fonte interna entre colchetes: use o conteúdo, mas nunca diga esse nome ao cliente. Trechos "Correção:" foram escritos pela equipe e valem mais que qualquer outro.',
+    '- Use o histórico da conversa: não pergunte de novo o que o cliente já disse.',
     '- Reagendar ou cancelar um horário já marcado: peça o novo dia e horário preferidos (ou o motivo do cancelamento), confirme que registrou o pedido e que a equipe confirma em seguida. Não transfira por isso.',
     '### CONTEXTO',
     context || '(nenhuma informação relevante encontrada na base de conhecimento)',
@@ -134,6 +149,31 @@ async function voiceContext(orgId: string, conversationId: string, text: string,
   }
   const org = await prisma.organization.findUnique({ where: { id: orgId }, select: { name: true } });
   return voicePromptSection({ voiceEnabled: !!s.voiceEnabled, replyAsAudio: decideWithPreference(s, inboundWasAudio, pref), pref, company: org?.name });
+}
+
+/**
+ * v1.35.0 "Bloquear valores fora da base": UMA nova tentativa com a crítica (se a cota permitir); se ainda citar valor
+ * fora da base (ou falhar), manda o texto de confirmação com a equipe e deixa uma nota no Inbox. Nunca lança.
+ */
+async function respostaSemValorInventado(a: { orgId: string; conversationId: string; s: AiSettings; apiKey: string | null; model: string; messages: ChatMessage[]; fora: string[]; fontes: string; today: number; budgetLeft: number; text: string }): Promise<string> {
+  const { orgId, conversationId, s } = a;
+  try {
+    if (a.budgetLeft > 4000 && (await cotaPermiteExtra(orgId, s, a.today))) {
+      const t0 = Date.now();
+      const msgs: ChatMessage[] = [{ ...a.messages[0], content: `${a.messages[0].content}\n${criticaValores(a.fora)}` }, ...a.messages.slice(1)];
+      const tm = Math.min(aiTimeoutMs(), a.budgetLeft - 1000);
+      const r2 = await withTimeout(createProvider(s.provider, a.apiKey, s.baseUrl).chat(msgs, { model: a.model, temperature: s.temperature, maxTokens: s.maxTokens, timeoutMs: tm }), tm + 500, () => new AiProviderError('timeout', 'Nova tentativa sem resposta', true));
+      await prisma.aiUsage.create({ data: { orgId, conversationId: conversationId || null, provider: s.provider, model: s.model, promptTokens: r2.promptTokens, completionTokens: r2.completionTokens, latencyMs: Date.now() - t0, success: true, purpose: 'revisao', promptVersion: promptVersion('revisao') } }).catch(() => undefined);
+      const t2 = stripVoiceMarkers(cleanAiText(stripJsonMarkers(r2.text ?? '', 'PEDIDO')).replace(/\[(AGENDAR|ETAPA|TIPO|PLANO)[^\]]*\]/gi, '').replace(HANDOFF_TOKEN, '').trim());
+      if (t2 && !valoresForaDaBase(t2, a.fontes).length) return t2;
+    }
+  } catch (e) {
+    console.warn('[ia] nova tentativa da checagem de valores falhou', { orgId, error: (e as Error).message });
+  }
+  if (conversationId) {
+    await prisma.message.create({ data: { orgId, conversationId, direction: 'INTERNAL', sender: 'system', type: 'note', status: 'NOTE', body: `Tarefa para a equipe: a IA ia citar ${a.fora.slice(0, 3).join(', ')}, que não está nas Instruções nem na base. Ela respondeu que confirma o valor com a equipe. Pergunta do cliente: "${a.text.slice(0, 300)}"` } }).catch(() => undefined);
+  }
+  return TEXTO_CONFIRMAR_VALOR;
 }
 
 const startOfDay = (d = new Date()) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
@@ -207,19 +247,19 @@ async function generateAiReplyInner(args: { orgId: string; conversationId: strin
       return { text: fail, handoff: false, failed: true, quiet: already, reason: MCK_QUOTA_REASON, usedContext: false };
     }
   }
-
-  const hits = await retrieve(orgId, text, 3);
+  const history = await prisma.message.findMany({
+    where: { orgId, conversationId, direction: { in: ['IN', 'OUT'] }, status: { not: 'FAILED' }, ...notAutoReply },
+    orderBy: { createdAt: 'desc' }, take: adv ? HISTORICO_AVANCADO : 10,
+  });
+  // v1.35.0: pergunta curta ("e quanto custa?") busca junto com a anterior do cliente; correções da equipe na frente.
+  const prevClient = history.filter((m) => m.direction === 'IN').slice(1, 3).map((m) => m.transcript || m.body || '');
+  const hits = await retrieve(orgId, searchQuery(text, prevClient), 3);
   // Produtos do catálogo que combinam com a mensagem (até 5, texto curto). Falha aqui nunca derruba a resposta.
   // v1.24.0: a fonte (Produtos, ERP ou os dois) segue a configuração da empresa; ERP indisponível/falhou → catálogo.
   const prod = await productContextFor(orgId, text).catch(() => productsPromptSection(orgId, text)).catch(() => ({ context: '', rules: '', count: 0 }));
   const context = [hits.map((h) => `[${h.item.title}]\n${h.item.text}`).join('\n\n'), prod.context].filter(Boolean).join('\n\n');
   const usedContext = hits.length > 0 || prod.count > 0;
 
-
-  const history = await prisma.message.findMany({
-    where: { orgId, conversationId, direction: { in: ['IN', 'OUT'] }, status: { not: 'FAILED' }, ...notAutoReply },
-    orderBy: { createdAt: 'desc' }, take: adv ? HISTORICO_AVANCADO : 10,
-  });
   // Voz: preferência do cliente nesta conversa (pedido explícito de áudio/texto, detector por palavras) e
   // o que a IA de fato consegue fazer aqui. Falha aqui nunca derruba a resposta.
   const lastIn = history.find((m) => m.direction === 'IN');
@@ -234,13 +274,15 @@ async function generateAiReplyInner(args: { orgId: string; conversationId: strin
   const pedidos = await ordersPromptSection(orgId).catch(() => '');
   // Notas para a IA deixadas pelos vendedores neste contato (escopo da organização).
   const contactNotes = await contactIdOfConversation(orgId, conversationId).then((cid) => aiNotesPromptSection(orgId, cid)).catch(() => '');
+  // v1.35.0: dados do contato (nome, etiquetas, etapa do Kanban, próximo compromisso) como dados, nunca instruções.
+  const profile = await contactProfileSection(orgId, conversationId);
   // Site da empresa + preços atuais (só organizações que ligaram) e diferenciais frente a concorrentes.
   const site = await knowledgePromptSection(s, text).catch(() => '');
   // Kanban automático (desligado por padrão): etapas e o marcador [ETAPA:nome].
   const kanban = s.kanbanAuto ? await kanbanPromptSection(orgId, conversationId).catch(() => '') : '';
   const avancada = adv ? conversaPromptSection(adv, text) : '';
   const messages: ChatMessage[] = [
-    { role: 'system', content: buildSystemPrompt({ instructions: [s.instructions, args.extraInstructions, agenda, pedidos, prod.rules, site, kanban, sdr, avancada].filter(Boolean).join('\n'), tone: s.tone }, context, contactNotes, voice) },
+    { role: 'system', content: buildSystemPrompt({ instructions: [s.instructions, args.extraInstructions, agenda, pedidos, prod.rules, site, kanban, sdr, avancada].filter(Boolean).join('\n'), tone: s.tone }, context, [profile, contactNotes].filter(Boolean).join('\n'), voice) },
     // Links da agenda/Meet já enviados saem do histórico: a IA não deve copiá-los numa nova resposta.
     // Áudios ficam marcados: [enviado como áudio] (nota de voz da IA) e [áudio do cliente, transcrito].
     ...history.reverse().slice(0, -1).map((m) => ({ role: (m.direction === 'IN' ? 'user' : 'assistant') as 'user' | 'assistant', content: historyContent(m, stripSystemLinks) })),
@@ -278,7 +320,7 @@ async function generateAiReplyInner(args: { orgId: string; conversationId: strin
       if (model !== s.model) console.warn('[ia] respondido pelo modelo reserva', { orgId, conversationId: conversationId || null, principal: s.model, reserva: model });
       // MCK IA: guarda qual provedor respondeu (só o Master vê; a tela do cliente mostra apenas "MCK IA").
       const usedModel = provider instanceof MckIaProvider && provider.lastUsed ? `${s.model}/${provider.lastUsed}` : model;
-      const base = { orgId, conversationId, provider: s.provider, model: usedModel, promptTokens: r.promptTokens, completionTokens: r.completionTokens, latencyMs: Date.now() - started };
+      const base = { orgId, conversationId, provider: s.provider, model: usedModel, promptTokens: r.promptTokens, completionTokens: r.completionTokens, latencyMs: Date.now() - started, purpose: 'atendimento', promptVersion: promptVersion('atendimento') };
       if (!r.text?.trim()) throw new AiProviderError('empty', 'Provedor de IA devolveu resposta vazia', true);
       if (r.text.includes(HANDOFF_TOKEN)) {
         // A IA pediu transferência sem o cliente pedir: proibido. Manda o resto do texto (ou o texto de falha) e segue com a IA.
@@ -287,7 +329,7 @@ async function generateAiReplyInner(args: { orgId: string; conversationId: strin
         console.warn('[ia] IA pediu transferência sem pedido do cliente: bloqueada, segue com a IA', { orgId, conversationId: conversationId || null });
         return { text: rest.length >= 8 ? rest : fail, handoff: false, failed: rest.length < 8, reason: 'IA não soube responder (transferência bloqueada: o cliente não pediu humano)', usedContext };
       }
-      await prisma.aiUsage.create({ data: { ...base, success: true } });
+      const usageRow = await prisma.aiUsage.create({ data: { ...base, success: true } }).catch(() => null);
       // v1.26.0 (IA conversacional avançada): o plano interno [PLANO: ...] sai do texto antes de tudo.
       let raw = r.text;
       let plano: Plano | null = null;
@@ -342,9 +384,22 @@ async function generateAiReplyInner(args: { orgId: string; conversationId: strin
         out = rv.texto;
         plano = rv.plano;
         if (rv.especialista) await registrarTarefaEspecialista(adv, text, rv.problemas);
-        // Parte 5: handoff inteligente (para a IA e avisa a equipe com o resumo do lead).
-        const h = await decidirHandoff(adv, { texto: out, textoLead: text, plano, especialista: rv.especialista, agendou: acted }).catch(() => null);
-        if (h) return { text: h.texto, handoff: true, reason: h.reason, usedContext };
+        // Parte 5 (v1.35.0): lead quente/irritado/dúvida fora das Instruções → avisa a equipe; a IA continua (regra do dono:
+        // transferir só quando o cliente pede explicitamente uma pessoa).
+        await avisarEquipeSePreciso(adv, { textoLead: text, plano, especialista: rv.especialista, agendou: acted });
+      }
+      // v1.35.0: checagem de valores no atendimento comum (a IA avançada de leads já tem a dela). Sempre registra
+      // em Qualidade; "Bloquear valores fora da base" (desligado por padrão) troca a resposta antes de enviar.
+      if (!adv && out && !booked.appointmentId && raw === noOrder) {
+        const fontes = messages.map((m) => m.content).join('\n');
+        const fora = valoresForaDaBase(out, fontes);
+        if (fora.length) {
+          console.warn('[ia] valor fora da base na resposta', { orgId, conversationId: conversationId || null, valores: fora, bloqueado: !!s.guardValues });
+          if (usageRow) await prisma.aiUsage.update({ where: { id: usageRow.id }, data: { quality: s.guardValues ? 'valor_fora_base_bloqueado' : 'valor_fora_base' } }).catch(() => undefined);
+          if (s.guardValues) {
+            out = await respostaSemValorInventado({ orgId, conversationId, s, apiKey, model, messages, fora, fontes, today, budgetLeft: budget - (Date.now() - started), text });
+          }
+        }
       }
       if (!out) {
         console.warn('[ia] resposta sem texto útil: texto de falha enviado, sem transferir', { orgId, conversationId: conversationId || null });
@@ -365,6 +420,6 @@ async function generateAiReplyInner(args: { orgId: string; conversationId: strin
   }
   const reason = failureReason(lastErr);
   console.warn('[ia] sem resposta da IA, enviando fallback', { orgId, conversationId: conversationId || null, reason, error: lastError });
-  await prisma.aiUsage.create({ data: { orgId, conversationId: conversationId || null, provider: s.provider, model: s.model, success: false, handoff: false, error: lastError.slice(0, 500), latencyMs: Date.now() - started } }).catch(() => undefined);
+  await prisma.aiUsage.create({ data: { orgId, conversationId: conversationId || null, provider: s.provider, model: s.model, success: false, handoff: false, error: lastError.slice(0, 500), latencyMs: Date.now() - started, purpose: 'atendimento', promptVersion: promptVersion('atendimento') } }).catch(() => undefined);
   return { text: fail, handoff: false, failed: true, reason, error: lastError, usedContext: false };
 }

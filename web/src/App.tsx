@@ -37,6 +37,13 @@ import ErpPedidos from './erp/vendas/Pedidos';
 import ErpRelatorioCaixa from './erp/vendas/Caixa';
 import ErpPedido from './erp/vendas/Pedido';
 import ErpLocalizar from './erp/vendas/Localizar';
+import ErpLerCodigo from './erp/leitura/LerCodigo';
+
+/** /erp/localizar (antigo) → /erp/pedidos/localizar, mantendo ?q= (QR lidos antes da 1.35.0). */
+function RedirecionaLocalizar() {
+  const loc = useLocation();
+  return <Navigate to={`/erp/pedidos/localizar${loc.search}`} replace />;
+}
 import ErpCompras from './erp/compras/Compras';
 import ErpProducao from './erp/producao/Producao';
 import ErpFinanceiro from './erp/financeiro/Financeiro';
@@ -70,7 +77,7 @@ function SideNav({ atual, modulos }: { atual: Modulo; modulos: Modulo[] }) {
       {n.sub && <div className="sep">{n.sub}</div>}
       {n.href
         ? <a href={n.href}><span aria-hidden>{n.icon}</span>{n.label}</a>
-        : <NavLink to={n.to} end={n.end || n.to === '/'} className={({ isActive }) => (isActive ? 'active' : '')}>{n.icon && <span aria-hidden>{n.icon}</span>}{n.label}</NavLink>}
+        : <NavLink to={n.to} end={n.end || n.to === '/'} className={({ isActive }) => [isActive ? 'active' : '', n.pai ? 'nav-sub' : ''].filter(Boolean).join(' ')}>{n.icon && <span aria-hidden>{n.icon}</span>}{n.label}</NavLink>}
     </div>
   );
   const outros = modulos.filter((m) => m.id !== atual.id);
@@ -324,7 +331,10 @@ export default function App() {
             <Route path="/erp/pedidos" element={<ErpPedidos key="pedidos" />} />
             <Route path="/erp/balcao" element={<ErpPedidos key="balcao" balcao />} />
             <Route path="/erp/pedidos/:id" element={<ErpPedido />} />
-            <Route path="/erp/localizar" element={<ErpLocalizar />} />
+            <Route path="/erp/pedidos/localizar" element={<ErpLocalizar />} />
+            {/* v1.35.0: Localizar pedido ficou dentro de Pedidos; links antigos continuam funcionando. */}
+            <Route path="/erp/localizar" element={<RedirecionaLocalizar />} />
+            <Route path="/erp/balcao/ler" element={<ErpLerCodigo />} />
             <Route path="/erp/caixa/:id" element={<ErpRelatorioCaixa />} />
             <Route path="/erp/compras" element={<ErpCompras />} />
             <Route path="/erp/producao" element={<ErpProducao />} />

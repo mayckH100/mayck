@@ -22,7 +22,7 @@ export async function destinoDaLeitura(orgId: string, codigo: string): Promise<D
   if (c.tipo === 'pedido') {
     const p = await prisma.erpPedidoVenda.findFirst({ where: { orgId, numero: c.numero }, select: { id: true, numero: true } });
     if (p) return { tipo: 'pedido', titulo: `Pedido nº ${p.numero}`, destino: `/erp/pedidos/${p.id}` };
-    return { tipo: 'localizar', titulo: `Pedido ${codigoPedido(c.numero)} não encontrado`, destino: `/erp/localizar?q=${enc(c.bruto)}` };
+    return { tipo: 'localizar', titulo: `Pedido ${codigoPedido(c.numero)} não encontrado`, destino: `/erp/pedidos/localizar?q=${enc(c.bruto)}` };
   }
   if (c.tipo === 'chave_nfe') {
     const s = await prisma.erpNfeSaida.findFirst({ where: { orgId, chave: c.chave }, select: { pedidoId: true, numero: true, serie: true } });
@@ -31,12 +31,12 @@ export async function destinoDaLeitura(orgId: string, codigo: string): Promise<D
     if (pv) return { tipo: 'pedido', titulo: `Pedido nº ${pv.numero}`, destino: `/erp/pedidos/${pv.id}` };
     const e = await prisma.erpNfeEntrada.findFirst({ where: { orgId, chave: c.chave }, select: { numero: true, serie: true, emitenteNome: true } });
     if (e) return { tipo: 'nfe_entrada', titulo: `NF-e de entrada nº ${e.numero}/${e.serie} · ${e.emitenteNome}`, destino: `/erp/rastreio?q=${c.chave}` };
-    return { tipo: 'localizar', titulo: c.valida ? 'Nota fiscal não encontrada no sistema' : 'Chave de nota com dígito inválido: leia de novo', destino: `/erp/localizar?q=${c.chave}`, detalhe: c.chave };
+    return { tipo: 'localizar', titulo: c.valida ? 'Nota fiscal não encontrada no sistema' : 'Chave de nota com dígito inválido: leia de novo', destino: `/erp/pedidos/localizar?q=${c.chave}`, detalhe: c.chave };
   }
   const r = await resolverCodigo(prisma, orgId, c.bruto);
   if (r?.lote) return { tipo: 'lote', titulo: `Lote ${r.lote.numero} · ${r.produto.nome}`, destino: `/erp/rastreio?lote=${r.lote.id}` };
   if (r) return { tipo: 'produto', titulo: `${r.produto.nome} (cód. ${r.produto.sku})`, destino: `/erp/rastreio?q=${enc(r.produto.sku)}` };
-  return { tipo: 'localizar', titulo: 'Procurar pedidos', destino: `/erp/localizar?q=${enc(c.bruto)}` };
+  return { tipo: 'localizar', titulo: 'Procurar pedidos', destino: `/erp/pedidos/localizar?q=${enc(c.bruto)}` };
 }
 
 leituraRouter.get('/', ah(async (req, res) => {

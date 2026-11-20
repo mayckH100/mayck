@@ -111,7 +111,6 @@ export function lerRespostaIa(raw: string, nItens: number): Interpretacao | null
 export async function interpretarComIa(orgId: string, texto: string, itens: Pick<ItemAprovacao, 'n' | 'nome'>[]): Promise<Interpretacao | null> {
   const t = normalize(texto);
   if (!t || t.length > 300 || !RE_PODE_SER.test(t)) return null;
-  const started = Date.now();
   let ai: Awaited<ReturnType<typeof prisma.aiSettings.findUnique>> = null;
   try {
     ai = await prisma.aiSettings.findUnique({ where: { orgId } });
@@ -120,16 +119,14 @@ export async function interpretarComIa(orgId: string, texto: string, itens: Pick
       const { mckQuotaStatus } = await import('../../ai/mckQuota.js');
       if ((await mckQuotaStatus(orgId)).reached) return null;
     }
-    const { createProvider } = await import('../../ai/providers.js');
-    const provider = createProvider(ai.provider, decryptOrNull(ai.apiKeyEnc), ai.baseUrl);
-    const r = await provider.chat([
+    // v1.35.0: camada única (modelo reserva, timeout, registro com finalidade).
+    const { aiChat } = await import('../../ai/core.js');
+    const r = await aiChat({ orgId, purpose: 'erp-aprovacao', settings: ai, temperature: 0, maxTokens: 80, timeoutMs: 15000, errorPrefix: 'ERP aprovação', messages: [
       { role: 'system', content: 'O dono de uma loja recebeu no WhatsApp uma lista numerada de produtos para comprar e respondeu. Diga se a resposta APROVA a compra (todos os itens ou só alguns números), RECUSA, ou é OUTRO assunto. Responda só JSON: {"acao":"APROVAR"|"RECUSAR"|"OUTRO","itens":[números] ou null}. Na dúvida, OUTRO.' },
       { role: 'user', content: `ITENS: ${itens.map((i) => `${i.n}) ${i.nome}`).join('; ').slice(0, 1500)}\nRESPOSTA: ${texto.slice(0, 300)}` },
-    ], { model: ai.model, temperature: 0, maxTokens: 80, timeoutMs: 15000 });
-    await prisma.aiUsage.create({ data: { orgId, provider: ai.provider, model: ai.model, promptTokens: r.promptTokens, completionTokens: r.completionTokens, latencyMs: Date.now() - started, success: true } }).catch(() => undefined);
+    ] });
     return lerRespostaIa(r.text, itens.length);
-  } catch (e) {
-    if (ai) await prisma.aiUsage.create({ data: { orgId, provider: ai.provider, model: ai.model, success: false, error: `ERP aprovação: ${(e as Error).message}`.slice(0, 500), latencyMs: Date.now() - started } }).catch(() => undefined);
+  } catch {
     return null;
   }
 }

@@ -5,6 +5,7 @@
  * em AiUsage (limite diário de respostas, limite mensal de tokens e cota diária da MCK IA). Nenhuma função
  * aqui lança: falha vira { ok: false, reason } e quem chamou cai no texto.
  */
+import { aiChat } from '../core.js';
 import type { AiSettings } from '@prisma/client';
 import { prisma } from '../../db.js';
 import { decryptOrNull } from '../../lib/crypto.js';
@@ -103,8 +104,8 @@ export async function rewriteForSpeech(s: AiSettings, spoken: string): Promise<{
   const base = { text: spoken, promptTokens: 0, completionTokens: 0 };
   if (spoken.length < 40) return base; // frase curta já é natural
   try {
-    const p = createProvider(s.provider, decryptOrNull(s.apiKeyEnc), s.baseUrl);
-    const r = await p.chat([{ role: 'system', content: spokenRewritePrompt() }, { role: 'user', content: spoken }], { model: s.model, temperature: 0.4, maxTokens: Math.max(200, s.maxTokens), timeoutMs: 12000 });
+    // v1.35.0: camada única (modelo reserva em falha passageira); o uso é gravado por quem chama.
+    const r = await aiChat({ orgId: s.orgId, purpose: 'voz', settings: s, log: false, retries: 1, totalMs: 15000, messages: [{ role: 'system', content: spokenRewritePrompt() }, { role: 'user', content: spoken }], temperature: 0.4, maxTokens: Math.max(200, s.maxTokens), timeoutMs: 12000 });
     const out = cleanForSpeech(r.text);
     if (!out || out.includes(HANDOFF_TOKEN) || out.length > spoken.length * 1.6 + 40) return base;
     const have = numbersOf(out).join(' ');

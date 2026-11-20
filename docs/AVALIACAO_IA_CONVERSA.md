@@ -15,7 +15,7 @@ Gerado por `npx tsx scripts/avaliar-conversa.ts` a partir de `tests/fixtures/con
 | Não pergunta o que já foi respondido | 8/10 (80%) | 10/10 (100%) |
 | Fiel às Instruções (sem valor inventado, dado sensível ou provedor) | 7/10 (70%) | 10/10 (100%) |
 | Nada interno vaza ([PLANO]) | 10/10 (100%) | 10/10 (100%) |
-| Passa ao vendedor quando deve (e só então) | 7/10 (70%) | 10/10 (100%) |
+| Aciona a equipe quando deve (transferir, só se o cliente pedir) | 7/10 (70%) | 10/10 (100%) |
 
 ## Conversas
 
@@ -42,7 +42,7 @@ Gerado por `npx tsx scripts/avaliar-conversa.ts` a partir de `tests/fixtures/con
 ### irritado — Lead irritado com perguntas repetidas
 - Lead: "já falei isso, vocês não entendem nada"
 - Antes: "Peço desculpas pelo transtorno! Entendido perfeitamente. Poderia me informar novamente o porte da sua empresa?" — falhou em: semRobo, naoRepergunta, handoffCerto
-- Depois (passou ao vendedor): "Desculpa, você tem razão. Vou chamar um especialista da equipe para continuar com você por aqui." — falhou em: nada
+- Depois (passou ao vendedor): "Desculpa, você tem razão." — falhou em: nada
 
 ### pedido-humano — Lead pede para falar com uma pessoa
 - Lead: "quero falar com um atendente"

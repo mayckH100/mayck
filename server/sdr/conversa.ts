@@ -127,7 +127,7 @@ export function planejamentoLines(o: { metodo: string; sugerido: Objetivo; hando
     `- Objetivo sugerido pelo estado do lead: ${o.sugerido}. Método: ${METODO_GUIA[o.metodo] ?? METODO_GUIA.PADRAO}.`,
     '- Sempre responda primeiro o que o lead perguntou; depois avance UM passo rumo ao objetivo.',
     o.handoff
-      ? '- PASSAR_VENDEDOR quando: o lead está pronto para comprar/fechar, pede uma pessoa, está irritado ou pergunta algo que as Instruções e o CONTEXTO não respondem. Nesse caso diga, em uma frase, que um especialista da equipe vai continuar com ele.'
+      ? '- PASSAR_VENDEDOR quando: o lead está pronto para comprar/fechar, está irritado ou pergunta algo que as Instruções e o CONTEXTO não respondem. Isso só AVISA a equipe por dentro: você continua o atendimento normalmente e NÃO diz que vai transferir nem que outra pessoa vai assumir.'
       : '- Não use PASSAR_VENDEDOR: continue o atendimento.',
     '- Escreva o plano na PRIMEIRA linha, exatamente assim (o lead não vê): [PLANO: intencao=<palavra>; objetivo=<OBJETIVO>]',
     '- Na linha de baixo, só a mensagem para o lead.',

@@ -74,3 +74,12 @@ export function rank<T extends { text: string; scoreText?: string }>(query: stri
     .sort((a, b2) => b2.score - a.score)
     .slice(0, k);
 }
+
+/** Título dos documentos criados pelo "IA respondeu mal" (v1.35.0). */
+export const CORRECTION_PREFIX = 'Correção:';
+/** Correções da equipe valem 1,5× na pontuação (passam na frente de trechos parecidos). Pura. */
+export function boostCorrections<T extends { title?: string }>(list: Scored<T>[]): Scored<T>[] {
+  return list
+    .map((s) => ((s.item.title ?? '').startsWith(CORRECTION_PREFIX) ? { ...s, score: s.score * 1.5 } : s))
+    .sort((a, b) => b.score - a.score);
+}

@@ -6,7 +6,7 @@
  *
  * Usado por tests/unit/sdr-conversa-avaliacao.test.ts e por scripts/avaliar-conversa.ts (relatório antes/depois).
  */
-import { extrairPlano, polirResposta, verificarResposta, ajusteMecanico, motivoHandoff, comPassagem, frasesDeRobo, GRAVES, TEXTO_ESPECIALISTA, EMOJI_RE } from '../../server/sdr/conversa.js';
+import { extrairPlano, polirResposta, verificarResposta, ajusteMecanico, motivoHandoff, frasesDeRobo, GRAVES, TEXTO_ESPECIALISTA, EMOJI_RE } from '../../server/sdr/conversa.js';
 import { isExplicitHumanRequest } from '../../server/ai/humanRequest.js';
 import { detectIntent } from '../../server/sdr/intel.js';
 
@@ -116,7 +116,7 @@ export const CRITERIOS: { id: Criterio; label: string }[] = [
   { id: 'naoRepergunta', label: 'Não pergunta o que já foi respondido' },
   { id: 'fiel', label: 'Fiel às Instruções (sem valor inventado, dado sensível ou provedor)' },
   { id: 'semMarcador', label: 'Nada interno vaza ([PLANO])' },
-  { id: 'handoffCerto', label: 'Passa ao vendedor quando deve (e só então)' },
+  { id: 'handoffCerto', label: 'Aciona a equipe quando deve (transferir, só se o cliente pedir)' },
 ];
 
 /** Resultado final do jeito antigo: texto como veio; só transferia com pedido explícito. */
@@ -141,7 +141,7 @@ export function pipelineDepois(c: CasoAvaliacao) {
   const pedido = isExplicitHumanRequest(c.mensagemLead, []);
   const d = detectIntent(c.mensagemLead);
   const motivo = pedido ? 'pedido de atendente' : motivoHandoff({ textoLead: c.mensagemLead, sentimento: d.sentimento, intencao: d.intencao, plano, temperatura: c.temperatura, especialista });
-  if (motivo && !pedido) texto = comPassagem(texto);
+  // v1.35.0 (regra do dono): fora o pedido explícito, a IA não diz que vai transferir; a equipe é avisada por dentro.
   return { texto, handoff: !!motivo, tentativas };
 }
 

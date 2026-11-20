@@ -21,6 +21,20 @@ export type EntradaChangelog = {
 
 export const CHANGELOG: EntradaChangelog[] = [
   {
+    versao: '1.35.0',
+    data: '20/11/2026',
+    titulo: 'IA mais inteligente e confiável: aprende com as suas correções, entende melhor a conversa e nunca passa o cliente para a equipe sem ele pedir',
+    itens: [
+      'Novo botão "👎 IA respondeu mal" em cada resposta da IA no Inbox (Proprietário e Administrador): escreva a resposta certa e ela entra na base de conhecimento na hora. A IA passa a usar essa correção na frente de trechos parecidos. Dá para desfazer em Inteligência artificial › Qualidade.',
+      'Nova aba Inteligência artificial › Qualidade: quanto cada recurso de IA usou nos últimos 30 dias (atendimento, SDR, campanhas, ERP, voz), falhas, respostas com valor que não está na sua base e as correções da equipe.',
+      'A IA entende perguntas curtas como "e quanto custa?" olhando a pergunta anterior do cliente, e passa a considerar o nome, as etiquetas, a etapa do Kanban e o próximo compromisso do contato para não perguntar de novo o que você já sabe.',
+      'Nova opção em Configuração: "Bloquear valores fora da base". Ligada, se a IA citar um preço, desconto ou prazo que não está nas Instruções, na base ou nos Produtos, ela refaz a resposta e, se ainda errar, diz que confirma o valor com a equipe (fica uma nota no Inbox). Vem desligada; mesmo assim esses casos aparecem em Qualidade.',
+      'SDR com IA e campanhas: a IA não passa mais a conversa para a equipe sozinha (lead quente, irritado ou com dúvida fora das Instruções). Agora a equipe recebe o aviso com o resumo do lead e a IA continua respondendo. A conversa só vai para uma pessoa quando o cliente pede um atendente — e as transferências que você montou nos fluxos e nas ações da qualificação continuam valendo.',
+      'Mais estabilidade: a qualificação do SDR, o follow-up, as campanhas, a aprovação de compra do ERP e a voz agora tentam de novo automaticamente quando a IA fica sobrecarregada por um instante.',
+      'MCK ERP: "Localizar pedido" agora fica dentro de Pedidos, e o "📷 Ler código" fica dentro de Venda balcão (PDV). A tecla F2 continua abrindo o leitor em qualquer tela do ERP, e a leitura nas telas de separação, recebimento, inventário e rastreio não mudou.',
+    ],
+  },
+  {
     versao: '1.34.0',
     data: '20/11/2026',
     titulo: 'Venda no balcão, localizar pedido e conferência lendo código de barras ou QR, e etiqueta Zebra impressa direto',

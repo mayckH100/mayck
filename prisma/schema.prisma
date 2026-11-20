@@ -508,6 +508,8 @@ model AiSettings {
   erpShowQuantity    Boolean  @default(false)
   /// ERP: restringe o saldo a um depósito (ErpDeposito da mesma organização). Nulo = todos.
   erpDepositoId      String?
+  /// v1.35.0: troca preço/percentual/prazo que não está nas Instruções/base por "confirmo com a equipe" (padrão desligado).
+  guardValues        Boolean  @default(false)
   updatedAt          DateTime @updatedAt
 }
 
@@ -545,7 +547,29 @@ model AiUsage {
   handoff          Boolean  @default(false)
   error            String?
   latencyMs        Int      @default(0)
+  /// v1.35.0: finalidade da chamada (atendimento, sdr-extracao, sdr-followup, campanha, erp-aprovacao, autoresposta, voz...). Nulo = antigo.
+  purpose          String?
+  /// v1.35.0: versão do prompt usado (server/ai/prompts.ts).
+  promptVersion    String?
+  /// v1.35.0: sinal de qualidade da resposta (ex.: "valor_fora_base"). Nulo = nada a observar.
+  quality          String?
   createdAt        DateTime @default(now())
+
+  @@index([orgId, createdAt])
+}
+
+/// v1.35.0: "IA respondeu mal" — correção da equipe que vira item da base de conhecimento.
+model AiFeedback {
+  id             String   @id @default(cuid())
+  orgId          String
+  conversationId String?
+  messageId      String?
+  question       String
+  badAnswer      String
+  correction     String
+  knowledgeDocId String?
+  createdById    String?
+  createdAt      DateTime @default(now())
 
   @@index([orgId, createdAt])
 }

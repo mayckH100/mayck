@@ -325,3 +325,9 @@ Pedido do Mayck: "venda para o balcão / localizar pedido / tudo que tenha para 
 - **Migração `0061_erp_leitura_balcao`** (aditiva): `ErpPedidoItem.loteId` (opcional) e índice `ErpPedidoVenda(orgId, nfNumero)`. Próxima livre: 0062.
 - **Testes:** tests/unit/erp-leitura.test.ts, tests/unit/erp-zebra.test.ts, tests/integration/erp-leitura-balcao.test.ts.
 - **Limites:** câmera só onde há `BarcodeDetector` (Chrome Android; iPhone/Safari e Firefox não) — usar leitor ou digitar; Zebra sem teste com impressora física (BLE só em modelos Link-OS com Bluetooth LE; Bluetooth clássico não funciona no navegador; iPhone não tem Web Bluetooth/WebUSB; WebUSB no Windows costuma ser bloqueado pelo driver ZDesigner → Browser Print); recibo não é NFC-e; NF-e da venda balcão com "Consumidor final" (sem CPF) deve ser recusada pela montagem/SEFAZ.
+
+## v1.35.0 — menu: Localizar dentro de Pedidos, Ler código dentro de Venda balcão
+- Pedido do dono (20/11 17:01). `ERP_ITENS` (web/src/erp/ErpNav.tsx) ganhou `pai`: subitens aparecem numa segunda linha de abas quando o grupo está aberto e recuados (↳) no menu lateral.
+- Pedidos › Localizar pedido: rota nova `/erp/pedidos/localizar` (a antiga `/erp/localizar` redireciona mantendo `?q=`; o servidor de leitura já devolve o caminho novo).
+- Venda balcão (PDV) › 📷 Ler código: tela `/erp/balcao/ler` (área erp_vendas). O botão solto da barra saiu; a tecla F2 continua abrindo o leitor em qualquer tela (`AtalhoLerCodigo`). Leitura nas telas de separação, recebimento, inventário e rastreio inalterada.
+- Teste: tests/unit/erp-menu-grupos.test.ts.

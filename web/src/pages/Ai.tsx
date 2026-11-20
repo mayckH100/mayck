@@ -10,17 +10,18 @@ const MODELS: Record<string, string> = { gemini: 'gemini-3.5-flash-lite', openai
 
 export default function Ai() {
   const [sp0] = useSearchParams();
-  const [tab, setTab] = useState<'config' | 'kb' | 'test' | 'usage'>(sp0.get('aba') === 'testar' ? 'test' : 'config');
+  const [tab, setTab] = useState<'config' | 'kb' | 'test' | 'usage' | 'quality'>(sp0.get('aba') === 'testar' ? 'test' : 'config');
   return (
     <>
       <div className="page-head"><div><h1>Inteligência artificial</h1><p className="muted">Instruções, tom de voz, base de conhecimento, provedor/modelo, limites e transferência para humano.</p></div></div>
       <div className="tabs">
-        {([['config', 'Configuração'], ['kb', 'Base de conhecimento'], ['test', 'Testar'], ['usage', 'Uso']] as const).map(([k, l]) => <button key={k} className={tab === k ? 'on' : ''} onClick={() => setTab(k)}>{l}</button>)}
+        {([['config', 'Configuração'], ['kb', 'Base de conhecimento'], ['test', 'Testar'], ['usage', 'Uso'], ['quality', 'Qualidade']] as const).map(([k, l]) => <button key={k} className={tab === k ? 'on' : ''} onClick={() => setTab(k)}>{l}</button>)}
       </div>
       {tab === 'config' && <Config />}
       {tab === 'kb' && <Knowledge />}
       {tab === 'test' && <TestAi />}
       {tab === 'usage' && <Usage />}
+      {tab === 'quality' && <Quality />}
     </>
   );
 }
@@ -59,7 +60,7 @@ function Config() {
           enabled: f.enabled, autoReply: f.autoReply, provider: f.provider, model: f.model, baseUrl: f.provider === 'openai' ? f.baseUrl : '',
           instructions: f.instructions, tone: f.tone, temperature: Number(f.temperature), maxTokens: Number(f.maxTokens), usageLimitEnabled: f.usageLimitEnabled !== false, dailyLimit: Number(f.dailyLimit), monthlyTokenLimit: Number(f.monthlyTokenLimit),
           handoffKeywords: f.handoffKeywords.split(',').map((x: string) => x.trim()).filter(Boolean), fallbackMessage: f.fallbackMessage,
-          failureMessage: f.failureMessage ?? '', competitorNotes: f.competitorNotes ?? '', webSearch: !!f.webSearch, kanbanAuto: !!f.kanbanAuto,
+          failureMessage: f.failureMessage ?? '', competitorNotes: f.competitorNotes ?? '', webSearch: !!f.webSearch, kanbanAuto: !!f.kanbanAuto, guardValues: !!f.guardValues,
           ...(superAdmin ? { useMckSite: !!f.useMckSite } : {}),
           voiceEnabled: !!f.voiceEnabled, voiceReplyMode: f.voiceReplyMode, voiceProvider: f.voiceProvider, voiceName: f.voiceName ?? '',
           voiceModel: f.voiceModel ?? '', voiceStyle: f.voiceStyle ?? '', voiceMaxSeconds: Number(f.voiceMaxSeconds) || 45,
@@ -128,6 +129,7 @@ function Config() {
           <label className="row"><input type="checkbox" checked={!!f.webSearch} onChange={(e) => setF({ ...f, webSearch: e.target.checked })} /> Pesquisar na web (Google) quando o cliente citar um concorrente — grátis só no Gemini 2.5 Flash/Flash-Lite (500 pesquisas/dia); em outros modelos fica desligado</label>
           <label className="row"><input type="checkbox" checked={!!f.kanbanAuto} onChange={(e) => setF({ ...f, kanbanAuto: e.target.checked })} /> A IA move o contato para a etapa seguinte do Kanban quando a conversa mostrar que ele avançou (nunca volta etapa nem marca Ganho/Perdido; cada mudança fica anotada na conversa)</label>
           {superAdmin && <label className="row"><input type="checkbox" checked={!!f.useMckSite} onChange={(e) => setF({ ...f, useMckSite: e.target.checked })} /> Usar o site da MCK DESENVOLVIMENTO (MCKBOT, MCK Mensagens, Planos, Ajuda, Contato) e os preços atuais como conhecimento — só para a organização da MCK (opção do administrador da plataforma)</label>}
+          <label className="row"><input type="checkbox" checked={!!f.guardValues} onChange={(e) => setF({ ...f, guardValues: e.target.checked })} /> Bloquear valores fora da base: se a IA citar um preço, percentual ou prazo que não está nas Instruções, na base ou nos Produtos, ela refaz a resposta uma vez e, se ainda errar, responde que confirma o valor com a equipe (fica uma nota no Inbox). Mesmo desligado, esses casos aparecem em IA › Qualidade.</label>
           <div className="alert info small">A IA informa valores, planos, prazos e passo a passo usando as Instruções acima e a base de conhecimento. Mantenha os preços atualizados nesses lugares.</div>
           {!ro && <button className="btn primary" disabled={busy}>{busy ? 'Salvando…' : 'Salvar configurações'}</button>}
         </fieldset>
@@ -359,5 +361,44 @@ function Usage() {
         </div>
       </div>
     )}</Async>
+  );
+}
+
+/** v1.35.0: consumo por finalidade, valores fora da base e correções da equipe ("IA respondeu mal"). */
+function Quality() {
+  const q = useApi<any>('/ai/quality');
+  const fb = useApi<any[]>('/ai/feedback');
+  const { can } = useAuth();
+  const { busy, run } = useAction();
+  return (
+    <div className="stack">
+      <Async state={q}>{(d) => (
+        <>
+          <div className="grid g3">
+            <div className="card stat"><div className="l">Valores fora da base (30d)</div><div className="v">{fmtNum(d.valoresForaDaBase)}</div><div className="small muted">{d.guardValues ? `${fmtNum(d.valoresBloqueados)} bloqueados antes de enviar` : 'Bloqueio desligado (Configuração)'}</div></div>
+            <div className="card stat"><div className="l">Correções da equipe (30d)</div><div className="v">{fmtNum(d.correcoes30d)}</div><div className="small muted">No Inbox: 👎 IA respondeu mal</div></div>
+            <div className="card stat"><div className="l">Finalidades com uso</div><div className="v">{fmtNum(d.porFinalidade.length)}</div></div>
+          </div>
+          <div className="card table-wrap">
+            <h2>Consumo por finalidade (30 dias)</h2>
+            {d.porFinalidade.length === 0 ? <Empty title="Nenhuma chamada de IA ainda" /> : (
+              <table><thead><tr><th>Para quê</th><th>Chamadas</th><th>Falhas</th><th>Tokens</th><th>Tempo médio</th></tr></thead>
+                <tbody>{d.porFinalidade.map((r: any) => <tr key={r.finalidade}><td>{r.nome}</td><td>{fmtNum(r.chamadas)}</td><td>{fmtNum(r.falhas)} <span className="small muted">({r.taxaFalha}%)</span></td><td>{fmtNum(r.tokens)}</td><td>{r.latenciaMedia} ms</td></tr>)}</tbody></table>
+            )}
+          </div>
+        </>
+      )}</Async>
+      <Async state={fb}>{(list) => (
+        <div className="card table-wrap">
+          <h2>Correções da equipe</h2>
+          <p className="small muted">Cada correção vira um item "Correção: …" na base de conhecimento e passa na frente de trechos parecidos.</p>
+          {list.length === 0 ? <Empty title="Nenhuma correção ainda" /> : (
+            <table><thead><tr><th>Quando</th><th>Pergunta do cliente</th><th>Resposta da IA</th><th>Resposta certa</th><th></th></tr></thead>
+              <tbody>{list.map((c: any) => <tr key={c.id}><td>{fmtDate(c.createdAt)}</td><td>{c.question}</td><td className="small muted">{c.badAnswer}</td><td>{c.correction}</td>
+                <td>{can('OWNER', 'ADMIN') && <button className="btn sm" disabled={busy} onClick={async () => { if (await run(() => del(`/ai/feedback/${c.id}`), 'Correção desfeita (saiu da base)')) { fb.reload(); q.reload(); } }}>Desfazer</button>}</td></tr>)}</tbody></table>
+          )}
+        </div>
+      )}</Async>
+    </div>
   );
 }

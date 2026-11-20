@@ -1,7 +1,7 @@
 import type { SdrLead } from '@prisma/client';
 import { prisma } from '../db.js';
-import { decryptOrNull } from '../lib/crypto.js';
-import { createProvider, type ChatMessage } from '../ai/providers.js';
+import { type ChatMessage } from '../ai/providers.js';
+import { aiChat } from '../ai/core.js';
 import { mckQuotaStatus } from '../ai/mckQuota.js';
 import type { Step } from './core.js';
 import { notAutoReply } from './autoReply.js';
@@ -31,13 +31,14 @@ export function cleanFollowup(raw: string | null | undefined, step: Step): strin
   let t = String(raw ?? '').replace(/^```[a-z]*\n?|```$/gi, '').trim().replace(/^["“]|["”]$/g, '').trim();
   if (!t || t.length < 10) return null;
   if (/\{[a-z_]+\}|\[(nome|empresa|seu nome)[^\]]*\]/i.test(t)) return null;
+  // v1.35.0: marcador interno (transferência, plano, agenda) nunca vai para o lead.
+  if (/\[(TRANSFERIR|PLANO|AGENDAR|PEDIDO|ETAPA|TIPO)\b/i.test(t)) return null;
   if (t.length > (step.canal === 'WHATSAPP' ? 600 : 1500)) return null;
   t = t.replace(/^assunto:.*\n+/i, '');
   return t;
 }
 
 export async function personalizeStep(lead: SdrLead, step: Step, baseText: string): Promise<string | null> {
-  const started = Date.now();
   let ai: Awaited<ReturnType<typeof prisma.aiSettings.findUnique>> = null;
   try {
     ai = await prisma.aiSettings.findUnique({ where: { orgId: lead.orgId } });
@@ -49,12 +50,10 @@ export async function personalizeStep(lead: SdrLead, step: Step, baseText: strin
       const msgs = await prisma.message.findMany({ where: { orgId: lead.orgId, conversationId: { in: convs.map((c) => c.id) }, direction: { in: ['IN', 'OUT'] }, status: { not: 'FAILED' }, ...notAutoReply }, orderBy: { createdAt: 'desc' }, take: 12 });
       transcript = msgs.reverse().map((m) => `${m.direction === 'IN' ? 'CLIENTE' : 'EMPRESA'}: ${(m.body ?? '').slice(0, 400)}`).join('\n');
     }
-    const provider = createProvider(ai.provider, decryptOrNull(ai.apiKeyEnc), ai.baseUrl);
-    const r = await provider.chat(followupPrompt(step, baseText, lead, transcript), { model: ai.model, temperature: 0.4, maxTokens: 400, timeoutMs: 20000 });
-    await prisma.aiUsage.create({ data: { orgId: lead.orgId, provider: ai.provider, model: ai.model, promptTokens: r.promptTokens, completionTokens: r.completionTokens, latencyMs: Date.now() - started, success: true } }).catch(() => undefined);
+    // v1.35.0: camada única (modelo reserva, timeout, registro com finalidade).
+    const r = await aiChat({ orgId: lead.orgId, purpose: 'sdr-followup', settings: ai, messages: followupPrompt(step, baseText, lead, transcript), temperature: 0.4, maxTokens: 400, timeoutMs: 20000, errorPrefix: 'SDR follow-up' });
     return cleanFollowup(r.text, step);
-  } catch (e) {
-    if (ai) await prisma.aiUsage.create({ data: { orgId: lead.orgId, provider: ai.provider, model: ai.model, success: false, error: `SDR follow-up: ${(e as Error).message}`.slice(0, 500), latencyMs: Date.now() - started } }).catch(() => undefined);
+  } catch {
     return null;
   }
 }

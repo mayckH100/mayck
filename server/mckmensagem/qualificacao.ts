@@ -1,7 +1,7 @@
 import { prisma } from '../db.js';
 import { mckQuotaStatus, MCK_QUOTA_REASON } from '../ai/mckQuota.js';
-import { decryptOrNull } from '../lib/crypto.js';
-import { createProvider, type ChatMessage } from '../ai/providers.js';
+import { type ChatMessage } from '../ai/providers.js';
+import { aiChat } from '../ai/core.js';
 import { retrieve } from '../ai/service.js';
 import { aiNotesPromptSection, contactIdOfConversation } from '../ai/contactNotes.js';
 import { sendOutbound, handoffToHuman } from '../whatsapp/messaging.js';
@@ -12,7 +12,7 @@ import { personalize, inWindow } from './dispatcher.js';
 import type { Contact, Conversation, Lead, LeadAiSettings } from '@prisma/client';
 import { DEFAULT_LEAD_AI, getLegacyView, type LegacyLeadAi } from '../sdr/qualificacao.js';
 import { notAutoReply } from '../sdr/autoReply.js';
-import { conversaAvancadaFor, conversaCampanhaSection, estiloFinal, revisarResposta, cotaPermiteExtra, registrarTarefaEspecialista, HISTORICO_AVANCADO } from '../sdr/conversaService.js';
+import { conversaAvancadaFor, conversaCampanhaSection, estiloFinal, revisarResposta, cotaPermiteExtra, registrarTarefaEspecialista, avisarEquipe, HISTORICO_AVANCADO } from '../sdr/conversaService.js';
 import { leadIrritado, resumoHandoff, TEXTO_PASSAGEM, MCK_IA_INDISPONIVEL } from '../sdr/conversa.js';
 import { detectIntent } from '../sdr/intel.js';
 import { isExplicitHumanRequest } from '../ai/humanRequest.js';
@@ -148,23 +148,22 @@ export async function classifyLeadMessage(orgId: string, lead: Pick<Lead, 'name'
   // Histórico precisa terminar com o usuário (Gemini recusa conversa terminando em "model").
   const msgs: ChatMessage[] = [{ role: 'system', content: [system, extraSystem, notes].filter(Boolean).join('\n') }, ...history.filter((m) => m.content), { role: 'user', content: text }];
   const fontes = msgs.map((m) => m.content).join('\n');
-  const started = Date.now();
   let lastError = '';
+  // v1.35.0: camada única (modelo reserva em falha passageira, espera após 429/503, registro com finalidade).
+  // Resposta fora do formato JSON: uma nova pergunta (como antes).
   for (let attempt = 1; attempt <= 2; attempt++) {
+    let text: string;
     try {
-      const provider = createProvider(ai.provider, decryptOrNull(ai.apiKeyEnc), ai.baseUrl);
-      const r = await provider.chat(msgs, { model: ai.model, temperature: 0.3, maxTokens: Math.max(300, ai.maxTokens) });
-      await prisma.aiUsage.create({ data: { orgId, conversationId: conversationId ?? null, provider: ai.provider, model: ai.model, promptTokens: r.promptTokens, completionTokens: r.completionTokens, latencyMs: Date.now() - started, success: true } });
-      const parsed = parseQualifyOutput(r.text);
-      if (parsed) return { intent: parsed.intencao, reply: parsed.resposta, summary: parsed.resumo, fontes };
-      lastError = 'Resposta da IA fora do formato esperado';
-      // Sem JSON: trata como dúvida e usa o texto, se houver.
-      if (r.text && !r.text.trim().startsWith('{')) return { intent: 'DUVIDA', reply: r.text.trim(), summary: '', error: lastError, fontes };
+      text = (await aiChat({ orgId, conversationId: conversationId ?? null, purpose: 'campanha', settings: ai, messages: msgs, temperature: 0.3, maxTokens: Math.max(300, ai.maxTokens), timeoutMs: 20000, retries: attempt === 1 ? 1 : 0 })).text;
     } catch (e) {
       lastError = (e as Error).message;
-      await prisma.aiUsage.create({ data: { orgId, conversationId: conversationId ?? null, provider: ai.provider, model: ai.model, success: false, error: lastError.slice(0, 500), latencyMs: Date.now() - started } }).catch(() => undefined);
-      if (/não configurada|desconhecido|não pode ser usado/.test(lastError)) break;
+      break;
     }
+    const parsed = parseQualifyOutput(text);
+    if (parsed) return { intent: parsed.intencao, reply: parsed.resposta, summary: parsed.resumo, fontes };
+    lastError = 'Resposta da IA fora do formato esperado';
+    // Sem JSON: trata como dúvida e usa o texto, se houver.
+    if (text && !text.trim().startsWith('{')) return { intent: 'DUVIDA', reply: text.trim(), summary: '', error: lastError, fontes };
   }
   throw new Error(lastError || 'Falha na qualificação do SDR com IA');
 }
@@ -206,16 +205,17 @@ export async function qualifyLeadInbound(conv: Conversation, contact: Contact, t
   // Remove a mensagem atual (já gravada) e garante que o histórico termine em "assistant" antes do texto do usuário.
   const hist = recent.reverse().slice(0, -1).map((m) => ({ role: (m.direction === 'IN' ? 'user' : 'assistant') as 'user' | 'assistant', content: m.body ?? '' }));
 
-  // v1.26.0: pedido de pessoa ou lead irritado → para a IA e passa ao vendedor com o resumo (sem gastar IA).
+  // v1.26.0: pedido EXPLÍCITO de pessoa → passa ao vendedor com o resumo (sem gastar IA). Única transferência da IA.
+  // v1.35.0 (regra do dono): lead irritado NÃO transfere; a equipe é avisada e a IA continua respondendo.
   if (adv?.cfg.handoff) {
     const handWords = parseJson<string[]>((await prisma.aiSettings.findUnique({ where: { orgId: conv.orgId }, select: { handoffKeywords: true } }))?.handoffKeywords, []).filter(Boolean);
-    const motivo = isExplicitHumanRequest(text, handWords) ? 'pedido de atendente' as const : leadIrritado(text, detectIntent(text).sentimento) ? 'lead irritado' as const : null;
-    if (motivo) {
-      await sendOutbound({ conversation: conv, contact, payload: { type: 'text', text: motivo === 'lead irritado' ? `Desculpe pelo transtorno. ${TEXTO_PASSAGEM}` : TEXTO_PASSAGEM }, sender: 'ai', product: 'MCKMENSAGEM' } as any);
+    if (isExplicitHumanRequest(text, handWords)) {
+      await sendOutbound({ conversation: conv, contact, payload: { type: 'text', text: TEXTO_PASSAGEM }, sender: 'ai', product: 'MCKMENSAGEM' } as any);
       await prisma.lead.update({ where: { id: lead.id }, data: { status: 'RESPONDEU', contactId: contact.id } });
-      await handoffToHuman(conv, resumoHandoff(adv.contexto, motivo, text));
+      await handoffToHuman(conv, resumoHandoff(adv.contexto, 'pedido de atendente', text));
       return true;
     }
+    if (leadIrritado(text, detectIntent(text).sentimento)) await avisarEquipe(conv.orgId, conv.id, adv.sdrLeadId, 'lead irritado', resumoHandoff(adv.contexto, 'lead irritado', text));
   }
 
   let r: QualifyResult;
@@ -307,8 +307,8 @@ export async function qualifyLeadInbound(conv: Conversation, contact: Contact, t
       await toSdr();
       if (s.doubtAction === 'AI') {
         await send(r.reply);
-        // v1.26.0: a IA não tinha a resposta nas Instruções → passa ao vendedor com o resumo.
-        if (especialista && adv?.cfg.handoff) await handoffToHuman(conv, resumoHandoff(adv.contexto, 'dúvida fora das Instruções', text));
+        // v1.35.0: a IA não tinha a resposta nas Instruções → avisa a equipe com o resumo (sem transferir).
+        if (especialista && adv?.cfg.handoff) await avisarEquipe(conv.orgId, conv.id, adv.sdrLeadId, 'dúvida fora das Instruções', resumoHandoff(adv.contexto, 'dúvida fora das Instruções', text));
         return true;
       }
       // Fluxo da dúvida sem id, apagado ou com erro: a IA responde (antes o lead ficava sem resposta nenhuma).
