@@ -7,7 +7,7 @@ import { ApiError } from '../../api';
 import { brl, qtd, toMil } from '../format';
 import { imprimirZebra, imprimirComum } from './impressao';
 
-export default function EntradaXml({ depositos, onLancada }: { depositos: any[]; onLancada: () => void }) {
+export default function EntradaXml({ depositos, onLancada }: { depositos: any[]; onLancada: (r?: any) => void }) {
   const lista = useApi<any[]>('/erp/estoque/nfe');
   const [aberta, setAberta] = useState<string | null>(null);
   const { run } = useAction();
@@ -37,7 +37,7 @@ export default function EntradaXml({ depositos, onLancada }: { depositos: any[];
   );
 }
 
-function NfeDetalhe({ id, depositos, onClose, onLancada }: { id: string; depositos: any[]; onClose: () => void; onLancada: () => void }) {
+function NfeDetalhe({ id, depositos, onClose, onLancada }: { id: string; depositos: any[]; onClose: () => void; onLancada: (r?: any) => void }) {
   const st = useApi<any>(`/erp/estoque/nfe/${id}`, [id]);
   const [vinc, setVinc] = useState<any>(null);
   const [f, setF] = useState({ enderecoId: '', quarentena: false, usarLoteFornecedor: false });
@@ -51,8 +51,9 @@ function NfeDetalhe({ id, depositos, onClose, onLancada }: { id: string; deposit
     const lotesManuais: Record<string, any[]> = {};
     for (const i of n.itens) { const m = manuais[i.id]; if (m?.numero || m?.validade) lotesManuais[i.id] = [{ numero: m.numero || 'S/N', qtdMil: Math.round((i.qtdMil * i.fatorMil) / 1000), validade: m.validade || null }]; }
     try {
-      await post<any>(`/erp/estoque/nfe/${id}/lancar`, { ...f, lotesManuais, aceitarDivergencias: div.length > 0 });
-      toast('NF-e lançada no estoque'); setDiv([]); st.reload(); onLancada();
+      const r = await post<any>(`/erp/estoque/nfe/${id}/lancar`, { ...f, lotesManuais, aceitarDivergencias: div.length > 0 });
+      // v1.33.0: já abre o "Gerar etiqueta e imprimir" com a quantidade sugerida.
+      toast('NF-e lançada no estoque'); setDiv([]); st.reload(); onClose(); onLancada(r);
     } catch (e) {
       const d = (e instanceof ApiError ? (e.details as any)?.divergencias : null) as string[] | null;
       if (d?.length) setDiv(d); else toast((e as Error).message, 'err');

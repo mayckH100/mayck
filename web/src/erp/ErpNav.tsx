@@ -13,6 +13,8 @@ export const ERP_ITENS: { to: string; label: string; end?: boolean; module?: str
   { to: '/erp/pedidos', label: 'Pedidos' },
   { to: '/erp/produtos', label: 'Produtos' },
   { to: '/erp/estoque', label: 'Estoque' },
+  // v1.33.0: rastreabilidade de lote (busca única: produto, lote, lote do fornecedor, nota, pedido).
+  { to: '/erp/rastreio', label: 'Rastreio de lote' },
   { to: '/erp/compras', label: 'Compras' },
   { to: '/erp/producao', label: 'Produção' },
   { to: '/erp/financeiro', label: 'Financeiro' },

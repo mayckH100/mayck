@@ -7,6 +7,7 @@ import ImportarExportar from '../ImportarExportar';
 import { brl, qtd, toCents, fromCents, toMil } from '../format';
 import { UNIDADES_CADASTRO, unidadeValida, unidadeLegivel, qtdUn, nomeUnidade, numeroQtd } from '../../../../server/erp/shared/unidade';
 import { descricaoEmbalagem } from '../../../../server/erp/shared/embalagem';
+import { LotesProduto } from '../estoque/lotes';
 
 export default function Produtos() {
   const [q, setQ] = useState(''); const [query, setQuery] = useState('');
@@ -14,6 +15,7 @@ export default function Produtos() {
   const [edit, setEdit] = useState<any>(null);
   const [regras, setRegras] = useState(false);
   const [excluir, setExcluir] = useState<any>(null);
+  const [lotes, setLotes] = useState<any>(null);
   const { can } = useAuth();
   const admin = can('OWNER', 'ADMIN');
   return (
@@ -33,7 +35,7 @@ export default function Produtos() {
           <tbody>{d.items.map((p: any) => (
             <tr key={p.id} style={{ opacity: p.ativo ? 1 : 0.5 }}>
               <td><code>{p.sku}</code></td>
-              <td><strong>{p.nome}</strong>{!p.ativo && <span className="badge" style={{ marginLeft: 6 }}>arquivado</span>}<div className="small muted">{unidadeLegivel(p.unidade)}{descricaoEmbalagem(p) ? ` · compra: ${descricaoEmbalagem(p)}` : ''}{p.ncm ? ` · NCM ${p.ncm}` : ''}{p.controlaValidade ? ' · ⏳ controla validade' : p.controlaLote ? ` · lote ${p.regraSaida}` : ''}</div></td>
+              <td><strong>{p.nome}</strong>{!p.ativo && <span className="badge" style={{ marginLeft: 6 }}>arquivado</span>}<div className="small muted">{unidadeLegivel(p.unidade)}{descricaoEmbalagem(p) ? ` · compra: ${descricaoEmbalagem(p)}` : ''}{p.ncm ? ` · NCM ${p.ncm}` : ''}{p.controlaValidade ? ' · ⏳ perecível (sai o que vence primeiro)' : ''}</div>{p.tipo !== 'SERVICO' && <button type="button" className="btn sm ghost" style={{ padding: '2px 6px', marginTop: 2 }} onClick={() => setLotes(p)} aria-label={`Ver lotes de ${p.nome}`}>📦 {p.lotes?.total ?? 0} lote{(p.lotes?.total ?? 0) === 1 ? '' : 's'}{p.lotes?.total ? ` · ${p.lotes.comSaldo} com saldo` : ''}</button>}</td>
               <td>{brl(p.precoBaseCents)}</td>
               <td>{p.tipo === 'SERVICO' ? '—' : <>{qtd(p.saldo.disponivelMil)} {p.abaixoMinimo && <span className="badge red">abaixo do mínimo</span>}{!p.abaixoMinimo && p.noPontoPedido && <span className="badge">repor</span>}</>}</td>
               <td>{p.tipo === 'SERVICO' ? '—' : qtd(p.saldo.reservadoMil)}</td>
@@ -48,6 +50,7 @@ export default function Produtos() {
       )}</Async>
       {edit && <ProdutoForm inicial={edit} onClose={() => setEdit(null)} onSaved={() => { setEdit(null); state.reload(); }} />}
       {regras && <RegrasComerciais onClose={() => setRegras(false)} />}
+      {lotes && <LotesProduto produto={lotes} onClose={() => setLotes(null)} />}
       {excluir && <ExcluirProduto produto={excluir} onClose={() => setExcluir(null)} onDone={() => { setExcluir(null); state.reload(); }} />}
     </>
   );
@@ -60,7 +63,7 @@ export function custoTotal(p: any) {
 
 function ProdutoForm({ inicial, onClose, onSaved }: { inicial: any; onClose: () => void; onSaved: () => void }) {
   const [f, setF] = useState<any>({
-    sku: inicial.sku ?? '', nome: inicial.nome ?? '', unidade: unidadeValida(inicial.unidade) ? String(inicial.unidade).toUpperCase() : 'UN', codigoBarras: inicial.codigoBarras ?? '', ncm: inicial.ncm ?? '', cest: inicial.cest ?? '',
+    sku: inicial.sku ?? '', nome: inicial.nome ?? '', descricao: inicial.descricao ?? '', unidade: unidadeValida(inicial.unidade) ? String(inicial.unidade).toUpperCase() : 'UN', codigoBarras: inicial.codigoBarras ?? '', ncm: inicial.ncm ?? '', cest: inicial.cest ?? '',
     origem: inicial.origem ?? 0, tipo: inicial.tipo ?? 'REVENDA', controlaLote: !!inicial.controlaLote, controlaValidade: !!inicial.controlaValidade, regraSaida: inicial.regraSaida ?? 'FIFO',
     preco: fromCents(inicial.precoBaseCents), custo: fromCents(inicial.custoMedioCents ?? 0), extras: (() => { try { return JSON.parse(inicial.custosAdicionais ?? '[]').map((c: any) => ({ nome: c.nome, valor: fromCents(c.valorCents) })); } catch { return []; } })(), fornecedor: inicial.fornecedorPadraoId ?? '', minimo: qtd(inicial.estoqueMinimoMil).replace(/\./g, ''), ponto: qtd(inicial.pontoPedidoMil).replace(/\./g, ''), lead: String(inicial.leadTimeDias ?? 0), unidadeCompra: inicial.unidadeCompra && unidadeValida(inicial.unidadeCompra) ? String(inicial.unidadeCompra).toUpperCase() : '', fator: qtd(inicial.fatorCompraMil ?? 1000).replace(/\./g, ''), loteMin: qtd(inicial.loteMinimoMil ?? 0).replace(/\./g, ''), ativo: inicial.ativo ?? true,
   });
@@ -70,13 +73,15 @@ function ProdutoForm({ inicial, onClose, onSaved }: { inicial: any; onClose: () 
   const [senhaCusto, setSenhaCusto] = useState('');
   const { can } = useAuth();
   const [editarCodigo, setEditarCodigo] = useState(false);
+  // v1.33.0: campos travados depois do uso, com o porquê.
+  const travas = useApi<any>(inicial.id ? `/erp/produtos/${inicial.id}/travas` : null, [inicial.id]).data ?? {};
   const unidadeRuim = inicial.id && !unidadeValida(inicial.unidade);
   // v1.32.0: unidade só por lista. Uma sigla antiga válida fora da lista continua aparecendo para não se perder.
   const opcoesUnidade = UNIDADES_CADASTRO.some((u) => u.sigla === f.unidade) ? UNIDADES_CADASTRO : [{ sigla: f.unidade, nome: f.unidade }, ...UNIDADES_CADASTRO];
   const fatorMil = f.unidadeCompra ? toMil(f.fator || '0') : 1000;
   const fatorOk = fatorMil > 0;
   async function salvar() {
-    const body = { sku: f.sku.trim() || null, nome: f.nome, unidade: f.unidade, codigoBarras: f.codigoBarras || null, ncm: f.ncm || null, cest: f.cest || null, origem: Number(f.origem), tipo: f.tipo,
+    const body = { sku: f.sku.trim() || null, nome: f.nome, descricao: f.descricao?.trim() || null, unidade: f.unidade, codigoBarras: f.codigoBarras || null, ncm: f.ncm || null, cest: f.cest || null, origem: Number(f.origem), tipo: f.tipo,
       controlaLote: f.controlaLote || f.controlaValidade, controlaValidade: f.controlaValidade, regraSaida: f.controlaValidade ? 'FEFO' : f.regraSaida,
       precoBaseCents: toCents(f.preco), custoMedioCents: toCents(f.custo || '0'), custosAdicionais: f.extras.filter((c: any) => c.nome.trim()).map((c: any) => ({ nome: c.nome.trim(), valorCents: toCents(c.valor || '0') })), estoqueMinimoMil: toMil(f.minimo), pontoPedidoMil: toMil(f.ponto), leadTimeDias: Number(f.lead) || 0, loteMinimoMil: toMil(f.loteMin || '0'), fornecedorPadraoId: f.fornecedor || null, ativo: f.ativo, unidadeCompra: f.unidadeCompra || null, fatorCompraMil: f.unidadeCompra ? fatorMil : 1000, ...(senhaCusto ? { senhaCusto } : {}) };
     if (await run(() => (inicial.id ? put(`/erp/produtos/${inicial.id}`, body) : post('/erp/produtos', body)), 'Produto salvo')) onSaved();
@@ -84,16 +89,17 @@ function ProdutoForm({ inicial, onClose, onSaved }: { inicial: any; onClose: () 
   return (
     <Modal title={inicial.id ? 'Editar produto' : 'Novo produto'} onClose={onClose}>
       <div className="grid g2">
-        <Field label="Código (automático)" hint={inicial.id ? 'Código do produto na empresa' : 'O sistema gera o próximo código ao salvar'}>
+        <Field label={`Código (automático)${travas.sku && inicial.id ? ' 🔒' : ''}`} hint={travas.sku && inicial.id ? travas.sku : inicial.id ? 'Código do produto na empresa' : 'O sistema gera o próximo código ao salvar'}>
           {editarCodigo ? <input value={f.sku} onChange={set('sku')} placeholder={inicial.id ? '' : 'Vazio = automático'} maxLength={40} autoFocus />
-            : <div className="row" style={{ gap: 6 }}><input value={inicial.id ? f.sku : ''} placeholder="Gerado automaticamente" readOnly disabled aria-label="Código" />{can('OWNER', 'ADMIN') && <button type="button" className="btn sm ghost" onClick={() => setEditarCodigo(true)}>{inicial.id ? 'Alterar' : 'Digitar'}</button>}</div>}
+            : <div className="row" style={{ gap: 6 }}><input value={inicial.id ? f.sku : ''} placeholder="Gerado automaticamente" readOnly disabled aria-label="Código" />{can('OWNER', 'ADMIN') && !travas.sku && <button type="button" className="btn sm ghost" onClick={() => setEditarCodigo(true)}>{inicial.id ? 'Alterar' : 'Digitar'}</button>}</div>}
         </Field>
         <Field label="Tipo"><select value={f.tipo} onChange={set('tipo')}><option value="REVENDA">Revenda</option><option value="PRODUZIDO">Produzido</option><option value="INSUMO">Insumo / matéria-prima</option><option value="SERVICO">Serviço</option></select></Field>
       </div>
       <Field label="Nome"><input value={f.nome} onChange={set('nome')} autoFocus={!inicial.id} /></Field>
+      <Field label="Descrição (opcional)"><textarea rows={2} value={f.descricao} onChange={set('descricao')} maxLength={2000} /></Field>
       <div className="grid g2">
-        <Field label="Unidade de estoque" hint={unidadeRuim ? `A unidade salva era “${inicial.unidade}”, que não é uma unidade. Confira e salve.` : 'Como você conta e vende: peça, quilo, metro...'}>
-          <select value={f.unidade} onChange={(e) => setF({ ...f, unidade: e.target.value, ...(e.target.value === f.unidadeCompra ? { unidadeCompra: '' } : {}) })}>
+        <Field label={`Unidade de estoque${travas.unidade ? ' 🔒' : ''}`} hint={unidadeRuim ? `A unidade salva era “${inicial.unidade}”, que não é uma unidade. Confira e salve.` : travas.unidade ?? 'Como você conta e vende: peça, quilo, metro...'}>
+          <select disabled={!!travas.unidade} value={f.unidade} onChange={(e) => setF({ ...f, unidade: e.target.value, ...(e.target.value === f.unidadeCompra ? { unidadeCompra: '' } : {}) })}>
             {opcoesUnidade.map((u) => <option key={u.sigla} value={u.sigla}>{u.nome} ({u.sigla})</option>)}
           </select>
         </Field>
@@ -129,7 +135,7 @@ function ProdutoForm({ inicial, onClose, onSaved }: { inicial: any; onClose: () 
       </div>
       {f.tipo !== 'SERVICO' && <>
         <div className="row">
-          <label className="row small"><input type="checkbox" checked={f.controlaLote} onChange={set('controlaLote')} /> Controla lote</label>
+          <label className="row small" title={travas.controlaLote ?? ''}><input type="checkbox" checked={f.controlaLote} disabled={!!travas.controlaLote} onChange={set('controlaLote')} /> Controla lote{travas.controlaLote ? ' 🔒' : ''}</label>
           <label className="row small"><input type="checkbox" checked={f.controlaValidade} onChange={set('controlaValidade')} /> Perecível: controla validade (pede a data na entrada e usa FEFO)</label>
           {!f.controlaValidade && <select value={f.regraSaida} onChange={set('regraSaida')} aria-label="Regra de saída"><option value="FIFO">FIFO</option><option value="FEFO">FEFO</option></select>}
         </div>
