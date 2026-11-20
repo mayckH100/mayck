@@ -14,7 +14,8 @@ describe('Escudo 2: cabeçalhos de segurança', () => {
     expect(r.headers['x-frame-options']).toBe('DENY');
     expect(r.headers['x-content-type-options']).toBe('nosniff');
     expect(r.headers['referrer-policy']).toBe('strict-origin-when-cross-origin');
-    expect(r.headers['permissions-policy']).toContain('camera=()');
+    // v1.33.0: câmera só do próprio site (leitura de QR no inventário); nenhum site de fora.
+    expect(r.headers['permissions-policy']).toContain('camera=(self)');
     expect(r.headers['x-powered-by']).toBeUndefined();
     expect(r.headers['access-control-allow-origin']).toBeUndefined(); // sem CORS aberto
   });

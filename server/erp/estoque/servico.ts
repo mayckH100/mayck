@@ -10,6 +10,7 @@ import type { Prisma } from '@prisma/client';
 import { HttpError } from '../../lib/http.js';
 import { planejarAlocacao, novoCustoMedio, type SaldoLinha } from './saldo.js';
 import { numeroLoteInterno, formatoLoteEfetivo } from './nfe-xml.js';
+import { qtdUn } from '../shared/unidade.js';
 
 type Tx = Prisma.TransactionClient;
 export class EstoqueErro extends HttpError { constructor(msg: string) { super(400, msg); } }
@@ -195,7 +196,7 @@ export async function baixarReservas(tx: Tx, e: MovBase & { pedidoId: string }) 
  * Conferência por leitura do QR/código: o código lido é o número do lote (ou SKU/código de barras para produto sem lote).
  * Só aceita o lote que o FEFO/FIFO reservou, para o picking não furar a regra.
  */
-export async function conferir(tx: Tx, orgId: string, pedidoId: string, codigo: string, qtdMil: number) {
+export async function conferir(tx: Tx, orgId: string, pedidoId: string, codigo: string, qtdMil: number, userId?: string | null) {
   // QR da etiqueta (MCK1;lote;...) vira o lote interno (ou o SKU, sem lote); código simples segue igual.
   const lido = lerCodigoEtiqueta(codigo);
   codigo = lido.lote ?? lido.sku ?? lido.bruto;
@@ -222,6 +223,10 @@ export async function conferir(tx: Tx, orgId: string, pedidoId: string, codigo: 
     const q = Math.min(livre, resta);
     await tx.erpReserva.update({ where: { id: r.id }, data: { separadoMil: { increment: q } } });
     await tx.erpPedidoItem.update({ where: { id: r.pedidoItemId }, data: { separadoMil: { increment: q } } });
+    // v1.33.0: a separação fica na linha do tempo do lote (movimento sem quantidade: o saldo só sai no faturamento).
+    const s = await tx.erpSaldo.findUnique({ where: { id: r.saldoId } });
+    const p = prodDe.get(r.produtoId)!;
+    await tx.erpMovimento.create({ data: { orgId, produtoId: r.produtoId, loteId: r.loteId, enderecoId: r.enderecoId, tipo: 'SEPARACAO', qtdMil: 0, saldoAposMil: s?.fisicoMil ?? 0, docTipo: 'pedido_venda', docId: pedidoId, motivo: `${qtdUn(q, p.unidade)} lido(s) no QR/código`, userId: userId ?? null } });
     resta -= q;
   }
   if (resta === qtdMil) throw new EstoqueErro('Este lote já foi todo conferido');
@@ -229,4 +234,28 @@ export async function conferir(tx: Tx, orgId: string, pedidoId: string, codigo: 
   const atual = await tx.erpPedidoItem.findMany({ where: { pedidoId } });
   const servicos = new Set(produtos.filter((p) => p.tipo === 'SERVICO').map((p) => p.id));
   return { tudoSeparado: atual.every((i) => servicos.has(i.produtoId) || i.separadoMil >= i.qtdMil) };
+}
+
+/**
+ * Devolução de venda com retorno ao estoque (v1.33.0): devolve cada parte ao MESMO lote e endereço de onde saiu
+ * (movimento DEVOLUCAO), para o rastreio do lote continuar fechando. Não devolve duas vezes o mesmo pedido.
+ */
+export async function devolverAoEstoque(tx: Tx, e: MovBase & { pedidoId: string }) {
+  const movs = await tx.erpMovimento.findMany({ where: { orgId: e.orgId, docId: e.pedidoId, tipo: { in: ['SAIDA', 'DEVOLUCAO'] }, docTipo: { in: ['pedido_venda', 'devolucao'] } } });
+  const resto = new Map<string, { produtoId: string; loteId: string; enderecoId: string; qtdMil: number; custo: number }>();
+  for (const m of movs) {
+    const k = `${m.loteId}:${m.enderecoId}`;
+    const x = resto.get(k) ?? { produtoId: m.produtoId, loteId: m.loteId, enderecoId: m.enderecoId, qtdMil: 0, custo: m.custoUnitCents };
+    x.qtdMil += -m.qtdMil; resto.set(k, x);
+  }
+  let n = 0;
+  for (const x of resto.values()) {
+    if (x.qtdMil <= 0) continue;
+    const lote = await tx.erpLote.findUniqueOrThrow({ where: { id: x.loteId } });
+    const end = await tx.erpEnderecoEstoque.findFirst({ where: { id: x.enderecoId, orgId: e.orgId, ativo: true } });
+    if (!end) throw new EstoqueErro('O endereço de onde o produto saiu foi desativado: reative-o para devolver ao estoque');
+    await entrada(tx, { ...e, produtoId: x.produtoId, enderecoId: x.enderecoId, qtdMil: x.qtdMil, custoUnitCents: x.custo, tipo: 'DEVOLUCAO', docTipo: 'devolucao', docId: e.pedidoId, lote: { numero: lote.numero, validade: lote.validade, status: lote.status } });
+    n++;
+  }
+  return n;
 }

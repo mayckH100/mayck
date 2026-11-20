@@ -13,6 +13,7 @@ import { notificarProprietario } from '../alertas/alertas.js';
 import { unidadeValida } from '../shared/unidade.js';
 import { criarComSku } from './codigo.js';
 import { formatoLoteEfetivo } from '../estoque/nfe-xml.js';
+import { contarLotes, normalizarLotesSemNumero } from '../estoque/rastreio.js';
 
 /** Custo que entra no CMV: custo médio + custos adicionais por unidade (embalagem, frete rateado...). */
 export function custoTotal(p: { custoMedioCents: number; custosAdicionais?: string | null }): number {
@@ -70,7 +71,9 @@ produtosRouter.get('/', ah(async (req, res) => {
   const items = await prisma.erpProduto.findMany({ where, orderBy: { nome: 'asc' }, take: 300 });
   const saldos = await saldosPorProduto(orgId, items.map((i) => i.id));
   const xml = await comEntradaXml(orgId, items.map((p) => p.id));
-  res.json({ items: items.map((p) => { const s = saldos.get(p.id) ?? ZERO; return { ...p, custoPorXml: xml.has(p.id), custoTotalCents: custoTotal(p), saldo: s, abaixoMinimo: p.tipo !== 'SERVICO' && p.estoqueMinimoMil > 0 && s.disponivelMil < p.estoqueMinimoMil, noPontoPedido: p.tipo !== 'SERVICO' && p.pontoPedidoMil > 0 && s.disponivelMil <= p.pontoPedidoMil }; }) });
+  await normalizarLotesSemNumero(orgId);
+  const lotes = await contarLotes(orgId, items.map((p) => p.id));
+  res.json({ items: items.map((p) => { const s = saldos.get(p.id) ?? ZERO; return { ...p, lotes: lotes.get(p.id) ?? { total: 0, comSaldo: 0 }, custoPorXml: xml.has(p.id), custoTotalCents: custoTotal(p), saldo: s, abaixoMinimo: p.tipo !== 'SERVICO' && p.estoqueMinimoMil > 0 && s.disponivelMil < p.estoqueMinimoMil, noPontoPedido: p.tipo !== 'SERVICO' && p.pontoPedidoMil > 0 && s.disponivelMil <= p.pontoPedidoMil }; }) });
 }));
 
 /** EAN-13 com dígito verificador. */

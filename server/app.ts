@@ -69,7 +69,7 @@ export function createApp() {
   }));
   app.use((_req, res, next) => {
     // Recursos sensíveis do aparelho desligados para qualquer página/iframe.
-    res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()');
+    res.setHeader('Permissions-Policy', 'camera=(self), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()');
     next();
   });
 

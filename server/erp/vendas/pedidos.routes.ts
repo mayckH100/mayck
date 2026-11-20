@@ -15,7 +15,7 @@ import { vincular } from '../shared/trace.js';
 import { auditar } from '../shared/auditoria.js';
 import { maquinaPedido, financeiroApos, COM_RESERVA, type StatusPedido, type EventoPedido, type CtxPedido } from './pedido.machine.js';
 import { totalizar, totalItem, motivosBloqueio, precoPorVolume } from './calculo.js';
-import { reservarPedido, liberarReservas, baixarReservas, conferir, LOTE_UNICO } from '../estoque/servico.js';
+import { reservarPedido, liberarReservas, baixarReservas, conferir, devolverAoEstoque, LOTE_UNICO } from '../estoque/servico.js';
 import { configDa } from '../produtos/produtos.routes.js';
 import { avisarPedidoErp } from './avisoPedido.js';
 
@@ -165,6 +165,8 @@ const acaoSchema = z.object({
   evento: z.enum(['ENVIAR', 'APROVAR', 'REPROVAR', 'RESERVAR', 'SEPARAR', 'CONFERIR', 'FATURAR', 'EXPEDIR', 'ENTREGAR', 'ENTREGAR_PARCIAL', 'DEVOLVER', 'CANCELAR']),
   motivo: z.string().trim().max(300).optional(), nfNumero: z.string().trim().max(20).optional(),
   transportadora: z.string().trim().max(100).optional(), rastreio: z.string().trim().max(60).optional(),
+  // v1.33.0: devolução com os produtos voltando ao estoque (mesmo lote e endereço de onde saíram).
+  voltarEstoque: z.boolean().optional(),
 });
 
 pedidosRouter.post('/:id/acao', ah(async (req, res) => {
@@ -210,7 +212,11 @@ pedidosRouter.post('/:id/acao', ah(async (req, res) => {
       case 'EXPEDIR': return aplicar(tx, p, 'EXPEDIR', {}, { transportadora: a.transportadora ?? null, rastreio: a.rastreio ?? null });
       case 'ENTREGAR': return aplicar(tx, p, 'ENTREGAR', {}, { entregueEm: new Date() });
       case 'ENTREGAR_PARCIAL': return aplicar(tx, p, 'ENTREGAR_PARCIAL', { motivo: a.motivo }, { observacoes: [p.observacoes, `Entrega parcial: ${a.motivo}`].filter(Boolean).join('\n') });
-      case 'DEVOLVER': return aplicar(tx, p, 'DEVOLVER', { motivo: a.motivo }, { motivoCancelamento: a.motivo });
+      case 'DEVOLVER': {
+        const x = await aplicar(tx, p, 'DEVOLVER', { motivo: a.motivo }, { motivoCancelamento: a.motivo });
+        if (a.voltarEstoque) await devolverAoEstoque(tx, { orgId, pedidoId: p.id, motivo: `Devolução do pedido ${p.numero}${a.motivo ? `: ${a.motivo}` : ''}`, userId: req.auth?.userId, correlationId: p.correlationId });
+        return x;
+      }
       case 'CANCELAR': {
         const x = await aplicar(tx, p, 'CANCELAR', { motivo: a.motivo }, { motivoCancelamento: a.motivo });
         if (COM_RESERVA.includes(antes as StatusPedido) || p.itens.some((i) => i.reservadoMil > 0)) await liberarReservas(tx, p.id);
@@ -226,9 +232,9 @@ pedidosRouter.post('/:id/acao', ah(async (req, res) => {
 /** Conferência por leitura de QR/código de barras durante a separação. */
 pedidosRouter.post('/:id/conferencia', ah(async (req, res) => {
   const orgId = orgOf(req);
-  const b = z.object({ codigo: z.string().trim().min(1).max(60), qtdMil: z.number().int().min(1).max(2_000_000_000) }).parse(req.body);
+  const b = z.object({ codigo: z.string().trim().min(1).max(200), qtdMil: z.number().int().min(1).max(2_000_000_000) }).parse(req.body);
   const p = await prisma.erpPedidoVenda.findFirst({ where: { id: req.params.id, orgId } });
   if (!p) throw notFound('Pedido');
   if (p.statusOperacional !== 'EM_SEPARACAO') throw badRequest('Libere a separação antes de conferir');
-  res.json(await prisma.$transaction((tx) => conferir(tx, orgId, p.id, b.codigo, b.qtdMil)));
+  res.json(await prisma.$transaction((tx) => conferir(tx, orgId, p.id, b.codigo, b.qtdMil, req.auth?.userId)));
 }));

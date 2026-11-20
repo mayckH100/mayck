@@ -1924,6 +1924,11 @@ model ErpInventario {
   criadoPorId   String?
   aprovadoPorId String?
   concluidoEm   DateTime?
+  fechadoEm     DateTime? // v1.33.0: contagem encerrada (relatório Físico x Sistema congelado)
+  fechadoPorId  String?
+  notificadoEm  DateTime? // v1.33.0: aviso de divergência enviado ao proprietário (app + WhatsApp)
+  resumoJson    String? // v1.33.0: totais do relatório no fechamento (itens divergentes, sobras, faltas, líquido)
+  motivoAjuste  String? // v1.33.0: motivo informado na aprovação com a senha do proprietário
   createdAt     DateTime                @default(now())
   contagens     ErpInventarioContagem[]
 
@@ -1941,6 +1946,9 @@ model ErpInventarioContagem {
   contadoMil   Int?
   contadoPorId String?
   contadoEm    DateTime?
+  leituras     Int           @default(0) // v1.33.0: quantas leituras de QR somaram nesta linha
+  modo         String? // v1.33.0: QR | MANUAL (última forma de contagem)
+  custoUnitCents Int         @default(0) // v1.33.0: custo por unidade no fechamento (diferença em R$)
 
   @@unique([inventarioId, produtoId, loteId, enderecoId])
 }

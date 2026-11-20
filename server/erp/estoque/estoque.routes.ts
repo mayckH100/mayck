@@ -10,7 +10,9 @@ import { auditar } from '../shared/auditoria.js';
 import { entrada, saidaDoSaldo, transferir, mudarStatusLote } from './servico.js';
 import { disponivel } from './saldo.js';
 import { zpl, textoQr, type DadosEtiqueta } from './etiquetas.js';
-import { configDa } from '../produtos/produtos.routes.js';
+import { configDa, custoTotal } from '../produtos/produtos.routes.js';
+import { buscarRastreio, rastrearLote, rastrearPedido, rastreioParaCsv, lotesDoProduto, saldoPorLote } from './rastreio.js';
+import { csvRastreio } from './rastreio-regras.js';
 
 export const estoqueRouter = Router();
 const admins = requireRole('OWNER', 'ADMIN');
@@ -50,10 +52,10 @@ estoqueRouter.get('/saldos', ah(async (req, res) => {
   const saldos = await prisma.erpSaldo.findMany({ where: { orgId, enderecoId: { in: [...eMap.keys()] }, ...(f.produtoId ? { produtoId: f.produtoId } : {}), ...(f.comSaldo === '0' ? {} : { fisicoMil: { gt: 0 } }) }, take: 2000 });
   const [lotes, produtos] = await Promise.all([
     prisma.erpLote.findMany({ where: { id: { in: [...new Set(saldos.map((s) => s.loteId))] } } }),
-    prisma.erpProduto.findMany({ where: { id: { in: [...new Set(saldos.map((s) => s.produtoId))] } }, select: { id: true, sku: true, nome: true, unidade: true, regraSaida: true } }),
+    prisma.erpProduto.findMany({ where: { id: { in: [...new Set(saldos.map((s) => s.produtoId))] } }, select: { id: true, sku: true, nome: true, unidade: true, regraSaida: true, controlaValidade: true, custoMedioCents: true, custosAdicionais: true } }),
   ]);
   const lMap = new Map(lotes.map((l) => [l.id, l])); const pMap = new Map(produtos.map((p) => [p.id, p]));
-  res.json(saldos.map((s) => ({ ...s, disponivelMil: disponivel(s), lote: lMap.get(s.loteId), produto: pMap.get(s.produtoId), endereco: { codigo: eMap.get(s.enderecoId)?.codigo, deposito: eMap.get(s.enderecoId)?.deposito.nome } }))
+  res.json(saldos.map((s) => ({ ...s, disponivelMil: disponivel(s), lote: lMap.get(s.loteId), produto: pMap.get(s.produtoId) ? { ...pMap.get(s.produtoId)!, custosAdicionais: undefined, custoTotalCents: custoTotal(pMap.get(s.produtoId)!) } : undefined, endereco: { codigo: eMap.get(s.enderecoId)?.codigo, deposito: eMap.get(s.enderecoId)?.deposito.nome } }))
     .sort((a, b) => (a.produto?.nome ?? '').localeCompare(b.produto?.nome ?? '') || (a.endereco.codigo ?? '').localeCompare(b.endereco.codigo ?? '')));
 }));
 
@@ -168,4 +170,41 @@ estoqueRouter.get('/lotes', ah(async (req, res) => {
   const prods = await prisma.erpProduto.findMany({ where: { id: { in: lotes.map((l) => l.produtoId) } }, select: { id: true, sku: true, nome: true, controlaValidade: true, unidade: true } });
   const P = new Map(prods.map((p) => [p.id, p]));
   res.json(lotes.map((l) => ({ ...l, produto: P.get(l.produtoId) })));
+}));
+
+// ---- Rastreabilidade de lote (v1.33.0) ----
+/** Lotes de um produto: lote interno, do fornecedor, fornecedor, entrada, documento, validade, recebido, saldo e onde está. */
+estoqueRouter.get('/lotes/produto/:id', ah(async (req, res) => {
+  const orgId = orgOf(req);
+  const p = await prisma.erpProduto.findFirst({ where: { id: req.params.id, orgId }, select: { id: true, sku: true, nome: true, unidade: true, controlaLote: true, controlaValidade: true, regraSaida: true } });
+  if (!p) throw notFound('Produto');
+  res.json({ produto: p, lotes: await lotesDoProduto(orgId, p.id) });
+}));
+/** Saldo por lote (aba Lotes da tela Estoque). */
+estoqueRouter.get('/lotes-saldo', ah(async (req, res) => {
+  const depositoId = typeof req.query.depositoId === 'string' && req.query.depositoId ? req.query.depositoId : null;
+  res.json(await saldoPorLote(orgOf(req), depositoId));
+}));
+/** Busca única: produto (código/nome/código de barras), lote interno, lote do fornecedor, NF (nº ou chave) ou pedido. */
+estoqueRouter.get('/rastreio', ah(async (req, res) => {
+  const q = typeof req.query.q === 'string' ? req.query.q : '';
+  if (q.trim().length < 1) throw badRequest('Digite o que procurar');
+  res.json(await buscarRastreio(orgOf(req), q));
+}));
+estoqueRouter.get('/rastreio/lote/:id', ah(async (req, res) => {
+  const r = await rastrearLote(orgOf(req), req.params.id);
+  if (!r) throw notFound('Lote');
+  res.json(r);
+}));
+estoqueRouter.get('/rastreio/lote/:id/csv', ah(async (req, res) => {
+  const r = await rastrearLote(orgOf(req), req.params.id);
+  if (!r) throw notFound('Lote');
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="rastreio-lote-${r.lote.numero.replace(/[^A-Za-z0-9-]/g, '_')}.csv"`);
+  res.send(csvRastreio(rastreioParaCsv(r)));
+}));
+estoqueRouter.get('/rastreio/pedido/:id', ah(async (req, res) => {
+  const r = await rastrearPedido(orgOf(req), req.params.id);
+  if (!r) throw notFound('Pedido');
+  res.json(r);
 }));
