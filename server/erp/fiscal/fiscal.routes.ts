@@ -165,7 +165,9 @@ fiscalRouter.post('/nfe/pedido/:pedidoId', ah(async (req, res) => {
   const orgId = orgOf(req);
   const p = await prisma.erpPedidoVenda.findFirst({ where: { id: req.params.pedidoId, orgId } });
   if (!p) throw notFound('Pedido');
-  if (p.statusOperacional !== 'SEPARADO') throw badRequest('A NF-e é emitida com o pedido separado e conferido');
+  // v1.34.0: venda balcão (já entregue na hora) também pode emitir a NF-e depois, se o cliente pedir.
+  const balcaoEntregue = p.statusOperacional === 'ENTREGUE' && !!p.nfNumero?.startsWith('BALCAO-');
+  if (p.statusOperacional !== 'SEPARADO' && !balcaoEntregue) throw badRequest('A NF-e é emitida com o pedido separado e conferido (ou numa venda balcão concluída)');
   const viva = await prisma.erpNfeSaida.findFirst({ where: { orgId, pedidoId: p.id, status: { in: ['ASSINADA', 'AUTORIZADA', 'REJEITADA'] } } });
   if (viva) throw badRequest(`Este pedido já tem a NF-e ${viva.numero} (${viva.status.toLowerCase()})`);
   const { c, cert } = await certDe(orgId);

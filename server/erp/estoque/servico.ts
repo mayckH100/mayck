@@ -145,13 +145,15 @@ export async function saldosParaSaida(tx: Tx, orgId: string, produtoId: string, 
  */
 export async function reservarPedido(tx: Tx, orgId: string, pedidoId: string, depositoId?: string | null) {
   const itens = await tx.erpPedidoItem.findMany({ where: { pedidoId } });
-  const faltas: { itemId: string; produtoId: string; faltaMil: number }[] = [];
+  const faltas: { itemId: string; produtoId: string; faltaMil: number; loteId?: string | null }[] = [];
   for (const item of itens) {
     const produto = await tx.erpProduto.findUniqueOrThrow({ where: { id: item.produtoId } });
     if (produto.tipo === 'SERVICO') continue;
     let resta = item.qtdMil - item.reservadoMil;
     for (let tentativa = 0; tentativa < 3 && resta > 0; tentativa++) {
-      const plano = planejarAlocacao(await saldosParaSaida(tx, orgId, item.produtoId, depositoId), resta, produto.regraSaida);
+      // v1.34.0: item com lote escolhido (etiqueta lida no balcão) sai só daquele lote.
+      const saldos = (await saldosParaSaida(tx, orgId, item.produtoId, depositoId)).filter((s) => !item.loteId || s.loteId === item.loteId);
+      const plano = planejarAlocacao(saldos, resta, produto.regraSaida);
       if (!plano.alocacoes.length) break;
       for (const a of plano.alocacoes) {
         const n = await tx.$executeRaw`UPDATE "ErpSaldo" SET "reservadoMil" = "reservadoMil" + ${a.qtdMil} WHERE "id" = ${a.saldoId} AND "fisicoMil" - "reservadoMil" - "quarentenaMil" >= ${a.qtdMil}`;
@@ -161,7 +163,7 @@ export async function reservarPedido(tx: Tx, orgId: string, pedidoId: string, de
       }
     }
     await tx.erpPedidoItem.update({ where: { id: item.id }, data: { reservadoMil: item.qtdMil - resta } });
-    if (resta > 0) faltas.push({ itemId: item.id, produtoId: item.produtoId, faltaMil: resta });
+    if (resta > 0) faltas.push({ itemId: item.id, produtoId: item.produtoId, faltaMil: resta, loteId: item.loteId ?? null });
   }
   return faltas;
 }

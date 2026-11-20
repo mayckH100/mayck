@@ -1846,6 +1846,7 @@ model ErpPedidoItem {
   reservadoMil   Int            @default(0)
   separadoMil    Int            @default(0)
   posicao        Int            @default(0)
+  loteId         String? // v1.34.0: lote lido no balcão (etiqueta GS1/QR): a baixa sai deste lote
 
   @@index([pedidoId])
   @@index([produtoId])

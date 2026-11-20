@@ -26,7 +26,7 @@ export const pedidosRouter = Router();
 export const PREFIXO_BALCAO = 'BALCAO-';
 export const ehBalcao = (p: { nfNumero?: string | null }) => !!p.nfNumero?.startsWith(PREFIXO_BALCAO);
 
-export const itemSchema = z.object({ produtoId: z.string(), qtdMil: z.number().int().min(1).max(2_000_000_000), precoUnitCents: z.number().int().min(0).max(2_000_000_000).optional(), descontoBp: z.number().int().min(0).max(10_000).default(0) });
+export const itemSchema = z.object({ produtoId: z.string(), qtdMil: z.number().int().min(1).max(2_000_000_000), precoUnitCents: z.number().int().min(0).max(2_000_000_000).optional(), descontoBp: z.number().int().min(0).max(10_000).default(0), loteId: z.string().max(40).nullish() });
 const pedidoSchema = z.object({
   parceiroId: z.string(), oportunidadeId: z.string().nullish(), tabelaPrecoId: z.string().nullish(), condicaoPagamentoId: z.string().nullish(),
   depositoId: z.string().nullish(), filialId: z.string().nullish(), centroCustoId: z.string().nullish(),
@@ -41,11 +41,16 @@ export async function montarItens(tx: Tx, orgId: string, b: Pick<z.infer<typeof 
   const produtos = await tx.erpProduto.findMany({ where: { orgId, id: { in: ids }, ativo: true } });
   if (produtos.length !== ids.length) throw badRequest('Produto inválido ou inativo no pedido');
   const P = new Map(produtos.map((p) => [p.id, p]));
+  // v1.34.0: lote lido no balcão (etiqueta GS1/QR) — precisa ser do mesmo produto e da empresa.
+  const loteIds = [...new Set(b.itens.map((i) => i.loteId).filter(Boolean) as string[])];
+  const lotesPedidos = loteIds.length ? await tx.erpLote.findMany({ where: { orgId, id: { in: loteIds } }, select: { id: true, produtoId: true } }) : [];
+  const LP = new Map(lotesPedidos.map((l) => [l.id, l.produtoId]));
+  for (const i of b.itens) if (i.loteId && LP.get(i.loteId) !== i.produtoId) throw badRequest('Lote lido não pertence a este produto');
   const faixas = b.tabelaPrecoId ? await tx.erpTabelaPrecoItem.findMany({ where: { tabelaId: b.tabelaPrecoId, tabela: { orgId, ativa: true } } }) : [];
   const itens = b.itens.map((i, posicao) => {
     const p = P.get(i.produtoId)!;
     const preco = i.precoUnitCents ?? precoPorVolume(faixas.filter((f) => f.produtoId === p.id), i.qtdMil, p.precoBaseCents);
-    return { produtoId: p.id, descricao: `${p.sku} · ${p.nome}`, qtdMil: i.qtdMil, precoUnitCents: preco, descontoBp: i.descontoBp, totalCents: totalItem({ qtdMil: i.qtdMil, precoUnitCents: preco, descontoBp: i.descontoBp }), posicao };
+    return { produtoId: p.id, descricao: `${p.sku} · ${p.nome}`, qtdMil: i.qtdMil, precoUnitCents: preco, descontoBp: i.descontoBp, totalCents: totalItem({ qtdMil: i.qtdMil, precoUnitCents: preco, descontoBp: i.descontoBp }), posicao, ...(i.loteId ? { loteId: i.loteId } : {}) };
   });
   return { itens, tot: totalizar(itens, b.descontoCents, b.freteCents), maxItemBp: Math.max(0, ...itens.map((i) => i.descontoBp)) };
 }

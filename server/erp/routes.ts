@@ -5,6 +5,8 @@
 import { requireErpArea } from '../lib/permissions.js';
 import { relatoriosRouter } from './relatorios/relatorios.routes.js';
 import { balcaoRouter } from './vendas/balcao.routes.js';
+import { localizarRouter } from './vendas/localizar.js';
+import { leituraRouter } from './leitura/leitura.routes.js';
 import { caixaRouter } from './vendas/caixa.routes.js';
 import { cobrancaCartaoRouter, maquininhasRouter } from './maquininhas/maquininhas.routes.js';
 import { importacaoRouter } from './importacao/importacao.routes.js';
@@ -60,6 +62,9 @@ erpRouter.use('/vendas/balcao/cartao', requireErpArea('erp_vendas'), cobrancaCar
 erpRouter.use('/vendas/balcao', requireErpArea('erp_vendas'), balcaoRouter);
 erpRouter.use('/vendas/maquininhas', requireErpArea('erp_vendas'), maquininhasRouter);
 erpRouter.use('/vendas/caixa', requireErpArea('erp_vendas', ['erp_financeiro', 'erp_relatorios']), caixaRouter);
+// v1.34.0: localizar pedido (leitura/digitação) e documentos impressos; "Ler código" de qualquer tela.
+erpRouter.use('/vendas/localizar', requireErpArea('erp_vendas', ['erp_estoque', 'erp_financeiro']), localizarRouter);
+erpRouter.use('/leitura', requireErpArea('erp_vendas', ['erp_estoque', 'erp_compras', 'erp_financeiro', 'erp_relatorios']), leituraRouter);
 erpRouter.use('/vendas/pedidos', requireErpArea('erp_vendas', ['erp_estoque', 'erp_financeiro']), pedidosRouter);
 erpRouter.use('/compras', requireErpArea('erp_compras', ['erp_estoque', 'erp_financeiro']), comprasRouter);
 erpRouter.use('/producao', requireErpArea('erp_compras', ['erp_estoque']), producaoRouter);

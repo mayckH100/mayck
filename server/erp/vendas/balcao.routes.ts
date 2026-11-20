@@ -10,11 +10,14 @@ import { z } from 'zod';
 import { randomUUID } from 'node:crypto';
 import type { Prisma } from '@prisma/client';
 import { prisma } from '../../db.js';
-import { ah, badRequest } from '../../lib/http.js';
+import { ah, badRequest, notFound } from '../../lib/http.js';
 import { orgOf } from '../../auth/session.js';
 import { despacharEmBreve, emitir } from '../shared/events.js';
 import { auditar } from '../shared/auditoria.js';
-import { baixarReservas, reservarPedido } from '../estoque/servico.js';
+import { baixarReservas, reservarPedido, saldosParaSaida } from '../estoque/servico.js';
+import { resolverCodigo } from '../estoque/leitura.js';
+import { disponivel, planejarAlocacao } from '../estoque/saldo.js';
+import { classificarLeitura } from '../leitura/codigo.js';
 import { titulosDoPedido, recalcularTitulo } from '../financeiro/servico.js';
 import { aplicar, itemSchema, montarItens, PREFIXO_BALCAO } from './pedidos.routes.js';
 import { configDa } from '../produtos/produtos.routes.js';
@@ -39,6 +42,44 @@ balcaoRouter.get('/contas', ah(async (req, res) => {
   let contas = await prisma.erpContaFinanceira.findMany({ where: { orgId, ativa: true }, orderBy: [{ tipo: 'asc' }, { nome: 'asc' }] });
   if (!contas.length) contas = [await prisma.erpContaFinanceira.create({ data: { orgId, nome: 'Caixa', tipo: 'CAIXA' } })];
   res.json(contas.map((c) => ({ id: c.id, nome: c.nome, tipo: c.tipo })));
+}));
+
+/**
+ * v1.34.0 — leitura no balcão: código de barras do produto, etiqueta do lote (GS1-128 ou QR), código ou lote digitado.
+ * Devolve o produto com preço e saldo e, quando a etiqueta traz o lote, o lote (a baixa sai dele). Sem lote na leitura,
+ * mostra qual lote sairia pela regra do produto (FEFO: vence primeiro; FIFO: mais antigo) — só informativo.
+ */
+balcaoRouter.get('/ler', ah(async (req, res) => {
+  const orgId = orgOf(req);
+  const codigo = typeof req.query.codigo === 'string' ? req.query.codigo.slice(0, 300) : '';
+  if (!codigo.trim()) throw badRequest('Leia ou digite um código');
+  const c = classificarLeitura(codigo);
+  if (c.tipo === 'pedido' || c.tipo === 'chave_nfe') throw badRequest(c.tipo === 'pedido' ? `Este código é do pedido nº ${c.numero}, não de um produto. Use "Localizar pedido".` : 'Este código é a chave de uma nota fiscal, não de um produto. Use "Localizar pedido".');
+  const r = await resolverCodigo(prisma, orgId, codigo);
+  if (!r) throw notFound(`Produto para o código ${codigo.trim().slice(0, 40)}`);
+  const p = r.produto;
+  if (!p.ativo) throw badRequest(`O produto ${p.nome} está inativo`);
+  const saldos = p.tipo === 'SERVICO' ? [] : await saldosParaSaida(prisma, orgId, p.id);
+  const disp = saldos.filter((s) => s.lote.status === 'LIBERADO').reduce((a, s) => a + disponivel(s), 0);
+  const hoje = new Date();
+  let lote = null as null | { id: string; numero: string; validade: Date | null; disponivelMil: number; status: string; vencido: boolean };
+  let aviso: string | null = null;
+  if (r.lote) {
+    const doLote = saldos.filter((s) => s.loteId === r.lote!.id);
+    const vencido = !!(r.lote.validade && r.lote.validade.getTime() < hoje.getTime());
+    lote = { id: r.lote.id, numero: r.lote.numero, validade: r.lote.validade, status: r.lote.status, vencido, disponivelMil: r.lote.status === 'LIBERADO' && !vencido ? doLote.reduce((a, s) => a + disponivel(s), 0) : 0 };
+    if (vencido) aviso = `Lote ${r.lote.numero} VENCIDO: não pode ser vendido. Separe o produto.`;
+    else if (r.lote.status !== 'LIBERADO') aviso = `Lote ${r.lote.numero} ${r.lote.status === 'QUARENTENA' ? 'em quarentena' : 'bloqueado'}: não pode ser vendido.`;
+    else if (lote.disponivelMil <= 0) aviso = `Lote ${r.lote.numero} sem saldo no sistema. Confira a etiqueta ou dê entrada no estoque.`;
+  }
+  const plano = !r.lote && p.tipo !== 'SERVICO' ? planejarAlocacao(saldos, 1000, p.regraSaida, hoje) : null;
+  const sug = plano?.alocacoes[0] ? saldos.find((s) => s.id === plano.alocacoes[0].saldoId) : null;
+  if (!r.lote && p.tipo !== 'SERVICO' && disp <= 0) aviso = `${p.nome} sem estoque disponível no sistema.`;
+  res.json({
+    tipo: r.tipo,
+    produto: { id: p.id, sku: p.sku, nome: p.nome, unidade: p.unidade, tipo: p.tipo, precoBaseCents: p.precoBaseCents, codigoBarras: p.codigoBarras, regraSaida: p.regraSaida, controlaLote: p.controlaLote, saldo: { disponivelMil: disp } },
+    lote, sugestao: sug ? { loteId: sug.loteId, numero: sug.lote.numero, validade: sug.lote.validade, regra: p.regraSaida } : null, aviso,
+  });
 }));
 
 export type VendaBalcaoInput = z.infer<typeof schema>;
@@ -92,7 +133,8 @@ export async function executarVendaBalcao(tx: Prisma.TransactionClient, ctx: Ctx
   const faltas = await reservarPedido(tx, orgId, p.id, b.depositoId ?? null);
   if (faltas.length) {
     const nomes = new Map(itens.map((i) => [i.produtoId, i.descricao]));
-    throw badRequest(`Sem estoque disponível: ${faltas.map((f) => `${nomes.get(f.produtoId) ?? f.produtoId} (faltam ${f.faltaMil / 1000})`).join(', ')}`);
+    const lotes = new Map((await tx.erpLote.findMany({ where: { id: { in: faltas.map((f) => f.loteId).filter(Boolean) as string[] } }, select: { id: true, numero: true } })).map((l) => [l.id, l.numero]));
+    throw badRequest(`Sem estoque disponível: ${faltas.map((f) => `${nomes.get(f.produtoId) ?? f.produtoId}${f.loteId ? ` no lote ${lotes.get(f.loteId) ?? ''} lido (lote vencido, bloqueado ou sem saldo)` : ''} (faltam ${f.faltaMil / 1000})`).join(', ')}`);
   }
   p = await tx.erpPedidoVenda.findUniqueOrThrow({ where: { id: p.id }, include: { itens: true } });
   p = await aplicar(tx, p, 'RESERVAR', {});
