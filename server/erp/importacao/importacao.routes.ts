@@ -50,10 +50,11 @@ const DEF: Record<Entidade, { colunas: Coluna[]; exemplos: string[][] }> = {
       { titulo: 'Prazo do fornecedor (dias)', campo: 'leadTimeDias', tipo: 'int' }, { titulo: 'Controla lote (S/N)', campo: 'controlaLote', tipo: 'simnao' },
       { titulo: 'Controla validade (S/N)', campo: 'controlaValidade', tipo: 'simnao' }, { titulo: 'Tipo (REVENDA, PRODUZIDO, INSUMO, SERVICO)', campo: 'tipo' },
       { titulo: 'CNPJ do fornecedor padrão', campo: 'fornecedorDoc' },
+      { titulo: 'Unidade de compra (PCT, CX, RL...)', campo: 'unidadeCompra' }, { titulo: 'Quantidade por embalagem', campo: 'fatorCompraMil', tipo: 'qtd' },
     ],
     exemplos: [
-      ['', 'Café torrado 500g', 'Pacote 500 g', '', 'UN', '09012100', '24,90', '15,50', '20', '40', '7', 'S', 'S', 'REVENDA', '11.444.777/0001-61'],
-      ['SERV-ENT', 'Taxa de entrega', '', '', 'UN', '', '10,00', '0', '0', '0', '0', 'N', 'N', 'SERVICO', ''],
+      ['', 'Café torrado 500g', 'Pacote 500 g', '', 'UN', '09012100', '24,90', '15,50', '20', '40', '7', 'S', 'S', 'REVENDA', '11.444.777/0001-61', 'CX', '12'],
+      ['SERV-ENT', 'Taxa de entrega', '', '', 'UN', '', '10,00', '0', '0', '0', '0', 'N', 'N', 'SERVICO', '', '', ''],
     ],
   },
 };
@@ -90,7 +91,7 @@ importacaoRouter.get('/:entidade/exportar', ah(async (req, res) => {
   if (e === 'produtos') {
     const ps = await prisma.erpProduto.findMany({ where: { orgId }, orderBy: { nome: 'asc' } });
     const forn = new Map((await prisma.erpParceiro.findMany({ where: { orgId, id: { in: ps.map((p) => p.fornecedorPadraoId).filter((x): x is string => !!x) } }, select: { id: true, documento: true } })).map((f) => [f.id, f.documento]));
-    linhas = ps.map((p) => [p.sku, p.nome, p.descricao ?? '', p.codigoBarras ?? '', p.unidade, p.ncm ?? '', reais(p.precoBaseCents), reais(p.custoMedioCents), qtd(p.estoqueMinimoMil), qtd(p.pontoPedidoMil), String(p.leadTimeDias), p.controlaLote ? 'S' : 'N', p.controlaValidade ? 'S' : 'N', p.tipo, (p.fornecedorPadraoId && forn.get(p.fornecedorPadraoId)) || '']);
+    linhas = ps.map((p) => [p.sku, p.nome, p.descricao ?? '', p.codigoBarras ?? '', p.unidade, p.ncm ?? '', reais(p.precoBaseCents), reais(p.custoMedioCents), qtd(p.estoqueMinimoMil), qtd(p.pontoPedidoMil), String(p.leadTimeDias), p.controlaLote ? 'S' : 'N', p.controlaValidade ? 'S' : 'N', p.tipo, (p.fornecedorPadraoId && forn.get(p.fornecedorPadraoId)) || '', p.unidadeCompra ?? '', p.unidadeCompra ? qtd(p.fatorCompraMil) : '']);
   } else {
     const ps = await prisma.erpParceiro.findMany({ where: { orgId, documento: { not: '00000000000' }, ...(e === 'clientes' ? { ehCliente: true } : { ehFornecedor: true }) }, orderBy: { nome: 'asc' } });
     linhas = ps.map((p) => { const base = [p.documento, p.nome, p.fantasia, p.inscricaoEstadual, p.email, p.telefone, p.cep, p.logradouro, p.numero, p.complemento, p.bairro, p.municipio, p.uf].map((v) => v ?? ''); return e === 'clientes' ? [...base, reais(p.limiteCreditoCents), p.observacoes ?? ''] : [...base, p.observacoes ?? '']; });

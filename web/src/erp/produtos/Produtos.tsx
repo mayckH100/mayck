@@ -5,7 +5,8 @@ import { useAuth } from '../../auth';
 import { useApi, Async, Empty, Modal, Field, useAction } from '../../ui';
 import ImportarExportar from '../ImportarExportar';
 import { brl, qtd, toCents, fromCents, toMil } from '../format';
-import { UNIDADES_CADASTRO, unidadeValida, unidadeLegivel, qtdUn } from '../../../../server/erp/shared/unidade';
+import { UNIDADES_CADASTRO, unidadeValida, unidadeLegivel, qtdUn, nomeUnidade, numeroQtd } from '../../../../server/erp/shared/unidade';
+import { descricaoEmbalagem } from '../../../../server/erp/shared/embalagem';
 
 export default function Produtos() {
   const [q, setQ] = useState(''); const [query, setQuery] = useState('');
@@ -32,7 +33,7 @@ export default function Produtos() {
           <tbody>{d.items.map((p: any) => (
             <tr key={p.id} style={{ opacity: p.ativo ? 1 : 0.5 }}>
               <td><code>{p.sku}</code></td>
-              <td><strong>{p.nome}</strong>{!p.ativo && <span className="badge" style={{ marginLeft: 6 }}>arquivado</span>}<div className="small muted">{unidadeLegivel(p.unidade)}{p.ncm ? ` · NCM ${p.ncm}` : ''}{p.controlaValidade ? ' · ⏳ controla validade' : p.controlaLote ? ` · lote ${p.regraSaida}` : ''}</div></td>
+              <td><strong>{p.nome}</strong>{!p.ativo && <span className="badge" style={{ marginLeft: 6 }}>arquivado</span>}<div className="small muted">{unidadeLegivel(p.unidade)}{descricaoEmbalagem(p) ? ` · compra: ${descricaoEmbalagem(p)}` : ''}{p.ncm ? ` · NCM ${p.ncm}` : ''}{p.controlaValidade ? ' · ⏳ controla validade' : p.controlaLote ? ` · lote ${p.regraSaida}` : ''}</div></td>
               <td>{brl(p.precoBaseCents)}</td>
               <td>{p.tipo === 'SERVICO' ? '—' : <>{qtd(p.saldo.disponivelMil)} {p.abaixoMinimo && <span className="badge red">abaixo do mínimo</span>}{!p.abaixoMinimo && p.noPontoPedido && <span className="badge">repor</span>}</>}</td>
               <td>{p.tipo === 'SERVICO' ? '—' : qtd(p.saldo.reservadoMil)}</td>
@@ -61,7 +62,7 @@ function ProdutoForm({ inicial, onClose, onSaved }: { inicial: any; onClose: () 
   const [f, setF] = useState<any>({
     sku: inicial.sku ?? '', nome: inicial.nome ?? '', unidade: unidadeValida(inicial.unidade) ? String(inicial.unidade).toUpperCase() : 'UN', codigoBarras: inicial.codigoBarras ?? '', ncm: inicial.ncm ?? '', cest: inicial.cest ?? '',
     origem: inicial.origem ?? 0, tipo: inicial.tipo ?? 'REVENDA', controlaLote: !!inicial.controlaLote, controlaValidade: !!inicial.controlaValidade, regraSaida: inicial.regraSaida ?? 'FIFO',
-    preco: fromCents(inicial.precoBaseCents), custo: fromCents(inicial.custoMedioCents ?? 0), extras: (() => { try { return JSON.parse(inicial.custosAdicionais ?? '[]').map((c: any) => ({ nome: c.nome, valor: fromCents(c.valorCents) })); } catch { return []; } })(), fornecedor: inicial.fornecedorPadraoId ?? '', minimo: qtd(inicial.estoqueMinimoMil).replace(/\./g, ''), ponto: qtd(inicial.pontoPedidoMil).replace(/\./g, ''), lead: String(inicial.leadTimeDias ?? 0), loteMin: qtd(inicial.loteMinimoMil ?? 0).replace(/\./g, ''), ativo: inicial.ativo ?? true,
+    preco: fromCents(inicial.precoBaseCents), custo: fromCents(inicial.custoMedioCents ?? 0), extras: (() => { try { return JSON.parse(inicial.custosAdicionais ?? '[]').map((c: any) => ({ nome: c.nome, valor: fromCents(c.valorCents) })); } catch { return []; } })(), fornecedor: inicial.fornecedorPadraoId ?? '', minimo: qtd(inicial.estoqueMinimoMil).replace(/\./g, ''), ponto: qtd(inicial.pontoPedidoMil).replace(/\./g, ''), lead: String(inicial.leadTimeDias ?? 0), unidadeCompra: inicial.unidadeCompra && unidadeValida(inicial.unidadeCompra) ? String(inicial.unidadeCompra).toUpperCase() : '', fator: qtd(inicial.fatorCompraMil ?? 1000).replace(/\./g, ''), loteMin: qtd(inicial.loteMinimoMil ?? 0).replace(/\./g, ''), ativo: inicial.ativo ?? true,
   });
   const { busy, run } = useAction();
   const fornecedores = useApi<any>('/erp/crm/parceiros?tipo=fornecedor', []);
@@ -70,11 +71,14 @@ function ProdutoForm({ inicial, onClose, onSaved }: { inicial: any; onClose: () 
   const { can } = useAuth();
   const [editarCodigo, setEditarCodigo] = useState(false);
   const unidadeRuim = inicial.id && !unidadeValida(inicial.unidade);
-  const naLista = UNIDADES_CADASTRO.some((u) => u.sigla === f.unidade);
+  // v1.32.0: unidade só por lista. Uma sigla antiga válida fora da lista continua aparecendo para não se perder.
+  const opcoesUnidade = UNIDADES_CADASTRO.some((u) => u.sigla === f.unidade) ? UNIDADES_CADASTRO : [{ sigla: f.unidade, nome: f.unidade }, ...UNIDADES_CADASTRO];
+  const fatorMil = f.unidadeCompra ? toMil(f.fator || '0') : 1000;
+  const fatorOk = fatorMil > 0;
   async function salvar() {
     const body = { sku: f.sku.trim() || null, nome: f.nome, unidade: f.unidade, codigoBarras: f.codigoBarras || null, ncm: f.ncm || null, cest: f.cest || null, origem: Number(f.origem), tipo: f.tipo,
       controlaLote: f.controlaLote || f.controlaValidade, controlaValidade: f.controlaValidade, regraSaida: f.controlaValidade ? 'FEFO' : f.regraSaida,
-      precoBaseCents: toCents(f.preco), custoMedioCents: toCents(f.custo || '0'), custosAdicionais: f.extras.filter((c: any) => c.nome.trim()).map((c: any) => ({ nome: c.nome.trim(), valorCents: toCents(c.valor || '0') })), estoqueMinimoMil: toMil(f.minimo), pontoPedidoMil: toMil(f.ponto), leadTimeDias: Number(f.lead) || 0, loteMinimoMil: toMil(f.loteMin || '0'), fornecedorPadraoId: f.fornecedor || null, ativo: f.ativo, ...(senhaCusto ? { senhaCusto } : {}) };
+      precoBaseCents: toCents(f.preco), custoMedioCents: toCents(f.custo || '0'), custosAdicionais: f.extras.filter((c: any) => c.nome.trim()).map((c: any) => ({ nome: c.nome.trim(), valorCents: toCents(c.valor || '0') })), estoqueMinimoMil: toMil(f.minimo), pontoPedidoMil: toMil(f.ponto), leadTimeDias: Number(f.lead) || 0, loteMinimoMil: toMil(f.loteMin || '0'), fornecedorPadraoId: f.fornecedor || null, ativo: f.ativo, unidadeCompra: f.unidadeCompra || null, fatorCompraMil: f.unidadeCompra ? fatorMil : 1000, ...(senhaCusto ? { senhaCusto } : {}) };
     if (await run(() => (inicial.id ? put(`/erp/produtos/${inicial.id}`, body) : post('/erp/produtos', body)), 'Produto salvo')) onSaved();
   }
   return (
@@ -88,14 +92,20 @@ function ProdutoForm({ inicial, onClose, onSaved }: { inicial: any; onClose: () 
       </div>
       <Field label="Nome"><input value={f.nome} onChange={set('nome')} autoFocus={!inicial.id} /></Field>
       <div className="grid g2">
-        <Field label="Unidade de medida" hint={unidadeRuim ? `A unidade salva era “${inicial.unidade}”, que não é uma unidade. Confira e salve.` : 'Como você conta este produto no estoque'}>
-          <select value={naLista ? f.unidade : '__outra'} onChange={(e) => setF({ ...f, unidade: e.target.value === '__outra' ? '' : e.target.value })}>
-            {UNIDADES_CADASTRO.map((u) => <option key={u.sigla} value={u.sigla}>{u.nome} ({u.sigla})</option>)}
-            <option value="__outra">Outra sigla…</option>
+        <Field label="Unidade de estoque" hint={unidadeRuim ? `A unidade salva era “${inicial.unidade}”, que não é uma unidade. Confira e salve.` : 'Como você conta e vende: peça, quilo, metro...'}>
+          <select value={f.unidade} onChange={(e) => setF({ ...f, unidade: e.target.value, ...(e.target.value === f.unidadeCompra ? { unidadeCompra: '' } : {}) })}>
+            {opcoesUnidade.map((u) => <option key={u.sigla} value={u.sigla}>{u.nome} ({u.sigla})</option>)}
           </select>
-          {!naLista && <input value={f.unidade} onChange={(e) => setF({ ...f, unidade: e.target.value.toUpperCase() })} maxLength={6} placeholder="Ex.: BD, RESMA" aria-label="Outra sigla" style={{ marginTop: 4 }} />}
-          {!naLista && f.unidade && !unidadeValida(f.unidade) && <div className="small" style={{ color: '#dc2626' }}>Use letras (ex.: UN, CX, KG). Número sozinho não é unidade.</div>}
         </Field>
+        <Field label="Unidade de compra" hint="Como o fornecedor vende: pacote, caixa, rolo...">
+          <select value={f.unidadeCompra} onChange={(e) => setF({ ...f, unidadeCompra: e.target.value, fator: e.target.value ? f.fator : '1' })}>
+            <option value="">Mesma do estoque ({nomeUnidade(f.unidade, 1)})</option>
+            {UNIDADES_CADASTRO.filter((u) => u.sigla !== f.unidade).map((u) => <option key={u.sigla} value={u.sigla}>{u.nome} ({u.sigla})</option>)}
+          </select>
+        </Field>
+        {f.unidadeCompra && <Field label={`Quantos(as) ${nomeUnidade(f.unidade, 2)} vêm em cada ${nomeUnidade(f.unidadeCompra, 1)}`} hint={fatorOk ? `Ex.: 5 ${nomeUnidade(f.unidadeCompra, 5)} = ${numeroQtd(fatorMil * 5)} ${nomeUnidade(f.unidade, fatorMil * 5 / 1000)}` : 'Informe um número maior que zero'}>
+          <input value={f.fator} onChange={set('fator')} inputMode="decimal" aria-label="Quantidade por embalagem" />
+        </Field>}
         <Field label="Preço base (R$)"><input value={f.preco} onChange={set('preco')} inputMode="decimal" /></Field>
         <Field label="Custo (R$)" hint={inicial.custoPorXml ? 'Veio da nota fiscal (XML): alterar pede sua senha e fica no log' : 'Custo inicial; as entradas de estoque atualizam pelo custo médio'}><input value={f.custo} onChange={set('custo')} inputMode="decimal" /></Field>
         {inicial.custoPorXml && toCents(f.custo || '0') !== (inicial.custoMedioCents ?? 0) && <Field label="Sua senha (para alterar o custo da nota)"><input type="password" autoComplete="current-password" value={senhaCusto} onChange={(e) => setSenhaCusto(e.target.value)} /></Field>}
@@ -127,12 +137,12 @@ function ProdutoForm({ inicial, onClose, onSaved }: { inicial: any; onClose: () 
           <Field label={`Estoque mínimo (${qtdUn(2000, f.unidade).replace(/^2 /, '')})`}><input value={f.minimo} onChange={set('minimo')} inputMode="decimal" /></Field>
           <Field label="Estimativa de compra"><input value={f.ponto} onChange={set('ponto')} inputMode="decimal" /></Field>
           <Field label="Prazo de compra/fabricação (dias)"><input value={f.lead} onChange={set('lead')} inputMode="numeric" /></Field>
-          <Field label="Lote mínimo de compra/produção"><input value={f.loteMin} onChange={set('loteMin')} inputMode="decimal" /></Field>
+          <Field label={`Lote mínimo de compra/produção (${nomeUnidade(f.unidade, 2)})`}><input value={f.loteMin} onChange={set('loteMin')} inputMode="decimal" /></Field>
         </div>
       </>}
       {inicial.id && inicial.controlaValidade && <LotesValidade produtoId={inicial.id} unidade={f.unidade} />}
       <label className="row small"><input type="checkbox" checked={f.ativo} onChange={set('ativo')} /> Ativo (desmarque para arquivar: some das buscas de venda, mas o histórico fica)</label>
-      <div className="row" style={{ justifyContent: 'flex-end', marginTop: 10 }}><button className="btn" onClick={onClose}>Cancelar</button><button className="btn primary" disabled={busy || f.nome.length < 2 || !unidadeValida(f.unidade)} onClick={salvar}>Salvar</button></div>
+      <div className="row" style={{ justifyContent: 'flex-end', marginTop: 10 }}><button className="btn" onClick={onClose}>Cancelar</button><button className="btn primary" disabled={busy || f.nome.length < 2 || !unidadeValida(f.unidade) || !fatorOk} onClick={salvar}>Salvar</button></div>
     </Modal>
   );
 }

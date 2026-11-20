@@ -7,6 +7,8 @@ import { qtd, toMil, toCents } from '../format';
 import EntradaXml from './EntradaXml';
 import Etiquetas from './Etiquetas';
 import Inventarios from './Inventarios';
+import { AjudaEmbalagem } from '../comum';
+import { nomeUnidade } from '../../../../server/erp/shared/unidade';
 
 export default function Estoque() {
   const [aba, setAba] = useState<'saldos' | 'xml' | 'etiquetas' | 'inventarios' | 'movimentos' | 'depositos'>('saldos');
@@ -113,11 +115,12 @@ function Movimento({ modal, depositos, onClose, onDone }: { modal: any; deposito
         )}
         <Field label="Endereço"><select value={f.enderecoId} onChange={set('enderecoId')}><option value="">Escolha…</option>{enderecos.map((e) => <option key={e.id} value={e.id}>{e.label}</option>)}</select></Field>
         <div className="grid g2">
-          <Field label={`Quantidade${f.produto ? ` (${f.produto.unidade})` : ''}`}><input value={f.qtd} onChange={set('qtd')} inputMode="decimal" /></Field>
-          <Field label="Custo unitário (R$)" hint="Entra no custo médio"><input value={f.custo} onChange={set('custo')} inputMode="decimal" /></Field>
+          <Field label={`Quantidade${f.produto ? ` (${nomeUnidade(f.produto.unidade, 2)})` : ''}`}><input value={f.qtd} onChange={set('qtd')} inputMode="decimal" /></Field>
+          <Field label={`Custo por ${f.produto ? nomeUnidade(f.produto.unidade, 1) : 'unidade'} (R$)`} hint="Entra no custo médio"><input value={f.custo} onChange={set('custo')} inputMode="decimal" /></Field>
           <Field label="Lote do fabricante (opcional)" hint="O que vem impresso na caixa/embalagem"><input value={f.fabricante} onChange={set('fabricante')} maxLength={40} /></Field>
           {f.produto?.controlaValidade && <Field label="Validade *" hint="Obrigatória: este produto controla validade"><input type="date" value={f.validade} onChange={set('validade')} required /></Field>}
         </div>
+        <AjudaEmbalagem produto={f.produto} qtd={f.qtd ?? ''} setQtd={(v) => setF({ ...f, qtd: v })} preco={f.custo ?? ''} setPreco={(v) => setF({ ...f, custo: v })} />
         <p className="small muted" style={{ margin: '2px 0 6px' }}>O <strong>lote interno</strong> é criado pelo sistema nesta entrada (ex.: L2611-0001) e sai na etiqueta.</p>
         {f.produto?.controlaLote && <label className="row small"><input type="checkbox" checked={f.quarentena} onChange={set('quarentena')} /> Entrar em quarentena (aguardando inspeção)</label>}
         <Field label="Motivo"><input value={f.motivo} onChange={set('motivo')} placeholder="Saldo inicial, compra avulsa…" /></Field>

@@ -27,15 +27,15 @@ describe('alerta diário v1.30.0 · sugestão de compra', () => {
   it('sem consumo: compra o que falta para o mínimo', () => {
     expect(sugestaoCompra({ saldoMil: 4000, minimoMil: 10_000, consumoMil: 0, consumoDias: 30, coberturaDias: 30 })).toMatchObject({ faltaMil: 6000, sugeridaMil: 6000, duraDias: null });
   });
-  it('com consumo: cobre os dias escolhidos e ainda fica no mínimo', () => {
-    // 1,2/dia × 30 dias = 36 + mínimo 10 − saldo 4 = 42
+  it('com consumo: cobre os dias escolhidos (v1.32.0: consumo × dias − saldo, nunca abaixo do mínimo)', () => {
+    // 1,2/dia × 30 dias = 36 − saldo 4 = 32 (antes somava o mínimo: 42)
     const s = sugestaoCompra({ saldoMil: 4000, minimoMil: 10_000, consumoMil: 36_000, consumoDias: 30, coberturaDias: 30 });
-    expect(s.sugeridaMil).toBe(42_000);
+    expect(s.sugeridaMil).toBe(32_000);
     expect(s.duraDias).toBe(3);
   });
   it('arredonda para unidade inteira, soma prazo do fornecedor e respeita lote mínimo', () => {
-    expect(sugestaoCompra({ saldoMil: 0, minimoMil: 1500, consumoMil: 1000, consumoDias: 30, coberturaDias: 30 }).sugeridaMil).toBe(3000);
-    expect(sugestaoCompra({ saldoMil: 0, minimoMil: 1000, consumoMil: 30_000, consumoDias: 30, coberturaDias: 10, leadTimeDias: 5 }).sugeridaMil).toBe(16_000);
+    expect(sugestaoCompra({ saldoMil: 0, minimoMil: 1500, consumoMil: 1000, consumoDias: 30, coberturaDias: 30 }).sugeridaMil).toBe(2000); // mínimo 1,5 → 2 inteiras
+    expect(sugestaoCompra({ saldoMil: 0, minimoMil: 1000, consumoMil: 30_000, consumoDias: 30, coberturaDias: 10, leadTimeDias: 5 }).sugeridaMil).toBe(15_000);
     expect(sugestaoCompra({ saldoMil: 0, minimoMil: 1000, consumoMil: 0, consumoDias: 30, coberturaDias: 30, loteMinimoMil: 24_000 }).sugeridaMil).toBe(24_000);
   });
 });
@@ -66,8 +66,8 @@ describe('alerta diário v1.30.0 · texto', () => {
     expect(txt).toMatch(/\*6\. ✏️ Alterações de ontem/);
     expect(txt).toContain('*1) Café 500 g* (cód. CAF-500)\n📦 Tem hoje: 4 unidades\n🎯 Estoque mínimo: 10 unidades');
     expect(txt).toContain('📉 Vende em média 1,2 unidade por dia · dura uns 3 dias');
-    expect(txt).toContain('🛒 *Comprar: 42 unidades*\n   _(para ficar com estoque para 30 dias de vendas e ainda manter o mínimo)_');
-    expect(txt).toContain('💲 Preço por unidade: *R$ 12,50* (última compra)\n💰 *Total da compra: R$ 525,00*\n🏭 Fornecedor: Distribuidora Boa Vista');
+    expect(txt).toContain('🛒 *Comprar: 32 unidades*\n   _(para ficar com estoque para 30 dias de vendas)_');
+    expect(txt).toContain('💲 Preço por unidade: *R$ 12,50* (último pedido de compra)\n💰 *Total da compra: R$ 400,00*\n🏭 Fornecedor: Distribuidora Boa Vista');
     expect(txt).toContain('🏭 Fornecedor: não cadastrado');
     expect(txt).toContain('_(para voltar ao estoque mínimo)_');
     expect(txt).toContain('Código da aprovação: *K7P2*');

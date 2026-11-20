@@ -4,6 +4,8 @@
  * e divisão em mais de uma mensagem quando fica longo.
  */
 import { qtdUn, nomeUnidade } from '../shared/unidade.js';
+import { calcularCompra, saidaMediaTexto } from '../compras/sugestao.js';
+import { linhaCompra, qtdComEmbalagem, temEmbalagem, fatorDe, precoPorEmbalagem, unidadeCompraDe } from '../shared/embalagem.js';
 export { qtdUn, nomeUnidade, unidadeLegivel } from '../shared/unidade.js';
 
 export const brl = (c: number) => (c / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }).replace(/\u00a0/g, ' ');
@@ -24,19 +26,13 @@ export interface EntradaSugestao {
 export interface Sugestao { faltaMil: number; consumoDiaMil: number; duraDias: number | null; sugeridaMil: number }
 
 /**
- * Quanto comprar: o que falta para o mínimo ou, com consumo, o suficiente para cobrir `coberturaDias` (+ prazo do
- * fornecedor) e ainda ficar no mínimo. Respeita o lote mínimo de compra e arredonda para unidade inteira.
+ * Quanto comprar (v1.32.0: mesma regra da tela Compras › O que comprar, em compras/sugestao.ts): saída média por dia ×
+ * dias de cobertura (+ prazo do fornecedor) − o que tem hoje; nunca menos que o necessário para voltar ao mínimo;
+ * respeita o lote mínimo e arredonda para cima. Mantida com a assinatura antiga para quem já usava.
  */
 export function sugestaoCompra(e: EntradaSugestao): Sugestao {
-  const saldo = Math.max(0, e.saldoMil);
-  const faltaMil = Math.max(0, e.minimoMil - saldo);
-  const consumoDiaMil = e.consumoDias > 0 ? Math.max(0, e.consumoMil) / e.consumoDias : 0;
-  const duraDias = consumoDiaMil > 0 ? Math.floor(saldo / consumoDiaMil) : null;
-  const alvo = e.minimoMil + Math.ceil(consumoDiaMil * (e.coberturaDias + Math.max(0, e.leadTimeDias ?? 0)));
-  let sug = Math.max(faltaMil, alvo - saldo);
-  if (e.loteMinimoMil && e.loteMinimoMil > 0) sug = Math.max(sug, e.loteMinimoMil);
-  sug = Math.ceil(sug / 1000) * 1000; // unidade inteira
-  return { faltaMil, consumoDiaMil, duraDias, sugeridaMil: Math.max(sug, 0) };
+  const r = calcularCompra({ saldoMil: e.saldoMil, minimoMil: e.minimoMil, consumoMil: e.consumoMil, janelaDias: e.consumoDias, coberturaDias: e.coberturaDias, leadTimeDias: e.leadTimeDias, loteMinimoMil: e.loteMinimoMil });
+  return { faltaMil: r.faltaMinimoMil, consumoDiaMil: r.consumoDiaMil, duraDias: r.duraDias, sugeridaMil: r.sugeridaMil };
 }
 
 // ---------------- Dados do alerta ----------------
@@ -46,6 +42,8 @@ export interface ItemEstoqueBaixo {
   saldoMil: number; minimoMil: number; sugestao: Sugestao; consumoDias: number; coberturaDias: number;
   fornecedorId: string | null; fornecedorNome: string | null; custoUnitCents: number; custoOrigem: 'compra' | 'entrada' | 'medio' | null;
   leadTimeDias?: number; loteMinimoMil?: number;
+  /** v1.32.0: embalagem de compra (pacote com 10 peças...), o porquê da sugestão e o que já foi pedido. */
+  unidadeCompra?: string | null; fatorCompraMil?: number | null; motivo?: string; aCaminhoMil?: number; base?: '30d' | '90d' | 'minimo';
 }
 export interface ItemParado { sku: string; nome: string; unidade: string; saldoMil: number; diasParado: number | null; ultimaSaida: Date | null; valorCents: number }
 export interface LoteValidade { sku: string; nome: string; unidade: string; lote: string; loteFabricante?: string | null; validade: Date; dias: number; saldoMil: number; valorCents: number }
@@ -75,8 +73,9 @@ const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 /** "20 de novembro" (sem números lado a lado). */
 const dataExtenso = (iso: string) => new Date(`${iso}T12:00:00Z`).toLocaleDateString('pt-BR', { timeZone: 'UTC', day: 'numeric', month: 'long' });
 
-/** Valor estimado de um item sugerido (quantidade × último custo). */
-export const estimadoItem = (i: Pick<ItemEstoqueBaixo, 'sugestao' | 'custoUnitCents'>) => Math.round((i.sugestao.sugeridaMil * i.custoUnitCents) / 1000);
+/** Valor estimado de um item sugerido (quantidade × último custo; com embalagem, embalagens × preço da embalagem). */
+export const estimadoItem = (i: Pick<ItemEstoqueBaixo, 'sugestao' | 'custoUnitCents'> & { unidade?: string; unidadeCompra?: string | null; fatorCompraMil?: number | null }) =>
+  linhaCompra(i.sugestao.sugeridaMil, i.custoUnitCents, { unidade: i.unidade, unidadeCompra: i.unidadeCompra, fatorCompraMil: i.fatorCompraMil }).totalCents;
 
 export const temConteudo = (d: DadosAlerta) =>
   !!(d.pagar?.length || d.estoqueBaixo?.length || d.parados?.itens.length || d.validade?.lotes.length || d.caixa?.length || d.alteracoes?.length);
@@ -92,7 +91,7 @@ function resto(n: number) { return n > MAX_LINHAS ? [`… e mais ${n - MAX_LINHA
 
 const DIA_MS = 86_400_000;
 const linhaCodigo = (nome: string, sku: string) => `*${nome}*${sku ? ` (cód. ${sku})` : ''}`;
-const ORIGEM_CUSTO: Record<string, string> = { compra: 'última compra', entrada: 'última entrada no estoque', medio: 'custo médio' };
+const ORIGEM_CUSTO: Record<string, string> = { compra: 'último pedido de compra', entrada: 'última entrada no estoque', medio: 'custo do cadastro' };
 
 function secaoPagar(contas: ContaPagar[], hoje: Date): string[] {
   const situacao = (t: ContaPagar) => (t.vencimento < hoje ? `🔴 venceu em ${ddmm(t.vencimento)}` : t.vencimento.getTime() < hoje.getTime() + DIA_MS ? '🟠 vence hoje' : `vence em ${ddmm(t.vencimento)}`);
@@ -112,12 +111,13 @@ function secaoPagar(contas: ContaPagar[], hoje: Date): string[] {
 /** Por que comprar essa quantidade, em uma frase simples. */
 export function motivoQuantidade(i: Pick<ItemEstoqueBaixo, 'sugestao' | 'coberturaDias' | 'minimoMil' | 'saldoMil'> & { loteMinimoMil?: number; leadTimeDias?: number }): string {
   const s = i.sugestao;
+  const falta = Math.ceil(s.faltaMil / 1000) * 1000;
   if (s.consumoDiaMil > 0) {
     const dias = i.coberturaDias + Math.max(0, i.leadTimeDias ?? 0);
-    return `para ficar com estoque para ${plural(dias, 'dia', 'dias')} de vendas e ainda manter o mínimo`;
+    if (Math.ceil(s.consumoDiaMil * dias) >= s.faltaMil) return `para ficar com estoque para ${plural(dias, 'dia', 'dias')} de vendas`;
   }
-  const falta = Math.ceil(s.faltaMil / 1000) * 1000;
-  if (s.sugeridaMil > falta) return 'é o lote mínimo de compra deste produto';
+  if (s.sugeridaMil > falta && (i.loteMinimoMil ?? 0) > 0) return 'é o lote mínimo de compra deste produto';
+  if (s.sugeridaMil > falta && s.consumoDiaMil <= 0) return 'é o lote mínimo de compra deste produto';
   return 'para voltar ao estoque mínimo';
 }
 
@@ -126,22 +126,24 @@ function secaoEstoque(itens: ItemEstoqueBaixo[], codigo: string | null | undefin
   const lista = itens.slice(0, MAX_LINHAS);
   const totalEst = lista.reduce((a, i) => a + estimadoItem(i), 0);
   const zerados = itens.filter((i) => i.saldoMil <= 0).length;
-  L.push(`${plural(itens.length, 'produto está abaixo', 'produtos estão abaixo')} do estoque mínimo${zerados ? ` (${zerados} sem nenhuma unidade)` : ''}.`);
+  L.push(`${plural(itens.length, 'produto para comprar', 'produtos para comprar')} (abaixo do estoque mínimo${zerados ? `; ${zerados} sem nenhuma unidade` : ''}).`);
   if (totalEst) L.push(`Total da compra sugerida: *${brl(totalEst)}*`);
   lista.forEach((i, n) => {
     const s = i.sugestao; const u = i.unidade;
+    const emb = { unidade: u, unidadeCompra: i.unidadeCompra, fatorCompraMil: i.fatorCompraMil };
     L.push('', `*${n + 1}) ${i.nome}*${i.sku ? ` (cód. ${i.sku})` : ''}${i.saldoMil <= 0 ? ' ⚠️ acabou' : ''}`);
     L.push(`📦 Tem hoje: ${qtdUn(Math.max(0, i.saldoMil), u)}`);
     L.push(`🎯 Estoque mínimo: ${qtdUn(i.minimoMil, u)}`);
     if (s.consumoDiaMil > 0) {
-      const dia = Math.round(s.consumoDiaMil);
-      L.push(`📉 Vende em média ${qtdUn(dia, u)} por dia${s.duraDias !== null ? ` · ${s.duraDias <= 0 ? 'já acabou' : `dura uns ${plural(s.duraDias, 'dia', 'dias')}`}` : ''}`);
-    } else L.push(`📉 Nenhuma venda nos últimos ${i.consumoDias} dias`);
-    L.push(`🛒 *Comprar: ${qtdUn(s.sugeridaMil, u)}*`);
-    L.push(`   _(${motivoQuantidade(i)})_`);
+      L.push(`📉 Vende em média ${saidaMediaTexto(s.consumoDiaMil, u).replace(/^~/, '')}${s.duraDias !== null ? ` · ${i.saldoMil <= 0 ? 'já acabou' : s.duraDias <= 0 ? 'acaba hoje' : `dura uns ${plural(s.duraDias, 'dia', 'dias')}`}` : ''}`);
+    } else L.push(`📉 Nenhuma venda nos últimos ${i.base ? 90 : i.consumoDias} dias`);
+    L.push(`🛒 *Comprar: ${qtdComEmbalagem(s.sugeridaMil, emb)}*`);
+    L.push(`   _(${i.motivo ?? motivoQuantidade(i)})_`);
+    if (i.aCaminhoMil && i.aCaminhoMil > 0) L.push(`🚚 Já pedido e ainda não chegou: ${qtdUn(i.aCaminhoMil, u)}`);
     const est = estimadoItem(i);
     if (i.custoUnitCents > 0) {
-      L.push(`💲 Preço por ${nomeUnidade(u, 1)}: *${brl(i.custoUnitCents)}*${i.custoOrigem ? ` (${ORIGEM_CUSTO[i.custoOrigem]})` : ''}`);
+      if (temEmbalagem(emb)) L.push(`💲 Preço: *${brl(precoPorEmbalagem(i.custoUnitCents, fatorDe(emb)))}* por ${nomeUnidade(unidadeCompraDe(emb), 1)} · ${brl(i.custoUnitCents)} por ${nomeUnidade(u, 1)}${i.custoOrigem ? ` (${ORIGEM_CUSTO[i.custoOrigem]})` : ''}`);
+      else L.push(`💲 Preço por ${nomeUnidade(u, 1)}: *${brl(i.custoUnitCents)}*${i.custoOrigem ? ` (${ORIGEM_CUSTO[i.custoOrigem]})` : ''}`);
       if (est) L.push(`💰 *Total da compra: ${brl(est)}*`);
     } else L.push('💲 Preço: sem custo cadastrado (informe no pedido de compra)');
     L.push(`🏭 Fornecedor: ${i.fornecedorNome ?? 'não cadastrado'}`);

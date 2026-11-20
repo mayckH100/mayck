@@ -38,13 +38,20 @@ export const produtoSchema = z.object({
   // v1.31.0: só sigla (UN, CX, KG, M2...). Número puro ("30") era aceito e virava "Saldo: 5 30" no alerta.
   unidade: z.string().trim().max(6).nullish().transform((v) => (v ? v.toUpperCase() : 'UN'))
     .refine((v) => unidadeValida(v), 'Unidade: use uma sigla como UN, CX, KG ou PCT (número sozinho não vale; a quantidade vai no estoque)'),
+  // v1.32.0: unidade de compra (embalagem) + quantas unidades de estoque vêm em cada uma (milésimos; 10 peças = 10000).
+  // Opcionais sem padrão: quem não manda (tela/planilha antigas) não apaga o que já está salvo.
+  unidadeCompra: z.string().trim().max(6).nullish().transform((v) => (v ? v.toUpperCase() : null))
+    .refine((v) => v === null || unidadeValida(v), 'Unidade de compra: escolha da lista (pacote, caixa, rolo...)').optional(),
+  fatorCompraMil: z.number().int().min(1, 'Quantidade por embalagem deve ser maior que zero').max(1_000_000_000).optional(),
   ncm: z.string().nullish().transform((v) => (v ? v.replace(/\D/g, '') || null : null)).refine((v) => !v || v.length === 8, 'NCM deve ter 8 dígitos'),
   cest: opt(9), origem: z.number().int().min(0).max(8).default(0), pesoGramas: z.number().int().min(0).max(100_000_000).default(0),
   controlaLote: z.boolean().default(false), controlaValidade: z.boolean().default(false), regraSaida: z.enum(['FIFO', 'FEFO']).default('FIFO'),
   estoqueMinimoMil: z.number().int().min(0).default(0), pontoPedidoMil: z.number().int().min(0).default(0),
   leadTimeDias: z.number().int().min(0).max(730).default(0), loteMinimoMil: z.number().int().min(0).default(0), fornecedorPadraoId: z.string().nullish(),
   precoBaseCents: cents.default(0), custoMedioCents: cents.optional(), custosAdicionais: z.array(z.object({ nome: z.string().trim().min(1).max(60), valorCents: cents })).max(20).default([]).transform((l) => JSON.stringify(l)), tipo: z.enum(['REVENDA', 'PRODUZIDO', 'INSUMO', 'SERVICO']).default('REVENDA'), ativo: z.boolean().default(true),
-}).refine((p) => !p.controlaValidade || p.controlaLote, { message: 'Controle de validade exige controle de lote', path: ['controlaValidade'] });
+}).refine((p) => !p.controlaValidade || p.controlaLote, { message: 'Controle de validade exige controle de lote', path: ['controlaValidade'] })
+  // Compra na própria unidade de estoque = sem embalagem (1 por 1).
+  .transform((p) => (p.unidadeCompra !== undefined && (p.unidadeCompra === null || p.unidadeCompra === p.unidade) ? { ...p, unidadeCompra: null, fatorCompraMil: 1000 } : p));
 
 /** Saldo agregado por produto (físico, reservado, quarentena, disponível). */
 async function saldosPorProduto(orgId: string, ids?: string[]) {

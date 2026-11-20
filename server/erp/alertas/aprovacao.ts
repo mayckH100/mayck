@@ -21,6 +21,7 @@ import { decryptOrNull } from '../../lib/crypto.js';
 import { erpLiberado } from '../../billing/erpAccess.js';
 import { samePhone, sendToStaffNumber } from '../../whatsapp/handoffNotify.js';
 import { proximoNumero } from '../compras/compras.routes.js';
+import { linhaCompra, temEmbalagem } from '../shared/embalagem.js';
 import { brl, estimadoItem, qtdUn, nomeUnidade, unidadeLegivel, type ItemEstoqueBaixo } from './formato.js';
 
 export const VALIDADE_MS = 48 * 3_600_000;
@@ -30,6 +31,8 @@ const MAX_MSGS = 50;
 export interface ItemAprovacao {
   n: number; produtoId: string; sku: string; nome: string; unidade: string; qtdMil: number;
   fornecedorId: string | null; fornecedorNome: string | null; custoUnitCents: number;
+  /** v1.32.0: embalagem de compra, para mostrar "5 pacotes (50 peças)". Aprovações antigas não têm (= sem embalagem). */
+  unidadeCompra?: string | null; fatorCompraMil?: number | null;
 }
 export interface ResumoPedido { tipo: 'pedido' | 'solicitacao'; id: string; numero: number; fornecedor: string | null; itens: number[]; totalCents: number }
 export interface EstadoAprovacao {
@@ -145,7 +148,7 @@ export async function telefonesAutorizados(orgId: string): Promise<string[]> {
 }
 
 export function itensDaAprovacao(lista: ItemEstoqueBaixo[]): ItemAprovacao[] {
-  return lista.map((i, k) => ({ n: k + 1, produtoId: i.produtoId, sku: i.sku, nome: i.nome, unidade: unidadeLegivel(i.unidade), qtdMil: i.sugestao.sugeridaMil, fornecedorId: i.fornecedorId, fornecedorNome: i.fornecedorNome, custoUnitCents: i.custoUnitCents }));
+  return lista.map((i, k) => ({ n: k + 1, produtoId: i.produtoId, sku: i.sku, nome: i.nome, unidade: unidadeLegivel(i.unidade), qtdMil: i.sugestao.sugeridaMil, fornecedorId: i.fornecedorId, fornecedorNome: i.fornecedorNome, custoUnitCents: i.custoUnitCents, unidadeCompra: i.unidadeCompra ?? null, fatorCompraMil: i.fatorCompraMil ?? null }));
 }
 
 /** Cria a aprovação do alerta de hoje (substitui as pendentes anteriores) e devolve o código. */
@@ -203,9 +206,11 @@ export function textoConfirmacao(codigo: string, docs: ResumoPedido[], itens: It
     L.push('', d.tipo === 'pedido' ? `📄 *Pedido de compra nº ${d.numero}* — ${d.fornecedor}` : `📝 *Solicitação de compra nº ${d.numero}* — sem fornecedor (para cotar)`);
     for (const n of d.itens) {
       const i = I.get(n); if (!i) continue;
-      const tot = Math.round((i.qtdMil * i.custoUnitCents) / 1000);
-      L.push(`*${n}) ${i.nome}*${i.sku ? ` (cód. ${i.sku})` : ''}`, `   🛒 Quantidade: ${qtdUn(i.qtdMil, i.unidade)}`,
-        ...(i.custoUnitCents ? [`   💲 Preço por ${nomeUnidade(i.unidade, 1)}: *${brl(i.custoUnitCents)}*`, `   💰 Total: *${brl(tot)}*`] : ['   💲 Sem preço de referência: informe no ERP antes de enviar']));
+      const emb = { unidade: i.unidade, unidadeCompra: i.unidadeCompra, fatorCompraMil: i.fatorCompraMil };
+      const lc = linhaCompra(i.qtdMil, i.custoUnitCents, emb);
+      const preco = temEmbalagem(emb) ? `   💲 Preço: *${lc.precoEmbalagem!.replace('/', ' por ')}* · ${lc.precoBase!.replace('/', ' por ')}` : `   💲 Preço por ${nomeUnidade(i.unidade, 1)}: *${brl(i.custoUnitCents)}*`;
+      L.push(`*${n}) ${i.nome}*${i.sku ? ` (cód. ${i.sku})` : ''}`, `   🛒 Quantidade: ${lc.quantidade}`,
+        ...(i.custoUnitCents ? [preco, `   💰 Total: *${brl(lc.totalCents)}*`] : ['   💲 Sem preço de referência: informe no ERP antes de enviar']));
     }
     if (d.totalCents) L.push(`Total deste pedido: *${brl(d.totalCents)}*`);
   }

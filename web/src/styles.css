@@ -276,3 +276,38 @@ tr:hover td { background: #fafcfb; }
 /* Número da versão (rodapé do menu e tela de entrada) */
 .versao-rodape { display: block; font-size: 11px; opacity: .7; text-align: center; text-decoration: none; color: inherit; padding: 2px 0; }
 .versao-rodape:hover { opacity: 1; text-decoration: underline; }
+
+/* Compras › O que comprar (v1.32.0) */
+.oqc-resumo { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-bottom: 6px; }
+.oqc-resumo .stat { padding: 12px 14px; }
+.oqc-resumo .stat .v { font-size: 22px; }
+.oqc-resumo select { margin-top: 4px; width: 100%; }
+.oqc-grupo { margin-bottom: 12px; padding: 12px 14px; }
+.oqc-grupo-cab { display: flex; justify-content: space-between; align-items: flex-end; gap: 10px; flex-wrap: wrap; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
+.oqc-tabela table { width: 100%; }
+.oqc-tabela th.num, .oqc-tabela td.num { text-align: right; white-space: nowrap; }
+.oqc-tabela td { vertical-align: top; }
+.oqc-motivo { max-width: 420px; }
+.oqc-tabela td[data-l="Produto"] { min-width: 230px; }
+.oqc-zerado td:first-child { box-shadow: inset 3px 0 0 var(--danger); }
+.oqc-qtd { display: inline-flex; align-items: center; gap: 6px; justify-content: flex-end; }
+.oqc-qtd input { width: 72px; text-align: right; }
+.oqc-rodape { position: sticky; bottom: 8px; display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; z-index: 5; }
+.oqc-total { font-size: 22px; font-weight: 800; }
+.embalagem-ajuda { margin-top: 6px; padding: 8px 10px; border: 1px dashed var(--line); border-radius: 8px; background: #fafafa; display: grid; gap: 4px; }
+.embalagem-ajuda label { display: grid; gap: 2px; }
+@media (max-width: 760px) {
+  .oqc-resumo { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  /* Celular: cada produto vira um cartão, com o rótulo de cada número ao lado. */
+  .oqc-tabela thead { display: none; }
+  .oqc-tabela table, .oqc-tabela tbody, .oqc-tabela tr, .oqc-tabela td { display: block; width: 100%; }
+  .oqc-tabela tr { position: relative; border: 1px solid var(--line); border-radius: 10px; padding: 10px 10px 6px 36px; margin: 10px 0; }
+  .oqc-tabela td { border: 0; padding: 3px 0; }
+  .oqc-tabela td:first-child { position: absolute; left: 10px; top: 10px; width: auto; padding: 0; box-shadow: none; }
+  .oqc-zerado { border-left: 4px solid var(--danger) !important; }
+  .oqc-tabela td.num { display: grid; grid-template-columns: auto 1fr; column-gap: 10px; text-align: right; white-space: normal; align-items: baseline; }
+  .oqc-tabela td.num::before { content: attr(data-l); color: var(--muted); font-size: 12px; text-align: left; grid-column: 1; grid-row: 1 / span 6; }
+  .oqc-tabela td.num > * { grid-column: 2; justify-self: end; }
+  .oqc-motivo { max-width: none; }
+  .oqc-rodape .btn { width: 100%; }
+}

@@ -5,19 +5,22 @@ import { useAuth } from '../../auth';
 import { useApi, Async, Empty, Modal, Field, useAction, fmtDate } from '../../ui';
 import { brl, qtd, toMil, toCents, fromCents } from '../format';
 import { BuscaParceiro, EditorItens, type LinhaItem } from '../comum';
+import OQueComprar from './OQueComprar';
+import { linhaCompra, qtdComEmbalagem, temEmbalagem } from '../../../../server/erp/shared/embalagem';
 
 const ST: Record<string, string> = { RASCUNHO: 'Rascunho', EM_APROVACAO: 'Em aprovação', APROVADA: 'Aprovada', APROVADO: 'Aprovado', REPROVADA: 'Reprovada', ATENDIDA: 'Atendida', CANCELADA: 'Cancelada', CANCELADO: 'Cancelado', ENVIADO: 'Enviado ao fornecedor', RECEBIDO_PARCIAL: 'Recebido em parte', RECEBIDO: 'Recebido', ABERTA: 'Aberta', ENCERRADA: 'Encerrada' };
 const ACAO: Record<string, string> = { ENVIAR: 'Enviar para aprovação', APROVAR: 'Aprovar', REPROVAR: 'Reprovar', CANCELAR: 'Cancelar', REABRIR: 'Reabrir', ATENDER: 'Marcar atendida', ENVIAR_FORNECEDOR: 'Marcar enviado ao fornecedor' };
 const precisaMotivo = (a: string) => ['REPROVAR', 'CANCELAR'].includes(a);
 
 export default function Compras() {
-  const [aba, setAba] = useState<'sol' | 'cot' | 'ped'>('ped');
+  const [aba, setAba] = useState<'oqc' | 'sol' | 'cot' | 'ped'>('oqc');
   return (
     <div className="page">
-      <div className="page-head"><div><h1>Compras</h1><p className="muted">Solicitação → cotação → pedido com alçada → recebimento pela NF-e (conferido contra o pedido).</p></div></div>
+      <div className="page-head"><div><h1>Compras</h1><p className="muted">O que comprar, pedidos de compra, solicitações e cotações.</p></div></div>
       <div className="row" style={{ marginBottom: 10, flexWrap: 'wrap' }}>
-        {(['ped', 'sol', 'cot'] as const).map((a) => <button key={a} className={`btn sm ${aba === a ? 'primary' : ''}`} onClick={() => setAba(a)}>{{ ped: 'Pedidos de compra', sol: 'Solicitações', cot: 'Cotações' }[a]}</button>)}
+        {(['oqc', 'ped', 'sol', 'cot'] as const).map((a) => <button key={a} className={`btn sm ${aba === a ? 'primary' : ''}`} onClick={() => setAba(a)}>{{ oqc: 'O que comprar', ped: 'Pedidos de compra', sol: 'Solicitações', cot: 'Cotações' }[a]}</button>)}
       </div>
+      {aba === 'oqc' && <OQueComprar />}
       {aba === 'sol' && <Solicitacoes />}
       {aba === 'cot' && <Cotacoes />}
       {aba === 'ped' && <PedidosCompra />}
@@ -157,7 +160,7 @@ function PedidoCompra({ id, onClose }: { id: string; onClose: () => void }) {
   function imprimir(p: any) {
     const w = window.open('', '_blank', 'width=800,height=900'); if (!w) return;
     const esc = (s: unknown) => String(s ?? '').replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]!));
-    w.document.write(`<!doctype html><html><head><title>Pedido de compra ${p.numero}</title><style>body{font-family:Arial;margin:24px}table{width:100%;border-collapse:collapse}td,th{border:1px solid #ccc;padding:6px;text-align:left}</style></head><body><h2>Pedido de compra nº ${p.numero}</h2><p>Fornecedor: <b>${esc(p.parceiro?.nome)}</b> · CNPJ ${esc(p.parceiro?.documento)}</p><p>Previsão de entrega: ${p.previsaoEntrega ? new Date(p.previsaoEntrega).toLocaleDateString('pt-BR') : '—'} · Condição: ${esc(p.condicao ?? '—')}</p><table><tr><th>Produto</th><th>Qtd</th><th>Preço un.</th><th>Total</th></tr>${p.itens.map((i: any) => `<tr><td>${esc(i.produto?.sku)} · ${esc(i.descricao)}</td><td>${qtd(i.qtdMil)} ${esc(i.produto?.unidade)}</td><td>${brl(i.precoUnitCents)}</td><td>${brl(i.totalCents)}</td></tr>`).join('')}</table><p>Frete: ${brl(p.freteCents)} · <b>Total: ${brl(p.totalCents)}</b></p><p>${esc(p.observacoes ?? '')}</p><p>Informe o número deste pedido na nota fiscal.</p></body></html>`);
+    w.document.write(`<!doctype html><html><head><title>Pedido de compra ${p.numero}</title><style>body{font-family:Arial;margin:24px}table{width:100%;border-collapse:collapse}td,th{border:1px solid #ccc;padding:6px;text-align:left}</style></head><body><h2>Pedido de compra nº ${p.numero}</h2><p>Fornecedor: <b>${esc(p.parceiro?.nome)}</b> · CNPJ ${esc(p.parceiro?.documento)}</p><p>Previsão de entrega: ${p.previsaoEntrega ? new Date(p.previsaoEntrega).toLocaleDateString('pt-BR') : '—'} · Condição: ${esc(p.condicao ?? '—')}</p><table><tr><th>Produto</th><th>Qtd</th><th>Preço un.</th><th>Total</th></tr>${p.itens.map((i: any) => `<tr><td>${esc(i.produto?.sku)} · ${esc(i.descricao)}</td><td>${esc(qtdComEmbalagem(i.qtdMil, i.produto ?? {}))}</td><td>${brl(i.precoUnitCents)}</td><td>${brl(i.totalCents)}</td></tr>`).join('')}</table><p>Frete: ${brl(p.freteCents)} · <b>Total: ${brl(p.totalCents)}</b></p><p>${esc(p.observacoes ?? '')}</p><p>Informe o número deste pedido na nota fiscal.</p></body></html>`);
     w.document.close(); setTimeout(() => { w.focus(); w.print(); }, 400);
   }
   return (
@@ -166,7 +169,7 @@ function PedidoCompra({ id, onClose }: { id: string; onClose: () => void }) {
         <>
           <p className="small"><b>Nº {p.numero}</b> · {p.parceiro?.fantasia || p.parceiro?.nome} · {ST[p.status] ?? p.status} · {brl(p.totalCents)}{p.precisaGestor && p.status === 'EM_APROVACAO' && <span className="badge red">acima da alçada</span>}</p>
           <table><thead><tr><th>Produto</th><th>Qtd</th><th>Recebido</th><th>Preço</th><th>Total</th></tr></thead>
-            <tbody>{p.itens.map((i: any) => <tr key={i.id}><td className="small">{i.produto?.sku} · {i.descricao}</td><td>{qtd(i.qtdMil)}</td><td>{qtd(i.recebidoMil)}</td><td>{brl(i.precoUnitCents)}</td><td>{brl(i.totalCents)}</td></tr>)}</tbody></table>
+            <tbody>{p.itens.map((i: any) => <tr key={i.id}><td className="small">{i.produto?.sku} · {i.descricao}{i.produto && temEmbalagem(i.produto) && <div className="muted">{linhaCompra(i.qtdMil, i.precoUnitCents, i.produto).texto}</div>}</td><td>{qtdComEmbalagem(i.qtdMil, i.produto ?? {})}</td><td>{qtd(i.recebidoMil)}</td><td>{brl(i.precoUnitCents)}</td><td>{brl(i.totalCents)}</td></tr>)}</tbody></table>
           {p.nfes.length > 0 && <p className="small">Notas: {p.nfes.map((n: any) => `${n.numero}/${n.serie} (${n.status === 'LANCADA' ? 'lançada' : 'pendente'})`).join(', ')}</p>}
           <div className="row" style={{ justifyContent: 'flex-end', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
             <button className="btn ghost" onClick={() => imprimir(p)}>Imprimir / PDF</button>

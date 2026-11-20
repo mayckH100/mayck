@@ -7,8 +7,10 @@ import { prisma } from '../../db.js';
 import { janelaDoDia } from '../relatorios/relatorio.js';
 import { resumoDaSessao, resumoFechado } from '../vendas/caixa.routes.js';
 import type { OpcoesAlerta } from './opcoes.js';
+import { listarOQueComprar } from '../compras/oQueComprar.js';
+import { motivoCurto } from '../compras/sugestao.js';
 import {
-  sugestaoCompra, brl, qtdUn, unidadeLegivel,
+  brl, qtdUn, unidadeLegivel,
   type Alteracao, type ContaPagar, type DadosAlerta, type ItemEstoqueBaixo, type ItemParado, type LoteValidade, type SessaoCaixa,
 } from './formato.js';
 
@@ -59,37 +61,7 @@ async function contasPagar(orgId: string, diasAntes: number, hoje: Date): Promis
   });
 }
 
-type ProdutoBase = { id: string; sku: string; nome: string; unidade: string; estoqueMinimoMil: number; custoMedioCents: number; createdAt: Date; fornecedorPadraoId: string | null; leadTimeDias: number; loteMinimoMil: number };
-
-/** Fornecedor e custo de referência por produto: cadastro do produto → último pedido de compra → última entrada (lote). */
-export async function fornecedorECusto(orgId: string, produtos: ProdutoBase[]) {
-  const ids = produtos.map((p) => p.id);
-  const [itensPc, entradas] = await Promise.all([
-    prisma.erpPedidoCompraItem.findMany({ where: { produtoId: { in: ids }, pedido: { orgId, status: { not: 'CANCELADO' } } }, orderBy: { pedido: { createdAt: 'desc' } }, take: 1000, select: { produtoId: true, precoUnitCents: true, pedido: { select: { parceiroId: true } } } }),
-    prisma.erpMovimento.findMany({ where: { orgId, produtoId: { in: ids }, tipo: 'ENTRADA', qtdMil: { gt: 0 } }, orderBy: { createdAt: 'desc' }, take: 1000, select: { produtoId: true, loteId: true, custoUnitCents: true } }),
-  ]);
-  const ultPc = new Map<string, (typeof itensPc)[number]>();
-  for (const i of itensPc) if (!ultPc.has(i.produtoId)) ultPc.set(i.produtoId, i);
-  const ultEnt = new Map<string, (typeof entradas)[number]>();
-  for (const m of entradas) if (!ultEnt.has(m.produtoId)) ultEnt.set(m.produtoId, m);
-  const lotes = await prisma.erpLote.findMany({ where: { orgId, id: { in: [...ultEnt.values()].map((m) => m.loteId) }, fornecedorId: { not: null } }, select: { id: true, fornecedorId: true } });
-  const L = new Map(lotes.map((l) => [l.id, l.fornecedorId!]));
-  const fornId = new Map<string, string | null>();
-  for (const p of produtos) {
-    const e = ultEnt.get(p.id);
-    fornId.set(p.id, p.fornecedorPadraoId || ultPc.get(p.id)?.pedido.parceiroId || (e ? L.get(e.loteId) ?? null : null));
-  }
-  const parceiros = await prisma.erpParceiro.findMany({ where: { orgId, id: { in: [...new Set([...fornId.values()].filter((x): x is string => !!x))] } }, select: { id: true, nome: true, fantasia: true } });
-  const N = new Map(parceiros.map((p) => [p.id, p.fantasia || p.nome]));
-  const out = new Map<string, { fornecedorId: string | null; fornecedorNome: string | null; custoUnitCents: number; custoOrigem: ItemEstoqueBaixo['custoOrigem'] }>();
-  for (const p of produtos) {
-    const f = fornId.get(p.id) ?? null;
-    const pc = ultPc.get(p.id); const e = ultEnt.get(p.id);
-    const [custo, origem]: [number, ItemEstoqueBaixo['custoOrigem']] = pc && pc.precoUnitCents > 0 ? [pc.precoUnitCents, 'compra'] : e && e.custoUnitCents > 0 ? [e.custoUnitCents, 'entrada'] : p.custoMedioCents > 0 ? [p.custoMedioCents, 'medio'] : [0, null];
-    out.set(p.id, { fornecedorId: f && N.has(f) ? f : null, fornecedorNome: f ? N.get(f) ?? null : null, custoUnitCents: custo, custoOrigem: origem });
-  }
-  return out;
-}
+export { fornecedorECusto } from '../compras/oQueComprar.js';
 
 async function secoesEstoque(orgId: string, cfg: ConfigAlerta, op: OpcoesAlerta, hoje: Date, now: Date) {
   const res: { estoqueBaixo: ItemEstoqueBaixo[] | null; parados: DadosAlerta['parados']; validade: DadosAlerta['validade'] } = { estoqueBaixo: null, parados: null, validade: null };
@@ -100,17 +72,16 @@ async function secoesEstoque(orgId: string, cfg: ConfigAlerta, op: OpcoesAlerta,
   const fis = new Map(saldos.map((s) => [s.produtoId, s._sum.fisicoMil ?? 0]));
 
   if (cfg.alertaEstoqueMinimo) {
-    const abaixo = produtos.filter((p) => p.estoqueMinimoMil > 0 && (fis.get(p.id) ?? 0) < p.estoqueMinimoMil);
-    if (abaixo.length) {
-      const desde = new Date(now.getTime() - op.consumoDias * DIA);
-      const cons = await prisma.erpMovimento.groupBy({ by: ['produtoId'], where: { orgId, produtoId: { in: abaixo.map((p) => p.id) }, tipo: { in: ['SAIDA', 'CONSUMO'] }, createdAt: { gte: desde } }, _sum: { qtdMil: true } });
-      const C = new Map(cons.map((c) => [c.produtoId, Math.abs(c._sum.qtdMil ?? 0)]));
-      const FC = await fornecedorECusto(orgId, abaixo);
-      res.estoqueBaixo = abaixo.map((p) => {
-        const saldoMil = fis.get(p.id) ?? 0;
-        const sugestao = sugestaoCompra({ saldoMil, minimoMil: p.estoqueMinimoMil, consumoMil: C.get(p.id) ?? 0, consumoDias: op.consumoDias, coberturaDias: op.coberturaDias, leadTimeDias: p.leadTimeDias, loteMinimoMil: p.loteMinimoMil });
-        return { produtoId: p.id, sku: p.sku, nome: p.nome, unidade: unidadeLegivel(p.unidade), saldoMil, minimoMil: p.estoqueMinimoMil, sugestao, consumoDias: op.consumoDias, coberturaDias: op.coberturaDias, leadTimeDias: p.leadTimeDias, loteMinimoMil: p.loteMinimoMil, ...FC.get(p.id)! };
-      }).sort((a, b) => (a.saldoMil <= 0 ? 0 : 1) - (b.saldoMil <= 0 ? 0 : 1) || a.saldoMil / a.minimoMil - b.saldoMil / b.minimoMil);
+    // v1.32.0: mesma lista e mesma conta da tela Compras › O que comprar. Some quem já tem pedido cobrindo a falta.
+    const lista = (await listarOQueComprar(orgId, { coberturaDias: op.coberturaDias, janelaCurta: op.consumoDias, now })).filter((i) => i.sugeridaMil > 0);
+    if (lista.length) {
+      res.estoqueBaixo = lista.map((i): ItemEstoqueBaixo => ({
+        produtoId: i.produtoId, sku: i.sku, nome: i.nome, unidade: i.unidade, saldoMil: i.saldoMil, minimoMil: i.minimoMil,
+        sugestao: { faltaMil: i.calculo.faltaMinimoMil, consumoDiaMil: i.calculo.consumoDiaMil, duraDias: i.calculo.duraDias, sugeridaMil: i.sugeridaMil },
+        consumoDias: op.consumoDias, coberturaDias: op.coberturaDias, leadTimeDias: i.leadTimeDias, loteMinimoMil: i.loteMinimoMil,
+        fornecedorId: i.fornecedorId, fornecedorNome: i.fornecedorNome, custoUnitCents: i.custoUnitCents, custoOrigem: i.custoOrigem,
+        unidadeCompra: i.unidadeCompra, fatorCompraMil: i.fatorCompraMil, motivo: motivoCurto(i.calculo, i.unidade, { leadTimeDias: i.leadTimeDias, apenasQuantidade: true }), aCaminhoMil: i.aCaminhoMil, base: i.calculo.base,
+      }));
     }
   }
 

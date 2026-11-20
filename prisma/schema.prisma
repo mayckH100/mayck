@@ -1624,6 +1624,8 @@ model ErpProduto {
   descricao          String?
   codigoBarras       String?
   unidade            String   @default("UN") // UN, KG, CX, M...
+  unidadeCompra      String? // v1.32.0: embalagem de compra (PCT, CX, RL...); vazio = compra na própria unidade
+  fatorCompraMil     Int      @default(1000) // v1.32.0: unidades base por embalagem, em milésimos (10 peças = 10000; 2,5 kg = 2500)
   ncm                String?
   cest               String?
   origem             Int      @default(0) // 0 nacional ... 8 (tabela SEFAZ)

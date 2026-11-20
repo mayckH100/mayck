@@ -21,6 +21,21 @@ export type EntradaChangelog = {
 
 export const CHANGELOG: EntradaChangelog[] = [
   {
+    versao: '1.32.0',
+    data: '20/11/2026',
+    titulo: 'Compras: tela "O que comprar" e produtos comprados em pacote, caixa ou rolo',
+    itens: [
+      'Nova tela Compras › O que comprar: mostra só os produtos zerados ou abaixo do estoque mínimo, os que já acabaram primeiro e depois os que vão acabar antes.',
+      'Para cada produto: quanto tem hoje, o mínimo, quanto vende em média, quantos dias o estoque dura, quanto comprar (você pode mudar), o custo por unidade e o total. Os produtos ficam separados por fornecedor, com subtotal, e o total geral aparece no rodapé.',
+      'A quantidade sugerida vem das vendas e baixas dos últimos 30 dias (ou 90 dias, quando vende pouco), para durar 30 dias mais o prazo do fornecedor. Nunca fica abaixo do necessário para voltar ao mínimo e já desconta o que você pediu e ainda não chegou. Cada linha diz o porquê, por exemplo "vende ~2 por dia, dura 3 dias".',
+      'Botão "Gerar pedido de compra": cria um pedido em rascunho para cada fornecedor com as quantidades da tela. Produto sem fornecedor vira uma solicitação para cotar. Nada é enviado ao fornecedor sem você.',
+      'Unidade de compra no cadastro do produto: por exemplo, o estoque é contado em peças e o fornecedor vende em pacote com 10 peças. O sistema faz a conta (5 pacotes = 50 peças) e mostra o preço do pacote e da peça.',
+      'Na entrada de estoque e no pedido de compra você pode digitar em pacotes, caixas ou rolos; o estoque continua guardado em peças, quilos ou metros. Quilo, metro e litro aceitam números quebrados (ex.: 2,5 kg).',
+      'O alerta diário do WhatsApp usa a mesma conta da tela e mostra a compra em embalagens, por exemplo "6 pacotes (60 peças)", com o preço do pacote e da peça.',
+      'A unidade do produto é escolhida só pela lista. A planilha de produtos ganhou as colunas "Unidade de compra" e "Quantidade por embalagem".',
+    ],
+  },
+  {
     versao: '1.31.0',
     data: '20/11/2026',
     titulo: 'Alerta do ERP mais fácil de entender, lote e código do produto automáticos',

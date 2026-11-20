@@ -42,7 +42,7 @@ describe('ERP · alertas, contas da empresa, clientes × fornecedores, produto',
     expect(a?.texto).toContain('_Contas da empresa (água, luz...): 1 conta');
     expect(a?.texto).toContain('• *Luz* — Conta de luz');
     expect(a?.texto).toContain('📦 Estoque baixo');
-    expect(a?.texto).toContain('1 produto está abaixo do estoque mínimo');
+    expect(a?.texto).toContain('1 produto para comprar (abaixo do estoque mínimo');
     // produto acabou de ser criado: ainda não conta como parado
     expect(a?.texto).not.toContain('Produtos parados');
     const parado = await montarAlerta(orgId, { alertaDiasAntes: 3, alertaPagar: false, alertaEstoqueMinimo: false, alertaSemSaidaDias: 15 }, hoje, new Date(Date.now() + 20 * 86_400_000));

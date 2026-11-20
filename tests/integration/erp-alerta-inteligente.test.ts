@@ -36,7 +36,9 @@ describe('ERP · alerta diário inteligente (v1.30.0)', () => {
     // Consumo do café: 36 UN nos últimos 30 dias (saídas antigas inseridas direto no razão, sem mexer no saldo)
     const saldo = await prisma.erpSaldo.findFirstOrThrow({ where: { orgId: x.orgId, produtoId: x.cafe.id } });
     await prisma.erpMovimento.create({ data: { orgId: x.orgId, produtoId: x.cafe.id, loteId: saldo.loteId, enderecoId: saldo.enderecoId, tipo: 'SAIDA', qtdMil: -36_000, saldoAposMil: 0, createdAt: new Date(Date.now() - 10 * DIA) } });
-    // Ajuste manual: saldo do café cai para 4 (entra em "Alterações")
+    // Café cadastrado há 60 dias (a média usa a janela inteira de 30 dias; v1.32.0)
+    await prisma.erpProduto.update({ where: { id: x.cafe.id }, data: { createdAt: new Date(Date.now() - 60 * DIA) } });
+    // Ajuste manual: saldo do café cai para 4 (entra em "Alterações"; baixa manual também conta como saída)
     expect((await x.owner.post('/api/erp/estoque/ajuste', { saldoId: saldo.id, qtdMil: 6_000, motivo: 'Avaria na prateleira' })).status).toBe(200);
     // Lotes: um vencido (há 3 dias) e um vencendo (em 5 dias) com saldo
     expect((await x.owner.post('/api/erp/estoque/entrada', { produtoId: x.iog.id, enderecoId: x.end, qtdMil: 6_000, custoUnitCents: 300, lote: { numero: 'IOG-VENC', validade: isoMais(amanha, -3) } })).status).toBe(201);
@@ -60,9 +62,10 @@ describe('ERP · alerta diário inteligente (v1.30.0)', () => {
     expect(t).toMatch(/\*\d\. 📦 Estoque baixo: o que comprar\*/);
     expect(t).toMatch(/\*\d\) Café 500 g\* \(cód\. CAF-500\)/);
     expect(t).toContain('📦 Tem hoje: 4 unidades\n🎯 Estoque mínimo: 10 unidades');
-    expect(t).toContain('📉 Vende em média 1,2 unidade por dia');
-    expect(t).toContain('🛒 *Comprar: 42 unidades*');
-    expect(t).toContain('💲 Preço por unidade: *R$ 12,50* (última compra)\n💰 *Total da compra: R$ 525,00*\n🏭 Fornecedor: Boa Vista');
+    // v1.32.0: saídas 36 + baixa 6 = 42 em 30 dias = 1,4/dia × 30 dias − tem 4 − 1 já pedida (rascunho) = 37
+    expect(t).toContain('📉 Vende em média 1,4 unidade por dia · dura uns 2 dias');
+    expect(t).toContain('🛒 *Comprar: 37 unidades*\n   _(compra para 30 dias, desconta 1 unidade já pedida)_\n🚚 Já pedido e ainda não chegou: 1 unidade');
+    expect(t).toContain('💲 Preço por unidade: *R$ 12,00* (última entrada no estoque)\n💰 *Total da compra: R$ 444,00*\n🏭 Fornecedor: Boa Vista');
     expect(t).toMatch(/\*\d\) Açúcar 1 kg\* \(cód\. ACU-1\) ⚠️ acabou/);
     expect(t).toContain('Código da aprovação: (gerado no envio)');
     expect(t).toContain('⏳ Validade dos lotes');
@@ -107,6 +110,9 @@ describe('ERP · aprovação de compra pelo WhatsApp (v1.30.0)', () => {
   let atac1: any; let atac2: any;
   const pedidos = () => prisma.erpPedidoCompra.findMany({ where: { orgId: x.orgId }, include: { itens: true }, orderBy: { numero: 'asc' } });
   const novoAlerta = async () => {
+    // v1.32.0: o que já foi pedido e não chegou sai da sugestão. Aqui cada alerta novo simula que os pedidos anteriores
+    // chegaram (senão os mesmos itens não voltariam ao alerta e os testes de aprovação ficariam sem item).
+    await prisma.erpPedidoCompra.updateMany({ where: { orgId: x.orgId, status: { in: ['RASCUNHO', 'EM_APROVACAO', 'APROVADO', 'ENVIADO', 'RECEBIDO_PARCIAL'] } }, data: { status: 'RECEBIDO' } });
     const cfg = await prisma.erpConfig.findUniqueOrThrow({ where: { orgId: x.orgId } });
     return (await montarAlerta(x.orgId, cfg, agoraLocal('America/Sao_Paulo').dia, new Date(), { criarCodigo: true }))!;
   };
@@ -119,6 +125,7 @@ describe('ERP · aprovação de compra pelo WhatsApp (v1.30.0)', () => {
     expect((await x.owner.put('/api/erp/alertas', { alertaAtivo: true, telefones: ['11 97777-6666'], alertaHora: 8, alertaDiasAntes: 3, alertaPagar: true, alertaEstoqueMinimo: true, alertaSemSaidaDias: 15 })).status).toBe(200);
     const saldo = await prisma.erpSaldo.findFirstOrThrow({ where: { orgId: x.orgId, produtoId: x.cafe.id } });
     await x.owner.post('/api/erp/estoque/ajuste', { saldoId: saldo.id, qtdMil: 6_000, motivo: 'Avaria' });
+    await prisma.erpProduto.update({ where: { id: x.cafe.id }, data: { createdAt: new Date(Date.now() - 60 * DIA) } });
     atac1 = (await x.owner.post('/api/erp/crm/parceiros', { documento: fakeCnpj(), nome: 'Atacadão Centro', ehCliente: false, ehFornecedor: true })).body;
     atac2 = (await x.owner.post('/api/erp/crm/parceiros', { documento: fakeCnpj(), nome: 'Atacadão Zona Sul', ehCliente: false, ehFornecedor: true })).body;
   });
@@ -134,12 +141,13 @@ describe('ERP · aprovação de compra pelo WhatsApp (v1.30.0)', () => {
     const ps = await pedidos();
     expect(ps.length).toBe(antes + 1);
     const pc = ps[ps.length - 1];
-    expect(pc).toMatchObject({ status: 'RASCUNHO', parceiroId: x.forn.id, totalCents: 7_500 }); // sem consumo: compra o que falta (6 UN)
-    expect(pc.itens).toMatchObject([{ produtoId: x.cafe.id, qtdMil: 6_000, precoUnitCents: 1250 }]);
+    // v1.32.0: baixa de 6 em 30 dias (0,2/dia × 30 = 6) − tem 4 = 2, mas o mínimo pede 6; custo da última entrada (R$ 12,00)
+    expect(pc).toMatchObject({ status: 'RASCUNHO', parceiroId: x.forn.id, totalCents: 7_200 });
+    expect(pc.itens).toMatchObject([{ produtoId: x.cafe.id, qtdMil: 6_000, precoUnitCents: 1200 }]);
     expect(pc.observacoes).toContain(a.codigo!);
     const msgs = paraStaff();
     expect(msgs.join('\n')).toContain(`*Pedido de compra nº ${pc.numero}* — Boa Vista`);
-    expect(msgs.join('\n')).toContain('🛒 Quantidade: 6 unidades\n   💲 Preço por unidade: *R$ 12,50*\n   💰 Total: *R$ 75,00*');
+    expect(msgs.join('\n')).toContain('🛒 Quantidade: 6 unidades\n   💲 Preço por unidade: *R$ 12,00*\n   💰 Total: *R$ 72,00*');
     expect(msgs.join('\n')).toContain('/erp/compras');
     expect(msgs.join('\n')).toContain('De qual fornecedor quer comprar *Açúcar 1 kg* (cód. ACU-1)?');
     // a mensagem da equipe não virou contato/lead

@@ -23,6 +23,7 @@ export const UNIDADES_CADASTRO: { sigla: string; nome: string }[] = [
   ['UN', 'Unidade'], ['CX', 'Caixa'], ['PCT', 'Pacote'], ['PC', 'Peça'], ['KG', 'Quilo (kg)'], ['G', 'Grama (g)'], ['L', 'Litro'], ['ML', 'Mililitro (ml)'],
   ['M', 'Metro'], ['M2', 'Metro quadrado (m²)'], ['M3', 'Metro cúbico (m³)'], ['DZ', 'Dúzia'], ['PAR', 'Par'], ['FD', 'Fardo'], ['RL', 'Rolo'], ['SC', 'Saco'],
   ['FR', 'Frasco'], ['LATA', 'Lata'], ['GF', 'Garrafa'], ['KIT', 'Kit'], ['CJ', 'Conjunto'], ['FL', 'Folha'], ['TON', 'Tonelada'],
+  ['BOB', 'Bobina'], ['RESMA', 'Resma'], ['GL', 'Galão'], ['TB', 'Tubo'], ['BL', 'Bloco'], ['CT', 'Cartela'], ['BD', 'Balde'], ['SACHE', 'Sachê'], ['CM', 'Centímetro (cm)'],
 ].map(([sigla, nome]) => ({ sigla, nome }));
 
 /** Sigla válida: 1 a 6 caracteres, começa por letra e não é número puro (aceita M2, M3, PÇ). */

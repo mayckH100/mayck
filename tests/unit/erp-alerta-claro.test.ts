@@ -56,8 +56,8 @@ describe('alerta claro (exemplo real do Canetack)', () => {
     const s = sugestaoCompra({ saldoMil: 5000, minimoMil: 20_000, consumoMil: 60_000, consumoDias: 30, coberturaDias: 30 });
     const [t] = formatarAlerta(dados({ estoqueBaixo: [canetack({ unidade: 'UN', sugestao: s })] }), { limite: 100_000 });
     expect(t).toContain('📉 Vende em média 2 unidades por dia · dura uns 2 dias');
-    expect(t).toContain('🛒 *Comprar: 75 unidades*');
-    expect(t).toContain('_(para ficar com estoque para 30 dias de vendas e ainda manter o mínimo)_');
+    expect(t).toContain('🛒 *Comprar: 55 unidades*'); // v1.32.0: 2/dia × 30 dias − 5 (antes somava o mínimo: 75)
+    expect(t).toContain('_(para ficar com estoque para 30 dias de vendas)_');
   });
   it('lote mínimo explica a quantidade', () => {
     const s = sugestaoCompra({ saldoMil: 5000, minimoMil: 20_000, consumoMil: 0, consumoDias: 30, coberturaDias: 30, loteMinimoMil: 50_000 });

@@ -13,6 +13,8 @@ import { emitir, despacharEmBreve } from '../shared/events.js';
 import { vincular } from '../shared/trace.js';
 import { auditar } from '../shared/auditoria.js';
 import { configDa } from '../produtos/produtos.routes.js';
+import { listarOQueComprar } from './oQueComprar.js';
+import { lerOpcoes } from '../alertas/opcoes.js';
 import { maquinaSolicitacao, maquinaCompra, vencedoras, type StatusSolicitacao, type EventoSolicitacao, type StatusCompra, type EventoCompra } from './compra.machine.js';
 
 type Tx = Prisma.TransactionClient;
@@ -26,7 +28,7 @@ export async function proximoNumero(tx: Tx, orgId: string, campo: 'proximaSolici
   return (c[campo] as number) - 1;
 }
 async function produtosDe(orgId: string, ids: string[]) {
-  const ps = await prisma.erpProduto.findMany({ where: { orgId, id: { in: [...new Set(ids)] } }, select: { id: true, sku: true, nome: true, unidade: true, custoMedioCents: true } });
+  const ps = await prisma.erpProduto.findMany({ where: { orgId, id: { in: [...new Set(ids)] } }, select: { id: true, sku: true, nome: true, unidade: true, custoMedioCents: true, unidadeCompra: true, fatorCompraMil: true } });
   return new Map(ps.map((p) => [p.id, p]));
 }
 async function parceirosDe(orgId: string, ids: string[]) {
@@ -251,4 +253,56 @@ comprasRouter.post('/pedidos/:id/acao', ah(async (req, res) => {
   despacharEmBreve();
   await auditar(req, `pedido_compra.${evento.toLowerCase()}`, 'erp_pedido_compra', p.id, { status: p.status }, { status: novo.status });
   res.json(novo);
+}));
+
+// ---------------- O que comprar (v1.32.0) ----------------
+/** Lista do que comprar: zerados e abaixo do mínimo, com quantidade sugerida pelo histórico, custo e fornecedor. */
+comprasRouter.get('/o-que-comprar', ah(async (req, res) => {
+  const orgId = orgOf(req);
+  const cfg = await configDa(orgId);
+  const op = lerOpcoes(cfg.alertaOpcoes);
+  const q = Number(req.query.cobertura);
+  const coberturaDias = Number.isFinite(q) && q >= 1 && q <= 180 ? Math.round(q) : op.coberturaDias;
+  const itens = await listarOQueComprar(orgId, { coberturaDias, janelaCurta: op.consumoDias });
+  res.json({ coberturaDias, janelaDias: op.consumoDias, itens, totalCents: itens.reduce((a, i) => a + i.totalCents, 0) });
+}));
+
+/**
+ * Gera os pedidos de compra (RASCUNHO, um por fornecedor) com as quantidades da tela; itens sem fornecedor viram uma
+ * solicitação de compra (para cotar). Mesmos dados do POST /pedidos; nada é enviado ao fornecedor.
+ */
+comprasRouter.post('/o-que-comprar/gerar', ah(async (req, res) => {
+  const orgId = orgOf(req);
+  const b = z.object({ itens: z.array(z.object({ produtoId: z.string(), qtdMil: z.number().int().min(1).max(2_000_000_000), precoUnitCents: z.number().int().min(0).max(2_000_000_000), parceiroId: z.string().nullish() })).min(1, 'Escolha ao menos um produto').max(500) }).parse(req.body);
+  if (new Set(b.itens.map((i) => i.produtoId)).size !== b.itens.length) throw badRequest('Produto repetido na lista');
+  await validarProdutos(orgId, b.itens.map((i) => i.produtoId));
+  const fornIds = [...new Set(b.itens.map((i) => i.parceiroId).filter((x): x is string => !!x))];
+  const nF = await prisma.erpParceiro.count({ where: { orgId, id: { in: fornIds } } });
+  if (nF !== fornIds.length) throw badRequest('Fornecedor inválido');
+  const grupos = new Map<string | null, typeof b.itens>();
+  for (const i of b.itens) { const k = i.parceiroId || null; grupos.set(k, [...(grupos.get(k) ?? []), i]); }
+  const obs = 'Gerado pela tela "O que comprar" (quantidade sugerida pelo histórico de saídas).';
+  const prontos = new Map<string, Awaited<ReturnType<typeof montarItens>>>();
+  for (const [parceiroId, its] of grupos) if (parceiroId) prontos.set(parceiroId, await montarItens(orgId, its.map((i) => ({ produtoId: i.produtoId, qtdMil: i.qtdMil, precoUnitCents: i.precoUnitCents }))));
+  const docs = await prisma.$transaction(async (tx) => {
+    const out: { tipo: 'pedido' | 'solicitacao'; id: string; numero: number; parceiroId: string | null; totalCents: number }[] = [];
+    for (const [parceiroId, its] of grupos) {
+      if (parceiroId) {
+        const itens = prontos.get(parceiroId)!;
+        const totalCents = itens.reduce((a, i) => a + i.totalCents, 0);
+        const pc = await tx.erpPedidoCompra.create({ data: { orgId, numero: await proximoNumero(tx, orgId, 'proximoPedidoCompra'), parceiroId, status: 'RASCUNHO', observacoes: obs, totalCents, itens: { create: itens } } });
+        await tx.erpParceiro.updateMany({ where: { id: parceiroId, orgId, ehFornecedor: false }, data: { ehFornecedor: true } });
+        out.push({ tipo: 'pedido', id: pc.id, numero: pc.numero, parceiroId, totalCents });
+      } else {
+        const s = await tx.erpSolicitacaoCompra.create({ data: { orgId, numero: await proximoNumero(tx, orgId, 'proximaSolicitacao'), solicitanteId: req.auth?.userId ?? null, status: 'RASCUNHO', justificativa: `${obs} Sem fornecedor definido: cotar.`, itens: { create: its.map((i) => ({ produtoId: i.produtoId, qtdMil: i.qtdMil })) } } });
+        out.push({ tipo: 'solicitacao', id: s.id, numero: s.numero, parceiroId: null, totalCents: its.reduce((a, i) => a + Math.round((i.qtdMil * i.precoUnitCents) / 1000), 0) });
+      }
+    }
+    return out;
+  });
+  for (const d of docs) {
+    if (d.tipo === 'pedido') await auditar(req, 'pedido_compra.criar', 'erp_pedido_compra', d.id, null, { numero: d.numero, totalCents: d.totalCents, origem: 'o que comprar' });
+    else await auditar(req, 'solicitacao_compra.criar', 'erp_solicitacao_compra', d.id, null, { numero: d.numero, origem: 'o que comprar' });
+  }
+  res.status(201).json({ documentos: docs });
 }));
