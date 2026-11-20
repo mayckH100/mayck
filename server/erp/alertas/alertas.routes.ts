@@ -62,3 +62,14 @@ alertasRouter.post('/enviar-agora', ah(async (req, res) => {
   const texto = a?.partes ?? ['*MCK ERP · teste de alerta*\nTudo em dia: nenhuma conta vencendo e nenhum produto em alerta.'];
   res.json({ ...(await enviarAlerta(orgId, tels, texto)), partes: texto.length, codigo: a?.codigo ?? null });
 }));
+
+/** Últimas aprovações de compra pelo WhatsApp (código, situação, quem aprovou e documentos gerados). */
+alertasRouter.get('/aprovacoes', ah(async (req, res) => {
+  const orgId = orgOf(req);
+  const l = await prisma.erpAprovacaoCompra.findMany({ where: { orgId }, orderBy: { createdAt: 'desc' }, take: 10 });
+  res.json(l.map((a) => {
+    const itens = JSON.parse(a.itens) as { n: number; sku: string; nome: string }[];
+    const est = JSON.parse(a.estado || '{}') as { pedidos?: { tipo: string; numero: number; fornecedor: string | null; totalCents: number }[] };
+    return { codigo: a.codigo, dia: a.dia, status: a.status, itens: itens.length, aprovadoPor: a.aprovadoPor, aprovadoEm: a.aprovadoEm, expiraEm: a.expiraEm, documentos: est.pedidos ?? [] };
+  }));
+}));

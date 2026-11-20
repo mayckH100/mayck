@@ -253,5 +253,9 @@ describe('ERP · aprovação de compra pelo WhatsApp (v1.30.0)', () => {
     expect((await pedidos()).length).toBe(n + 1);
     expect(await prisma.erpAprovacaoCompra.findFirst({ where: { orgId: x.orgId, codigo: b.codigo! } })).toMatchObject({ status: 'PENDENTE' });
     await prisma.aiSettings.update({ where: { orgId: x.orgId }, data: { enabled: false } });
+    // tela: últimas aprovações com situação e documentos gerados
+    const l = (await x.owner.get('/api/erp/alertas/aprovacoes')).body;
+    expect(l.length).toBeGreaterThan(3);
+    expect(l.find((r: any) => r.codigo === a.codigo)).toMatchObject({ status: 'CONCLUIDA', aprovadoPor: `+${STAFF}`, documentos: [{ tipo: 'pedido', fornecedor: 'Boa Vista' }] });
   });
 });
