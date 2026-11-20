@@ -1,8 +1,8 @@
 /** Visão 360º do cliente: dados, indicadores, oportunidades e linha do tempo com envio por WhatsApp/e-mail. */
 import { useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { post, patch } from '../../api';
-import { useApi, Async, useAction, fmtDate, Field } from '../../ui';
+import { post, patch, put, del } from '../../api';
+import { useApi, Async, useAction, fmtDate, Field, Modal } from '../../ui';
 import { brl, fmtDoc } from '../format';
 import { ParceiroForm } from './Clientes';
 
@@ -51,7 +51,7 @@ export default function Cliente360() {
                 </div>
               ))}
               <h3 style={{ marginTop: 16 }}>Contatos</h3>
-              {p.contatos.map((c: any) => <div key={c.id} className="small">{c.nome}{c.cargo ? ` · ${c.cargo}` : ''} {c.email ?? ''} {c.telefone ?? ''}</div>)}
+              <Contatos parceiroId={p.id} contatos={p.contatos} onMudou={state.reload} />
               <div className="small muted" style={{ marginTop: 10 }}>{p.email ?? 'sem e-mail'} · {p.telefone ?? 'sem telefone'}{p.cnaeDescricao ? ` · ${p.cnaeDescricao}` : ''}</div>
             </div>
           </div>
@@ -87,5 +87,40 @@ function NovaInteracao({ parceiro, onDone }: { parceiro: any; onDone: () => void
       <Field label=""><textarea rows={2} value={texto} onChange={(e) => setTexto(e.target.value)} placeholder={envio ? 'Mensagem para o cliente' : 'O que aconteceu?'} /></Field>
       <button className="btn sm primary" disabled={busy || !texto.trim()} onClick={salvar}>{envio ? 'Enviar' : 'Registrar'}</button>
     </div>
+  );
+}
+
+/** v1.33.0: contatos do cliente/fornecedor: incluir, editar e excluir (fica no histórico de alterações). */
+function Contatos({ parceiroId, contatos, onMudou }: { parceiroId: string; contatos: any[]; onMudou: () => void }) {
+  const [edit, setEdit] = useState<any>(null);
+  const { busy, run } = useAction();
+  const salvar = async () => {
+    const body = { nome: edit.nome, cargo: edit.cargo || null, email: edit.email || null, telefone: edit.telefone || null, principal: !!edit.principal };
+    if (await run(() => (edit.id ? put(`/erp/crm/parceiros/${parceiroId}/contatos/${edit.id}`, body) : post(`/erp/crm/parceiros/${parceiroId}/contatos`, body)), 'Contato salvo')) { setEdit(null); onMudou(); }
+  };
+  return (
+    <>
+      {contatos.length === 0 && <div className="small muted">Nenhum contato.</div>}
+      {contatos.map((c: any) => (
+        <div key={c.id} className="row between small" style={{ padding: '4px 0', gap: 6, flexWrap: 'wrap' }}>
+          <span><b>{c.nome}</b>{c.principal ? ' ⭐' : ''}{c.cargo ? ` · ${c.cargo}` : ''}<br />{[c.email, c.telefone].filter(Boolean).join(' · ')}</span>
+          <span className="row" style={{ gap: 4 }}>
+            <button className="btn sm ghost" onClick={() => setEdit({ ...c, cargo: c.cargo ?? '', email: c.email ?? '', telefone: c.telefone ?? '' })} aria-label={`Editar ${c.nome}`}>✏️</button>
+            <button className="btn sm ghost" disabled={busy} onClick={async () => { if (confirm(`Excluir o contato ${c.nome}?`) && await run(() => del(`/erp/crm/parceiros/${parceiroId}/contatos/${c.id}`), 'Contato excluído')) onMudou(); }} aria-label={`Excluir ${c.nome}`}>🗑️</button>
+          </span>
+        </div>
+      ))}
+      <button className="btn sm" style={{ marginTop: 4 }} onClick={() => setEdit({ nome: '', cargo: '', email: '', telefone: '', principal: contatos.length === 0 })}>+ Contato</button>
+      {edit && <Modal title={edit.id ? 'Editar contato' : 'Novo contato'} onClose={() => setEdit(null)}>
+        <Field label="Nome *"><input autoFocus value={edit.nome} onChange={(e) => setEdit({ ...edit, nome: e.target.value })} /></Field>
+        <div className="grid g2">
+          <Field label="Cargo"><input value={edit.cargo} onChange={(e) => setEdit({ ...edit, cargo: e.target.value })} /></Field>
+          <Field label="Telefone / WhatsApp"><input value={edit.telefone} onChange={(e) => setEdit({ ...edit, telefone: e.target.value })} inputMode="tel" /></Field>
+        </div>
+        <Field label="E-mail"><input value={edit.email} onChange={(e) => setEdit({ ...edit, email: e.target.value })} inputMode="email" /></Field>
+        <label className="row small"><input type="checkbox" checked={!!edit.principal} onChange={(e) => setEdit({ ...edit, principal: e.target.checked })} /> Contato principal</label>
+        <div className="row" style={{ justifyContent: 'flex-end', gap: 6 }}><button className="btn" onClick={() => setEdit(null)}>Cancelar</button><button className="btn primary" disabled={busy || !edit.nome.trim()} onClick={salvar}>Salvar</button></div>
+      </Modal>}
+    </>
   );
 }

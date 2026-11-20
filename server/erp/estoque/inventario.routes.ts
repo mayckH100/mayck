@@ -221,12 +221,18 @@ inventarioRouter.post('/:id/acao', ah(async (req, res) => {
     await prisma.erpInventario.update({ where: { id: inv.id }, data: { status: 'CANCELADO' } });
   } else {
     if (inv.status !== 'EM_APROVACAO') throw badRequest('Encerre a contagem primeiro');
+    const { linhas } = await linhasDo(orgId, inv.id);
+    const rel = relatorioInventario(linhas);
+    if (rel.totais.divergentes === 0) {
+      // Sem diferença o estoque não muda: conclui sem pedir a senha.
+      await prisma.erpInventario.update({ where: { id: inv.id }, data: { status: 'CONCLUIDO', aprovadoPorId: req.auth?.userId ?? null, concluidoEm: new Date(), motivoAjuste: b.motivo || 'Sem diferença' } });
+      await auditar(req, 'inventario.aprovar', 'erp_inventario', inv.id, { status: inv.status }, { status: 'CONCLUIDO', divergentes: 0 });
+      return res.json(await prisma.erpInventario.findUnique({ where: { id: inv.id } }));
+    }
     if (!b.motivo || b.motivo.length < 3) throw badRequest('Informe o motivo do ajuste (mínimo 3 letras)');
     let dono;
     try { dono = await confirmarSenhaProprietario(orgId, b.senhaProprietario); }
     catch (e) { await auditar(req, 'inventario.senha_recusada', 'erp_inventario', inv.id, null, { motivo: (e as Error).message }); throw e; }
-    const { linhas } = await linhasDo(orgId, inv.id);
-    const rel = relatorioInventario(linhas);
     await aplicarDiferencas(orgId, inv.id, inv.descricao, req.auth?.userId, b.motivo);
     await prisma.erpInventario.update({ where: { id: inv.id }, data: { status: 'CONCLUIDO', aprovadoPorId: dono.id, concluidoEm: new Date(), motivoAjuste: b.motivo } });
     depois = { status: 'CONCLUIDO', aprovadoPor: dono.name, motivo: b.motivo, ...rel.totais, ajustes: rel.linhas.filter((l) => l.diferencaMil).map((l) => ({ sku: l.sku, lote: l.lote, local: l.local, antesMil: l.sistemaMil, depoisMil: l.contadoFinalMil, diferencaMil: l.diferencaMil, valorCents: l.diferencaCents })).slice(0, 200) };

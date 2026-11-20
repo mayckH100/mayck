@@ -107,6 +107,8 @@ describe('ERP · inventário com relatório, aviso e senha do proprietário (v1.
     expect(graph.calls.filter((c) => c.body?.to)).toHaveLength(0);
     expect(outbox.slice(antes).some((m) => m.subject?.includes('Inventário'))).toBe(false);
     expect((await owner.get('/api/erp/estoque/inventarios/pendentes')).body.map((p: any) => p.id)).not.toContain(outro.id);
+    // sem diferença: conclui sem pedir a senha (o estoque não muda)
+    expect((await agente.post(`/api/erp/estoque/inventarios/${outro.id}/acao`, { acao: 'APROVAR' })).body.status).toBe('CONCLUIDO');
   });
 
   it('aprovar exige motivo e a senha do PROPRIETÁRIO (papel não basta); depois grava movimento por lote', async () => {

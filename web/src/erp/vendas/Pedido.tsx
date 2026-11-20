@@ -37,6 +37,7 @@ export default function Pedido() {
             </div>
             <div className="row" style={{ flexWrap: 'wrap' }}>
               <Link className="btn" to="/erp/pedidos">Voltar</Link>
+              <Link className="btn" to={`/erp/rastreio?pedido=${p.id}`}>🔎 Lotes deste pedido</Link>
               {p.acoes.filter((a: string) => !OCULTAS.has(a) && (a !== 'APROVAR' || can('OWNER', 'ADMIN'))).map((a: string) => (
                 <button key={a} className={`btn ${a === 'CANCELAR' || a === 'REPROVAR' || a === 'DEVOLVER' ? 'ghost' : 'primary'}`} disabled={busy} onClick={() => (PEDE[a] ? setPedindo(a) : acao(a))}>{ROTULO[a] ?? a}</button>
               ))}
@@ -91,7 +92,8 @@ function Pergunta({ evento, onClose, onConfirm }: { evento: string; onClose: () 
   return (
     <Modal title={ROTULO[evento]} onClose={onClose}>
       {campos.map((c, i) => <Field key={c.campo} label={c.label}><input autoFocus={i === 0} value={v[c.campo] ?? ''} onChange={(e) => setV({ ...v, [c.campo]: e.target.value })} /></Field>)}
-      <div className="row" style={{ justifyContent: 'flex-end' }}><button className="btn" onClick={onClose}>Voltar</button><button className="btn primary" disabled={evento !== 'EXPEDIR' && !v[campos[0].campo]} onClick={() => onConfirm(v)}>Confirmar</button></div>
+      {evento === 'DEVOLVER' && <label className="row small" style={{ margin: '4px 0 8px' }}><input type="checkbox" checked={v.voltarEstoque ?? true} onChange={(e) => setV({ ...v, voltarEstoque: e.target.checked })} /> Os produtos voltaram para o estoque (entram de novo no mesmo lote e local de onde saíram)</label>}
+      <div className="row" style={{ justifyContent: 'flex-end' }}><button className="btn" onClick={onClose}>Voltar</button><button className="btn primary" disabled={evento !== 'EXPEDIR' && !v[campos[0].campo]} onClick={() => onConfirm(evento === 'DEVOLVER' ? { ...v, voltarEstoque: v.voltarEstoque ?? true } : v)}>Confirmar</button></div>
     </Modal>
   );
 }

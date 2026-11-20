@@ -2,6 +2,9 @@
 import { useState } from 'react';
 import { useApi, Async } from '../../ui';
 import { brl } from '../format';
+import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../../auth';
+import { AvisoInventarios } from '../estoque/Estoque';
 
 const hoje = () => new Date().toISOString().slice(0, 10);
 const diasAtras = (n: number) => new Date(Date.now() - n * 86_400_000).toISOString().slice(0, 10);
@@ -13,8 +16,11 @@ export default function Painel() {
   const filiais = useApi<any[]>('/erp/core/filiais');
   const qs = `de=${de}&ate=${ate}T23:59:59${filialId ? `&filialId=${filialId}` : ''}`;
   const state = useApi<any>(`/erp/crm/kpis?${qs}`, [qs]);
+  const nav = useNavigate(); const { can, hasModule } = useAuth();
   return (
     <>
+      {/* v1.33.0: aviso no app de inventário com diferença aguardando a aprovação do proprietário. */}
+      {can('OWNER', 'ADMIN') && hasModule('erp_estoque') && <AvisoInventarios onAbrir={() => nav('/erp/estoque')} />}
       <div className="page-head">
         <div><h1>Painel CRM</h1><p className="muted">Indicadores comerciais do período, com filtros por filial.</p></div>
         <div className="row filtros">

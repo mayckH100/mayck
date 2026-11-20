@@ -3,7 +3,8 @@ import { useState } from 'react';
 import { post, put } from '../../api';
 import { useAuth } from '../../auth';
 import { useApi, Async, Empty, Modal, Field, useAction, useToast } from '../../ui';
-import { imprimirZebra, imprimirComum } from './impressao';
+import { imprimirZebra } from './impressao';
+import { abrirPdfEtiquetas } from './lotes';
 
 export default function Etiquetas() {
   const [q, setQ] = useState(''); const [query, setQuery] = useState('');
@@ -16,9 +17,10 @@ export default function Etiquetas() {
     <>
       <div className="row" style={{ marginBottom: 10, flexWrap: 'wrap' }}>
         <form onSubmit={(e) => { e.preventDefault(); setQuery(q); }}><input placeholder="Lote interno ou do fabricante" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Buscar lote" /></form>
-        <button className="btn" disabled={!itens.length} onClick={async () => imprimirComum(await post<any>('/erp/estoque/etiquetas', { itens }), 'a4')}>Imprimir em folha A4</button>
-        <button className="btn" disabled={!itens.length} onClick={async () => imprimirComum(await post<any>('/erp/estoque/etiquetas', { itens }), 'rolo')}>Impressora de rolo comum</button>
-        <button className="btn primary" disabled={!itens.length} onClick={async () => { const { zpl } = await post<any>('/erp/estoque/etiquetas/zpl', { itens }); toast((await imprimirZebra(zpl)) === 'impresso' ? 'Enviado para a Zebra' : 'Zebra Browser Print não encontrado: arquivo .zpl baixado'); }}>Imprimir na Zebra</button>
+        {/* v1.33.0: PDF pronto (código de barras GS1-128 + QR + empresa, código, lote, fabricação e validade). */}
+        <button className="btn primary" disabled={!itens.length} onClick={() => abrirPdfEtiquetas(itens, 'rolo')}>🖨️ PDF para impressora de etiqueta</button>
+        <button className="btn" disabled={!itens.length} onClick={() => abrirPdfEtiquetas(itens, 'a4')}>PDF em folha A4</button>
+        <button className="btn" disabled={!itens.length} onClick={async () => { const { zpl } = await post<any>('/erp/estoque/etiquetas/zpl', { itens }); toast((await imprimirZebra(zpl)) === 'impresso' ? 'Enviado para a Zebra' : 'Zebra Browser Print não encontrado: arquivo .zpl baixado'); }}>Imprimir na Zebra</button>
         {can('OWNER', 'ADMIN') && <button className="btn ghost" onClick={() => setCfg(true)}>Tamanho e formato</button>}
       </div>
       <Async state={lotes}>{(d) => d.length === 0 ? <div className="card"><Empty title="Nenhum lote">Todo lote nasce sozinho na entrada de estoque (manual, por XML ou produção), com número do sistema.</Empty></div> : (
