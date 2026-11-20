@@ -1403,6 +1403,10 @@ model ErpParceiro {
   contactId          String? // vínculo com o contato do MCKBOT (WhatsApp)
   tags               String               @default("[]")
   observacoes        String?
+  inscricaoMunicipal  String? // v1.33.0
+  condicaoPagamentoId String? // v1.33.0: condição comercial padrão (cliente: vendas; fornecedor: compras)
+  tabelaPrecoId       String? // v1.33.0: tabela de preço padrão do cliente
+  prazoEntregaDias    Int                  @default(0) // v1.33.0: prazo de entrega do fornecedor (dias), usado em "O que comprar" quando o produto não tem prazo próprio
   createdAt          DateTime             @default(now())
   updatedAt          DateTime             @updatedAt
   contatos           ErpParceiroContato[]

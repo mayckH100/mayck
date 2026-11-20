@@ -3,9 +3,9 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { prisma } from '../../db.js';
 import { contem } from '../../lib/busca.js';
-import { ah, badRequest, notFound } from '../../lib/http.js';
+import { ah, badRequest, notFound, forbidden } from '../../lib/http.js';
 import { orgOf, requireRole } from '../../auth/session.js';
-import { auditar } from '../shared/auditoria.js';
+import { auditar, diferencas } from '../shared/auditoria.js';
 import bcrypt from 'bcryptjs';
 import { precoPorVolume } from '../vendas/calculo.js';
 import { HttpError } from '../../lib/http.js';
@@ -222,6 +222,36 @@ produtosRouter.delete('/:id', admins, ah(async (req, res) => {
   res.json({ acao: 'excluido', motivos: [], mensagem: 'Produto excluído. Ele nunca tinha sido usado, então foi apagado de vez.' });
 }));
 
+/**
+ * v1.33.0: campos que não podem mudar depois do uso, com o porquê (a tela mostra o cadeado e a explicação).
+ *  - código: já saiu em NF-e emitida (a nota guarda o código; mudar quebraria a conferência fiscal);
+ *  - unidade: já tem estoque/movimentação (as quantidades lançadas mudariam de medida);
+ *  - controle de lote: há saldo em estoque.
+ */
+export async function travasProduto(orgId: string, p: { id: string; unidade: string }) {
+  const itens = await prisma.erpPedidoItem.findMany({ where: { produtoId: p.id, pedido: { orgId } }, select: { pedidoId: true }, take: 5000 });
+  const [nf, movs, saldo] = await Promise.all([
+    itens.length ? prisma.erpNfeSaida.findFirst({ where: { orgId, pedidoId: { in: [...new Set(itens.map((i) => i.pedidoId))] }, status: { in: ['AUTORIZADA', 'CANCELADA'] } }, select: { numero: true } }) : Promise.resolve(null),
+    prisma.erpMovimento.count({ where: { orgId, produtoId: p.id } }),
+    prisma.erpSaldo.count({ where: { orgId, produtoId: p.id, fisicoMil: { gt: 0 } } }),
+  ]);
+  return {
+    sku: nf ? `O código não pode mudar: o produto já saiu na NF-e nº ${nf.numero} com este código.` : null,
+    // Unidade antiga inválida (ex.: "30") pode ser corrigida sempre.
+    unidade: movs > 0 && unidadeValida(p.unidade) ? 'A unidade não muda depois que o produto já tem estoque ou movimentação: as quantidades lançadas ficariam com outra medida. Para comprar em caixa ou pacote, use "Unidade de compra".' : null,
+    controlaLote: saldo > 0 ? 'O controle de lote não muda com saldo em estoque.' : null,
+  };
+}
+
+produtosRouter.get('/:id/travas', ah(async (req, res) => {
+  const orgId = orgOf(req);
+  const p = await prisma.erpProduto.findFirst({ where: { id: req.params.id, orgId }, select: { id: true, unidade: true } });
+  if (!p) throw notFound('Produto');
+  const gestor = req.auth?.role === 'OWNER' || req.auth?.role === 'ADMIN';
+  const t = await travasProduto(orgId, p);
+  res.json({ ...t, sku: t.sku ?? (gestor ? null : 'O código é criado pelo sistema; só o Proprietário ou o Administrador alteram.') });
+}));
+
 // Por último: '/:id' não pode capturar '/config', '/tabelas'...
 produtosRouter.put('/:id', ah(async (req, res) => {
   const orgId = orgOf(req);
@@ -230,8 +260,12 @@ produtosRouter.put('/:id', ah(async (req, res) => {
   const parsed = produtoSchema.parse(req.body);
   const b = { ...parsed, sku: parsed.sku || antes.sku }; // código vazio na edição: mantém o atual
   if (b.sku !== antes.sku && (await prisma.erpProduto.findUnique({ where: { orgId_sku: { orgId, sku: b.sku } } }))) throw badRequest(`Código ${b.sku} já existe`);
-  const temSaldo = (await prisma.erpSaldo.count({ where: { orgId, produtoId: antes.id, fisicoMil: { gt: 0 } } })) > 0;
-  if (temSaldo && b.controlaLote !== antes.controlaLote) throw badRequest('Não dá para mudar o controle de lote com saldo em estoque');
+  const travas = await travasProduto(orgId, antes);
+  const gestor = req.auth?.role === 'OWNER' || req.auth?.role === 'ADMIN';
+  if (b.sku !== antes.sku && !gestor) throw forbidden('Só o Proprietário ou o Administrador alteram o código do produto');
+  if (b.sku !== antes.sku && travas.sku) throw badRequest(travas.sku);
+  if (b.unidade !== antes.unidade && travas.unidade) throw badRequest(travas.unidade);
+  if (b.controlaLote !== antes.controlaLote && travas.controlaLote) throw badRequest('Não dá para mudar o controle de lote com saldo em estoque');
   // Código de barras: mantém o atual se o campo vier vazio; gera um interno se o produto ainda não tem.
   const codigoBarras = b.codigoBarras || antes.codigoBarras || await gerarCodigoBarras(orgId);
   const mudouCusto = b.custoMedioCents !== undefined && b.custoMedioCents !== antes.custoMedioCents;
@@ -254,7 +288,9 @@ produtosRouter.put('/:id', ah(async (req, res) => {
   // v1.30.0: mudança de preço de venda tem registro próprio (entra no alerta diário em "Alterações de ontem").
   if (b.precoBaseCents !== undefined && p.precoBaseCents !== antes.precoBaseCents) await auditar(req, 'produto.preco', 'erp_produto', p.id, { precoBaseCents: antes.precoBaseCents }, { precoBaseCents: p.precoBaseCents, origem: 'manual' });
   if (mudouExtras) await auditar(req, 'produto.custos_adicionais', 'erp_produto', p.id, { custosAdicionais: antes.custosAdicionais }, { custosAdicionais: p.custosAdicionais });
-  await auditar(req, 'produto.editar', 'erp_produto', p.id, { precoBaseCents: antes.precoBaseCents, ativo: antes.ativo }, { precoBaseCents: p.precoBaseCents, ativo: p.ativo });
+  // v1.33.0: quem mudou o quê (só os campos alterados, antes → depois).
+  const d = diferencas(antes as unknown as Record<string, unknown>, p as unknown as Record<string, unknown>);
+  await auditar(req, 'produto.editar', 'erp_produto', p.id, { ...d.antes, precoBaseCents: antes.precoBaseCents, ativo: antes.ativo }, { ...d.depois, precoBaseCents: p.precoBaseCents, ativo: p.ativo, campos: d.campos });
   res.json(p);
 }));
 

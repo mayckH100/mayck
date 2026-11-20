@@ -6,7 +6,8 @@ import { contem } from '../../lib/busca.js';
 import { ah, badRequest, notFound } from '../../lib/http.js';
 import { orgOf, requireRole } from '../../auth/session.js';
 import { isValidCnpj, isValidCpf, onlyDigits, normalizeCelular } from '../../lib/documento.js';
-import { auditar } from '../shared/auditoria.js';
+import { auditar, diferencas } from '../shared/auditoria.js';
+import { forbidden } from '../../lib/http.js';
 import { consultarCnpj, CnpjErro } from './cnpj.js';
 
 export const parceirosRouter = Router();
@@ -28,6 +29,9 @@ export const parceiroSchema = z.object({
   origem: opt(60), filialId: opt(40), contactId: opt(40),
   tags: z.array(z.string().trim().min(1).max(40)).max(30).default([]),
   observacoes: opt(5000),
+  // v1.33.0 — opcionais sem padrão: quem não manda (planilha/tela antiga) não apaga o que está salvo.
+  inscricaoMunicipal: opt(20).optional(), condicaoPagamentoId: opt(40).optional(), tabelaPrecoId: opt(40).optional(),
+  prazoEntregaDias: z.number().int().min(0, 'Prazo não pode ser negativo').max(365, 'Prazo de até 365 dias').optional(),
 });
 
 const toData = (b: z.infer<typeof parceiroSchema>) => ({ ...b, tipoPessoa: b.documento.length === 14 ? 'PJ' : 'PF', tags: JSON.stringify(b.tags), regimeTributario: b.regimeTributario ?? null });
@@ -89,20 +93,60 @@ parceirosRouter.post('/', ah(async (req, res) => {
     await auditar(req, 'parceiro.papel', 'erp_parceiro', p.id, { ehCliente: existente.ehCliente, ehFornecedor: existente.ehFornecedor }, add);
     return res.json({ ...fromRow(p), jaExistia: true });
   }
+  await validarRefs(orgId, body);
   const p = await prisma.erpParceiro.create({ data: { orgId, ...toData(body), situacaoConsultaEm: body.situacaoCadastral ? new Date() : null } });
   await auditar(req, 'parceiro.criar', 'erp_parceiro', p.id, null, { nome: p.nome, tipoPessoa: p.tipoPessoa });
   res.status(201).json(fromRow(p));
 }));
+
+/**
+ * v1.33.0: o que trava a edição de um cadastro já usado. O CPF/CNPJ não muda depois de aparecer numa nota fiscal
+ * (emitida ou recebida): a nota é um documento fiscal fechado e o cadastro precisa continuar batendo com ela.
+ */
+export async function travasParceiro(orgId: string, id: string) {
+  const [nfSaida, nfEntrada, titulos, pedidos, compras] = await Promise.all([
+    prisma.erpNfeSaida.findFirst({ where: { orgId, parceiroId: id, status: { in: ['AUTORIZADA', 'CANCELADA'] } }, select: { numero: true } }),
+    prisma.erpNfeEntrada.findFirst({ where: { orgId, parceiroId: id }, select: { numero: true } }),
+    prisma.erpTitulo.count({ where: { orgId, parceiroId: id } }),
+    prisma.erpPedidoVenda.count({ where: { orgId, parceiroId: id } }),
+    prisma.erpPedidoCompra.count({ where: { orgId, parceiroId: id } }),
+  ]);
+  const documento = nfSaida ? `O CPF/CNPJ não pode mudar: já saiu na NF-e nº ${nfSaida.numero} emitida para este cadastro. Se o número estiver errado, cadastre de novo com o certo e inative este.`
+    : nfEntrada ? `O CPF/CNPJ não pode mudar: já está na NF-e nº ${nfEntrada.numero} recebida deste fornecedor. Se o número estiver errado, cadastre de novo com o certo e inative este.`
+    : null;
+  return { documento, usos: { pedidos, compras, titulos } };
+}
+
+parceirosRouter.get('/:id/travas', ah(async (req, res) => {
+  const orgId = orgOf(req);
+  const p = await prisma.erpParceiro.findFirst({ where: { id: req.params.id, orgId }, select: { id: true } });
+  if (!p) throw notFound('Cadastro');
+  const gestor = req.auth?.role === 'OWNER' || req.auth?.role === 'ADMIN';
+  res.json({ ...(await travasParceiro(orgId, p.id)), comercial: gestor ? null : 'Limite de crédito e status (bloqueado/inativo) só o Proprietário ou o Administrador mudam.' });
+}));
+
+async function validarRefs(orgId: string, b: { condicaoPagamentoId?: string | null; tabelaPrecoId?: string | null }) {
+  if (b.condicaoPagamentoId && !(await prisma.erpCondicaoPagamento.findFirst({ where: { id: b.condicaoPagamentoId, orgId } }))) throw badRequest('Condição de pagamento inválida');
+  if (b.tabelaPrecoId && !(await prisma.erpTabelaPreco.findFirst({ where: { id: b.tabelaPrecoId, orgId } }))) throw badRequest('Tabela de preço inválida');
+}
 
 parceirosRouter.put('/:id', ah(async (req, res) => {
   const orgId = orgOf(req);
   const antes = await prisma.erpParceiro.findFirst({ where: { id: req.params.id, orgId } });
   if (!antes) throw notFound('Cliente');
   const body = parceiroSchema.parse(req.body);
-  if (body.documento !== antes.documento && await prisma.erpParceiro.findUnique({ where: { orgId_documento: { orgId, documento: body.documento } } })) throw badRequest('Já existe um cadastro com este CPF/CNPJ');
-  const p = await prisma.erpParceiro.update({ where: { id: antes.id }, data: toData(body) });
-  const mudou = Object.fromEntries(Object.entries(toData(body)).filter(([k, v]) => k !== 'documento' && (antes as any)[k] !== v).map(([k]) => [k, true]));
-  await auditar(req, 'parceiro.editar', 'erp_parceiro', p.id, { status: antes.status, limiteCreditoCents: antes.limiteCreditoCents }, { campos: Object.keys(mudou), status: p.status, limiteCreditoCents: p.limiteCreditoCents });
+  const gestor = req.auth?.role === 'OWNER' || req.auth?.role === 'ADMIN';
+  if (body.documento !== antes.documento) {
+    const t = await travasParceiro(orgId, antes.id);
+    if (t.documento) throw badRequest(t.documento);
+    if (await prisma.erpParceiro.findUnique({ where: { orgId_documento: { orgId, documento: body.documento } } })) throw badRequest('Já existe um cadastro com este CPF/CNPJ');
+  }
+  if (!gestor && (body.limiteCreditoCents !== antes.limiteCreditoCents || body.status !== antes.status)) throw forbidden('Limite de crédito e status (bloqueado/inativo) só o Proprietário ou o Administrador mudam. Os outros dados foram mantidos como estavam: tente salvar sem mudar esses dois.');
+  await validarRefs(orgId, body);
+  const data = toData(body);
+  const p = await prisma.erpParceiro.update({ where: { id: antes.id }, data });
+  const d = diferencas(antes as unknown as Record<string, unknown>, p as unknown as Record<string, unknown>);
+  if (d.campos.length) await auditar(req, 'parceiro.editar', 'erp_parceiro', p.id, d.antes, { ...d.depois, campos: d.campos });
   res.json(fromRow(p));
 }));
 
@@ -122,18 +166,37 @@ parceirosRouter.delete('/:id', requireRole('OWNER', 'ADMIN'), ah(async (req, res
 }));
 
 // ---- Contatos do cliente ----
-const contatoSchema = z.object({ nome: z.string().trim().min(1).max(120), cargo: opt(80), email: opt(200), telefone: opt(30), principal: z.boolean().default(false) });
+const contatoSchema = z.object({ nome: z.string().trim().min(1, 'Informe o nome do contato').max(120), cargo: opt(80), email: z.string().trim().email('E-mail do contato inválido').max(200).nullish().or(z.literal('')).transform((v) => (v ? v.toLowerCase() : null)), telefone: opt(30), principal: z.boolean().default(false) });
 
 parceirosRouter.post('/:id/contatos', ah(async (req, res) => {
   const p = await prisma.erpParceiro.findFirst({ where: { id: req.params.id, orgId: orgOf(req) } });
   if (!p) throw notFound('Cliente');
-  const c = await prisma.erpParceiroContato.create({ data: { parceiroId: p.id, ...contatoSchema.parse(req.body) } });
+  const b = contatoSchema.parse(req.body);
+  if (b.principal) await prisma.erpParceiroContato.updateMany({ where: { parceiroId: p.id }, data: { principal: false } });
+  const c = await prisma.erpParceiroContato.create({ data: { parceiroId: p.id, ...b } });
+  await auditar(req, 'parceiro.contato_criar', 'erp_parceiro', p.id, null, { contatoId: c.id, ...b });
   res.status(201).json(c);
+}));
+
+/** v1.33.0: editar contato (nome, cargo, e-mail, telefone, principal). */
+parceirosRouter.put('/:id/contatos/:contatoId', ah(async (req, res) => {
+  const p = await prisma.erpParceiro.findFirst({ where: { id: req.params.id, orgId: orgOf(req) } });
+  if (!p) throw notFound('Cliente');
+  const antes = await prisma.erpParceiroContato.findFirst({ where: { id: req.params.contatoId, parceiroId: p.id } });
+  if (!antes) throw notFound('Contato');
+  const b = contatoSchema.parse(req.body);
+  if (b.principal) await prisma.erpParceiroContato.updateMany({ where: { parceiroId: p.id, id: { not: antes.id } }, data: { principal: false } });
+  const c = await prisma.erpParceiroContato.update({ where: { id: antes.id }, data: b });
+  const d = diferencas(antes as unknown as Record<string, unknown>, c as unknown as Record<string, unknown>, ['id', 'parceiroId', 'createdAt']);
+  if (d.campos.length) await auditar(req, 'parceiro.contato_editar', 'erp_parceiro', p.id, { contatoId: c.id, ...d.antes }, { contatoId: c.id, ...d.depois });
+  res.json(c);
 }));
 
 parceirosRouter.delete('/:id/contatos/:contatoId', ah(async (req, res) => {
   const p = await prisma.erpParceiro.findFirst({ where: { id: req.params.id, orgId: orgOf(req) } });
   if (!p) throw notFound('Cliente');
+  const c = await prisma.erpParceiroContato.findFirst({ where: { id: req.params.contatoId, parceiroId: p.id } });
   await prisma.erpParceiroContato.deleteMany({ where: { id: req.params.contatoId, parceiroId: p.id } });
+  if (c) await auditar(req, 'parceiro.contato_excluir', 'erp_parceiro', p.id, { contatoId: c.id, nome: c.nome, email: c.email, telefone: c.telefone }, null);
   res.json({ ok: true });
 }));

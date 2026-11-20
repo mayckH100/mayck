@@ -85,9 +85,11 @@ pedidosRouter.get('/:id', ah(async (req, res) => {
 
 pedidosRouter.post('/', ah(async (req, res) => {
   const orgId = orgOf(req);
-  const b = pedidoSchema.parse(req.body);
-  const parceiro = await prisma.erpParceiro.findFirst({ where: { id: b.parceiroId, orgId, ehCliente: true } });
+  const b0 = pedidoSchema.parse(req.body);
+  const parceiro = await prisma.erpParceiro.findFirst({ where: { id: b0.parceiroId, orgId, ehCliente: true } });
   if (!parceiro) throw notFound('Cliente');
+  // v1.33.0: sem condição/tabela no pedido, usa as do cadastro do cliente.
+  const b = { ...b0, tabelaPrecoId: b0.tabelaPrecoId === undefined ? parceiro.tabelaPrecoId : b0.tabelaPrecoId, condicaoPagamentoId: b0.condicaoPagamentoId === undefined ? parceiro.condicaoPagamentoId : b0.condicaoPagamentoId };
   const op = b.oportunidadeId ? await prisma.erpOportunidade.findFirst({ where: { id: b.oportunidadeId, orgId, parceiroId: parceiro.id } }) : null;
   if (b.oportunidadeId && !op) throw badRequest('Oportunidade não pertence a este cliente');
   const cfg = await configDa(orgId);

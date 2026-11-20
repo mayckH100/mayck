@@ -13,6 +13,12 @@ ALTER TABLE "ErpInventarioContagem" ADD COLUMN     "leituras" INTEGER NOT NULL D
 ALTER TABLE "ErpInventarioContagem" ADD COLUMN     "modo" TEXT;
 ALTER TABLE "ErpInventarioContagem" ADD COLUMN     "custoUnitCents" INTEGER NOT NULL DEFAULT 0;
 
+-- AlterTable (edição completa do cadastro de cliente/fornecedor)
+ALTER TABLE "ErpParceiro" ADD COLUMN     "inscricaoMunicipal" TEXT;
+ALTER TABLE "ErpParceiro" ADD COLUMN     "condicaoPagamentoId" TEXT;
+ALTER TABLE "ErpParceiro" ADD COLUMN     "tabelaPrecoId" TEXT;
+ALTER TABLE "ErpParceiro" ADD COLUMN     "prazoEntregaDias" INTEGER NOT NULL DEFAULT 0;
+
 -- Saldos antigos sem lote (antes da v1.31.0 o lote ficava "UNICO"): passam a se chamar L-INICIAL.
 -- Mesmo registro (mesmo id): saldos, movimentos, reservas, contagens e etiquetas continuam ligados; nada é apagado.
 -- A data de entrada do lote é a do primeiro movimento (que não muda). Pula o produto que já tiver um L-INICIAL.

@@ -115,7 +115,12 @@ export async function listarOQueComprar(orgId: string, o: OpcoesComprar = {}): P
   const lista = candidatos.filter((p) => precisaComprar(fis.get(p.id) ?? 0, p.estoqueMinimoMil, longaM.get(p.id) ?? 0));
   if (!lista.length) return [];
   const FC = await fornecedorECusto(orgId, lista);
-  return lista.map((p): ItemComprar => {
+  // v1.33.0: produto sem prazo próprio usa o prazo de entrega do cadastro do fornecedor.
+  const fornIds = [...new Set([...FC.values()].map((f) => f.fornecedorId).filter(Boolean) as string[])];
+  const prazoForn = new Map((await prisma.erpParceiro.findMany({ where: { orgId, id: { in: fornIds } }, select: { id: true, prazoEntregaDias: true } })).map((f) => [f.id, f.prazoEntregaDias]));
+  return lista.map((p0): ItemComprar => {
+    const fc0 = FC.get(p0.id)!;
+    const p = { ...p0, leadTimeDias: p0.leadTimeDias || (fc0.fornecedorId ? prazoForn.get(fc0.fornecedorId) ?? 0 : 0) };
     const saldoMil = fis.get(p.id) ?? 0;
     const unidade = unidadeLegivel(p.unidade);
     const emb = { unidade, unidadeCompra: p.unidadeCompra, fatorCompraMil: p.fatorCompraMil };
