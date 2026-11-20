@@ -21,6 +21,25 @@ export type EntradaChangelog = {
 
 export const CHANGELOG: EntradaChangelog[] = [
   {
+    versao: '1.33.0',
+    data: '20/11/2026',
+    titulo: 'Rastreio completo de lote, etiquetas com código de barras e QR, inventário pelo celular e cadastros editáveis',
+    itens: [
+      'Produtos: cada produto mostra quantos lotes tem. Toque em "lotes" para ver cada um: lote interno, lote do fornecedor, fornecedor, data de entrada, nota ou pedido de compra, validade, quanto chegou, quanto tem hoje e em que local está.',
+      'Estoque ganhou a aba "Saldo por lote". Os saldos antigos que estavam sem lote passaram a aparecer como lote L-INICIAL, com a data da primeira entrada, sem perder nada do histórico.',
+      'Nova tela MCK ERP › Rastreio de lote: um só campo aceita o código do produto, o nome, o código de barras, o lote, o lote do fornecedor, o número ou a chave da nota (de compra ou de venda) e o número do pedido.',
+      'O rastreio mostra a história inteira do lote: de qual fornecedor e nota veio e quem lançou, mudanças de lugar, reservas, separação, vendas (para qual cliente, pedido e nota), uso na produção, baixas, inventários e devoluções. Mostra onde está cada parte do saldo hoje e para onde foi o que saiu.',
+      'Para recall: a partir de um lote você vê todos os clientes que receberam, inclusive dentro de um produto que você fabricou. E de um pedido ou produto pronto você chega aos lotes de origem e ao fornecedor. Dá para baixar em planilha ou imprimir.',
+      'Etiqueta do lote gerada pelo sistema, com código de barras e QR: nome da empresa, código do produto, lote, data de fabricação e validade. Logo depois de uma entrada (manual ou pela nota) aparece "Gerar etiqueta e imprimir", já com a quantidade sugerida, e abre o PDF pronto para impressora de etiqueta ou folha A4. Dá para reimprimir a qualquer hora.',
+      'Inventário pelo celular: leia o código de barras do produto com a câmera ou com um leitor (cada leitura conta 1) ou digite a quantidade. A contagem fica no lote e no local certos. A etiqueta do lote também é aceita.',
+      'Ao encerrar a contagem sai o relatório Físico x Sistema por produto, lote e local, com a diferença em quantidade e em reais, sobras, faltas e o valor final. Se houver diferença, o proprietário recebe um aviso no app e no WhatsApp.',
+      'O estoque só é ajustado depois que o proprietário aprova com a senha dele e informa o motivo. A correção manual de saldo de um lote segue a mesma regra e mostra antes, depois e o valor.',
+      'Devolução de venda pode devolver os produtos ao estoque, no mesmo lote e local de onde saíram.',
+      'Cadastros completos para editar: clientes e fornecedores com inscrição municipal, complemento, código do município, contatos (incluir, editar e excluir), condição de pagamento e tabela de preço padrão do cliente e prazo de entrega do fornecedor. Produtos ganharam o campo descrição.',
+      'Campos que não podem mais mudar aparecem com cadeado e o motivo: o CPF/CNPJ que já saiu em nota fiscal, o código do produto que já saiu em nota e a unidade do produto que já tem estoque. Limite de crédito e bloqueio do cliente só o proprietário ou o administrador mudam. Toda alteração fica registrada com quem mudou e o que mudou.',
+    ],
+  },
+  {
     versao: '1.32.0',
     data: '20/11/2026',
     titulo: 'Compras: tela "O que comprar" e produtos comprados em pacote, caixa ou rolo',

@@ -59,7 +59,10 @@ describe('ERP · rastreabilidade de lote (v1.33.0)', () => {
     const nfe = (await owner.get(`/api/erp/estoque/nfe/${imp.id}`)).body;
     await owner.put(`/api/erp/estoque/nfe/${nfe.id}/itens/${nfe.itens[0].id}`, { produtoId: leite.id, fatorMil: 12_000 });
     await owner.put(`/api/erp/estoque/nfe/${nfe.id}/pedido`, { pedidoCompraId: pc.id });
-    expect((await owner.post(`/api/erp/estoque/nfe/${nfe.id}/lancar`, { enderecoId: endA })).status).toBe(200);
+    const lan = await owner.post(`/api/erp/estoque/nfe/${nfe.id}/lancar`, { enderecoId: endA });
+    expect(lan.status).toBe(200);
+    // já volta a sugestão de etiquetas por lote (uma por peça recebida: 12 + 12)
+    expect(lan.body.etiquetas.map((x: any) => x.sugeridas)).toEqual([12, 12]);
 
     const porForn = (await owner.get('/api/erp/estoque/rastreio?q=abc123')).body;
     const g = porForn.grupos.find((x: any) => x.tipo === 'lote_fornecedor');
@@ -187,5 +190,26 @@ describe('ERP · rastreabilidade de lote (v1.33.0)', () => {
     const outra = await registerClient();
     expect((await outra.get(`/api/erp/estoque/rastreio/lote/${loteLeite.id}`)).status).toBe(404);
     expect((await outra.get('/api/erp/estoque/rastreio?q=abc123')).body.grupos).toEqual([]);
+  });
+
+  it('etiqueta do lote: entrada sugere quantas imprimir; PDF com GS1-128 + QR; leitura do código acha produto e lote', async () => {
+    const p = (await owner.post('/api/erp/produtos', { nome: 'Caneta caixa', unidade: 'UN', unidadeCompra: 'CX', fatorCompraMil: 10_000 })).body;
+    const e = (await owner.post('/api/erp/estoque/entrada', { produtoId: p.id, enderecoId: endA, qtdMil: 30_000, lote: { fabricacao: '2026-11-01' } })).body;
+    expect(e.etiquetas[0]).toMatchObject({ loteId: e.lote.id, numero: e.lote.numero, sugeridas: 3 }); // 3 caixas de 10
+    const pdf = await owner.get(`/api/erp/estoque/etiquetas/pdf?lotes=${e.lote.id}:2&formato=rolo`).buffer(true).parse((res, cb) => { const ch: Buffer[] = []; res.on('data', (c: Buffer) => ch.push(c)); res.on('end', () => cb(null, Buffer.concat(ch))); });
+    expect(pdf.status).toBe(200);
+    expect(pdf.headers['content-type']).toBe('application/pdf');
+    expect((pdf.body as Buffer).subarray(0, 5).toString()).toBe('%PDF-');
+    // outra empresa não gera etiqueta de lote alheio
+    const outra = await registerClient();
+    expect((await outra.get(`/api/erp/estoque/etiquetas/pdf?lotes=${e.lote.id}:1`)).status).toBe(404);
+    // leitura: GS1 da etiqueta, QR e código de barras do produto
+    const r1 = (await owner.get(`/api/erp/estoque/ler?codigo=${encodeURIComponent(`11261101241${p.sku}\u001d10${e.lote.numero}`)}`)).body;
+    expect(r1).toMatchObject({ tipo: 'gs1', produto: { id: p.id }, lote: { id: e.lote.id } });
+    expect(r1.saldos[0]).toMatchObject({ fisicoMil: 30_000, endereco: { codigo: 'A-01' } });
+    const r2 = (await owner.get(`/api/erp/estoque/ler?codigo=${encodeURIComponent(`MCK1;${e.lote.numero};-;-;${p.sku};Caneta caixa`)}`)).body;
+    expect(r2).toMatchObject({ tipo: 'qr', lote: { id: e.lote.id } });
+    const r3 = (await owner.get(`/api/erp/estoque/ler?codigo=${p.codigoBarras}`)).body;
+    expect(r3).toMatchObject({ produto: { id: p.id }, lote: null });
   });
 });

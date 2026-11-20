@@ -6,7 +6,8 @@ import { agoraLocal } from '../../server/erp/alertas/alertas.js';
 describe('ERP · etiqueta, código de barras e alertas', () => {
   it('QR leva lote interno, lote do fornecedor, validade, SKU e descrição; conferência lê o lote', () => {
     const q = textoQr({ lote: '261103-0001', loteFornecedor: 'F;77', validadeIso: '2027-01-31', sku: 'ABC', nome: 'Café 500g' });
-    expect(q).toBe('MCK1;261103-0001;F,77;2027-01-31;ABC;Café 500g');
+    // v1.33.0: + fabricação e empresa no fim (os 6 primeiros campos não mudaram).
+    expect(q).toBe('MCK1;261103-0001;F,77;2027-01-31;ABC;Café 500g;-;-');
     expect(lerCodigoEtiqueta(q)).toMatchObject({ lote: '261103-0001', sku: 'ABC' });
     expect(lerCodigoEtiqueta('MCK1;-;-;-;ABC;X')).toMatchObject({ lote: null, sku: 'ABC' });
     expect(lerCodigoEtiqueta('261103-0001')).toMatchObject({ lote: null, sku: null, bruto: '261103-0001' });
