@@ -10,6 +10,8 @@ import bcrypt from 'bcryptjs';
 import { precoPorVolume } from '../vendas/calculo.js';
 import { HttpError } from '../../lib/http.js';
 import { notificarProprietario } from '../alertas/alertas.js';
+import { unidadeValida } from '../shared/unidade.js';
+import { criarComSku } from './codigo.js';
 
 /** Custo que entra no CMV: custo médio + custos adicionais por unidade (embalagem, frete rateado...). */
 export function custoTotal(p: { custoMedioCents: number; custosAdicionais?: string | null }): number {
@@ -29,9 +31,12 @@ const opt = (max: number) => z.string().trim().max(max).nullish().transform((v) 
 const cents = z.number().int().min(0).max(2_000_000_000);
 
 export const produtoSchema = z.object({
-  sku: z.string().trim().min(1).max(40).transform((v) => v.toUpperCase()),
+  // v1.31.0: código vazio = o sistema gera (sequencial da empresa). Na edição, vazio mantém o atual.
+  sku: z.string().trim().max(40).nullish().transform((v) => (v ? v.toUpperCase() : null)),
   nome: z.string().trim().min(2).max(200), descricao: opt(2000), codigoBarras: opt(20),
-  unidade: z.string().trim().min(1).max(6).transform((v) => v.toUpperCase()).default('UN'),
+  // v1.31.0: só sigla (UN, CX, KG, M2...). Número puro ("30") era aceito e virava "Saldo: 5 30" no alerta.
+  unidade: z.string().trim().max(6).nullish().transform((v) => (v ? v.toUpperCase() : 'UN'))
+    .refine((v) => unidadeValida(v), 'Unidade: use uma sigla como UN, CX, KG ou PCT (número sozinho não vale; a quantidade vai no estoque)'),
   ncm: z.string().nullish().transform((v) => (v ? v.replace(/\D/g, '') || null : null)).refine((v) => !v || v.length === 8, 'NCM deve ter 8 dígitos'),
   cest: opt(9), origem: z.number().int().min(0).max(8).default(0), pesoGramas: z.number().int().min(0).max(100_000_000).default(0),
   controlaLote: z.boolean().default(false), controlaValidade: z.boolean().default(false), regraSaida: z.enum(['FIFO', 'FEFO']).default('FIFO'),
@@ -77,11 +82,11 @@ export async function gerarCodigoBarras(orgId: string): Promise<string> {
 
 produtosRouter.post('/', ah(async (req, res) => {
   const orgId = orgOf(req);
-  const b = produtoSchema.parse(req.body);
-  if (await prisma.erpProduto.findUnique({ where: { orgId_sku: { orgId, sku: b.sku } } })) throw badRequest(`SKU ${b.sku} já existe`);
+  const { sku, ...b } = produtoSchema.parse(req.body);
+  if (sku && await prisma.erpProduto.findUnique({ where: { orgId_sku: { orgId, sku } } })) throw badRequest(`Código ${sku} já existe`);
   const codigoBarras = b.codigoBarras || await gerarCodigoBarras(orgId);
-  const p = await prisma.erpProduto.create({ data: { orgId, ...b, codigoBarras } });
-  await auditar(req, 'produto.criar', 'erp_produto', p.id, null, { sku: p.sku, nome: p.nome });
+  const { resultado: p, automatico } = await criarComSku(orgId, sku, (s) => prisma.erpProduto.create({ data: { orgId, ...b, sku: s, codigoBarras } }));
+  await auditar(req, 'produto.criar', 'erp_produto', p.id, null, { sku: p.sku, nome: p.nome, codigoAutomatico: automatico });
   res.status(201).json(p);
 }));
 
@@ -148,13 +153,72 @@ produtosRouter.put('/config', admins, ah(async (req, res) => {
   res.json(c);
 }));
 
+// ---- Excluir / arquivar (v1.31.0) ----
+/** Onde o produto já foi usado. Produto usado não pode sumir (histórico, notas, custos): só é arquivado. */
+export async function usoDoProduto(orgId: string, produtoId: string) {
+  const [mov, saldo, lote, venda, compra, solic, cot, nfe, inv, op, comp, estr] = await Promise.all([
+    prisma.erpMovimento.count({ where: { orgId, produtoId } }),
+    prisma.erpSaldo.count({ where: { orgId, produtoId } }),
+    prisma.erpLote.count({ where: { orgId, produtoId } }),
+    prisma.erpPedidoItem.count({ where: { produtoId, pedido: { orgId } } }),
+    prisma.erpPedidoCompraItem.count({ where: { produtoId, pedido: { orgId } } }),
+    prisma.erpSolicitacaoItem.count({ where: { produtoId, solicitacao: { orgId } } }),
+    prisma.erpCotacaoItem.count({ where: { produtoId, cotacao: { orgId } } }),
+    prisma.erpNfeEntradaItem.count({ where: { produtoId, nfe: { orgId } } }),
+    prisma.erpInventarioContagem.count({ where: { produtoId, inventario: { orgId } } }),
+    prisma.erpOrdemProducao.count({ where: { orgId, produtoId } }),
+    prisma.erpOpComponente.count({ where: { produtoId, op: { orgId } } }),
+    prisma.erpEstruturaItem.count({ where: { orgId, OR: [{ produtoId }, { componenteId: produtoId }] } }),
+  ]);
+  const motivos: string[] = [];
+  if (mov || saldo) motivos.push('movimentos de estoque');
+  if (lote) motivos.push('lotes');
+  if (venda) motivos.push('vendas/pedidos');
+  if (compra || solic || cot) motivos.push('compras');
+  if (nfe) motivos.push('nota fiscal de entrada');
+  if (inv) motivos.push('inventário');
+  if (op || comp || estr) motivos.push('produção');
+  return { usado: motivos.length > 0, motivos };
+}
+
+produtosRouter.get('/:id/uso', ah(async (req, res) => {
+  const orgId = orgOf(req);
+  const p = await prisma.erpProduto.findFirst({ where: { id: req.params.id, orgId }, select: { id: true } });
+  if (!p) throw notFound('Produto');
+  res.json(await usoDoProduto(orgId, p.id));
+}));
+
+/** Excluir: nunca usado → apaga de vez; já usado → arquiva (desativa) e explica por quê. Só Proprietário/Admin. */
+produtosRouter.delete('/:id', admins, ah(async (req, res) => {
+  const orgId = orgOf(req);
+  const p = await prisma.erpProduto.findFirst({ where: { id: req.params.id, orgId } });
+  if (!p) throw notFound('Produto');
+  const uso = await usoDoProduto(orgId, p.id);
+  const foto = { sku: p.sku, nome: p.nome, ativo: p.ativo };
+  if (uso.usado) {
+    if (p.ativo) await prisma.erpProduto.update({ where: { id: p.id }, data: { ativo: false } });
+    await auditar(req, 'produto.arquivar', 'erp_produto', p.id, foto, { ativo: false, motivos: uso.motivos });
+    return res.json({ acao: 'arquivado', motivos: uso.motivos, mensagem: `O produto já tem ${uso.motivos.join(', ')}. Para não perder o histórico, ele foi arquivado (desativado), não apagado. Dá para reativar em Editar › Ativo.` });
+  }
+  await prisma.$transaction([
+    prisma.erpTabelaPrecoItem.deleteMany({ where: { produtoId: p.id, tabela: { orgId } } }),
+    prisma.erpProdutoFornecedor.deleteMany({ where: { orgId, produtoId: p.id } }),
+    prisma.erpRegraFiscal.deleteMany({ where: { orgId, produtoId: p.id } }),
+    prisma.erpOperacao.deleteMany({ where: { orgId, produtoId: p.id } }),
+    prisma.erpProduto.delete({ where: { id: p.id } }),
+  ]);
+  await auditar(req, 'produto.excluir', 'erp_produto', p.id, foto, null);
+  res.json({ acao: 'excluido', motivos: [], mensagem: 'Produto excluído. Ele nunca tinha sido usado, então foi apagado de vez.' });
+}));
+
 // Por último: '/:id' não pode capturar '/config', '/tabelas'...
 produtosRouter.put('/:id', ah(async (req, res) => {
   const orgId = orgOf(req);
   const antes = await prisma.erpProduto.findFirst({ where: { id: req.params.id, orgId } });
   if (!antes) throw notFound('Produto');
-  const b = produtoSchema.parse(req.body);
-  if (b.sku !== antes.sku && (await prisma.erpProduto.findUnique({ where: { orgId_sku: { orgId, sku: b.sku } } }))) throw badRequest(`SKU ${b.sku} já existe`);
+  const parsed = produtoSchema.parse(req.body);
+  const b = { ...parsed, sku: parsed.sku || antes.sku }; // código vazio na edição: mantém o atual
+  if (b.sku !== antes.sku && (await prisma.erpProduto.findUnique({ where: { orgId_sku: { orgId, sku: b.sku } } }))) throw badRequest(`Código ${b.sku} já existe`);
   const temSaldo = (await prisma.erpSaldo.count({ where: { orgId, produtoId: antes.id, fisicoMil: { gt: 0 } } })) > 0;
   if (temSaldo && b.controlaLote !== antes.controlaLote) throw badRequest('Não dá para mudar o controle de lote com saldo em estoque');
   // Código de barras: mantém o atual se o campo vier vazio; gera um interno se o produto ainda não tem.

@@ -11,6 +11,7 @@ import { orgOf, requireRole } from '../../auth/session.js';
 import { decodeCsv, detectDelimiter, parseCsv, sanitizeText } from '../../lib/contacts-import.js';
 import { parceiroSchema } from '../crm/parceiros.routes.js';
 import { produtoSchema, gerarCodigoBarras, comEntradaXml } from '../produtos/produtos.routes.js';
+import { criarComSku } from '../produtos/codigo.js';
 import { auditar } from '../shared/auditoria.js';
 
 export const importacaoRouter = Router();
@@ -42,7 +43,7 @@ const DEF: Record<Entidade, { colunas: Coluna[]; exemplos: string[][] }> = {
   },
   produtos: {
     colunas: [
-      { titulo: 'SKU', campo: 'sku', obrigatoria: true }, { titulo: 'Nome', campo: 'nome', obrigatoria: true }, { titulo: 'Descrição', campo: 'descricao' },
+      { titulo: 'SKU', campo: 'sku' }, { titulo: 'Nome', campo: 'nome', obrigatoria: true }, { titulo: 'Descrição', campo: 'descricao' },
       { titulo: 'Código de barras', campo: 'codigoBarras' }, { titulo: 'Unidade', campo: 'unidade' }, { titulo: 'NCM', campo: 'ncm' },
       { titulo: 'Preço de venda (R$)', campo: 'precoBaseCents', tipo: 'dinheiro' }, { titulo: 'Custo (R$)', campo: 'custoMedioCents', tipo: 'dinheiro' },
       { titulo: 'Estoque mínimo', campo: 'estoqueMinimoMil', tipo: 'qtd' }, { titulo: 'Estimativa de compra', campo: 'pontoPedidoMil', tipo: 'qtd' },
@@ -51,7 +52,7 @@ const DEF: Record<Entidade, { colunas: Coluna[]; exemplos: string[][] }> = {
       { titulo: 'CNPJ do fornecedor padrão', campo: 'fornecedorDoc' },
     ],
     exemplos: [
-      ['CAFE500', 'Café torrado 500g', 'Pacote 500 g', '', 'UN', '09012100', '24,90', '15,50', '20', '40', '7', 'S', 'S', 'REVENDA', '11.444.777/0001-61'],
+      ['', 'Café torrado 500g', 'Pacote 500 g', '', 'UN', '09012100', '24,90', '15,50', '20', '40', '7', 'S', 'S', 'REVENDA', '11.444.777/0001-61'],
       ['SERV-ENT', 'Taxa de entrega', '', '', 'UN', '', '10,00', '0', '0', '0', '0', 'N', 'N', 'SERVICO', ''],
     ],
   },
@@ -143,7 +144,8 @@ importacaoRouter.post('/:entidade/importar', requireRole('OWNER', 'ADMIN'), corp
       if (fornecedorDoc) { const id = fornPorDoc.get(fornecedorDoc); if (!id) return void erros.push({ linha: n, erro: `Fornecedor ${fornecedorDoc} não cadastrado: importe os fornecedores primeiro` }); bruto.fornecedorPadraoId = id; }
       const r = produtoSchema.safeParse(bruto);
       if (!r.success) return void erros.push({ linha: n, erro: r.error.issues.map((i) => `${i.path.join('.') || 'linha'}: ${i.message}`).join('; ') });
-      dados = r.data; dados._chave = dados.sku; dados._campos = Object.keys(bruto);
+      // v1.31.0: SKU vazio = produto novo com código automático (sequencial da empresa).
+      dados = r.data; dados._chave = dados.sku ?? `__novo:${n}`; dados._campos = Object.keys(bruto);
     } else {
       const r = parceiroSchema.safeParse({ ...bruto, ehCliente: e === 'clientes', ehFornecedor: e === 'fornecedores' });
       if (!r.success) return void erros.push({ linha: n, erro: r.error.issues.map((i) => `${i.path.join('.') || 'linha'}: ${i.message}`).join('; ') });
@@ -155,7 +157,7 @@ importacaoRouter.post('/:entidade/importar', requireRole('OWNER', 'ADMIN'), corp
   });
 
   const existentes = e === 'produtos'
-    ? new Map((await prisma.erpProduto.findMany({ where: { orgId, sku: { in: [...chaves] } }, select: { id: true, sku: true, codigoBarras: true } })).map((p) => [p.sku, p]))
+    ? new Map((await prisma.erpProduto.findMany({ where: { orgId, sku: { in: [...chaves].filter((c) => !c.startsWith('__novo:')) } }, select: { id: true, sku: true, codigoBarras: true } })).map((p) => [p.sku, p]))
     : new Map((await prisma.erpParceiro.findMany({ where: { orgId, documento: { in: [...chaves] } }, select: { id: true, documento: true } })).map((p) => [p.documento, p]));
   if (e === 'produtos') {
     // Custo que veio de NF-e (XML) não muda por planilha: só na tela do produto, com senha (fica no log).
@@ -181,7 +183,11 @@ importacaoRouter.post('/:entidade/importar', requireRole('OWNER', 'ADMIN'), corp
         if ('precoBaseCents' in parcial && parcial.precoBaseCents !== atual.precoBaseCents) await auditar(req, 'produto.preco', 'erp_produto', atual.id, { precoBaseCents: atual.precoBaseCents }, { precoBaseCents: parcial.precoBaseCents, origem: 'planilha' });
         if ('custoMedioCents' in parcial && parcial.custoMedioCents !== atual.custoMedioCents) await auditar(req, 'produto.custo', 'erp_produto', atual.id, { custoMedioCents: atual.custoMedioCents }, { custoMedioCents: parcial.custoMedioCents, origem: 'planilha' });
       }
-      else await prisma.erpProduto.create({ data: { orgId, ...d, codigoBarras: d.codigoBarras || await gerarCodigoBarras(orgId) } });
+      else {
+        const { sku, ...resto } = d;
+        const codigoBarras = d.codigoBarras || await gerarCodigoBarras(orgId);
+        await criarComSku(orgId, sku, (s: string) => prisma.erpProduto.create({ data: { orgId, ...resto, sku: s, codigoBarras } }));
+      }
     } else {
       const base = { ...d, tipoPessoa: d.documento.length === 14 ? 'PJ' : 'PF', tags: JSON.stringify(d.tags ?? []), regimeTributario: d.regimeTributario ?? null };
       if (atual) {

@@ -1,23 +1,26 @@
 /** Produtos: cadastro com NCM, lote/validade, FEFO/FIFO, mínimo e estimativa de compra; regras comerciais (alçada). */
 import { useState } from 'react';
-import { post, put } from '../../api';
+import { post, put, del } from '../../api';
 import { useAuth } from '../../auth';
 import { useApi, Async, Empty, Modal, Field, useAction } from '../../ui';
 import ImportarExportar from '../ImportarExportar';
 import { brl, qtd, toCents, fromCents, toMil } from '../format';
+import { UNIDADES_CADASTRO, unidadeValida, unidadeLegivel, qtdUn } from '../../../../server/erp/shared/unidade';
 
 export default function Produtos() {
   const [q, setQ] = useState(''); const [query, setQuery] = useState('');
   const state = useApi<any>(`/erp/produtos?q=${encodeURIComponent(query)}`, [query]);
   const [edit, setEdit] = useState<any>(null);
   const [regras, setRegras] = useState(false);
+  const [excluir, setExcluir] = useState<any>(null);
   const { can } = useAuth();
+  const admin = can('OWNER', 'ADMIN');
   return (
     <>
       <div className="page-head">
         <div><h1>Produtos</h1><p className="muted">Cadastro com dados fiscais, controle de lote e validade, e alertas de estoque mínimo.</p></div>
         <div className="row">
-          <form onSubmit={(e) => { e.preventDefault(); setQuery(q); }}><input placeholder="Nome, SKU ou código de barras" value={q} onChange={(e) => setQ(e.target.value)} style={{ width: 230 }} aria-label="Pesquisar" /></form>
+          <form onSubmit={(e) => { e.preventDefault(); setQuery(q); }}><input placeholder="Nome, código ou código de barras" value={q} onChange={(e) => setQ(e.target.value)} style={{ width: 230 }} aria-label="Pesquisar" /></form>
           {can('OWNER', 'ADMIN') && <button className="btn" onClick={() => setRegras(true)}>Regras comerciais</button>}
           <ImportarExportar entidade="produtos" podeImportar={can('OWNER', 'ADMIN')} onImportado={state.reload} />
           <button className="btn primary" onClick={() => setEdit({})}>+ Produto</button>
@@ -25,22 +28,26 @@ export default function Produtos() {
       </div>
       <Async state={state}>{(d) => d.items.length === 0 ? <div className="card"><Empty title="Nenhum produto ainda">Cadastre o primeiro produto para começar a vender e controlar estoque.</Empty></div> : (
         <div className="card table-wrap"><table>
-          <thead><tr><th>SKU</th><th>Produto</th><th>Preço</th><th>Disponível</th><th>Reservado</th><th>Custo total</th><th></th></tr></thead>
+          <thead><tr><th>Código</th><th>Produto</th><th>Preço</th><th>Disponível</th><th>Reservado</th><th>Custo total</th><th></th></tr></thead>
           <tbody>{d.items.map((p: any) => (
             <tr key={p.id} style={{ opacity: p.ativo ? 1 : 0.5 }}>
               <td><code>{p.sku}</code></td>
-              <td><strong>{p.nome}</strong><div className="small muted">{p.unidade}{p.ncm ? ` · NCM ${p.ncm}` : ''}{p.controlaLote ? ` · lote ${p.regraSaida}` : ''}</div></td>
+              <td><strong>{p.nome}</strong>{!p.ativo && <span className="badge" style={{ marginLeft: 6 }}>arquivado</span>}<div className="small muted">{unidadeLegivel(p.unidade)}{p.ncm ? ` · NCM ${p.ncm}` : ''}{p.controlaValidade ? ' · ⏳ controla validade' : p.controlaLote ? ` · lote ${p.regraSaida}` : ''}</div></td>
               <td>{brl(p.precoBaseCents)}</td>
               <td>{p.tipo === 'SERVICO' ? '—' : <>{qtd(p.saldo.disponivelMil)} {p.abaixoMinimo && <span className="badge red">abaixo do mínimo</span>}{!p.abaixoMinimo && p.noPontoPedido && <span className="badge">repor</span>}</>}</td>
               <td>{p.tipo === 'SERVICO' ? '—' : qtd(p.saldo.reservadoMil)}</td>
               <td>{brl(custoTotal(p))}{custoTotal(p) !== p.custoMedioCents ? <div className="small muted">produto {brl(p.custoMedioCents)}</div> : null}</td>
-              <td><button className="btn sm" onClick={() => setEdit(p)}>Editar</button></td>
+              <td className="row" style={{ gap: 4, flexWrap: 'nowrap' }}>
+                <button className="btn sm" onClick={() => setEdit(p)} aria-label={`Editar ${p.nome}`}>✏️ Editar</button>
+                {admin && <button className="btn sm ghost" style={{ color: '#dc2626' }} onClick={() => setExcluir(p)} aria-label={`Excluir ${p.nome}`}>🗑️ Excluir</button>}
+              </td>
             </tr>
           ))}</tbody>
         </table></div>
       )}</Async>
       {edit && <ProdutoForm inicial={edit} onClose={() => setEdit(null)} onSaved={() => { setEdit(null); state.reload(); }} />}
       {regras && <RegrasComerciais onClose={() => setRegras(false)} />}
+      {excluir && <ExcluirProduto produto={excluir} onClose={() => setExcluir(null)} onDone={() => { setExcluir(null); state.reload(); }} />}
     </>
   );
 }
@@ -52,7 +59,7 @@ export function custoTotal(p: any) {
 
 function ProdutoForm({ inicial, onClose, onSaved }: { inicial: any; onClose: () => void; onSaved: () => void }) {
   const [f, setF] = useState<any>({
-    sku: inicial.sku ?? '', nome: inicial.nome ?? '', unidade: inicial.unidade ?? 'UN', codigoBarras: inicial.codigoBarras ?? '', ncm: inicial.ncm ?? '', cest: inicial.cest ?? '',
+    sku: inicial.sku ?? '', nome: inicial.nome ?? '', unidade: unidadeValida(inicial.unidade) ? String(inicial.unidade).toUpperCase() : 'UN', codigoBarras: inicial.codigoBarras ?? '', ncm: inicial.ncm ?? '', cest: inicial.cest ?? '',
     origem: inicial.origem ?? 0, tipo: inicial.tipo ?? 'REVENDA', controlaLote: !!inicial.controlaLote, controlaValidade: !!inicial.controlaValidade, regraSaida: inicial.regraSaida ?? 'FIFO',
     preco: fromCents(inicial.precoBaseCents), custo: fromCents(inicial.custoMedioCents ?? 0), extras: (() => { try { return JSON.parse(inicial.custosAdicionais ?? '[]').map((c: any) => ({ nome: c.nome, valor: fromCents(c.valorCents) })); } catch { return []; } })(), fornecedor: inicial.fornecedorPadraoId ?? '', minimo: qtd(inicial.estoqueMinimoMil).replace(/\./g, ''), ponto: qtd(inicial.pontoPedidoMil).replace(/\./g, ''), lead: String(inicial.leadTimeDias ?? 0), loteMin: qtd(inicial.loteMinimoMil ?? 0).replace(/\./g, ''), ativo: inicial.ativo ?? true,
   });
@@ -60,8 +67,12 @@ function ProdutoForm({ inicial, onClose, onSaved }: { inicial: any; onClose: () 
   const fornecedores = useApi<any>('/erp/crm/parceiros?tipo=fornecedor', []);
   const set = (k: string) => (e: any) => setF({ ...f, [k]: e.target.type === 'checkbox' ? e.target.checked : e.target.value });
   const [senhaCusto, setSenhaCusto] = useState('');
+  const { can } = useAuth();
+  const [editarCodigo, setEditarCodigo] = useState(false);
+  const unidadeRuim = inicial.id && !unidadeValida(inicial.unidade);
+  const naLista = UNIDADES_CADASTRO.some((u) => u.sigla === f.unidade);
   async function salvar() {
-    const body = { sku: f.sku, nome: f.nome, unidade: f.unidade, codigoBarras: f.codigoBarras || null, ncm: f.ncm || null, cest: f.cest || null, origem: Number(f.origem), tipo: f.tipo,
+    const body = { sku: f.sku.trim() || null, nome: f.nome, unidade: f.unidade, codigoBarras: f.codigoBarras || null, ncm: f.ncm || null, cest: f.cest || null, origem: Number(f.origem), tipo: f.tipo,
       controlaLote: f.controlaLote || f.controlaValidade, controlaValidade: f.controlaValidade, regraSaida: f.controlaValidade ? 'FEFO' : f.regraSaida,
       precoBaseCents: toCents(f.preco), custoMedioCents: toCents(f.custo || '0'), custosAdicionais: f.extras.filter((c: any) => c.nome.trim()).map((c: any) => ({ nome: c.nome.trim(), valorCents: toCents(c.valor || '0') })), estoqueMinimoMil: toMil(f.minimo), pontoPedidoMil: toMil(f.ponto), leadTimeDias: Number(f.lead) || 0, loteMinimoMil: toMil(f.loteMin || '0'), fornecedorPadraoId: f.fornecedor || null, ativo: f.ativo, ...(senhaCusto ? { senhaCusto } : {}) };
     if (await run(() => (inicial.id ? put(`/erp/produtos/${inicial.id}`, body) : post('/erp/produtos', body)), 'Produto salvo')) onSaved();
@@ -69,12 +80,22 @@ function ProdutoForm({ inicial, onClose, onSaved }: { inicial: any; onClose: () 
   return (
     <Modal title={inicial.id ? 'Editar produto' : 'Novo produto'} onClose={onClose}>
       <div className="grid g2">
-        <Field label="SKU"><input value={f.sku} onChange={set('sku')} autoFocus /></Field>
+        <Field label="Código (automático)" hint={inicial.id ? 'Código do produto na empresa' : 'O sistema gera o próximo código ao salvar'}>
+          {editarCodigo ? <input value={f.sku} onChange={set('sku')} placeholder={inicial.id ? '' : 'Vazio = automático'} maxLength={40} autoFocus />
+            : <div className="row" style={{ gap: 6 }}><input value={inicial.id ? f.sku : ''} placeholder="Gerado automaticamente" readOnly disabled aria-label="Código" />{can('OWNER', 'ADMIN') && <button type="button" className="btn sm ghost" onClick={() => setEditarCodigo(true)}>{inicial.id ? 'Alterar' : 'Digitar'}</button>}</div>}
+        </Field>
         <Field label="Tipo"><select value={f.tipo} onChange={set('tipo')}><option value="REVENDA">Revenda</option><option value="PRODUZIDO">Produzido</option><option value="INSUMO">Insumo / matéria-prima</option><option value="SERVICO">Serviço</option></select></Field>
       </div>
-      <Field label="Nome"><input value={f.nome} onChange={set('nome')} /></Field>
+      <Field label="Nome"><input value={f.nome} onChange={set('nome')} autoFocus={!inicial.id} /></Field>
       <div className="grid g2">
-        <Field label="Unidade"><input value={f.unidade} onChange={set('unidade')} maxLength={6} /></Field>
+        <Field label="Unidade de medida" hint={unidadeRuim ? `A unidade salva era “${inicial.unidade}”, que não é uma unidade. Confira e salve.` : 'Como você conta este produto no estoque'}>
+          <select value={naLista ? f.unidade : '__outra'} onChange={(e) => setF({ ...f, unidade: e.target.value === '__outra' ? '' : e.target.value })}>
+            {UNIDADES_CADASTRO.map((u) => <option key={u.sigla} value={u.sigla}>{u.nome} ({u.sigla})</option>)}
+            <option value="__outra">Outra sigla…</option>
+          </select>
+          {!naLista && <input value={f.unidade} onChange={(e) => setF({ ...f, unidade: e.target.value.toUpperCase() })} maxLength={6} placeholder="Ex.: BD, RESMA" aria-label="Outra sigla" style={{ marginTop: 4 }} />}
+          {!naLista && f.unidade && !unidadeValida(f.unidade) && <div className="small" style={{ color: '#dc2626' }}>Use letras (ex.: UN, CX, KG). Número sozinho não é unidade.</div>}
+        </Field>
         <Field label="Preço base (R$)"><input value={f.preco} onChange={set('preco')} inputMode="decimal" /></Field>
         <Field label="Custo (R$)" hint={inicial.custoPorXml ? 'Veio da nota fiscal (XML): alterar pede sua senha e fica no log' : 'Custo inicial; as entradas de estoque atualizam pelo custo médio'}><input value={f.custo} onChange={set('custo')} inputMode="decimal" /></Field>
         {inicial.custoPorXml && toCents(f.custo || '0') !== (inicial.custoMedioCents ?? 0) && <Field label="Sua senha (para alterar o custo da nota)"><input type="password" autoComplete="current-password" value={senhaCusto} onChange={(e) => setSenhaCusto(e.target.value)} /></Field>}
@@ -99,18 +120,19 @@ function ProdutoForm({ inicial, onClose, onSaved }: { inicial: any; onClose: () 
       {f.tipo !== 'SERVICO' && <>
         <div className="row">
           <label className="row small"><input type="checkbox" checked={f.controlaLote} onChange={set('controlaLote')} /> Controla lote</label>
-          <label className="row small"><input type="checkbox" checked={f.controlaValidade} onChange={set('controlaValidade')} /> Controla validade (usa FEFO)</label>
+          <label className="row small"><input type="checkbox" checked={f.controlaValidade} onChange={set('controlaValidade')} /> Perecível: controla validade (pede a data na entrada e usa FEFO)</label>
           {!f.controlaValidade && <select value={f.regraSaida} onChange={set('regraSaida')} aria-label="Regra de saída"><option value="FIFO">FIFO</option><option value="FEFO">FEFO</option></select>}
         </div>
         <div className="grid g2">
-          <Field label="Estoque mínimo"><input value={f.minimo} onChange={set('minimo')} inputMode="decimal" /></Field>
+          <Field label={`Estoque mínimo (${qtdUn(2000, f.unidade).replace(/^2 /, '')})`}><input value={f.minimo} onChange={set('minimo')} inputMode="decimal" /></Field>
           <Field label="Estimativa de compra"><input value={f.ponto} onChange={set('ponto')} inputMode="decimal" /></Field>
           <Field label="Prazo de compra/fabricação (dias)"><input value={f.lead} onChange={set('lead')} inputMode="numeric" /></Field>
           <Field label="Lote mínimo de compra/produção"><input value={f.loteMin} onChange={set('loteMin')} inputMode="decimal" /></Field>
         </div>
       </>}
-      <label className="row small"><input type="checkbox" checked={f.ativo} onChange={set('ativo')} /> Ativo</label>
-      <div className="row" style={{ justifyContent: 'flex-end', marginTop: 10 }}><button className="btn" onClick={onClose}>Cancelar</button><button className="btn primary" disabled={busy || !f.sku || f.nome.length < 2} onClick={salvar}>Salvar</button></div>
+      {inicial.id && inicial.controlaValidade && <LotesValidade produtoId={inicial.id} unidade={f.unidade} />}
+      <label className="row small"><input type="checkbox" checked={f.ativo} onChange={set('ativo')} /> Ativo (desmarque para arquivar: some das buscas de venda, mas o histórico fica)</label>
+      <div className="row" style={{ justifyContent: 'flex-end', marginTop: 10 }}><button className="btn" onClick={onClose}>Cancelar</button><button className="btn primary" disabled={busy || f.nome.length < 2 || !unidadeValida(f.unidade)} onClick={salvar}>Salvar</button></div>
     </Modal>
   );
 }
@@ -134,6 +156,48 @@ function RegrasComerciais({ onClose }: { onClose: () => void }) {
           <button className="btn primary" disabled={busy} onClick={async () => { if (await run(() => put('/erp/produtos/config', { descontoMaxBp: Math.round(Number(v.desconto.replace(',', '.')) * 100) || 0, bloquearSemCredito: v.credito, validadeOrcamentoDias: Number(v.validade) || 15, alcadaCompraCents: toCents(v.alcada), toleranciaPrecoBp: Math.round(Number(String(v.tol).replace(',', '.')) * 100) || 0, recebimentoCego: !!v.cego }), 'Regras salvas')) onClose(); }}>Salvar</button>
         </div>
       </>}
+    </Modal>
+  );
+}
+
+/** Validade dos lotes com saldo (só para produto que controla validade). */
+function LotesValidade({ produtoId, unidade }: { produtoId: string; unidade: string }) {
+  const st = useApi<any[]>(`/erp/estoque/saldos?produtoId=${encodeURIComponent(produtoId)}`, [produtoId]);
+  const hoje = new Date().toISOString().slice(0, 10);
+  return (
+    <div style={{ margin: '8px 0' }}>
+      <div className="small"><strong>⏳ Validade dos lotes em estoque</strong></div>
+      <Async state={st}>{(d) => d.length === 0 ? <div className="small muted">Nenhum lote com saldo.</div> : (
+        <table className="small"><thead><tr><th>Lote interno</th><th>Lote fabricante</th><th>Validade</th><th>Quantidade</th></tr></thead>
+          <tbody>{d.map((s: any) => {
+            const v = s.lote?.validade ? String(s.lote.validade).slice(0, 10) : null;
+            return <tr key={s.id}><td>{s.lote?.numero === 'UNICO' ? '—' : s.lote?.numero}</td><td>{s.lote?.loteFornecedor ?? '—'}</td><td style={{ color: v && v < hoje ? '#dc2626' : undefined }}>{v ? v.split('-').reverse().join('/') : 'sem data'}{v && v < hoje ? ' (vencido)' : ''}</td><td>{qtdUn(s.fisicoMil, unidade)}</td></tr>;
+          })}</tbody></table>
+      )}</Async>
+    </div>
+  );
+}
+
+/** Excluir com confirmação: nunca usado → apaga; já usado → arquiva (explica por quê). Só Proprietário/Admin. */
+function ExcluirProduto({ produto, onClose, onDone }: { produto: any; onClose: () => void; onDone: () => void }) {
+  const uso = useApi<any>(`/erp/produtos/${produto.id}/uso`, [produto.id]);
+  const { busy, run } = useAction();
+  const [resultado, setResultado] = useState<any>(null);
+  return (
+    <Modal title={resultado ? (resultado.acao === 'excluido' ? 'Produto excluído' : 'Produto arquivado') : `Excluir ${produto.nome}?`} onClose={resultado ? onDone : onClose}>
+      {resultado ? <>
+        <p>{resultado.mensagem}</p>
+        <div className="row" style={{ justifyContent: 'flex-end' }}><button className="btn primary" onClick={onDone}>Ok</button></div>
+      </> : <Async state={uso}>{(u) => <>
+        <p><strong>{produto.nome}</strong> (cód. {produto.sku})</p>
+        {u.usado
+          ? <p>Este produto já tem <strong>{u.motivos.join(', ')}</strong>. Para não perder o histórico (vendas, notas, custos e estoque), ele <strong>não será apagado</strong>: vai ser <strong>arquivado</strong> (desativado). Ele some das buscas de venda e de entrada, e dá para reativar depois em Editar › Ativo.</p>
+          : <p>Este produto nunca foi usado (sem estoque, vendas, compras, lotes ou notas). Ele será <strong>apagado de vez</strong>. Isso não pode ser desfeito.</p>}
+        <div className="row" style={{ justifyContent: 'flex-end', gap: 6 }}>
+          <button className="btn" onClick={onClose}>Cancelar</button>
+          <button className="btn primary" style={{ background: '#dc2626', borderColor: '#dc2626' }} disabled={busy} onClick={async () => { const r = await run(() => del<any>(`/erp/produtos/${produto.id}`)); if (r) setResultado(r); }}>{u.usado ? 'Arquivar produto' : 'Excluir de vez'}</button>
+        </div>
+      </>}</Async>}
     </Modal>
   );
 }
