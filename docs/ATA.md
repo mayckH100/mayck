@@ -360,3 +360,12 @@ Entradas antigas assinadas "Hark" podem ser de qualquer um. Se não souber qual 
 - **Dificuldades:** e2e e Postgres real não rodaram (só SQLite). Unit 678 e integração 693 passaram.
 - **Falta:** NF-e emitida ainda não grava lote no XML; câmera depende do leitor nativo do Chrome (iPhone: leitor ou digitação). Próxima migração livre: 0061.
 - **Melhorar:** rodar e2e no CI.
+
+## Atualização 2026-11-20 (noite) — Leandro: leitura por código de barras/QR em tudo, venda balcão por leitura, localizar pedido e Zebra direta — v1.34.0
+- **Pedidos do Mayck (20/11):** venda balcão, localizar pedido e rastreabilidade também por QR/código de barras (coletor ou celular); e "a etiqueta zebra está fazendo download, deve imprimir diretamente pelo aplicativo ao localizar a impressora".
+- **Feito:** componente único de leitura (leitor USB/Bluetooth, câmera, digitação, bipe de acerto/erro) em Balcão, Localizar, Rastreio, Inventário, Estoque, conferência do recebimento e separação; "📷 Ler código" (F2) em todas as telas do ERP leva ao pedido/nota/lote/produto; tela Localizar pedido (código PV, nº, nota, chave do DANFE/QR NFC-e, cliente, lote, produto); balcão: cada leitura +1, etiqueta com lote baixa daquele lote, sem lote mostra o FEFO/FIFO; recibo/pedido/romaneio com QR do pedido; NF-e também para venda balcão concluída (só se pedirem); Zebra direta por Bluetooth (Android/Chrome), USB (Chrome no computador) e Zebra Browser Print (USB e rede), download só como último recurso. Detalhes em docs/ERP.md › v1.34.0.
+- **Migração:** `0061_erp_leitura_balcao` (só aditiva: `ErpPedidoItem.loteId` + índice). Próxima livre: 0062.
+- **Testes:** typecheck servidor e web; build da web; unit 76 arquivos / 683 testes; integração 88 arquivos, todos passaram (rodados um a um com banco limpo: rodar vários vitest ao mesmo tempo no mesmo SQLite corrompe o test.db e dá falsos erros 500). Novos: tests/unit/erp-leitura.test.ts, tests/unit/erp-zebra.test.ts, tests/integration/erp-leitura-balcao.test.ts. Não rodados: e2e e Postgres real.
+- **Produção:** sem deploy (o Mayck dispara). Commits com [skip render].
+- **Limites:** câmera só no Chrome Android (iPhone: leitor ou digitar); Zebra sem teste com impressora física (BLE só modelos Link-OS com Bluetooth LE; iPhone sem Web Bluetooth/USB; WebUSB no Windows costuma ser bloqueado pelo driver → Browser Print; IP direto não é possível pelo navegador → Browser Print); não há NFC-e; recibo não é fiscal.
+- **Melhorar:** etiqueta só de produto (sem lote) se o Mayck quiser; testar Zebra real (ZQ/ZD com BLE) e leitores no celular.

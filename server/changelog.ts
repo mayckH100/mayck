@@ -21,6 +21,21 @@ export type EntradaChangelog = {
 
 export const CHANGELOG: EntradaChangelog[] = [
   {
+    versao: '1.34.0',
+    data: '20/11/2026',
+    titulo: 'Venda no balcão, localizar pedido e conferência lendo código de barras ou QR, e etiqueta Zebra impressa direto',
+    itens: [
+      'Novo botão "📷 Ler código" no topo de todas as telas do MCK ERP (ou a tecla F2): leia com o leitor de código de barras, com a câmera do celular ou digite, e o sistema abre o lugar certo — o pedido, a nota, o lote da etiqueta ou o produto.',
+      'Venda balcão (PDV): cada leitura do código de barras ou da etiqueta do lote soma 1 no carrinho. Se a etiqueta tem o lote, a baixa sai daquele lote; se não, o sistema mostra qual lote sai primeiro (o que vence antes ou o mais antigo). Lote vencido, bloqueado ou sem saldo dá aviso na hora.',
+      'Depois da venda: imprima o recibo (bobina ou folha) com o QR do pedido. A venda balcão também pode emitir NF-e depois, se o cliente pedir nota.',
+      'Nova tela MCK ERP › Localizar pedido: leia o QR do pedido, do recibo ou do romaneio, a etiqueta do lote, o código do produto ou o código de barras da nota (DANFE), ou digite o número do pedido, da nota, o nome do cliente ou o lote. Mostra também todos os pedidos que levaram um lote.',
+      'Pedido impresso, romaneio e recibo agora saem com QR e código de barras do pedido, para achar o pedido depois só lendo o papel.',
+      'Separação de pedido, conferência do recebimento da nota, entrada de estoque e inventário usam a mesma leitura (leitor, câmera ou digitação), com bipe de acerto e alerta quando o item ou o lote lido está errado.',
+      'Impressora Zebra: toque em "Localizar impressora" uma vez (Bluetooth no celular Android, USB no computador ou pelo Zebra Browser Print, inclusive impressora de rede). Depois, "Imprimir na Zebra" manda direto, sem baixar arquivo. O arquivo só é oferecido como último recurso, explicando o motivo.',
+      'A leitura pela câmera funciona no Chrome do Android. No iPhone use um leitor de código de barras ou digite o código.',
+    ],
+  },
+  {
     versao: '1.33.0',
     data: '20/11/2026',
     titulo: 'Rastreio completo de lote, etiquetas com código de barras e QR, inventário pelo celular e cadastros editáveis',
