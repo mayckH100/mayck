@@ -38,14 +38,16 @@ describe('ERP · alertas, contas da empresa, clientes × fornecedores, produto',
     expect(contas.map((t: any) => t.descricao)).toEqual(['Conta de luz']);
     expect(forn.map((t: any) => t.descricao)).toEqual(['Boleto insumos']);
     const a = await montarAlerta(orgId, { alertaDiasAntes: 3, alertaPagar: true, alertaEstoqueMinimo: true, alertaSemSaidaDias: 15 }, hoje);
-    expect(a?.texto).toContain('*Fornecedores a pagar* (1');
-    expect(a?.texto).toContain('*Contas da empresa* (1');
+    expect(a?.texto).toContain('_Fornecedores_ (1');
+    expect(a?.texto).toContain('_Contas da empresa_ (1');
     expect(a?.texto).toContain('Luz: Conta de luz');
-    expect(a?.texto).toContain('*Abaixo do estoque mínimo* (1)');
+    expect(a?.texto).toContain('📦 Estoque baixo');
+    expect(a?.texto).toContain('1 produto abaixo do mínimo');
     // produto acabou de ser criado: ainda não conta como parado
-    expect(a?.texto).not.toContain('Sem saída');
+    expect(a?.texto).not.toContain('Produtos parados');
     const parado = await montarAlerta(orgId, { alertaDiasAntes: 3, alertaPagar: false, alertaEstoqueMinimo: false, alertaSemSaidaDias: 15 }, hoje, new Date(Date.now() + 20 * 86_400_000));
-    expect(parado?.texto).toContain('AL-1 Abaixo: 10 UN em estoque, nunca saiu');
+    expect(parado?.texto).toContain('💤 Produtos parados');
+    expect(parado?.texto).toContain('AL-1 · Abaixo: 10 UN · R$ 30,00 · nunca teve saída');
   });
 
   it('config de alertas: só com número; prévia', async () => {

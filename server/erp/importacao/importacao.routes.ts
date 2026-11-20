@@ -177,6 +177,9 @@ importacaoRouter.post('/:entidade/importar', requireRole('OWNER', 'ADMIN'), corp
         // Produto existente: só as colunas preenchidas (não zera custos extras, lote, ativo...).
         const parcial = Object.fromEntries(Object.entries(d).filter(([k]) => (_campos as string[]).includes(k)));
         await prisma.erpProduto.update({ where: { id: atual.id }, data: { ...parcial, codigoBarras: d.codigoBarras || atual.codigoBarras || await gerarCodigoBarras(orgId) } });
+        // v1.30.0: preço/custo mudados por planilha ficam no registro (alerta diário › Alterações).
+        if ('precoBaseCents' in parcial && parcial.precoBaseCents !== atual.precoBaseCents) await auditar(req, 'produto.preco', 'erp_produto', atual.id, { precoBaseCents: atual.precoBaseCents }, { precoBaseCents: parcial.precoBaseCents, origem: 'planilha' });
+        if ('custoMedioCents' in parcial && parcial.custoMedioCents !== atual.custoMedioCents) await auditar(req, 'produto.custo', 'erp_produto', atual.id, { custoMedioCents: atual.custoMedioCents }, { custoMedioCents: parcial.custoMedioCents, origem: 'planilha' });
       }
       else await prisma.erpProduto.create({ data: { orgId, ...d, codigoBarras: d.codigoBarras || await gerarCodigoBarras(orgId) } });
     } else {

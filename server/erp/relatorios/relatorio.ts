@@ -6,8 +6,8 @@ import { prisma } from '../../db.js';
 import { erpLiberado } from '../../billing/erpAccess.js';
 import { agoraLocal } from '../alertas/alertas.js';
 
-const SENSIVEIS = ['produto.custo', 'produto.custo_xml', 'produto.custos_adicionais', 'baixa.estornar', 'pedido.cancelar', 'pedido.devolver', 'estoque.ajuste_saida', 'titulo.cancelar', 'nfe_saida.cancelar'].map((a) => `erp.${a}`);
-const NOME_ACAO: Record<string, string> = { 'erp.produto.custo': 'Custo alterado', 'erp.produto.custo_xml': 'Custo da nota alterado (com senha)', 'erp.produto.custos_adicionais': 'Custos extras alterados', 'erp.baixa.estornar': 'Estorno de baixa', 'erp.pedido.cancelar': 'Pedido cancelado', 'erp.pedido.devolver': 'Pedido devolvido', 'erp.estoque.ajuste_saida': 'Ajuste de estoque (saída)', 'erp.titulo.cancelar': 'Título cancelado', 'erp.nfe_saida.cancelar': 'NF-e cancelada' };
+const SENSIVEIS = ['produto.preco', 'produto.custo', 'produto.custo_xml', 'produto.custos_adicionais', 'baixa.estornar', 'pedido.cancelar', 'pedido.devolver', 'estoque.ajuste_saida', 'titulo.cancelar', 'nfe_saida.cancelar'].map((a) => `erp.${a}`);
+const NOME_ACAO: Record<string, string> = { 'erp.produto.preco': 'Preço de venda alterado', 'erp.produto.custo': 'Custo alterado', 'erp.produto.custo_xml': 'Custo da nota alterado (com senha)', 'erp.produto.custos_adicionais': 'Custos extras alterados', 'erp.baixa.estornar': 'Estorno de baixa', 'erp.pedido.cancelar': 'Pedido cancelado', 'erp.pedido.devolver': 'Pedido devolvido', 'erp.estoque.ajuste_saida': 'Ajuste de estoque (saída)', 'erp.titulo.cancelar': 'Título cancelado', 'erp.nfe_saida.cancelar': 'NF-e cancelada' };
 const r = (c: number) => `R$ ${(c / 100).toFixed(2).replace('.', ',').replace(/\B(?=(\d{3})+(?!\d),)/g, '.')}`;
 
 /** Início e fim do dia local (fuso da empresa) em UTC. */

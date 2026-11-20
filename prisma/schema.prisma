@@ -1586,7 +1586,34 @@ model ErpConfig {
   alertaUltimoDia       String? // AAAA-MM-DD do último envio automático
   alertaStatus          String? // JSON: { at, ok, detail }
   relatorioUltimoDia    String? // "YYYY-MM-DD" do último relatório diário enviado ao proprietário
+  alertaOpcoes          String? // JSON (v1.30.0): seções do alerta ligadas/desligadas, dias de validade, consumo, compra pelo WhatsApp
   updatedAt             DateTime @updatedAt
+}
+
+/**
+ * Aprovação de compra pelo WhatsApp (v1.30.0): o alerta diário lista os itens com estoque baixo com um código;
+ * um número autorizado responde "APROVADO" e o sistema cria os pedidos de compra em rascunho. Expira em 48 h.
+ * status: PENDENTE | PROCESSANDO | AGUARDANDO_FORNECEDOR | CONCLUIDA | RECUSADA | SUBSTITUIDA | EXPIRADA
+ */
+model ErpAprovacaoCompra {
+  id          String    @id @default(cuid())
+  orgId       String
+  codigo      String
+  dia         String // AAAA-MM-DD do alerta
+  status      String    @default("PENDENTE")
+  itens       String    @default("[]") // JSON: itens sugeridos (produto, quantidade, fornecedor, custo)
+  telefones   String    @default("[]") // JSON: números autorizados a responder (alerta + proprietário)
+  estado      String    @default("{}") // JSON: conversa (itens escolhidos, perguntas de fornecedor, pedidos criados)
+  mensagens   String    @default("[]") // JSON: ids de mensagens do WhatsApp já tratadas (idempotência)
+  versao      Int       @default(0) // trava otimista: cada passo só grava se ninguém gravou antes
+  aprovadoPor String?
+  aprovadoEm  DateTime?
+  expiraEm    DateTime
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([orgId, codigo])
+  @@index([orgId, status, expiraEm])
 }
 
 model ErpProduto {

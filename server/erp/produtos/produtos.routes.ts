@@ -176,6 +176,8 @@ produtosRouter.put('/:id', ah(async (req, res) => {
     const linhas = [`Produto: ${p.sku} · ${p.nome}`, porXml ? `Custo da nota (XML): ${r(antes.custoMedioCents)} → ${r(p.custoMedioCents)}` : null, mudouExtras ? `Custo total com extras: ${r(custoTotal(antes))} → ${r(custoTotal(p))}` : null, `Alterado por: ${quem?.name ?? ''} (${quem?.email ?? ''})`, `Quando: ${new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}`].filter(Boolean).join('\n');
     void notificarProprietario(orgId, 'Custo de produto alterado', linhas);
   }
+  // v1.30.0: mudança de preço de venda tem registro próprio (entra no alerta diário em "Alterações de ontem").
+  if (b.precoBaseCents !== undefined && p.precoBaseCents !== antes.precoBaseCents) await auditar(req, 'produto.preco', 'erp_produto', p.id, { precoBaseCents: antes.precoBaseCents }, { precoBaseCents: p.precoBaseCents, origem: 'manual' });
   if (mudouExtras) await auditar(req, 'produto.custos_adicionais', 'erp_produto', p.id, { custosAdicionais: antes.custosAdicionais }, { custosAdicionais: p.custosAdicionais });
   await auditar(req, 'produto.editar', 'erp_produto', p.id, { precoBaseCents: antes.precoBaseCents, ativo: antes.ativo }, { precoBaseCents: p.precoBaseCents, ativo: p.ativo });
   res.json(p);

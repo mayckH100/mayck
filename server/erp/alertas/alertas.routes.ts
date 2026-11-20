@@ -7,6 +7,7 @@ import { orgOf } from '../../auth/session.js';
 import { auditar } from '../shared/auditoria.js';
 import { configDa } from '../produtos/produtos.routes.js';
 import { agoraLocal, enviarAlerta, montarAlerta, telefonesDe } from './alertas.js';
+import { lerOpcoes } from './opcoes.js';
 
 export const alertasRouter = Router();
 alertasRouter.use((req, _res, next) => next(req.auth?.role === 'OWNER' || req.auth?.role === 'ADMIN' ? undefined : forbidden()));
@@ -15,6 +16,7 @@ const visao = (c: Awaited<ReturnType<typeof configDa>>) => ({
   alertaAtivo: c.alertaAtivo, telefones: telefonesDe(c.alertaTelefones), alertaHora: c.alertaHora, alertaDiasAntes: c.alertaDiasAntes,
   alertaPagar: c.alertaPagar, alertaEstoqueMinimo: c.alertaEstoqueMinimo, alertaSemSaidaDias: c.alertaSemSaidaDias,
   ultimoDia: c.alertaUltimoDia, status: c.alertaStatus ? JSON.parse(c.alertaStatus) : null,
+  opcoes: lerOpcoes(c.alertaOpcoes),
 });
 
 alertasRouter.get('/', ah(async (req, res) => res.json(visao(await configDa(orgOf(req))))));
@@ -24,13 +26,17 @@ const fone = z.string().trim().transform((s) => s.replace(/[^\d+]/g, '')).refine
 
 alertasRouter.put('/', ah(async (req, res) => {
   const b = z.object({ alertaAtivo: z.boolean(), telefones: z.array(fone).max(5), alertaHora: z.number().int().min(0).max(23), alertaDiasAntes: z.number().int().min(0).max(30),
-    alertaPagar: z.boolean(), alertaEstoqueMinimo: z.boolean(), alertaSemSaidaDias: z.number().int().min(0).max(365) }).parse(req.body);
+    alertaPagar: z.boolean(), alertaEstoqueMinimo: z.boolean(), alertaSemSaidaDias: z.number().int().min(0).max(365),
+    // v1.30.0 (opcional: tela antiga sem o campo mantém o que está salvo)
+    opcoes: z.object({ validade: z.boolean(), validadeDias: z.number().int().min(1).max(365), caixa: z.boolean(), alteracoes: z.boolean(), compraWhatsapp: z.boolean(),
+      consumoDias: z.number().int().min(7).max(180), coberturaDias: z.number().int().min(1).max(180) }).partial().optional() }).parse(req.body);
   if (b.alertaAtivo && !b.telefones.length) throw badRequest('Informe ao menos um número de WhatsApp');
   const orgId = orgOf(req);
-  await configDa(orgId);
-  const { telefones, ...rest } = b;
-  const c = await prisma.erpConfig.update({ where: { orgId }, data: { ...rest, alertaTelefones: JSON.stringify(telefones) } });
-  await auditar(req, 'config.alertas', 'erp_config', orgId, null, { alertaAtivo: b.alertaAtivo, telefones: telefones.length });
+  const antes = await configDa(orgId);
+  const { telefones, opcoes, ...rest } = b;
+  const novasOpcoes = opcoes ? { ...lerOpcoes(antes.alertaOpcoes), ...opcoes } : undefined;
+  const c = await prisma.erpConfig.update({ where: { orgId }, data: { ...rest, alertaTelefones: JSON.stringify(telefones), ...(novasOpcoes ? { alertaOpcoes: JSON.stringify(novasOpcoes) } : {}) } });
+  await auditar(req, 'config.alertas', 'erp_config', orgId, null, { alertaAtivo: b.alertaAtivo, telefones: telefones.length, ...(novasOpcoes ? { opcoes: novasOpcoes } : {}) });
   res.json(visao(c));
 }));
 
@@ -43,7 +49,7 @@ async function hojeDa(orgId: string) {
 alertasRouter.get('/previa', ah(async (req, res) => {
   const orgId = orgOf(req);
   const a = await montarAlerta(orgId, await configDa(orgId), await hojeDa(orgId));
-  res.json({ texto: a?.texto ?? null, itens: a?.itens ?? 0 });
+  res.json({ texto: a?.texto ?? null, partes: a?.partes ?? [], itens: a?.itens ?? 0 });
 }));
 
 /** Envia agora para os números salvos (teste). */
@@ -52,7 +58,7 @@ alertasRouter.post('/enviar-agora', ah(async (req, res) => {
   const c = await configDa(orgId);
   const tels = telefonesDe(c.alertaTelefones);
   if (!tels.length) throw badRequest('Salve ao menos um número de WhatsApp');
-  const a = await montarAlerta(orgId, c, await hojeDa(orgId));
-  const texto = a?.texto ?? '*MCK ERP · teste de alerta*\nTudo em dia: nenhuma conta vencendo e nenhum produto em alerta.';
-  res.json(await enviarAlerta(orgId, tels, texto));
+  const a = await montarAlerta(orgId, c, await hojeDa(orgId), new Date(), { criarCodigo: true });
+  const texto = a?.partes ?? ['*MCK ERP · teste de alerta*\nTudo em dia: nenhuma conta vencendo e nenhum produto em alerta.'];
+  res.json({ ...(await enviarAlerta(orgId, tels, texto)), partes: texto.length, codigo: a?.codigo ?? null });
 }));

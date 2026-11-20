@@ -38,7 +38,7 @@ export async function resumoDaSessao(db: Db, s: Sessao): Promise<ResumoCaixa> {
 }
 
 /** Resumo congelado no fechamento (o que foi conferido), sem recalcular. */
-function resumoFechado(s: Sessao): ResumoCaixa {
+export function resumoFechado(s: Sessao): ResumoCaixa {
   const porForma = s.totaisPorForma ? JSON.parse(s.totaisPorForma) : {};
   const dinheiro = porForma.DINHEIRO?.valorCents ?? 0;
   return {
