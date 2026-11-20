@@ -66,8 +66,8 @@ function Form({ inicial, onSaved }: { inicial: any; onSaved: () => void }) {
           <label className="row small"><input type="checkbox" checked={!!op.compraWhatsapp} onChange={opChk('compraWhatsapp')} /> Aprovar a compra pelo WhatsApp: responder <strong>APROVADO</strong> (ou <strong>APROVADO 1,3</strong>) gera o pedido de compra em rascunho, um por fornecedor. Nada é enviado ao fornecedor.</label>
         </div>
       )}
-      <label className="row"><input type="checkbox" checked={!!op.validade} onChange={opChk('validade')} /> ⏳ Lotes vencidos e que vencem em até <input type="number" min={1} max={365} value={op.validadeDias ?? 30} onChange={opNum('validadeDias')} style={mini} aria-label="Dias de validade" /> dias (quantidade e valor a custo)</label>
-      <label className="row"><input type="checkbox" checked={f.alertaSemSaidaDias > 0} onChange={(e) => setF({ ...f, alertaSemSaidaDias: e.target.checked ? 15 : 0 })} /> 💤 Produtos parados: sem saída há {f.alertaSemSaidaDias > 0 ? <input type="number" min={1} max={365} value={f.alertaSemSaidaDias} onChange={num('alertaSemSaidaDias')} style={mini} aria-label="Dias sem saída" /> : '15'} dias ou mais (valor parado a custo)</label>
+      <label className="row"><input type="checkbox" checked={!!op.validade} onChange={opChk('validade')} /> ⏳ Lotes vencidos e que vencem em até <input type="number" min={1} max={365} value={op.validadeDias ?? 30} onChange={opNum('validadeDias')} style={mini} aria-label="Dias de validade" /> dias (quantidade, lote interno e do fabricante, e quanto custou)</label>
+      <label className="row"><input type="checkbox" checked={f.alertaSemSaidaDias > 0} onChange={(e) => setF({ ...f, alertaSemSaidaDias: e.target.checked ? 15 : 0 })} /> 💤 Produtos parados: sem saída há {f.alertaSemSaidaDias > 0 ? <input type="number" min={1} max={365} value={f.alertaSemSaidaDias} onChange={num('alertaSemSaidaDias')} style={mini} aria-label="Dias sem saída" /> : '15'} dias ou mais (mostra o dinheiro parado no estoque, a preço de custo)</label>
       <label className="row"><input type="checkbox" checked={!!op.caixa} onChange={opChk('caixa')} /> 🧾 Caixa de ontem: abertura, vendas por forma de pagamento, retiradas/reforços, diferença no fechamento e quem fez</label>
       <label className="row"><input type="checkbox" checked={!!op.alteracoes} onChange={opChk('alteracoes')} /> ✏️ Alterações de ontem: preço, custo e ajustes manuais de estoque, com quem e quando</label>
 
@@ -78,7 +78,7 @@ function Form({ inicial, onSaved }: { inicial: any; onSaved: () => void }) {
         <button className="btn primary" disabled={busy} onClick={async () => { if (await salvar()) onSaved(); }}>Salvar</button>
       </div>
       {previa && previa.map((p, i) => (
-        <pre key={i} className="small" style={{ whiteSpace: 'pre-wrap', background: 'var(--bg-soft, #f6f6f6)', padding: 10, borderRadius: 8, marginTop: 10 }}>{previa.length > 1 ? `Mensagem ${i + 1} de ${previa.length}\n\n` : ''}{p}</pre>
+        <div key={i} className="small" style={{ whiteSpace: 'pre-wrap', background: 'var(--bg-soft, #f6f6f6)', padding: 10, borderRadius: 8, marginTop: 10, fontFamily: 'inherit', lineHeight: 1.45 }}>{previa.length > 1 ? `Mensagem ${i + 1} de ${previa.length}\n\n` : ''}<TextoWhatsApp texto={p} /></div>
       ))}
     </div>
   );
@@ -106,4 +106,10 @@ function Aprovacoes() {
       )}</Async>
     </div>
   );
+}
+
+/** Prévia como aparece no WhatsApp: *negrito* e _itálico_. */
+export function TextoWhatsApp({ texto }: { texto: string }) {
+  const partes = texto.split(/(\*[^*\n]+\*|_[^_\n]+_)/g);
+  return <>{partes.map((t, i) => (t.length > 2 && t.startsWith('*') && t.endsWith('*') ? <strong key={i}>{t.slice(1, -1)}</strong> : t.length > 2 && t.startsWith('_') && t.endsWith('_') ? <em key={i}>{t.slice(1, -1)}</em> : <span key={i}>{t}</span>))}</>;
 }

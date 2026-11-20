@@ -21,7 +21,7 @@ import { decryptOrNull } from '../../lib/crypto.js';
 import { erpLiberado } from '../../billing/erpAccess.js';
 import { samePhone, sendToStaffNumber } from '../../whatsapp/handoffNotify.js';
 import { proximoNumero } from '../compras/compras.routes.js';
-import { brl, qtd, estimadoItem, type ItemEstoqueBaixo } from './formato.js';
+import { brl, estimadoItem, qtdUn, nomeUnidade, unidadeLegivel, type ItemEstoqueBaixo } from './formato.js';
 
 export const VALIDADE_MS = 48 * 3_600_000;
 const ALFABETO = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -145,7 +145,7 @@ export async function telefonesAutorizados(orgId: string): Promise<string[]> {
 }
 
 export function itensDaAprovacao(lista: ItemEstoqueBaixo[]): ItemAprovacao[] {
-  return lista.map((i, k) => ({ n: k + 1, produtoId: i.produtoId, sku: i.sku, nome: i.nome, unidade: i.unidade, qtdMil: i.sugestao.sugeridaMil, fornecedorId: i.fornecedorId, fornecedorNome: i.fornecedorNome, custoUnitCents: i.custoUnitCents }));
+  return lista.map((i, k) => ({ n: k + 1, produtoId: i.produtoId, sku: i.sku, nome: i.nome, unidade: unidadeLegivel(i.unidade), qtdMil: i.sugestao.sugeridaMil, fornecedorId: i.fornecedorId, fornecedorNome: i.fornecedorNome, custoUnitCents: i.custoUnitCents }));
 }
 
 /** Cria a aprovação do alerta de hoje (substitui as pendentes anteriores) e devolve o código. */
@@ -204,17 +204,18 @@ export function textoConfirmacao(codigo: string, docs: ResumoPedido[], itens: It
     for (const n of d.itens) {
       const i = I.get(n); if (!i) continue;
       const tot = Math.round((i.qtdMil * i.custoUnitCents) / 1000);
-      L.push(`   ${n}) ${i.sku} · ${i.nome}: ${qtd(i.qtdMil)} ${i.unidade}${i.custoUnitCents ? ` × ${brl(i.custoUnitCents)} = ${brl(tot)}` : ' (sem custo de referência)'}`);
+      L.push(`*${n}) ${i.nome}*${i.sku ? ` (cód. ${i.sku})` : ''}`, `   🛒 Quantidade: ${qtdUn(i.qtdMil, i.unidade)}`,
+        ...(i.custoUnitCents ? [`   💲 Preço por ${nomeUnidade(i.unidade, 1)}: *${brl(i.custoUnitCents)}*`, `   💰 Total: *${brl(tot)}*`] : ['   💲 Sem preço de referência: informe no ERP antes de enviar']));
     }
-    if (d.totalCents) L.push(`   Valor estimado: *${brl(d.totalCents)}*`);
+    if (d.totalCents) L.push(`Total deste pedido: *${brl(d.totalCents)}*`);
   }
   const total = docs.reduce((s, d) => s + d.totalCents, 0);
-  if (docs.length > 1 && total) L.push('', `Total estimado: *${brl(total)}*`);
-  L.push('', 'Situação: *rascunho*. Revise e envie pelo ERP. Nada foi enviado ao fornecedor.', `🔗 ${link}`);
+  if (docs.length > 1 && total) L.push('', `Total de tudo: *${brl(total)}*`);
+  L.push('', 'O pedido ficou como *rascunho* no ERP: confira e envie por lá. Nada foi enviado ao fornecedor.', `🔗 ${link}`);
   return L.join('\n');
 }
 
-const perguntaFornecedor = (i: ItemAprovacao) => `🤔 Tem preferência de fornecedor para *${i.sku} · ${i.nome}* (${qtd(i.qtdMil)} ${i.unidade})?\nResponda com o *nome* do fornecedor ou *NÃO*.`;
+const perguntaFornecedor = (i: ItemAprovacao) => `🤔 De qual fornecedor quer comprar *${i.nome}*${i.sku ? ` (cód. ${i.sku})` : ''}?\n🛒 Quantidade: ${qtdUn(i.qtdMil, i.unidade)}\nResponda com o *nome* do fornecedor, ou *NÃO* para seguir sem fornecedor (vira uma solicitação para cotar).`;
 
 /** Fornecedores cadastrados que casam com o nome digitado (todas as palavras). Exato vence. */
 export function casarFornecedor<T extends { id: string; nome: string; fantasia: string | null }>(lista: T[], texto: string): T[] {

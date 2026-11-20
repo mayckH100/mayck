@@ -8,7 +8,7 @@ import { janelaDoDia } from '../relatorios/relatorio.js';
 import { resumoDaSessao, resumoFechado } from '../vendas/caixa.routes.js';
 import type { OpcoesAlerta } from './opcoes.js';
 import {
-  sugestaoCompra, brl, qtd,
+  sugestaoCompra, brl, qtdUn, unidadeLegivel,
   type Alteracao, type ContaPagar, type DadosAlerta, type ItemEstoqueBaixo, type ItemParado, type LoteValidade, type SessaoCaixa,
 } from './formato.js';
 
@@ -32,7 +32,8 @@ export const ACOES_ALTERACAO: Record<string, { nome: string; tipo: Alteracao['ti
 };
 
 const hhmm = (d: Date, tz: string) => d.toLocaleTimeString('pt-BR', { timeZone: tz, hour: '2-digit', minute: '2-digit' });
-const ddmmHora = (d: Date, tz: string) => `${d.toLocaleDateString('pt-BR', { timeZone: tz, day: '2-digit', month: '2-digit' })} ${hhmm(d, tz)}`;
+/** "19/11 às 08:00" (o "às" evita números lado a lado, que o WhatsApp sublinha). */
+const ddmmHora = (d: Date, tz: string) => `${d.toLocaleDateString('pt-BR', { timeZone: tz, day: '2-digit', month: '2-digit' })} às ${hhmm(d, tz)}`;
 export const diaAnterior = (iso: string) => new Date(new Date(`${iso}T12:00:00Z`).getTime() - DIA).toISOString().slice(0, 10);
 
 async function nomesUsuarios(ids: (string | null | undefined)[]) {
@@ -108,7 +109,7 @@ async function secoesEstoque(orgId: string, cfg: ConfigAlerta, op: OpcoesAlerta,
       res.estoqueBaixo = abaixo.map((p) => {
         const saldoMil = fis.get(p.id) ?? 0;
         const sugestao = sugestaoCompra({ saldoMil, minimoMil: p.estoqueMinimoMil, consumoMil: C.get(p.id) ?? 0, consumoDias: op.consumoDias, coberturaDias: op.coberturaDias, leadTimeDias: p.leadTimeDias, loteMinimoMil: p.loteMinimoMil });
-        return { produtoId: p.id, sku: p.sku, nome: p.nome, unidade: p.unidade, saldoMil, minimoMil: p.estoqueMinimoMil, sugestao, consumoDias: op.consumoDias, coberturaDias: op.coberturaDias, ...FC.get(p.id)! };
+        return { produtoId: p.id, sku: p.sku, nome: p.nome, unidade: unidadeLegivel(p.unidade), saldoMil, minimoMil: p.estoqueMinimoMil, sugestao, consumoDias: op.consumoDias, coberturaDias: op.coberturaDias, leadTimeDias: p.leadTimeDias, loteMinimoMil: p.loteMinimoMil, ...FC.get(p.id)! };
       }).sort((a, b) => (a.saldoMil <= 0 ? 0 : 1) - (b.saldoMil <= 0 ? 0 : 1) || a.saldoMil / a.minimoMil - b.saldoMil / b.minimoMil);
     }
   }
@@ -121,7 +122,7 @@ async function secoesEstoque(orgId: string, cfg: ConfigAlerta, op: OpcoesAlerta,
       const U = new Map(ult.map((u) => [u.produtoId, u._max.createdAt]));
       const itens: ItemParado[] = comSaldo.filter((p) => { const u = U.get(p.id); return !u || u < desde; }).map((p) => {
         const u = U.get(p.id) ?? null; const saldoMil = fis.get(p.id) ?? 0;
-        return { sku: p.sku, nome: p.nome, unidade: p.unidade, saldoMil, ultimaSaida: u, diasParado: Math.floor((now.getTime() - (u ?? p.createdAt).getTime()) / DIA), valorCents: Math.round((saldoMil * p.custoMedioCents) / 1000) };
+        return { sku: p.sku, nome: p.nome, unidade: unidadeLegivel(p.unidade), saldoMil, ultimaSaida: u, diasParado: Math.floor((now.getTime() - (u ?? p.createdAt).getTime()) / DIA), valorCents: Math.round((saldoMil * p.custoMedioCents) / 1000) };
       }).sort((a, b) => b.valorCents - a.valorCents);
       if (itens.length) res.parados = { dias: cfg.alertaSemSaidaDias, itens };
     }
@@ -135,7 +136,7 @@ async function secoesEstoque(orgId: string, cfg: ConfigAlerta, op: OpcoesAlerta,
     const ls: LoteValidade[] = lotes.filter((l) => PM.has(l.produtoId) && (S.get(l.id) ?? 0) > 0).map((l) => {
       const p = PM.get(l.produtoId)!; const saldoMil = S.get(l.id) ?? 0;
       const v = new Date(`${l.validade!.toISOString().slice(0, 10)}T00:00:00Z`);
-      return { sku: p.sku, nome: p.nome, unidade: p.unidade, lote: l.numero, validade: l.validade!, dias: Math.round((v.getTime() - hoje.getTime()) / DIA), saldoMil, valorCents: Math.round((saldoMil * p.custoMedioCents) / 1000) };
+      return { sku: p.sku, nome: p.nome, unidade: unidadeLegivel(p.unidade), lote: l.numero === 'UNICO' ? '' : l.numero, loteFabricante: l.loteFornecedor, validade: l.validade!, dias: Math.round((v.getTime() - hoje.getTime()) / DIA), saldoMil, valorCents: Math.round((saldoMil * p.custoMedioCents) / 1000) };
     });
     if (ls.length) res.validade = { dias: op.validadeDias, lotes: ls };
   }
@@ -186,14 +187,14 @@ async function alteracoesDoDia(orgId: string, ini: Date, fim: Date, tz: string):
     const pid = l.entity === 'erp_produto' ? l.entityId : l.entity === 'erp_saldo' ? SP.get(l.entityId ?? '') ?? m.depois?.produtoId : null;
     const p = pid ? PR.get(pid) : undefined;
     let detalhe = '';
-    if (l.action === 'erp.produto.preco') detalhe = `${brl(m.antes?.precoBaseCents ?? 0)} → ${brl(m.depois?.precoBaseCents ?? 0)}`;
-    else if (l.action === 'erp.produto.custo' || l.action === 'erp.produto.custo_xml') detalhe = `${brl(m.antes?.custoMedioCents ?? 0)} → ${brl(m.depois?.custoMedioCents ?? 0)}`;
+    if (l.action === 'erp.produto.preco') detalhe = `de *${brl(m.antes?.precoBaseCents ?? 0)}* para *${brl(m.depois?.precoBaseCents ?? 0)}*`;
+    else if (l.action === 'erp.produto.custo' || l.action === 'erp.produto.custo_xml') detalhe = `de *${brl(m.antes?.custoMedioCents ?? 0)}* para *${brl(m.depois?.custoMedioCents ?? 0)}*`;
     else if (l.action === 'erp.estoque.ajuste_saida' || l.action === 'erp.estoque.entrada') {
       const q = Number(m.depois?.qtdMil ?? 0);
-      detalhe = `${q > 0 ? '+' : ''}${qtd(q)}${p ? ` ${p.unidade}` : ''}${m.depois?.motivo ? ` · motivo: ${String(m.depois.motivo).slice(0, 80)}` : ''}`;
+      detalhe = `${q > 0 ? 'Entraram' : 'Saíram'} ${qtdUn(Math.abs(q), p?.unidade)}${m.depois?.motivo ? ` · motivo: ${String(m.depois.motivo).slice(0, 80)}` : ''}`;
     }
     if (m.depois?.origem && typeof m.depois.origem === 'string' && /planilha/i.test(m.depois.origem)) detalhe += detalhe ? ' · por planilha' : 'por planilha';
-    return { hora: hhmm(l.createdAt, tz), dia: l.createdAt.toISOString().slice(0, 10), quem: (l.userId && U.get(l.userId)) || '', acao: a.nome, item: p ? `${p.sku} ${p.nome}` : '', detalhe, tipo: a.tipo };
+    return { hora: hhmm(l.createdAt, tz), dia: l.createdAt.toISOString().slice(0, 10), quem: (l.userId && U.get(l.userId)) || '', acao: a.nome, item: p ? `${p.nome} (cód. ${p.sku})` : '', detalhe, tipo: a.tipo };
   });
 }
 

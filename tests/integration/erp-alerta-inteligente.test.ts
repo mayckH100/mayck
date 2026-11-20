@@ -57,31 +57,31 @@ describe('ERP · alerta diário inteligente (v1.30.0)', () => {
     const a = await montarAlerta(x.orgId, { ...cfg, alertaSemSaidaDias: 15 }, amanha);
     const t = a!.texto;
     expect(t).toContain('📋 *Alerta diário do MCK ERP*');
-    expect(t).toMatch(/\*\d\. 📦 Estoque baixo\*/);
-    expect(t).toContain('CAF-500 · Café 500 g');
-    expect(t).toContain('Saldo: 4 UN · Mínimo: 10 UN · Falta: 6 UN');
-    expect(t).toContain('Consumo médio: 1,2 UN/dia (últimos 30 dias)');
-    expect(t).toContain('Sugestão: comprar *42 UN*');
-    expect(t).toContain('Fornecedor: Boa Vista · último custo R$ 12,50 · estimado R$ 525,00');
-    expect(t).toContain('ACU-1 · Açúcar 1 kg ⚠️ sem estoque');
-    expect(t).toContain('Código (gerado no envio)');
-    expect(t).toContain('⏳ Validade');
-    expect(t).toMatch(/lote IOG-VENC: 6 UN · R\$ 18,00 · 🔴 venceu/);
-    expect(t).toContain('lote IOG-OK: 24 UN · R$ 72,00 · vence');
-    expect(t).toContain('(em 5 dias)');
+    expect(t).toMatch(/\*\d\. 📦 Estoque baixo: o que comprar\*/);
+    expect(t).toMatch(/\*\d\) Café 500 g\* \(cód\. CAF-500\)/);
+    expect(t).toContain('📦 Tem hoje: 4 unidades\n🎯 Estoque mínimo: 10 unidades');
+    expect(t).toContain('📉 Vende em média 1,2 unidade por dia');
+    expect(t).toContain('🛒 *Comprar: 42 unidades*');
+    expect(t).toContain('💲 Preço por unidade: *R$ 12,50* (última compra)\n💰 *Total da compra: R$ 525,00*\n🏭 Fornecedor: Boa Vista');
+    expect(t).toMatch(/\*\d\) Açúcar 1 kg\* \(cód\. ACU-1\) ⚠️ acabou/);
+    expect(t).toContain('Código da aprovação: (gerado no envio)');
+    expect(t).toContain('⏳ Validade dos lotes');
+    expect(t).toMatch(/Lote interno IOG-VENC\n   🔴 Venceu em [\s\S]*Tem 6 unidades · custo \*R\$ 18,00\*/);
+    expect(t).toContain('Tem 24 unidades · custo *R$ 72,00*');
+    expect(t).toContain('(daqui a 5 dias)');
     expect(t).toContain('💤 Produtos parados');
-    expect(t).toMatch(/GEL-1 · Geleia: 12 UN · R\$ 96,00 · nunca teve saída/);
+    expect(t).toContain('• *Geleia* (cód. GEL-1)\n   Tem 12 unidades · parado: *R$ 96,00*\n   Nunca teve venda/saída');
     expect(t).toContain('🧾 Caixa de ontem');
-    expect(t).toContain('troco inicial R$ 100,00');
-    expect(t).toContain('Retirada R$ 20,00');
+    expect(t).toContain('Troco inicial: R$ 100,00');
+    expect(t).toContain('Retirada de R$ 20,00');
     expect(t).toContain('Depósito no banco');
-    expect(t).toContain('*faltaram R$ 5,00* (quebra de caixa)');
+    expect(t).toContain('*Faltaram R$ 5,00* (quebra de caixa)');
     expect(t).toContain('Justificativa: Troco errado');
-    expect(t).toContain('Preço de venda alterado: CAF-500 Café 500 g (R$ 18,90 → R$ 19,90)');
-    expect(t).toContain('Ajuste manual de estoque (saída): CAF-500 Café 500 g (-6 UN · motivo: Avaria na prateleira)');
-    expect(t).toContain('*✅ Ações sugeridas*');
-    expect(t).toContain('Retirar da venda 1 lote vencido');
-    expect(t).toContain('Conferir a falta de R$ 5,00');
+    expect(t).toContain('preço de venda alterado — Café 500 g (cód. CAF-500)\n   de *R$ 18,90* para *R$ 19,90*');
+    expect(t).toContain('ajuste manual de estoque (saída) — Café 500 g (cód. CAF-500)\n   Saíram 6 unidades · motivo: Avaria na prateleira');
+    expect(t).toContain('*✅ O que fazer hoje*');
+    expect(t).toContain('Tirar da venda 1 lote vencido');
+    expect(t).toContain('Conferir a falta de *R$ 5,00*');
   });
 
   it('seções desligadas na tela somem; opções salvas no JSON e devolvidas no GET', async () => {
@@ -127,7 +127,7 @@ describe('ERP · aprovação de compra pelo WhatsApp (v1.30.0)', () => {
   it('envio cria o código; "ok aprovado" cria o pedido do item com fornecedor e pergunta do item sem fornecedor', async () => {
     const a = await novoAlerta();
     expect(a.codigo).toMatch(/^[A-HJ-NP-Z2-9]{4}$/);
-    expect(a.texto).toContain(`Código *${a.codigo}*`);
+    expect(a.texto).toContain(`Código da aprovação: *${a.codigo}*`);
     const antes = (await pedidos()).length;
 
     await sendInbound(ctx, STAFF, 'ok aprovado');
@@ -139,9 +139,9 @@ describe('ERP · aprovação de compra pelo WhatsApp (v1.30.0)', () => {
     expect(pc.observacoes).toContain(a.codigo!);
     const msgs = paraStaff();
     expect(msgs.join('\n')).toContain(`*Pedido de compra nº ${pc.numero}* — Boa Vista`);
-    expect(msgs.join('\n')).toContain('6 UN × R$ 12,50 = R$ 75,00');
+    expect(msgs.join('\n')).toContain('🛒 Quantidade: 6 unidades\n   💲 Preço por unidade: *R$ 12,50*\n   💰 Total: *R$ 75,00*');
     expect(msgs.join('\n')).toContain('/erp/compras');
-    expect(msgs.join('\n')).toContain('Tem preferência de fornecedor para *ACU-1 · Açúcar 1 kg*');
+    expect(msgs.join('\n')).toContain('De qual fornecedor quer comprar *Açúcar 1 kg* (cód. ACU-1)?');
     // a mensagem da equipe não virou contato/lead
     expect(await prisma.contact.count({ where: { orgId: x.orgId, waId: STAFF } })).toBe(0);
     expect(await prisma.erpAprovacaoCompra.findFirst({ where: { orgId: x.orgId, codigo: a.codigo! } })).toMatchObject({ status: 'AGUARDANDO_FORNECEDOR', aprovadoPor: `+${STAFF}` });
@@ -187,12 +187,12 @@ describe('ERP · aprovação de compra pelo WhatsApp (v1.30.0)', () => {
     // o açúcar agora tem fornecedor (última compra); produto novo, nunca comprado, fica sem
     const sal = (await x.owner.post('/api/erp/produtos', { sku: 'SAL-1', nome: 'Sal 1 kg', estoqueMinimoMil: 2_000, custoMedioCents: 200 })).body;
     const a = await novoAlerta();
-    expect(a.texto).toMatch(/ACU-1 · Açúcar 1 kg[\s\S]*Fornecedor: Atacadão Zona Sul/);
+    expect(a.texto).toMatch(/\*\d\) Açúcar 1 kg\* \(cód\. ACU-1\)[\s\S]*🏭 Fornecedor: Atacadão Zona Sul/);
     const nAcu = await numeroDo(a.codigo!, 'SAL-1');
     const sol0 = await prisma.erpSolicitacaoCompra.count({ where: { orgId: x.orgId } });
     const pc0 = (await pedidos()).length;
     await sendInbound(ctx, STAFF, `aprovado ${nAcu}`);
-    expect(paraStaff().join('\n')).toContain('Tem preferência de fornecedor');
+    expect(paraStaff().join('\n')).toContain('De qual fornecedor quer comprar');
     graph.reset();
     await sendInbound(ctx, STAFF, 'NÃO');
     expect((await pedidos()).length).toBe(pc0);
@@ -229,7 +229,7 @@ describe('ERP · aprovação de compra pelo WhatsApp (v1.30.0)', () => {
     await tickAlertasErp();
     const txt = paraStaff().join('\n');
     expect(txt).toContain('📋 *Alerta diário do MCK ERP*');
-    expect(txt).toMatch(/Código \*[A-HJ-NP-Z2-9]{4}\*/);
+    expect(txt).toMatch(/Código da aprovação: \*[A-HJ-NP-Z2-9]{4}\*/);
     expect(await prisma.erpAprovacaoCompra.findFirst({ where: { orgId: x.orgId, codigo: a2.codigo! } })).toMatchObject({ status: 'SUBSTITUIDA' });
   });
 
