@@ -353,3 +353,10 @@ Entradas antigas assinadas "Hark" podem ser de qualquer um. Se não souber qual 
 - **Testes:** typecheck servidor+web; build; unit 72 arquivos / 667 testes; integração: ERP e relacionados 25 arquivos / 136 testes + 7 arquivos gerais (62) passaram; e2e erp-o-que-comprar (novo, com prints desktop/celular) e erp-balcao. Não rodados nesta entrega: demais arquivos de integração não ligados ao ERP (limite de tempo do ambiente) e Postgres real (só SQLite).
 - **Produção:** sem deploy, nada mudou no Render. Commits com [skip render].
 - **Falta:** deploy (Mayck); conferir no celular real; de-para da NF-e não herda o fator de embalagem do produto.
+
+## Atualização 2026-11-20 (tarde) — Leandro: rastreabilidade de lote, etiquetas, inventário e edição de cadastros — v1.33.0
+- **Feito:** tela MCK ERP › Rastreio de lote (/erp/rastreio): uma busca por produto, código de barras, lote interno/fornecedor, NF (número ou chave) ou pedido; linha do tempo do lote, saldo por local, destino das saídas, recall e lotes de origem; CSV/PDF. Lotes visíveis em Produtos e aba "Saldo por lote" em Estoque. Saldo antigo sem lote vira L-INICIAL (migração 0060, aditiva). Etiqueta GS1-128 + QR (empresa, produto, lote, fabricação, validade) em PDF/ZPL, oferecida logo após cada entrada. Inventário por código de barras/QR ou digitado, relatório Físico x Sistema, aviso ao proprietário e ajuste só com senha do Proprietário + motivo. Edição completa de cliente, fornecedor e produto com campos travados explicados e AuditLog antes→depois. Detalhes em docs/ERP.md › v1.33.0.
+- **Passado:** Permissions-Policy agora camera=(self). Nova dependência pdf-lib.
+- **Dificuldades:** e2e e Postgres real não rodaram (só SQLite). Unit 678 e integração 693 passaram.
+- **Falta:** NF-e emitida ainda não grava lote no XML; câmera depende do leitor nativo do Chrome (iPhone: leitor ou digitação). Próxima migração livre: 0061.
+- **Melhorar:** rodar e2e no CI.
