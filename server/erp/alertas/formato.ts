@@ -166,8 +166,8 @@ function secaoParados(p: { dias: number; itens: ItemParado[] }): string[] {
   const total = p.itens.reduce((a, i) => a + i.valorCents, 0);
   const L = [
     `${plural(p.itens.length, 'produto tem', 'produtos têm')} estoque e não vende${p.itens.length === 1 ? '' : 'm'} há ${p.dias} dias ou mais.`,
-    `Dinheiro parado no estoque (preço de custo): *${brl(total)}*`,
   ];
+  if (p.itens.length > 1) L.push(`Dinheiro parado no estoque (preço de custo): *${brl(total)}*`);
   for (const i of p.itens.slice(0, MAX_LINHAS)) {
     const quando = i.ultimaSaida ? `Última venda/saída em ${ddmm(i.ultimaSaida)} (há ${plural(i.diasParado ?? 0, 'dia', 'dias')})` : 'Nunca teve venda/saída';
     L.push('', `• ${linhaCodigo(i.nome, i.sku)}`, `   Tem ${qtdUn(i.saldoMil, i.unidade)} · parado: *${brl(i.valorCents)}*`, `   ${quando}`);
@@ -244,7 +244,7 @@ export function acoesSugeridas(d: DadosAlerta, codigo?: string | null): string[]
     const zer = d.estoqueBaixo.filter((i) => i.saldoMil <= 0).length;
     if (zer) A.push(`Urgente: ${plural(zer, 'produto já acabou', 'produtos já acabaram')}.`);
     A.push(codigo
-      ? `Comprar ${plural(n, 'item', 'itens')}${est ? ` (total *${brl(est)}*)` : ''}: responda *APROVADO*${n > 1 ? ` (ou só alguns: *APROVADO ${n >= 3 ? '1,3' : '1'}*)` : ''}.`
+      ? `Comprar ${plural(n, 'item', 'itens')}: responda *APROVADO*.`
       : `Fazer o pedido de compra de ${plural(n, 'item', 'itens')}${est ? ` (total *${brl(est)}*)` : ''} em ERP › Compras.`);
   }
   if (d.validade?.lotes.length) {
@@ -253,7 +253,7 @@ export function acoesSugeridas(d: DadosAlerta, codigo?: string | null): string[]
     if (venc.length) A.push(`Tirar da venda ${plural(venc.length, 'lote vencido', 'lotes vencidos')} (custo *${brl(venc.reduce((a, l) => a + l.valorCents, 0))}*) e lançar a perda.`);
     if (logo.length) A.push(`Vender primeiro ou fazer promoção de ${plural(logo.length, 'lote que vence', 'lotes que vencem')} em até 7 dias.`);
   }
-  if (d.parados?.itens.length) A.push(`Fazer promoção, combo ou devolução de ${plural(d.parados.itens.length, 'produto parado', 'produtos parados')}: *${brl(d.parados.itens.reduce((a, i) => a + i.valorCents, 0))}* de dinheiro parado no estoque.`);
+  if (d.parados?.itens.length) A.push(`Fazer promoção, combo ou devolução ${d.parados.itens.length === 1 ? 'do produto parado' : 'dos produtos parados'}.`);
   for (const s of d.caixa ?? []) {
     if (s.status !== 'ABERTO' && s.diferencaCents) A.push(`Conferir a ${s.diferencaCents < 0 ? 'falta' : 'sobra'} de *${brl(Math.abs(s.diferencaCents))}* no ${s.conta} (fechado por ${s.fechadoPor ?? '—'}).`);
     if (s.status === 'ABERTO') A.push(`Fechar e conferir o ${s.conta}, aberto desde ${s.abertoEm}.`);
@@ -266,7 +266,11 @@ export function acoesSugeridas(d: DadosAlerta, codigo?: string | null): string[]
 }
 
 /** Junta tudo em blocos (seções) já numerados. O 1º bloco é o cabeçalho. */
-export function blocosAlerta(d: DadosAlerta, opts: { codigo?: string | null; previa?: boolean } = {}): string[] {
+export function blocosAlerta(d0: DadosAlerta, opts: { codigo?: string | null; previa?: boolean } = {}): string[] {
+  // Produto que já está em "o que comprar" não se repete em "parados" (evita o mesmo item duas vezes no alerta).
+  const comprar = new Set((d0.estoqueBaixo ?? []).map((i) => i.sku || i.nome));
+  const paradosItens = d0.parados?.itens.filter((i) => !comprar.has(i.sku || i.nome)) ?? [];
+  const d: DadosAlerta = { ...d0, parados: d0.parados && paradosItens.length ? { ...d0.parados, itens: paradosItens } : null };
   const hoje = new Date(`${d.hojeIso}T00:00:00Z`);
   const ontem = dataExtenso(d.ontemIso);
   const secoes: { titulo: string; linhas: string[] }[] = [];
@@ -277,19 +281,13 @@ export function blocosAlerta(d: DadosAlerta, opts: { codigo?: string | null; pre
   if (d.caixa?.length) secoes.push({ titulo: `🧾 Caixa de ontem (${ontem})`, linhas: secaoCaixa(d.caixa) });
   if (d.alteracoes?.length) secoes.push({ titulo: `✏️ Alterações de ontem (${ontem})`, linhas: secaoAlteracoes(d.alteracoes) });
 
-  const resumo: string[] = [];
-  if (d.pagar?.length) resumo.push(plural(d.pagar.length, 'conta a pagar', 'contas a pagar'));
-  if (d.estoqueBaixo?.length) resumo.push(plural(d.estoqueBaixo.length, 'produto para comprar', 'produtos para comprar'));
-  if (d.validade?.lotes.length) resumo.push(plural(d.validade.lotes.length, 'lote vencendo', 'lotes vencendo'));
-  if (d.parados?.itens.length) resumo.push(plural(d.parados.itens.length, 'produto parado', 'produtos parados'));
   const quebra = (d.caixa ?? []).reduce((a, s) => a + Math.min(0, s.diferencaCents ?? 0), 0);
-  if (quebra) resumo.push(`falta no caixa de ${brl(-quebra)}`);
 
   const cab = [
     `🏢 *${d.empresa || 'Sua empresa'}*`,
     `📋 *Alerta diário do MCK ERP*`,
     `${cap(diaSemana(d.hojeIso))}, ${dataExtenso(d.hojeIso)}`,
-    ...(resumo.length ? ['', `Hoje: ${resumo.join(' · ')}.`] : []),
+    ...(quebra ? ['', `🔴 Falta no caixa de ${brl(-quebra)}.`] : []),
   ].join('\n');
   const blocos = [cab, ...secoes.map((s, i) => [`*${i + 1}. ${s.titulo}*`, ...s.linhas].join('\n'))];
   const acoes = acoesSugeridas(d, opts.codigo || (opts.previa ? 'previa' : null));

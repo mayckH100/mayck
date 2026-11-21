@@ -21,6 +21,15 @@ export type EntradaChangelog = {
 
 export const CHANGELOG: EntradaChangelog[] = [
   {
+    versao: '1.37.2',
+    data: '21/11/2026',
+    titulo: 'Alerta diário do WhatsApp mais curto, sem repetir o mesmo produto',
+    itens: [
+      'O produto que já aparece em "o que comprar" não se repete em "produtos parados".',
+      'Sem a linha de resumo no topo e sem repetir valores no "O que fazer hoje".',
+    ],
+  },
+  {
     versao: '1.37.1',
     data: '21/11/2026',
     titulo: 'MCK ERP: seta para voltar tela por tela e Indicadores (BI) logo no Início',

@@ -75,7 +75,7 @@ describe('alerta diário v1.30.0 · texto', () => {
     expect(txt).toContain('Retirada de R$ 200,00 em 19/11 às 14:30 por Ana — Depósito no banco');
     expect(txt).toContain('Venceu em 17/11');
     expect(txt).toContain('Lote interno 261101-1');
-    expect(txt).toContain('Dinheiro parado no estoque (preço de custo): *R$ 96,00*');
+    expect(txt).toContain('parado: *R$ 96,00*');
     expect(txt).toContain('Às 10:15, Bruno: preço de venda alterado — Café 500 g (cód. CAF-500)\n   de *R$ 18,90* para *R$ 19,90*');
     expect(txt).toContain('*✅ O que fazer hoje*');
     expect(txt).toContain('Comprar 2 itens');
