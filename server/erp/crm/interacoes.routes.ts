@@ -44,26 +44,40 @@ interacoesRouter.post('/enviar', ah(async (req, res) => {
   const b = envioSchema.parse(req.body);
   const p = await prisma.erpParceiro.findFirst({ where: { id: b.parceiroId, orgId } });
   if (!p) throw notFound('Cliente');
+  if (b.canal === 'EMAIL' && !p.email) throw badRequest('Cliente sem e-mail cadastrado');
+  if (b.canal === 'WHATSAPP' && !p.telefone) throw badRequest('Cliente sem telefone cadastrado');
+  const { ok, erro, interacao: i } = await enviarAoParceiro(orgId, p, b.canal, b.texto, { assunto: b.assunto ?? null, oportunidadeId: b.oportunidadeId ?? null, userId: req.auth?.userId ?? null });
+  if (erro === 'OPT_OUT') throw badRequest('O cliente pediu para não receber mensagens (opt-out)');
+  res.status(ok ? 201 : 502).json({ ...i, erro });
+}));
+
+type ParceiroEnvio = { id: string; nome: string; fantasia: string | null; email: string | null; telefone: string | null; contactId: string | null };
+/**
+ * Envia texto a um cliente/fornecedor por e-mail (Brevo/SMTP) ou WhatsApp (canal do MCKBOT) e registra na linha do
+ * tempo do parceiro (ERP › CRM). Usado pela tela do CRM e pelos avisos de compras ao fornecedor (v1.36.0). Nunca envia
+ * a quem pediu opt-out (erro 'OPT_OUT').
+ */
+export async function enviarAoParceiro(orgId: string, p: ParceiroEnvio, canal: 'EMAIL' | 'WHATSAPP', texto: string, o: { assunto?: string | null; oportunidadeId?: string | null; userId?: string | null } = {}) {
   let ok = false; let erro: string | null = null; let ref: string | null = null;
-  if (b.canal === 'EMAIL') {
-    if (!p.email) throw badRequest('Cliente sem e-mail cadastrado');
-    const r = await sendMailResult({ to: p.email, subject: b.assunto || 'Mensagem', text: b.texto });
+  if (canal === 'EMAIL') {
+    if (!p.email) return { ok: false, erro: 'Sem e-mail cadastrado', interacao: null };
+    const r = await sendMailResult({ to: p.email, subject: o.assunto || 'Mensagem', text: texto });
     ok = r.ok; erro = r.error ?? null; ref = r.messageId ?? null;
   } else {
-    if (!p.telefone) throw badRequest('Cliente sem telefone cadastrado');
+    if (!p.telefone) return { ok: false, erro: 'Sem telefone cadastrado', interacao: null };
     const waId = onlyDigits(p.telefone);
     let contact = p.contactId ? await prisma.contact.findFirst({ where: { id: p.contactId, orgId } }) : null;
     contact ??= await prisma.contact.findUnique({ where: { orgId_waId: { orgId, waId } } });
     contact ??= await prisma.contact.create({ data: { orgId, waId, phone: p.telefone, name: p.fantasia || p.nome, email: p.email } });
     if (p.contactId !== contact.id) await prisma.erpParceiro.update({ where: { id: p.id }, data: { contactId: contact.id } });
-    if (contact.optOut) throw badRequest('O cliente pediu para não receber mensagens (opt-out)');
+    if (contact.optOut) return { ok: false, erro: 'OPT_OUT', interacao: null };
     let conv = await prisma.conversation.findFirst({ where: { orgId, contactId: contact.id, status: { not: 'CLOSED' } }, orderBy: { createdAt: 'desc' } });
     conv ??= await prisma.conversation.create({ data: { orgId, contactId: contact.id, channelId: null } });
-    const msg = await sendOutbound({ conversation: conv, contact, payload: { type: 'text', text: b.texto }, sender: 'agent', authorUserId: req.auth?.userId, product: 'MCKBOT' });
+    const msg = await sendOutbound({ conversation: conv, contact, payload: { type: 'text', text: texto }, sender: 'agent', authorUserId: o.userId ?? undefined, product: 'MCKBOT' });
     ok = msg.status !== 'FAILED'; erro = ok ? null : msg.error ?? 'Falha no envio pelo WhatsApp'; ref = msg.waMessageId ?? null;
   }
-  const i = await prisma.erpInteracao.create({
-    data: { orgId, parceiroId: p.id, oportunidadeId: b.oportunidadeId ?? null, tipo: b.canal, direcao: 'SAIDA', assunto: b.assunto ?? null, conteudo: b.texto, status: ok ? 'ENVIADO' : 'FALHOU', canalRef: ref, userId: req.auth?.userId ?? null },
+  const interacao = await prisma.erpInteracao.create({
+    data: { orgId, parceiroId: p.id, oportunidadeId: o.oportunidadeId ?? null, tipo: canal, direcao: 'SAIDA', assunto: o.assunto ?? null, conteudo: texto, status: ok ? 'ENVIADO' : 'FALHOU', canalRef: ref, userId: o.userId ?? null },
   });
-  res.status(ok ? 201 : 502).json({ ...i, erro });
-}));
+  return { ok, erro, interacao };
+}

@@ -17,6 +17,7 @@ import { entrada } from '../estoque/servico.js';
 import { maquinaOp, type StatusOp, type EventoOp } from './op.machine.js';
 import { criaCiclo, custoPadrao, necessidadeComponente, calcularMrp } from './mrp.js';
 import { reservarComponente, liberarReservasOp, consumirComponente } from './servico.js';
+import { STATUS_COMPRA_ABERTA } from '../compras/compra.machine.js';
 
 export const producaoRouter = Router();
 const custoOpUn = (ops: { segundosPorUn: number; custoHoraCents: number }[]) => ops.reduce((a, o) => a + (o.segundosPorUn * o.custoHoraCents) / 3600, 0);
@@ -208,7 +209,7 @@ async function entradaMrp(orgId: string) {
     prisma.erpEstruturaItem.findMany({ where: { orgId } }),
     prisma.erpSaldo.findMany({ where: { orgId } }),
     prisma.erpPedidoVenda.findMany({ where: { orgId, statusOperacional: { in: ['APROVADO', 'AGUARDANDO_SUPRIMENTO', 'EM_APROVACAO', 'BLOQUEADO'] } }, include: { itens: true } }),
-    prisma.erpPedidoCompra.findMany({ where: { orgId, status: { in: ['RASCUNHO', 'EM_APROVACAO', 'APROVADO', 'ENVIADO', 'RECEBIDO_PARCIAL'] } }, include: { itens: true } }),
+    prisma.erpPedidoCompra.findMany({ where: { orgId, status: { in: STATUS_COMPRA_ABERTA } }, include: { itens: true } }),
     prisma.erpOrdemProducao.findMany({ where: { orgId, status: { in: ['PLANEJADA', 'LIBERADA', 'EM_PRODUCAO'] } }, include: { componentes: true } }),
   ]);
   const soma = (m: Map<string, number>, k: string, v: number) => { if (v > 0) m.set(k, (m.get(k) ?? 0) + v); };

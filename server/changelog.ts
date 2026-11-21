@@ -21,6 +21,19 @@ export type EntradaChangelog = {
 
 export const CHANGELOG: EntradaChangelog[] = [
   {
+    versao: '1.36.0',
+    data: '20/11/2026',
+    titulo: 'Compras com etapas e prazo: veja na hora se a ordem de compra está no prazo, chega em breve ou atrasou',
+    itens: [
+      'Ordens de compra com etapas claras: em negociação, aguardando aprovação do gestor, aprovada, emitida, aguardando entrega, aguardando NF, liberação da qualidade (opcional), em conferência, liberada para estoque e em estoque.',
+      'Selo de prazo em cada ordem: No prazo, Chega em breve ou Atrasado há N dias, com filtro "Atrasados". A data prevista vem do prazo da cotação (emissão + dias) e pode ser alterada.',
+      'Linha do tempo em cada ordem: quem fez, quando, de qual etapa para qual e a observação.',
+      'Nova aba 🔔 Avisos em Compras: ordem aguardando aprovação, chegando, atrasada (todo dia enquanto atrasar), NF registrada e liberada para estoque. Também no WhatsApp dos números de alerta do ERP, se você usa o alerta diário.',
+      'Opcional: lembrete ao fornecedor antes da data prevista e cobrança quando atrasar, por e-mail ou WhatsApp, com texto que você edita. Vem desligado.',
+      'Liberação da qualidade opcional: ligue por produto, por ordem de compra ou para a empresa toda.',
+    ],
+  },
+  {
     versao: '1.35.1',
     data: '20/11/2026',
     titulo: 'Atualizações de segurança',

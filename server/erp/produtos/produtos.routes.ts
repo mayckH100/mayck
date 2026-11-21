@@ -46,7 +46,7 @@ export const produtoSchema = z.object({
   fatorCompraMil: z.number().int().min(1, 'Quantidade por embalagem deve ser maior que zero').max(1_000_000_000).optional(),
   ncm: z.string().nullish().transform((v) => (v ? v.replace(/\D/g, '') || null : null)).refine((v) => !v || v.length === 8, 'NCM deve ter 8 dígitos'),
   cest: opt(9), origem: z.number().int().min(0).max(8).default(0), pesoGramas: z.number().int().min(0).max(100_000_000).default(0),
-  controlaLote: z.boolean().default(false), controlaValidade: z.boolean().default(false), regraSaida: z.enum(['FIFO', 'FEFO']).default('FIFO'),
+  controlaLote: z.boolean().default(false), controlaValidade: z.boolean().default(false), exigeQualidade: z.boolean().optional(), regraSaida: z.enum(['FIFO', 'FEFO']).default('FIFO'),
   estoqueMinimoMil: z.number().int().min(0).default(0), pontoPedidoMil: z.number().int().min(0).default(0),
   leadTimeDias: z.number().int().min(0).max(730).default(0), loteMinimoMil: z.number().int().min(0).default(0), fornecedorPadraoId: z.string().nullish(),
   precoBaseCents: cents.default(0), custoMedioCents: cents.optional(), custosAdicionais: z.array(z.object({ nome: z.string().trim().min(1).max(60), valorCents: cents })).max(20).default([]).transform((l) => JSON.stringify(l)), tipo: z.enum(['REVENDA', 'PRODUZIDO', 'INSUMO', 'SERVICO']).default('REVENDA'), ativo: z.boolean().default(true),

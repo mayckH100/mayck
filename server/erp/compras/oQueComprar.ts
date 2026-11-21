@@ -10,10 +10,12 @@ import { prisma } from '../../db.js';
 import { unidadeLegivel } from '../shared/unidade.js';
 import { fatorDe, linhaCompra, precoPorEmbalagem, temEmbalagem, unidadeCompraDe, descricaoEmbalagem } from '../shared/embalagem.js';
 import { calcularCompra, compararUrgencia, escolherJanela, motivoCurto, precisaComprar, JANELA_CURTA, JANELA_LONGA, COBERTURA_PADRAO, type ResultadoCompra } from './sugestao.js';
+import { STATUS_COMPRA_ABERTA } from './compra.machine.js';
 
 const DIA = 86_400_000;
 export const TIPOS_SAIDA = ['SAIDA', 'CONSUMO', 'AJUSTE'];
-export const STATUS_PC_ABERTO = ['RASCUNHO', 'EM_APROVACAO', 'APROVADO', 'ENVIADO', 'RECEBIDO_PARCIAL'];
+/** OC ainda sem entrada no estoque (v1.36.0: inclui as etapas de recebimento). */
+export const STATUS_PC_ABERTO: string[] = [...STATUS_COMPRA_ABERTA];
 
 export type OrigemCusto = 'entrada' | 'compra' | 'medio' | null;
 

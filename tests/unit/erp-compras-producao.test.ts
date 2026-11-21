@@ -8,7 +8,9 @@ describe('ERP · compras', () => {
     const c = { itens: 1, totalCents: 600_000, alcadaCents: 500_000 };
     expect(transicionar(maquinaCompra, 'EM_APROVACAO', 'APROVAR', { ...c, gestor: false })).toMatchObject({ ok: false });
     expect(transicionar(maquinaCompra, 'EM_APROVACAO', 'APROVAR', { ...c, gestor: true })).toMatchObject({ ok: true, para: 'APROVADO' });
-    expect(transicionar(maquinaCompra, 'EM_APROVACAO', 'APROVAR', { ...c, totalCents: 400_000, gestor: false })).toMatchObject({ ok: true });
+    // v1.36.0: dentro da alçada só o sistema aprova sozinho (ao enviar); aprovação manual é do gestor.
+    expect(transicionar(maquinaCompra, 'EM_APROVACAO', 'APROVAR', { ...c, totalCents: 400_000, gestor: false, auto: true })).toMatchObject({ ok: true });
+    expect(transicionar(maquinaCompra, 'EM_APROVACAO', 'APROVAR', { ...c, totalCents: 400_000, gestor: false })).toMatchObject({ ok: false });
   });
   it('mapa de cotação: menor preço, empate pelo menor prazo, ignora preço zero', () => {
     const m = vencedoras([

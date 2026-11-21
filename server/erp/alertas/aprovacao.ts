@@ -21,6 +21,7 @@ import { decryptOrNull } from '../../lib/crypto.js';
 import { erpLiberado } from '../../billing/erpAccess.js';
 import { samePhone, sendToStaffNumber } from '../../whatsapp/handoffNotify.js';
 import { proximoNumero } from '../compras/compras.routes.js';
+import { qualidadeInicial, registrarHistorico } from '../compras/ciclo.js';
 import { linhaCompra, temEmbalagem } from '../shared/embalagem.js';
 import { brl, estimadoItem, qtdUn, nomeUnidade, unidadeLegivel, type ItemEstoqueBaixo } from './formato.js';
 
@@ -181,7 +182,8 @@ async function criarDocumentos(a: Aprov, itens: ItemAprovacao[], escolha: (i: It
       if (fornecedorId) {
         const linhas = its.map((i) => ({ produtoId: i.produtoId, descricao: P.get(i.produtoId)!, qtdMil: i.qtdMil, precoUnitCents: i.custoUnitCents, totalCents: Math.round((i.qtdMil * i.custoUnitCents) / 1000), solicitacaoItemId: null }));
         const total = linhas.reduce((s, l) => s + l.totalCents, 0);
-        const pc = await tx.erpPedidoCompra.create({ data: { orgId, numero: await proximoNumero(tx, orgId, 'proximoPedidoCompra'), parceiroId: fornecedorId, status: 'RASCUNHO', totalCents: total, observacoes: obs, itens: { create: linhas } } });
+        const pc = await tx.erpPedidoCompra.create({ data: { orgId, numero: await proximoNumero(tx, orgId, 'proximoPedidoCompra'), parceiroId: fornecedorId, status: 'RASCUNHO', totalCents: total, observacoes: obs, exigeQualidade: await qualidadeInicial(tx, orgId, linhas.map((l) => l.produtoId)), itens: { create: linhas } } });
+        await registrarHistorico(tx, { orgId, pedidoId: pc.id, de: null, para: 'RASCUNHO', evento: 'CRIAR', userNome: 'Aprovação pelo WhatsApp', observacao: obs });
         r.push({ tipo: 'pedido', id: pc.id, numero: pc.numero, fornecedor: F.get(fornecedorId)!, itens: its.map((i) => i.n), totalCents: total });
       } else {
         const s = await tx.erpSolicitacaoCompra.create({ data: { orgId, numero: await proximoNumero(tx, orgId, 'proximaSolicitacao'), origem: 'WHATSAPP', status: 'RASCUNHO', justificativa: `${obs} Sem fornecedor definido: cotar.`, itens: { create: its.map((i) => ({ produtoId: i.produtoId, qtdMil: i.qtdMil })) } } });

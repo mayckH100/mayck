@@ -15,12 +15,16 @@ import { auditar } from '../shared/auditoria.js';
 import { configDa } from '../produtos/produtos.routes.js';
 import { listarOQueComprar } from './oQueComprar.js';
 import { lerOpcoes } from '../alertas/opcoes.js';
-import { maquinaSolicitacao, maquinaCompra, vencedoras, type StatusSolicitacao, type EventoSolicitacao, type StatusCompra, type EventoCompra } from './compra.machine.js';
+import { maquinaSolicitacao, maquinaCompra, vencedoras, EVENTOS_TELA, STATUS_COMPRA_ABERTA, STATUS_RECEBIMENTO, STATUS_AGUARDANDO_ENTREGA, ROTULO_STATUS_COMPRA, type StatusSolicitacao, type EventoSolicitacao, type StatusCompra, type EventoCompra } from './compra.machine.js';
+import { agoraNoFuso as agoraLocal, situacaoPrazo, calcularPrevisao, dataDoDia, diaDe, diaBr, TEXTO_FORN_ATRASO, TEXTO_FORN_LEMBRETE } from './prazo.js';
+import { registrarHistorico, qualidadeInicial, avisarMudanca } from './ciclo.js';
+import { userName } from '../../whatsapp/staffAlerts.js';
 
 type Tx = Prisma.TransactionClient;
 export const comprasRouter = Router();
 const gestorDe = (req: { auth?: { role?: string | null } }) => req.auth?.role === 'OWNER' || req.auth?.role === 'ADMIN';
 const js = <T>(s: string, d: T): T => { try { return JSON.parse(s) as T; } catch { return d; } };
+const tzDe = async (orgId: string) => (await prisma.organization.findUnique({ where: { id: orgId }, select: { timezone: true } }))?.timezone || 'America/Sao_Paulo';
 
 export async function proximoNumero(tx: Tx, orgId: string, campo: 'proximaSolicitacao' | 'proximaCotacao' | 'proximoPedidoCompra' | 'proximaOp') {
   await configDa(orgId, tx);
@@ -144,6 +148,7 @@ comprasRouter.post('/cotacoes/:id/encerrar', ah(async (req, res) => {
   if (c.status !== 'ABERTA') throw badRequest('Cotação já encerrada');
   const melhor = vencedoras(c.respostas);
   const P = await produtosDe(orgId, c.itens.map((i) => i.produtoId));
+  const tz = await tzDe(orgId); const quem = await userName(req.auth?.userId);
   const porForn = new Map<string, { item: (typeof c.itens)[number]; resp: (typeof c.respostas)[number] }[]>();
   for (const item of c.itens) {
     const escolhido = b.escolhas[item.id];
@@ -156,7 +161,9 @@ comprasRouter.post('/cotacoes/:id/encerrar', ah(async (req, res) => {
     for (const [parceiroId, linhas] of porForn) {
       const prazo = Math.max(...linhas.map((l) => l.resp.prazoEntregaDias));
       const itens = linhas.map(({ item, resp }) => ({ produtoId: item.produtoId, descricao: P.get(item.produtoId)?.nome ?? '', qtdMil: item.qtdMil, precoUnitCents: resp.precoUnitCents, totalCents: Math.round((item.qtdMil * resp.precoUnitCents) / 1000), solicitacaoItemId: item.solicitacaoItemId }));
-      const pc = await tx.erpPedidoCompra.create({ data: { orgId, numero: await proximoNumero(tx, orgId, 'proximoPedidoCompra'), parceiroId, cotacaoId: c.id, condicao: linhas[0].resp.condicao, previsaoEntrega: new Date(Date.now() + prazo * 86_400_000), totalCents: itens.reduce((a, i) => a + i.totalCents, 0), itens: { create: itens } } });
+      // v1.36.0: guarda o prazo da proposta vencedora; a previsão é recalculada na emissão da OC (emissão + prazo).
+      const pc = await tx.erpPedidoCompra.create({ data: { orgId, numero: await proximoNumero(tx, orgId, 'proximoPedidoCompra'), parceiroId, cotacaoId: c.id, condicao: linhas[0].resp.condicao, prazoEntregaDias: prazo, previsaoEntrega: calcularPrevisao(new Date(), prazo, tz), exigeQualidade: await qualidadeInicial(tx, orgId, itens.map((i) => i.produtoId)), totalCents: itens.reduce((a, i) => a + i.totalCents, 0), itens: { create: itens } } });
+      await registrarHistorico(tx, { orgId, pedidoId: pc.id, de: null, para: pc.status, evento: 'CRIAR', userId: req.auth?.userId, userNome: quem, observacao: `Gerada pela cotação nº ${c.numero} (prazo ${prazo} dia(s))` });
       await vincular(tx, orgId, { tipo: 'cotacao', id: c.id }, { tipo: 'pedido_compra', id: pc.id }, 'gerou');
       for (const l of linhas) await tx.erpCotacaoResposta.update({ where: { id: l.resp.id }, data: { vencedora: true } });
       out.push(pc);
@@ -175,7 +182,7 @@ comprasRouter.post('/cotacoes/:id/encerrar', ah(async (req, res) => {
 
 // ---------------- Pedidos de compra ----------------
 const pcItens = z.array(z.object({ produtoId: z.string(), qtdMil: z.number().int().min(1).max(2_000_000_000), precoUnitCents: z.number().int().min(0).max(2_000_000_000), solicitacaoItemId: z.string().nullish() })).min(1, 'Inclua ao menos um item').max(500);
-const pcSchema = z.object({ parceiroId: z.string(), itens: pcItens, freteCents: z.number().int().min(0).default(0), previsaoEntrega: z.coerce.date().nullish(), condicao: z.string().trim().max(100).nullish(), observacoes: z.string().trim().max(3000).nullish(), centroCustoId: z.string().nullish() });
+const pcSchema = z.object({ parceiroId: z.string(), itens: pcItens, freteCents: z.number().int().min(0).default(0), previsaoEntrega: z.coerce.date().nullish(), prazoEntregaDias: z.number().int().min(0).max(730).nullish(), exigeQualidade: z.boolean().optional(), condicao: z.string().trim().max(100).nullish(), observacoes: z.string().trim().max(3000).nullish(), centroCustoId: z.string().nullish() });
 
 async function montarItens(orgId: string, itens: z.infer<typeof pcItens>) {
   await validarProdutos(orgId, itens.map((i) => i.produtoId));
@@ -183,23 +190,45 @@ async function montarItens(orgId: string, itens: z.infer<typeof pcItens>) {
   return itens.map((i) => ({ produtoId: i.produtoId, descricao: P.get(i.produtoId)!.nome, qtdMil: i.qtdMil, precoUnitCents: i.precoUnitCents, totalCents: Math.round((i.qtdMil * i.precoUnitCents) / 1000), solicitacaoItemId: i.solicitacaoItemId ?? null }));
 }
 
+/** Previsão vinda da tela (AAAA-MM-DD ou data): grava como data de calendário (meio-dia UTC). */
+const previsaoDe = (d: Date | null | undefined, tz: string) => (d ? dataDoDia(diaDe(d, tz)) : null);
+
+async function prazoCtx(orgId: string) {
+  const [cfg, tz] = await Promise.all([configDa(orgId), tzDe(orgId)]);
+  return { cfg, tz, hoje: agoraLocal(tz).dia };
+}
+
+/** Lista de OCs com o selo de prazo. Filtros: status, etapa=abertas, prazo=atrasados|em_breve, parceiroId. */
 comprasRouter.get('/pedidos', ah(async (req, res) => {
   const orgId = orgOf(req);
   const abertos = req.query.abertos === '1';
   const l = await prisma.erpPedidoCompra.findMany({
-    where: { orgId, ...(typeof req.query.parceiroId === 'string' ? { parceiroId: req.query.parceiroId } : {}), ...(abertos ? { status: { in: ['APROVADO', 'ENVIADO', 'RECEBIDO_PARCIAL'] } } : typeof req.query.status === 'string' ? { status: req.query.status } : {}) },
+    where: { orgId, ...(typeof req.query.parceiroId === 'string' ? { parceiroId: req.query.parceiroId } : {}), ...(abertos ? { status: { in: STATUS_RECEBIMENTO.filter((x) => x !== 'AGUARDANDO_QUALIDADE') } } : typeof req.query.status === 'string' ? { status: req.query.status } : {}) },
     orderBy: { numero: 'desc' }, take: 300,
   });
-  const F = await parceirosDe(orgId, l.map((p) => p.parceiroId));
-  res.json(l.map((p) => ({ ...p, parceiro: F.get(p.parceiroId) })));
+  const [F, { cfg, tz, hoje }] = await Promise.all([parceirosDe(orgId, l.map((p) => p.parceiroId)), prazoCtx(orgId)]);
+  let out = l.map((p) => ({ ...p, parceiro: F.get(p.parceiroId), statusRotulo: ROTULO_STATUS_COMPRA[p.status as StatusCompra] ?? p.status, prazo: situacaoPrazo(p, hoje, cfg.compraEmBreveDias, tz) }));
+  if (req.query.prazo === 'atrasados') out = out.filter((p) => p.prazo.codigo === 'ATRASADO');
+  if (req.query.prazo === 'em_breve') out = out.filter((p) => p.prazo.codigo === 'EM_BREVE');
+  res.json(out);
 }));
 
 comprasRouter.get('/pedidos/:id', ah(async (req, res) => {
   const orgId = orgOf(req);
-  const p = await prisma.erpPedidoCompra.findFirst({ where: { id: req.params.id, orgId }, include: { itens: true } });
+  const p = await prisma.erpPedidoCompra.findFirst({ where: { id: req.params.id, orgId }, include: { itens: true, historico: { orderBy: { createdAt: 'asc' } } } });
   if (!p) throw notFound('Pedido de compra');
-  const [P, F, cfg, nfes] = await Promise.all([produtosDe(orgId, p.itens.map((i) => i.produtoId)), parceirosDe(orgId, [p.parceiroId]), configDa(orgId), prisma.erpNfeEntrada.findMany({ where: { orgId, pedidoCompraId: p.id }, select: { id: true, numero: true, serie: true, status: true, valorTotalCents: true } })]);
-  res.json({ ...p, parceiro: F.get(p.parceiroId), itens: p.itens.map((i) => ({ ...i, produto: P.get(i.produtoId) })), nfes, acoes: eventosPermitidos(maquinaCompra, p.status as StatusCompra).filter((e) => !['RECEBER', 'RECEBER_PARCIAL'].includes(e)), precisaGestor: p.totalCents > cfg.alcadaCompraCents });
+  const [P, F, { cfg, tz, hoje }, nfes] = await Promise.all([produtosDe(orgId, p.itens.map((i) => i.produtoId)), parceirosDe(orgId, [p.parceiroId]), prazoCtx(orgId), prisma.erpNfeEntrada.findMany({ where: { orgId, pedidoCompraId: p.id }, select: { id: true, numero: true, serie: true, status: true, valorTotalCents: true } })]);
+  const gestor = gestorDe(req);
+  const acoes = eventosPermitidos(maquinaCompra, p.status as StatusCompra).filter((e) => EVENTOS_TELA.includes(e))
+    .filter((e) => !(['APROVAR', 'REPROVAR'].includes(e) && !gestor)) // aprovar/reprovar: só gestor
+    .filter((e) => !(e === 'FINALIZAR' && nfes.some((n) => n.status === 'PENDENTE')));
+  const historico = p.historico.length && p.historico[0].evento === 'CRIAR' ? p.historico : [{ id: 'criada', de: null, para: 'RASCUNHO', evento: 'CRIAR', userNome: null, observacao: 'Criada (antes do histórico)', createdAt: p.createdAt }, ...p.historico];
+  res.json({
+    ...p, historico: historico.map((h) => ({ ...h, deRotulo: h.de ? ROTULO_STATUS_COMPRA[h.de as StatusCompra] ?? h.de : null, paraRotulo: ROTULO_STATUS_COMPRA[h.para as StatusCompra] ?? h.para })),
+    parceiro: F.get(p.parceiroId), itens: p.itens.map((i) => ({ ...i, produto: P.get(i.produtoId) })), nfes, acoes, gestor,
+    statusRotulo: ROTULO_STATUS_COMPRA[p.status as StatusCompra] ?? p.status, prazo: situacaoPrazo(p, hoje, cfg.compraEmBreveDias, tz),
+    precisaGestor: p.totalCents > cfg.alcadaCompraCents, podeEditarPrazo: STATUS_COMPRA_ABERTA.includes(p.status as StatusCompra),
+  });
 }));
 
 comprasRouter.post('/pedidos', ah(async (req, res) => {
@@ -207,7 +236,12 @@ comprasRouter.post('/pedidos', ah(async (req, res) => {
   const b = pcSchema.parse(req.body);
   if (!(await prisma.erpParceiro.findFirst({ where: { id: b.parceiroId, orgId } }))) throw badRequest('Fornecedor inválido');
   const itens = await montarItens(orgId, b.itens);
-  const p = await prisma.$transaction(async (tx) => tx.erpPedidoCompra.create({ data: { orgId, numero: await proximoNumero(tx, orgId, 'proximoPedidoCompra'), parceiroId: b.parceiroId, freteCents: b.freteCents, previsaoEntrega: b.previsaoEntrega ?? null, condicao: b.condicao ?? null, observacoes: b.observacoes ?? null, centroCustoId: b.centroCustoId ?? null, totalCents: itens.reduce((a, i) => a + i.totalCents, 0) + b.freteCents, itens: { create: itens } } }));
+  const tz = await tzDe(orgId); const quem = await userName(req.auth?.userId);
+  const p = await prisma.$transaction(async (tx) => {
+    const p = await tx.erpPedidoCompra.create({ data: { orgId, numero: await proximoNumero(tx, orgId, 'proximoPedidoCompra'), parceiroId: b.parceiroId, freteCents: b.freteCents, previsaoEntrega: previsaoDe(b.previsaoEntrega, tz), previsaoManual: !!b.previsaoEntrega, prazoEntregaDias: b.prazoEntregaDias ?? null, exigeQualidade: b.exigeQualidade ?? (await qualidadeInicial(tx, orgId, itens.map((i) => i.produtoId))), condicao: b.condicao ?? null, observacoes: b.observacoes ?? null, centroCustoId: b.centroCustoId ?? null, totalCents: itens.reduce((a, i) => a + i.totalCents, 0) + b.freteCents, itens: { create: itens } } });
+    await registrarHistorico(tx, { orgId, pedidoId: p.id, de: null, para: p.status, evento: 'CRIAR', userId: req.auth?.userId, userNome: quem });
+    return p;
+  });
   await prisma.erpParceiro.updateMany({ where: { id: b.parceiroId, ehFornecedor: false }, data: { ehFornecedor: true } });
   await auditar(req, 'pedido_compra.criar', 'erp_pedido_compra', p.id, null, { numero: p.numero, totalCents: p.totalCents });
   res.status(201).json(p);
@@ -218,41 +252,126 @@ comprasRouter.put('/pedidos/:id', ah(async (req, res) => {
   const b = pcSchema.omit({ parceiroId: true }).parse(req.body);
   const antes = await prisma.erpPedidoCompra.findFirst({ where: { id: req.params.id, orgId } });
   if (!antes) throw notFound('Pedido de compra');
-  if (antes.status !== 'RASCUNHO') throw badRequest('Só pedido em rascunho pode ser editado');
+  if (antes.status !== 'RASCUNHO') throw badRequest('Só pedido em negociação (rascunho) pode ser editado');
   const itens = await montarItens(orgId, b.itens);
+  const tz = await tzDe(orgId);
   const p = await prisma.$transaction(async (tx) => {
     await tx.erpPedidoCompraItem.deleteMany({ where: { pedidoId: antes.id } });
-    return tx.erpPedidoCompra.update({ where: { id: antes.id }, data: { freteCents: b.freteCents, previsaoEntrega: b.previsaoEntrega ?? null, condicao: b.condicao ?? null, observacoes: b.observacoes ?? null, totalCents: itens.reduce((a, i) => a + i.totalCents, 0) + b.freteCents, itens: { create: itens } } });
+    return tx.erpPedidoCompra.update({ where: { id: antes.id }, data: { freteCents: b.freteCents, previsaoEntrega: previsaoDe(b.previsaoEntrega, tz), previsaoManual: !!b.previsaoEntrega, ...(b.prazoEntregaDias !== undefined ? { prazoEntregaDias: b.prazoEntregaDias } : {}), ...(b.exigeQualidade !== undefined ? { exigeQualidade: b.exigeQualidade } : {}), condicao: b.condicao ?? null, observacoes: b.observacoes ?? null, totalCents: itens.reduce((a, i) => a + i.totalCents, 0) + b.freteCents, itens: { create: itens } } });
   });
   await auditar(req, 'pedido_compra.editar', 'erp_pedido_compra', p.id, { totalCents: antes.totalCents }, { totalCents: p.totalCents });
   res.json(p);
 }));
 
-/** ENVIAR já aprova sozinho quando o total está dentro da alçada; acima, espera OWNER/ADMIN. */
+/**
+ * Avança a OC no ciclo. ENVIAR já aprova sozinho quando o total está dentro da alçada; acima, espera o gestor.
+ * Aprovar/reprovar manualmente: só gestor (proprietário/administrador). NF_ENTRADA vira NF_ENTRADA_QUALIDADE quando a OC
+ * exige qualidade. Cada passo grava a linha do tempo (quem, quando, de → para, observação).
+ */
 comprasRouter.post('/pedidos/:id/acao', ah(async (req, res) => {
   const orgId = orgOf(req);
-  const { evento, motivo } = z.object({ evento: z.enum(['ENVIAR', 'APROVAR', 'REPROVAR', 'ENVIAR_FORNECEDOR', 'CANCELAR']), motivo: z.string().trim().max(300).optional() }).parse(req.body);
+  const { evento, motivo, observacao } = z.object({ evento: z.enum(['ENVIAR', 'APROVAR', 'REPROVAR', 'ENVIAR_FORNECEDOR', 'REGISTRAR_ENTREGA', 'NF_ENTRADA', 'LIBERAR_QUALIDADE', 'REPROVAR_QUALIDADE', 'CONCLUIR_CONFERENCIA', 'FINALIZAR', 'CANCELAR']), motivo: z.string().trim().max(300).optional(), observacao: z.string().trim().max(500).optional() }).parse(req.body);
   const p = await prisma.erpPedidoCompra.findFirst({ where: { id: req.params.id, orgId }, include: { itens: true } });
   if (!p) throw notFound('Pedido de compra');
   if (evento === 'CANCELAR' && p.itens.some((i) => i.recebidoMil > 0)) throw badRequest('Pedido já tem recebimento: não pode ser cancelado');
-  const cfg = await configDa(orgId);
-  const ctx = { itens: p.itens.length, totalCents: p.totalCents, gestor: gestorDe(req), alcadaCents: cfg.alcadaCompraCents, motivo };
+  const [cfg, tz, quem, nfPend] = await Promise.all([configDa(orgId), tzDe(orgId), userName(req.auth?.userId), prisma.erpNfeEntrada.count({ where: { orgId, pedidoCompraId: p.id, status: 'PENDENTE' } })]);
+  const ctx = { itens: p.itens.length, totalCents: p.totalCents, gestor: gestorDe(req), alcadaCents: cfg.alcadaCompraCents, motivo, nfPendente: nfPend > 0 };
+  const agora = new Date();
+  const eventos: EventoCompra[] = [];
   const novo = await prisma.$transaction(async (tx) => {
     let status = p.status as StatusCompra;
-    const passo = async (ev: EventoCompra) => {
-      const r = transicionar(maquinaCompra, status, ev, ctx);
+    const passo = async (ev: EventoCompra, extra: { auto?: boolean; obs?: string | null } = {}) => {
+      const r = transicionar(maquinaCompra, status, ev, { ...ctx, auto: extra.auto });
       if (!r.ok) throw badRequest(r.erro);
-      await tx.erpPedidoCompra.update({ where: { id: p.id }, data: { status: r.para, ...(ev === 'APROVAR' ? { aprovadoPorId: req.auth?.userId ?? null } : {}), ...(ev === 'REPROVAR' || ev === 'CANCELAR' ? { motivo: motivo ?? null } : {}) } });
+      const data: Prisma.ErpPedidoCompraUpdateInput = { status: r.para };
+      if (ev === 'APROVAR') data.aprovadoPorId = req.auth?.userId ?? null;
+      if (ev === 'REPROVAR' || ev === 'CANCELAR' || ev === 'REPROVAR_QUALIDADE') data.motivo = motivo ?? null;
+      if (ev === 'ENVIAR_FORNECEDOR') {
+        data.emitidoEm = agora;
+        if (p.prazoEntregaDias != null && !p.previsaoManual) data.previsaoEntrega = calcularPrevisao(agora, p.prazoEntregaDias, tz);
+      }
+      if ((ev === 'REGISTRAR_ENTREGA' || ev === 'NF_ENTRADA' || ev === 'NF_ENTRADA_QUALIDADE') && !p.entregueEm) data.entregueEm = agora;
+      await tx.erpPedidoCompra.update({ where: { id: p.id }, data });
       for (const tipo of r.emite) await emitir(tx, { orgId, tipo, agregado: 'pedido_compra', agregadoId: p.id, payload: { numero: p.numero, parceiroId: p.parceiroId, totalCents: p.totalCents } });
-      status = r.para;
+      await registrarHistorico(tx, { orgId, pedidoId: p.id, de: status, para: r.para, evento: ev, userId: extra.auto ? null : req.auth?.userId, userNome: extra.auto ? 'Sistema (dentro da alçada)' : quem, observacao: extra.obs ?? (motivo || observacao || null) });
+      eventos.push(ev); status = r.para;
     };
-    await passo(evento as EventoCompra);
-    if (evento === 'ENVIAR' && p.totalCents <= cfg.alcadaCompraCents) await passo('APROVAR');
+    await passo(evento === 'NF_ENTRADA' && p.exigeQualidade ? 'NF_ENTRADA_QUALIDADE' : (evento as EventoCompra));
+    if (evento === 'ENVIAR' && p.totalCents <= cfg.alcadaCompraCents) await passo('APROVAR', { auto: true, obs: `Aprovada automaticamente: total dentro da alçada (${(cfg.alcadaCompraCents / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })})` });
     return tx.erpPedidoCompra.findUniqueOrThrow({ where: { id: p.id } });
   });
   despacharEmBreve();
+  for (const ev of eventos) await avisarMudanca(p.id, ev);
   await auditar(req, `pedido_compra.${evento.toLowerCase()}`, 'erp_pedido_compra', p.id, { status: p.status }, { status: novo.status });
   res.json(novo);
+}));
+
+/** Data prevista de entrega (editável), prazo em dias e se a OC passa pela qualidade. Fica na linha do tempo. */
+comprasRouter.put('/pedidos/:id/prazo', ah(async (req, res) => {
+  const orgId = orgOf(req);
+  const b = z.object({ previsaoEntrega: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Data inválida').nullish(), prazoEntregaDias: z.number().int().min(0).max(730).nullish(), exigeQualidade: z.boolean().optional(), observacao: z.string().trim().max(300).optional() }).parse(req.body);
+  const p = await prisma.erpPedidoCompra.findFirst({ where: { id: req.params.id, orgId } });
+  if (!p) throw notFound('Pedido de compra');
+  if (!STATUS_COMPRA_ABERTA.includes(p.status as StatusCompra)) throw badRequest('Pedido finalizado ou cancelado');
+  if (b.exigeQualidade !== undefined && b.exigeQualidade !== p.exigeQualidade && !STATUS_AGUARDANDO_ENTREGA.includes(p.status as StatusCompra) && p.status !== 'AGUARDANDO_NF') throw badRequest('A NF já foi registrada: não dá mais para mudar a etapa de qualidade');
+  const tz = await tzDe(orgId);
+  const data: Prisma.ErpPedidoCompraUpdateInput = {}; const mud: string[] = [];
+  const antesDia = p.previsaoEntrega ? diaDe(p.previsaoEntrega, tz) : null;
+  if (b.prazoEntregaDias !== undefined && b.prazoEntregaDias !== p.prazoEntregaDias) {
+    data.prazoEntregaDias = b.prazoEntregaDias; mud.push(`Prazo: ${p.prazoEntregaDias ?? '—'} → ${b.prazoEntregaDias ?? '—'} dia(s)`);
+    if (b.previsaoEntrega === undefined && b.prazoEntregaDias != null) { data.previsaoEntrega = calcularPrevisao(p.emitidoEm ?? new Date(), b.prazoEntregaDias, tz); data.previsaoManual = false; }
+  }
+  if (b.previsaoEntrega !== undefined) { data.previsaoEntrega = b.previsaoEntrega ? dataDoDia(b.previsaoEntrega) : null; data.previsaoManual = !!b.previsaoEntrega; }
+  const depoisDia = data.previsaoEntrega === undefined ? antesDia : data.previsaoEntrega ? diaDe(data.previsaoEntrega as Date, tz) : null;
+  if (depoisDia !== antesDia) mud.push(`Previsão: ${antesDia ? diaBr(antesDia) : '—'} → ${depoisDia ? diaBr(depoisDia) : '—'}`);
+  if (b.exigeQualidade !== undefined && b.exigeQualidade !== p.exigeQualidade) { data.exigeQualidade = b.exigeQualidade; mud.push(b.exigeQualidade ? 'Passa a exigir liberação da qualidade' : 'Não exige mais liberação da qualidade'); }
+  if (!mud.length) return res.json(p);
+  const quem = await userName(req.auth?.userId);
+  const novo = await prisma.$transaction(async (tx) => {
+    const n = await tx.erpPedidoCompra.update({ where: { id: p.id }, data });
+    await registrarHistorico(tx, { orgId, pedidoId: p.id, de: p.status, para: p.status, evento: 'ALTERAR_PRAZO', userId: req.auth?.userId, userNome: quem, observacao: [mud.join(' · '), b.observacao].filter(Boolean).join(' — ') });
+    return n;
+  });
+  await auditar(req, 'pedido_compra.prazo', 'erp_pedido_compra', p.id, { previsao: antesDia }, { previsao: depoisDia, mudancas: mud });
+  res.json(novo);
+}));
+
+// ---------------- Avisos de compras (central de avisos) ----------------
+comprasRouter.get('/avisos', ah(async (req, res) => {
+  const orgId = orgOf(req);
+  const l = await prisma.erpAvisoCompra.findMany({ where: { orgId, ...(req.query.naoLidos === '1' ? { lidoEm: null } : {}) }, orderBy: { createdAt: 'desc' }, take: 100 });
+  const naoLidos = await prisma.erpAvisoCompra.count({ where: { orgId, lidoEm: null, destino: 'EQUIPE' } });
+  const nums = await prisma.erpPedidoCompra.findMany({ where: { id: { in: [...new Set(l.map((a) => a.pedidoId))] } }, select: { id: true, numero: true } });
+  const N = new Map(nums.map((x) => [x.id, x.numero]));
+  res.json({ naoLidos, avisos: l.map((a) => ({ ...a, numero: N.get(a.pedidoId) ?? null })) });
+}));
+
+comprasRouter.post('/avisos/lidos', ah(async (req, res) => {
+  const orgId = orgOf(req);
+  const b = z.object({ ids: z.array(z.string()).max(200).optional() }).parse(req.body ?? {});
+  const r = await prisma.erpAvisoCompra.updateMany({ where: { orgId, lidoEm: null, ...(b.ids ? { id: { in: b.ids } } : {}) }, data: { lidoEm: new Date() } });
+  res.json({ ok: true, marcados: r.count });
+}));
+
+/** Configuração dos avisos e prazos de compras (avisos ao fornecedor DESLIGADOS por padrão). Alterar: só gestor. */
+comprasRouter.get('/config-avisos', ah(async (req, res) => {
+  const c = await configDa(orgOf(req));
+  res.json({ compraQualidadePadrao: c.compraQualidadePadrao, compraEmBreveDias: c.compraEmBreveDias, compraAvisoEquipeWhats: c.compraAvisoEquipeWhats, compraAvisoFornecedor: c.compraAvisoFornecedor, compraAvisoFornCanal: c.compraAvisoFornCanal, compraAvisoFornDias: c.compraAvisoFornDias, compraAvisoFornTextoLembrete: c.compraAvisoFornTextoLembrete ?? TEXTO_FORN_LEMBRETE, compraAvisoFornTextoAtraso: c.compraAvisoFornTextoAtraso ?? TEXTO_FORN_ATRASO, alertaAtivo: c.alertaAtivo, alertaHora: c.alertaHora, variaveis: ['{fornecedor}', '{empresa}', '{numero}', '{data_prevista}', '{dias_atraso}', '{itens}'] });
+}));
+
+comprasRouter.put('/config-avisos', ah(async (req, res) => {
+  const orgId = orgOf(req);
+  if (!gestorDe(req)) throw badRequest('Só proprietário ou administrador altera os avisos de compras');
+  const b = z.object({
+    compraQualidadePadrao: z.boolean(), compraEmBreveDias: z.number().int().min(0).max(30), compraAvisoEquipeWhats: z.boolean(), compraAvisoFornecedor: z.boolean(),
+    compraAvisoFornCanal: z.enum(['EMAIL', 'WHATSAPP', 'AMBOS']), compraAvisoFornDias: z.number().int().min(0).max(30),
+    compraAvisoFornTextoLembrete: z.string().trim().min(10, 'Texto do lembrete muito curto').max(1500), compraAvisoFornTextoAtraso: z.string().trim().min(10, 'Texto da cobrança muito curto').max(1500),
+  }).partial().parse(req.body);
+  const antes = await configDa(orgId);
+  const data = { ...b, ...(b.compraAvisoFornTextoLembrete !== undefined ? { compraAvisoFornTextoLembrete: b.compraAvisoFornTextoLembrete === TEXTO_FORN_LEMBRETE ? null : b.compraAvisoFornTextoLembrete } : {}), ...(b.compraAvisoFornTextoAtraso !== undefined ? { compraAvisoFornTextoAtraso: b.compraAvisoFornTextoAtraso === TEXTO_FORN_ATRASO ? null : b.compraAvisoFornTextoAtraso } : {}) };
+  await prisma.erpConfig.update({ where: { orgId }, data });
+  await auditar(req, 'compras.config_avisos', 'erp_config', orgId, { compraAvisoFornecedor: antes.compraAvisoFornecedor }, b);
+  res.json({ ok: true });
 }));
 
 // ---------------- O que comprar (v1.32.0) ----------------
@@ -290,7 +409,8 @@ comprasRouter.post('/o-que-comprar/gerar', ah(async (req, res) => {
       if (parceiroId) {
         const itens = prontos.get(parceiroId)!;
         const totalCents = itens.reduce((a, i) => a + i.totalCents, 0);
-        const pc = await tx.erpPedidoCompra.create({ data: { orgId, numero: await proximoNumero(tx, orgId, 'proximoPedidoCompra'), parceiroId, status: 'RASCUNHO', observacoes: obs, totalCents, itens: { create: itens } } });
+        const pc = await tx.erpPedidoCompra.create({ data: { orgId, numero: await proximoNumero(tx, orgId, 'proximoPedidoCompra'), parceiroId, status: 'RASCUNHO', observacoes: obs, totalCents, exigeQualidade: await qualidadeInicial(tx, orgId, itens.map((i) => i.produtoId)), itens: { create: itens } } });
+        await registrarHistorico(tx, { orgId, pedidoId: pc.id, de: null, para: 'RASCUNHO', evento: 'CRIAR', userId: req.auth?.userId, observacao: 'Gerada pela tela "O que comprar"' });
         await tx.erpParceiro.updateMany({ where: { id: parceiroId, orgId, ehFornecedor: false }, data: { ehFornecedor: true } });
         out.push({ tipo: 'pedido', id: pc.id, numero: pc.numero, parceiroId, totalCents });
       } else {

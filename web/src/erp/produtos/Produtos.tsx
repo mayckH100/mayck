@@ -64,7 +64,7 @@ export function custoTotal(p: any) {
 function ProdutoForm({ inicial, onClose, onSaved }: { inicial: any; onClose: () => void; onSaved: () => void }) {
   const [f, setF] = useState<any>({
     sku: inicial.sku ?? '', nome: inicial.nome ?? '', descricao: inicial.descricao ?? '', unidade: unidadeValida(inicial.unidade) ? String(inicial.unidade).toUpperCase() : 'UN', codigoBarras: inicial.codigoBarras ?? '', ncm: inicial.ncm ?? '', cest: inicial.cest ?? '',
-    origem: inicial.origem ?? 0, tipo: inicial.tipo ?? 'REVENDA', controlaLote: !!inicial.controlaLote, controlaValidade: !!inicial.controlaValidade, regraSaida: inicial.regraSaida ?? 'FIFO',
+    origem: inicial.origem ?? 0, tipo: inicial.tipo ?? 'REVENDA', controlaLote: !!inicial.controlaLote, controlaValidade: !!inicial.controlaValidade, exigeQualidade: !!inicial.exigeQualidade, regraSaida: inicial.regraSaida ?? 'FIFO',
     preco: fromCents(inicial.precoBaseCents), custo: fromCents(inicial.custoMedioCents ?? 0), extras: (() => { try { return JSON.parse(inicial.custosAdicionais ?? '[]').map((c: any) => ({ nome: c.nome, valor: fromCents(c.valorCents) })); } catch { return []; } })(), fornecedor: inicial.fornecedorPadraoId ?? '', minimo: qtd(inicial.estoqueMinimoMil).replace(/\./g, ''), ponto: qtd(inicial.pontoPedidoMil).replace(/\./g, ''), lead: String(inicial.leadTimeDias ?? 0), unidadeCompra: inicial.unidadeCompra && unidadeValida(inicial.unidadeCompra) ? String(inicial.unidadeCompra).toUpperCase() : '', fator: qtd(inicial.fatorCompraMil ?? 1000).replace(/\./g, ''), loteMin: qtd(inicial.loteMinimoMil ?? 0).replace(/\./g, ''), ativo: inicial.ativo ?? true,
   });
   const { busy, run } = useAction();
@@ -82,7 +82,7 @@ function ProdutoForm({ inicial, onClose, onSaved }: { inicial: any; onClose: () 
   const fatorOk = fatorMil > 0;
   async function salvar() {
     const body = { sku: f.sku.trim() || null, nome: f.nome, descricao: f.descricao?.trim() || null, unidade: f.unidade, codigoBarras: f.codigoBarras || null, ncm: f.ncm || null, cest: f.cest || null, origem: Number(f.origem), tipo: f.tipo,
-      controlaLote: f.controlaLote || f.controlaValidade, controlaValidade: f.controlaValidade, regraSaida: f.controlaValidade ? 'FEFO' : f.regraSaida,
+      controlaLote: f.controlaLote || f.controlaValidade, controlaValidade: f.controlaValidade, exigeQualidade: !!f.exigeQualidade, regraSaida: f.controlaValidade ? 'FEFO' : f.regraSaida,
       precoBaseCents: toCents(f.preco), custoMedioCents: toCents(f.custo || '0'), custosAdicionais: f.extras.filter((c: any) => c.nome.trim()).map((c: any) => ({ nome: c.nome.trim(), valorCents: toCents(c.valor || '0') })), estoqueMinimoMil: toMil(f.minimo), pontoPedidoMil: toMil(f.ponto), leadTimeDias: Number(f.lead) || 0, loteMinimoMil: toMil(f.loteMin || '0'), fornecedorPadraoId: f.fornecedor || null, ativo: f.ativo, unidadeCompra: f.unidadeCompra || null, fatorCompraMil: f.unidadeCompra ? fatorMil : 1000, ...(senhaCusto ? { senhaCusto } : {}) };
     if (await run(() => (inicial.id ? put(`/erp/produtos/${inicial.id}`, body) : post('/erp/produtos', body)), 'Produto salvo')) onSaved();
   }
@@ -138,6 +138,7 @@ function ProdutoForm({ inicial, onClose, onSaved }: { inicial: any; onClose: () 
           <label className="row small" title={travas.controlaLote ?? ''}><input type="checkbox" checked={f.controlaLote} disabled={!!travas.controlaLote} onChange={set('controlaLote')} /> Controla lote{travas.controlaLote ? ' 🔒' : ''}</label>
           <label className="row small"><input type="checkbox" checked={f.controlaValidade} onChange={set('controlaValidade')} /> Perecível: controla validade (pede a data na entrada e usa FEFO)</label>
           {!f.controlaValidade && <select value={f.regraSaida} onChange={set('regraSaida')} aria-label="Regra de saída"><option value="FIFO">FIFO</option><option value="FEFO">FEFO</option></select>}
+          <label className="row small" title="A compra deste produto passa pela etapa Aguardando liberação da qualidade antes da conferência"><input type="checkbox" checked={f.exigeQualidade} onChange={set('exigeQualidade')} /> Compra exige liberação da qualidade</label>
         </div>
         <div className="grid g2">
           <Field label={`Estoque mínimo (${qtdUn(2000, f.unidade).replace(/^2 /, '')})`}><input value={f.minimo} onChange={set('minimo')} inputMode="decimal" /></Field>

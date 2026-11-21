@@ -386,3 +386,13 @@ Entradas antigas assinadas "Hark" podem ser de qualquer um. Se não souber qual 
 - **Migração:** nenhuma. Próxima livre: 0063.
 - **Produção:** sem deploy (o Mayck dispara). Commit com [skip render].
 - **Falta:** conferir o primeiro build do Render com o lock novo.
+
+## Atualização 2026-11-20 (noite, 4) — Leandro: ciclo de vida da ordem de compra, prazo e avisos — v1.36.0
+- **Pedido do Mayck:** pedido de compra (ex.: refrigerante, entrega 10/11) não mostrava se estava no prazo ou atrasado; quer etapas profissionais, status e avisos.
+- **Feito:** OC com etapas negociação → aprovação do gestor → aprovada → emitida/aguardando entrega → aguardando NF → qualidade (opcional: empresa, produto ou OC) → conferência → liberada para estoque → em estoque; cancelamento só antes da chegada, com motivo; aprovar/reprovar só gestor (dentro da alçada o sistema aprova ao enviar). Previsão = emissão + prazo da cotação (editável). Selo No prazo / Chega em breve (≤2 dias, configurável) / Atrasado há N dias, filtro "Atrasados", linha do tempo por OC, aba 🔔 Avisos e ⚙️ Prazos e avisos. Rotina diária (1 aviso por OC/tipo/dia). Avisos ao fornecedor por e-mail/WhatsApp DESLIGADOS por padrão, texto editável. Detalhes em docs/ERP.md › v1.36.0.
+- **Status antigos → novos:** mesmos valores no banco (nada migrado), só rótulos novos: RASCUNHO = OC em negociação; EM_APROVACAO = aguardando aprovação; APROVADO = aprovada; ENVIADO = emitida/aguardando entrega; RECEBIDO_PARCIAL = recebida em parte; RECEBIDO = em estoque; CANCELADO = cancelada. Novos: AGUARDANDO_NF, AGUARDANDO_QUALIDADE, EM_CONFERENCIA, LIBERADA_ESTOQUE.
+- **Mudança de regra:** antes um usuário não gestor podia aprovar manualmente dentro da alçada; agora só o gestor aprova à mão (o automático ao enviar continua).
+- **Migração:** `0063_erp_compras_ciclo` (só aditiva). Próxima livre: 0064.
+- **Testes:** typecheck servidor+web; build da web; unit 79 arquivos / 705; integração 90 arquivos / 711, todos passaram (lotes de 6, banco limpo). Novos: tests/unit/erp-compras-ciclo.test.ts, tests/integration/erp-compras-ciclo.test.ts. Não rodados: e2e e Postgres real.
+- **Produção:** sem deploy (o Mayck dispara). Commit com [skip render].
+- **Falta / limites:** a central de avisos é da aba Compras (o app não tem central de notificação geral); WhatsApp da equipe só pelos números do alerta do ERP; nada de push; não testado com WhatsApp/e-mail reais; previsão antiga gravada com hora (cotações antigas) segue o fuso da empresa.

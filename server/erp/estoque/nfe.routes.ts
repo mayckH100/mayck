@@ -16,7 +16,9 @@ import { etiquetasSugeridas } from './codigoLote.js';
 import { proximoSku } from '../produtos/codigo.js';
 import { unidadeLegivel } from '../shared/unidade.js';
 import { configDa } from '../produtos/produtos.routes.js';
-import { divergenciasRecebimento, maquinaCompra, type StatusCompra } from '../compras/compra.machine.js';
+import { divergenciasRecebimento, maquinaCompra, STATUS_RECEBIMENTO, type StatusCompra, type EventoCompra } from '../compras/compra.machine.js';
+import { registrarHistorico, avisarMudanca } from '../compras/ciclo.js';
+import { userName } from '../../whatsapp/staffAlerts.js';
 import { transicionar } from '../shared/statemachine.js';
 import { forbidden } from '../../lib/http.js';
 
@@ -41,7 +43,7 @@ nfeRouter.get('/:id', ah(async (req, res) => {
   const cfg = await configDa(orgId);
   const gestor = req.auth?.role === 'OWNER' || req.auth?.role === 'ADMIN';
   const cego = cfg.recebimentoCego && n.status === 'PENDENTE' && !gestor;
-  const pedidosAbertos = await prisma.erpPedidoCompra.findMany({ where: { orgId, parceiroId: n.parceiroId, status: { in: ['APROVADO', 'ENVIADO', 'RECEBIDO_PARCIAL'] } }, select: { id: true, numero: true, totalCents: true, status: true, previsaoEntrega: true }, orderBy: { numero: 'desc' } });
+  const pedidosAbertos = await prisma.erpPedidoCompra.findMany({ where: { orgId, parceiroId: n.parceiroId, status: { in: STATUS_RECEBIMENTO } }, select: { id: true, numero: true, totalCents: true, status: true, previsaoEntrega: true }, orderBy: { numero: 'desc' } });
   res.json({ ...n, cego, pedidosAbertos, itens: n.itens.map((i) => ({ ...i, qtdMil: cego ? null : i.qtdMil, lotes: js<LoteXml[]>(i.lotes, []).map((l) => (cego ? { ...l, qtdMil: null } : l)), produto: i.produtoId ? P.get(i.produtoId) : null, lotesGerados: js<string[]>(i.lotesGerados, []).map((id) => L.get(id)).filter(Boolean) })) });
 }));
 
@@ -112,9 +114,26 @@ nfeRouter.put('/:id/pedido', ah(async (req, res) => {
   if (pedidoCompraId) {
     const pc = await prisma.erpPedidoCompra.findFirst({ where: { id: pedidoCompraId, orgId } });
     if (!pc || pc.parceiroId !== n.parceiroId) throw badRequest('Pedido de compra não é deste fornecedor');
-    if (!['APROVADO', 'ENVIADO', 'RECEBIDO_PARCIAL'].includes(pc.status)) throw badRequest('Pedido de compra não está aberto para recebimento');
+    if (!STATUS_RECEBIMENTO.includes(pc.status as StatusCompra)) throw badRequest('Pedido de compra não está aberto para recebimento');
   }
-  res.json(await prisma.erpNfeEntrada.update({ where: { id: n.id }, data: { pedidoCompraId }, select: { id: true, pedidoCompraId: true } }));
+  // v1.36.0: NF vinculada = NF registrada na OC → vai para a qualidade (se exigir) ou para a conferência.
+  let evento: EventoCompra | null = null;
+  const r = await prisma.$transaction(async (tx) => {
+    const r = await tx.erpNfeEntrada.update({ where: { id: n.id }, data: { pedidoCompraId }, select: { id: true, pedidoCompraId: true } });
+    if (pedidoCompraId) {
+      const pc = await tx.erpPedidoCompra.findUniqueOrThrow({ where: { id: pedidoCompraId } });
+      const ev: EventoCompra = pc.exigeQualidade ? 'NF_ENTRADA_QUALIDADE' : 'NF_ENTRADA';
+      const t = transicionar(maquinaCompra, pc.status as StatusCompra, ev, { itens: 1, totalCents: pc.totalCents, gestor: true, alcadaCents: 0 });
+      if (t.ok) {
+        await tx.erpPedidoCompra.update({ where: { id: pc.id }, data: { status: t.para, ...(pc.entregueEm ? {} : { entregueEm: new Date() }) } });
+        await registrarHistorico(tx, { orgId, pedidoId: pc.id, de: pc.status, para: t.para, evento: ev, userId: req.auth?.userId, userNome: await userName(req.auth?.userId), observacao: `NF-e ${n.numero}/${n.serie} vinculada` });
+        evento = ev;
+      }
+    }
+    return r;
+  });
+  if (evento && pedidoCompraId) await avisarMudanca(pedidoCompraId, evento);
+  res.json(r);
 }));
 
 /** Conferência física do recebimento (na unidade do fornecedor). Com recebimento cego, o conferente não vê a quantidade da nota. */
@@ -155,6 +174,7 @@ nfeRouter.post('/:id/lancar', ah(async (req, res) => {
   if (cfg.recebimentoCego && n.itens.some((i) => i.conferidoMil == null)) throw badRequest('Recebimento cego: confira todos os itens antes de lançar');
   const divergencias: string[] = n.itens.filter((i) => i.conferidoMil != null && i.conferidoMil !== i.qtdMil).map((i) => `Item ${i.nItem}: conferido ${i.conferidoMil! / 1000}, nota ${i.qtdMil / 1000} ${i.unidade}`);
   const pc = n.pedidoCompraId ? await prisma.erpPedidoCompra.findFirst({ where: { id: n.pedidoCompraId, orgId }, include: { itens: true } }) : null;
+  if (pc?.status === 'AGUARDANDO_QUALIDADE') throw badRequest(`Pedido de compra nº ${pc.numero} aguardando liberação da qualidade: libere em Compras antes de lançar a nota`);
   if (pc) {
     const prods = await prisma.erpProduto.findMany({ where: { id: { in: n.itens.map((i) => i.produtoId!) } }, select: { id: true, sku: true } });
     const S = new Map(prods.map((p) => [p.id, p.sku]));
@@ -163,6 +183,7 @@ nfeRouter.post('/:id/lancar', ah(async (req, res) => {
   if (divergencias.length && !b.aceitarDivergencias) throw badRequest('Divergências no recebimento', { divergencias });
   if (divergencias.length && !(req.auth?.role === 'OWNER' || req.auth?.role === 'ADMIN')) throw forbidden('Só proprietário ou administrador aceita divergência de recebimento');
   const gerados: string[] = [];
+  const quemLancou = await userName(req.auth?.userId); let eventoPc: EventoCompra | null = null;
   await prisma.$transaction(async (tx) => {
     for (const item of n.itens) {
       const p = await tx.erpProduto.findUniqueOrThrow({ where: { id: item.produtoId! } });
@@ -210,7 +231,9 @@ nfeRouter.post('/:id/lancar', ah(async (req, res) => {
       const ev = itens.every((i) => i.recebidoMil >= i.qtdMil) ? 'RECEBER' : 'RECEBER_PARCIAL';
       const t = transicionar(maquinaCompra, pc.status as StatusCompra, ev, { itens: itens.length, totalCents: pc.totalCents, gestor: true, alcadaCents: 0 });
       if (t.ok) {
-        await tx.erpPedidoCompra.update({ where: { id: pc.id }, data: { status: t.para } });
+        await tx.erpPedidoCompra.update({ where: { id: pc.id }, data: { status: t.para, ...(pc.entregueEm ? {} : { entregueEm: new Date() }) } });
+        await registrarHistorico(tx, { orgId, pedidoId: pc.id, de: pc.status, para: t.para, evento: ev, userId: req.auth?.userId, userNome: quemLancou, observacao: `NF-e ${n.numero}/${n.serie} lançada: entrada no estoque${ev === 'RECEBER_PARCIAL' ? ' (parcial)' : ''}` });
+        eventoPc = ev;
         for (const tipo of t.emite) await emitir(tx, { orgId, tipo, agregado: 'pedido_compra', agregadoId: pc.id, payload: { numero: pc.numero, nfeId: n.id } });
       }
       await vincular(tx, orgId, { tipo: 'pedido_compra', id: pc.id }, { tipo: 'nfe_entrada', id: n.id }, 'recebido_por');
@@ -220,6 +243,7 @@ nfeRouter.post('/:id/lancar', ah(async (req, res) => {
     await emitir(tx, { orgId, tipo: 'estoque.nfe_entrada.lancada', agregado: 'nfe_entrada', agregadoId: n.id, payload: { numero: n.numero, parceiroId: n.parceiroId, valorTotalCents: n.valorTotalCents, lotes: gerados.length } });
   });
   despacharEmBreve();
+  if (pc && eventoPc) await avisarMudanca(pc.id, eventoPc);
   await auditar(req, 'nfe_entrada.lancar', 'erp_nfe_entrada', n.id, null, { lotes: gerados.length });
   // v1.33.0: etiquetas sugeridas por lote (uma por embalagem/peça recebida) para imprimir na hora.
   const movs = await prisma.erpMovimento.findMany({ where: { orgId, docTipo: 'nfe_entrada', docId: n.id, qtdMil: { gt: 0 } }, select: { loteId: true, qtdMil: true, produtoId: true } });

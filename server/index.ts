@@ -1,3 +1,4 @@
+import { tickPrazosCompras } from './erp/compras/ciclo.js';
 import { createApp } from './app.js';
 import { iniciarErp } from './erp/routes.js';
 import { config } from './config.js';
@@ -51,12 +52,13 @@ if (config.ENABLE_SCHEDULER === 'true') {
     handoffRunning = true;
     tickHandoffAlerts().catch((e) => console.error('[aguardando]', e)).finally(() => { handoffRunning = false; });
   }, 60_000).unref();
-  // MCK ERP: alertas diários por WhatsApp (contas a pagar, estoque mínimo, produto parado), a cada 5 min.
+  // MCK ERP: alertas diários por WhatsApp (contas a pagar, estoque mínimo, produto parado) e, v1.36.0, rotina diária de
+  // prazos das ordens de compra (avisos de atraso/chega em breve; 1 por OC/tipo/dia), a cada 5 min.
   let erpAlertaRunning = false;
   setInterval(() => {
     if (erpAlertaRunning) return;
     erpAlertaRunning = true;
-    tickAlertasErp().then(() => tickRelatorioDiario()).catch((e) => console.error('[erp-alertas]', (e as Error).message)).finally(() => { erpAlertaRunning = false; });
+    tickAlertasErp().then(() => tickRelatorioDiario()).then(() => tickPrazosCompras()).catch((e) => console.error('[erp-alertas]', (e as Error).message)).finally(() => { erpAlertaRunning = false; });
   }, 5 * 60_000).unref();
   // Lembrete de vencimento (teste/plano) por e-mail ao titular, N dias antes; fora do horário 21h–8h (a cada 15 min).
   let reminderRunning = false;

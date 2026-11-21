@@ -1395,47 +1395,47 @@ model ErpCentroCusto {
 
 /// Parceiro de negócio: cliente e/ou fornecedor (cadastro 360º).
 model ErpParceiro {
-  id                 String               @id @default(cuid())
-  orgId              String
-  filialId           String?
-  tipoPessoa         String // PF | PJ
-  documento          String // CPF/CNPJ só dígitos
-  nome               String // razão social / nome
-  fantasia           String?
-  ehCliente          Boolean              @default(true)
-  ehFornecedor       Boolean              @default(false)
-  inscricaoEstadual  String?
-  regimeTributario   String? // SIMPLES | MEI | NORMAL
-  cnae               String?
-  cnaeDescricao      String?
-  situacaoCadastral  String? // ATIVA, BAIXADA... (Receita)
-  situacaoConsultaEm DateTime?
-  email              String?
-  telefone           String? // E.164
-  cep                String?
-  logradouro         String?
-  numero             String?
-  complemento        String?
-  bairro             String?
-  municipio          String?
-  codigoMunicipio    String? // IBGE
-  uf                 String?
-  limiteCreditoCents Int                  @default(0)
-  score              Int                  @default(500) // 0..1000, adimplência interna
-  status             String               @default("ATIVO") // ATIVO | INATIVO | BLOQUEADO
-  origem             String? // indicação, site, WhatsApp...
-  contactId          String? // vínculo com o contato do MCKBOT (WhatsApp)
-  tags               String               @default("[]")
-  observacoes        String?
+  id                  String               @id @default(cuid())
+  orgId               String
+  filialId            String?
+  tipoPessoa          String // PF | PJ
+  documento           String // CPF/CNPJ só dígitos
+  nome                String // razão social / nome
+  fantasia            String?
+  ehCliente           Boolean              @default(true)
+  ehFornecedor        Boolean              @default(false)
+  inscricaoEstadual   String?
+  regimeTributario    String? // SIMPLES | MEI | NORMAL
+  cnae                String?
+  cnaeDescricao       String?
+  situacaoCadastral   String? // ATIVA, BAIXADA... (Receita)
+  situacaoConsultaEm  DateTime?
+  email               String?
+  telefone            String? // E.164
+  cep                 String?
+  logradouro          String?
+  numero              String?
+  complemento         String?
+  bairro              String?
+  municipio           String?
+  codigoMunicipio     String? // IBGE
+  uf                  String?
+  limiteCreditoCents  Int                  @default(0)
+  score               Int                  @default(500) // 0..1000, adimplência interna
+  status              String               @default("ATIVO") // ATIVO | INATIVO | BLOQUEADO
+  origem              String? // indicação, site, WhatsApp...
+  contactId           String? // vínculo com o contato do MCKBOT (WhatsApp)
+  tags                String               @default("[]")
+  observacoes         String?
   inscricaoMunicipal  String? // v1.33.0
   condicaoPagamentoId String? // v1.33.0: condição comercial padrão (cliente: vendas; fornecedor: compras)
   tabelaPrecoId       String? // v1.33.0: tabela de preço padrão do cliente
   prazoEntregaDias    Int                  @default(0) // v1.33.0: prazo de entrega do fornecedor (dias), usado em "O que comprar" quando o produto não tem prazo próprio
-  createdAt          DateTime             @default(now())
-  updatedAt          DateTime             @updatedAt
-  contatos           ErpParceiroContato[]
-  oportunidades      ErpOportunidade[]
-  interacoes         ErpInteracao[]
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  contatos            ErpParceiroContato[]
+  oportunidades       ErpOportunidade[]
+  interacoes          ErpInteracao[]
 
   @@unique([orgId, documento])
   @@index([orgId, status])
@@ -1584,38 +1584,48 @@ model ErpIntegracaoJob {
 // Quantidades em milésimos (Int): 1 un = 1000; 0,250 kg = 250. Valores em centavos. Percentuais em pontos-base (1% = 100).
 
 model ErpConfig {
-  orgId                 String   @id
-  descontoMaxBp         Int      @default(1000) // alçada do vendedor (10%); acima disso o pedido vai para aprovação
-  bloquearSemCredito    Boolean  @default(true)
-  validadeOrcamentoDias Int      @default(15)
-  proximoPedido         Int      @default(1)
-  proximoLoteInterno    Int      @default(1)
-  proximaSolicitacao    Int      @default(1)
-  proximaCotacao        Int      @default(1)
-  proximoPedidoCompra   Int      @default(1)
-  proximaOp             Int      @default(1)
-  alcadaCompraCents     Int      @default(500000) // pedido de compra até este valor é aprovado ao enviar; acima, só OWNER/ADMIN aprova
-  toleranciaPrecoBp     Int      @default(200) // recebimento: diferença de preço NF × pedido aceita sem aprovação
-  recebimentoCego       Boolean  @default(false) // conferência da NF-e sem mostrar a quantidade da nota
-  multaAtrasoBp         Int      @default(200) // multa por atraso (2%)
-  jurosMesBp            Int      @default(100) // juros de mora ao mês (1%), pro rata dia
-  formatoLote           String   @default("{AA}{MM}{DD}-{SEQ}") // {AAAA} {AA} {MM} {DD} {SKU} {SEQ}
-  etiquetaLarguraMm     Int      @default(100)
-  etiquetaAlturaMm      Int      @default(50)
-  etiquetaDpi           Int      @default(203) // 203 ou 300 (Zebra)
+  orgId                        String   @id
+  descontoMaxBp                Int      @default(1000) // alçada do vendedor (10%); acima disso o pedido vai para aprovação
+  bloquearSemCredito           Boolean  @default(true)
+  validadeOrcamentoDias        Int      @default(15)
+  proximoPedido                Int      @default(1)
+  proximoLoteInterno           Int      @default(1)
+  proximaSolicitacao           Int      @default(1)
+  proximaCotacao               Int      @default(1)
+  proximoPedidoCompra          Int      @default(1)
+  proximaOp                    Int      @default(1)
+  alcadaCompraCents            Int      @default(500000) // pedido de compra até este valor é aprovado ao enviar; acima, só OWNER/ADMIN aprova
+  toleranciaPrecoBp            Int      @default(200) // recebimento: diferença de preço NF × pedido aceita sem aprovação
+  recebimentoCego              Boolean  @default(false) // conferência da NF-e sem mostrar a quantidade da nota
+  multaAtrasoBp                Int      @default(200) // multa por atraso (2%)
+  jurosMesBp                   Int      @default(100) // juros de mora ao mês (1%), pro rata dia
+  formatoLote                  String   @default("{AA}{MM}{DD}-{SEQ}") // {AAAA} {AA} {MM} {DD} {SKU} {SEQ}
+  etiquetaLarguraMm            Int      @default(100)
+  etiquetaAlturaMm             Int      @default(50)
+  etiquetaDpi                  Int      @default(203) // 203 ou 300 (Zebra)
   // Alertas diários por WhatsApp para a administração (financeiro e estoque)
-  alertaAtivo           Boolean  @default(false)
-  alertaTelefones       String? // JSON: ["+55..."]
-  alertaHora            Int      @default(8) // hora local (fuso da organização)
-  alertaDiasAntes       Int      @default(3) // contas a pagar que vencem em até N dias (e as vencidas)
-  alertaPagar           Boolean  @default(true)
-  alertaEstoqueMinimo   Boolean  @default(true)
-  alertaSemSaidaDias    Int      @default(15) // produto com saldo e sem saída há N dias; 0 = desligado
-  alertaUltimoDia       String? // AAAA-MM-DD do último envio automático
-  alertaStatus          String? // JSON: { at, ok, detail }
-  relatorioUltimoDia    String? // "YYYY-MM-DD" do último relatório diário enviado ao proprietário
-  alertaOpcoes          String? // JSON (v1.30.0): seções do alerta ligadas/desligadas, dias de validade, consumo, compra pelo WhatsApp
-  updatedAt             DateTime @updatedAt
+  alertaAtivo                  Boolean  @default(false)
+  alertaTelefones              String? // JSON: ["+55..."]
+  alertaHora                   Int      @default(8) // hora local (fuso da organização)
+  alertaDiasAntes              Int      @default(3) // contas a pagar que vencem em até N dias (e as vencidas)
+  alertaPagar                  Boolean  @default(true)
+  alertaEstoqueMinimo          Boolean  @default(true)
+  alertaSemSaidaDias           Int      @default(15) // produto com saldo e sem saída há N dias; 0 = desligado
+  alertaUltimoDia              String? // AAAA-MM-DD do último envio automático
+  alertaStatus                 String? // JSON: { at, ok, detail }
+  relatorioUltimoDia           String? // "YYYY-MM-DD" do último relatório diário enviado ao proprietário
+  alertaOpcoes                 String? // JSON (v1.30.0): seções do alerta ligadas/desligadas, dias de validade, consumo, compra pelo WhatsApp
+  // v1.36.0: ciclo da ordem de compra (prazos e avisos)
+  compraQualidadePadrao        Boolean  @default(false) // toda OC nova passa pela liberação da qualidade
+  compraEmBreveDias            Int      @default(2) // "chega em breve" quando faltam até N dias
+  compraAvisoEquipeWhats       Boolean  @default(true) // avisos de compras também no WhatsApp dos números de alerta do ERP (se o alerta estiver ligado)
+  compraAvisoFornecedor        Boolean  @default(false) // lembrete e cobrança ao fornecedor (DESLIGADO por padrão)
+  compraAvisoFornCanal         String   @default("EMAIL") // EMAIL | WHATSAPP | AMBOS
+  compraAvisoFornDias          Int      @default(2) // lembrete N dias antes da data prevista
+  compraAvisoFornTextoLembrete String? // texto modelo; null = padrão
+  compraAvisoFornTextoAtraso   String? // texto modelo; null = padrão
+  compraRotinaDia              String? // AAAA-MM-DD da última rotina diária de prazos
+  updatedAt                    DateTime @updatedAt
 }
 
 /**
@@ -1660,6 +1670,7 @@ model ErpProduto {
   pesoGramas         Int      @default(0)
   controlaLote       Boolean  @default(false)
   controlaValidade   Boolean  @default(false)
+  exigeQualidade     Boolean  @default(false) // v1.36.0: compra deste produto passa pela liberação da qualidade antes da conferência
   regraSaida         String   @default("FIFO") // FIFO | FEFO
   estoqueMinimoMil   Int      @default(0)
   pontoPedidoMil     Int      @default(0)
@@ -1965,19 +1976,19 @@ model ErpInventario {
 }
 
 model ErpInventarioContagem {
-  id           String        @id @default(cuid())
-  inventarioId String
-  inventario   ErpInventario @relation(fields: [inventarioId], references: [id], onDelete: Cascade)
-  produtoId    String
-  loteId       String
-  enderecoId   String
-  sistemaMil   Int // saldo físico na abertura
-  contadoMil   Int?
-  contadoPorId String?
-  contadoEm    DateTime?
-  leituras     Int           @default(0) // v1.33.0: quantas leituras de QR somaram nesta linha
-  modo         String? // v1.33.0: QR | MANUAL (última forma de contagem)
-  custoUnitCents Int         @default(0) // v1.33.0: custo por unidade no fechamento (diferença em R$)
+  id             String        @id @default(cuid())
+  inventarioId   String
+  inventario     ErpInventario @relation(fields: [inventarioId], references: [id], onDelete: Cascade)
+  produtoId      String
+  loteId         String
+  enderecoId     String
+  sistemaMil     Int // saldo físico na abertura
+  contadoMil     Int?
+  contadoPorId   String?
+  contadoEm      DateTime?
+  leituras       Int           @default(0) // v1.33.0: quantas leituras de QR somaram nesta linha
+  modo           String? // v1.33.0: QR | MANUAL (última forma de contagem)
+  custoUnitCents Int           @default(0) // v1.33.0: custo por unidade no fechamento (diferença em R$)
 
   @@unique([inventarioId, produtoId, loteId, enderecoId])
 }
@@ -2051,27 +2062,75 @@ model ErpCotacaoResposta {
 }
 
 model ErpPedidoCompra {
-  id              String                @id @default(cuid())
-  orgId           String
-  numero          Int
-  parceiroId      String
-  status          String                @default("RASCUNHO") // RASCUNHO | EM_APROVACAO | APROVADO | ENVIADO | RECEBIDO_PARCIAL | RECEBIDO | CANCELADO
-  totalCents      Int                   @default(0)
-  freteCents      Int                   @default(0)
-  previsaoEntrega DateTime?
-  condicao        String?
-  observacoes     String?
-  cotacaoId       String?
-  centroCustoId   String?
-  aprovadoPorId   String?
-  motivo          String?
-  createdAt       DateTime              @default(now())
-  updatedAt       DateTime              @updatedAt
-  itens           ErpPedidoCompraItem[]
+  id               String                     @id @default(cuid())
+  orgId            String
+  numero           Int
+  parceiroId       String
+  status           String                     @default("RASCUNHO") // RASCUNHO | EM_APROVACAO | APROVADO | ENVIADO | RECEBIDO_PARCIAL | AGUARDANDO_NF | AGUARDANDO_QUALIDADE | EM_CONFERENCIA | LIBERADA_ESTOQUE | RECEBIDO | CANCELADO (rótulos em compra.machine.ts)
+  totalCents       Int                        @default(0)
+  freteCents       Int                        @default(0)
+  previsaoEntrega  DateTime?
+  condicao         String?
+  observacoes      String?
+  cotacaoId        String?
+  centroCustoId    String?
+  aprovadoPorId    String?
+  motivo           String?
+  // v1.36.0: prazo e etapas
+  prazoEntregaDias Int? // prazo da cotação vencedora (dias); previsão = emissão + prazo
+  previsaoManual   Boolean                    @default(false) // previsão editada à mão: a emissão não recalcula
+  emitidoEm        DateTime?
+  entregueEm       DateTime?
+  exigeQualidade   Boolean                    @default(false)
+  createdAt        DateTime                   @default(now())
+  updatedAt        DateTime                   @updatedAt
+  itens            ErpPedidoCompraItem[]
+  historico        ErpPedidoCompraHistorico[]
 
   @@unique([orgId, numero])
   @@index([orgId, status])
   @@index([orgId, parceiroId])
+}
+
+/**
+ * v1.36.0: linha do tempo da ordem de compra (quem, quando, de → para, observação).
+ */
+model ErpPedidoCompraHistorico {
+  id         String          @id @default(cuid())
+  orgId      String
+  pedidoId   String
+  pedido     ErpPedidoCompra @relation(fields: [pedidoId], references: [id], onDelete: Cascade)
+  de         String?
+  para       String
+  evento     String
+  userId     String?
+  userNome   String?
+  observacao String?
+  createdAt  DateTime        @default(now())
+
+  @@index([pedidoId, createdAt])
+}
+
+/**
+ * v1.36.0: avisos de compras (central de avisos da aba Compras + WhatsApp da equipe + fornecedor).
+ * Um por OC/tipo/dia (chave única), então a rotina pode rodar várias vezes sem duplicar.
+ * tipo: AGUARDANDO_APROVACAO | CHEGA_EM_BREVE | ATRASADO | NF_LANCADA | LIBERADA_ESTOQUE | FORN_LEMBRETE | FORN_ATRASO
+ */
+model ErpAvisoCompra {
+  id        String    @id @default(cuid())
+  orgId     String
+  pedidoId  String
+  tipo      String
+  dia       String // AAAA-MM-DD (fuso da empresa)
+  destino   String    @default("EQUIPE") // EQUIPE | FORNECEDOR
+  titulo    String
+  texto     String
+  envio     String? // resultado do envio externo (WhatsApp/e-mail), quando houver
+  lidoEm    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@unique([pedidoId, tipo, dia])
+  @@index([orgId, createdAt])
 }
 
 model ErpPedidoCompraItem {
@@ -2317,17 +2376,19 @@ model ErpCaixaSessao {
   @@index([orgId, status])
 }
 
-/** Sangria (retirada de dinheiro do caixa) e suprimento (reforço de troco) durante uma sessão. */
+/**
+ * Sangria (retirada de dinheiro do caixa) e suprimento (reforço de troco) durante uma sessão.
+ */
 model ErpCaixaMovimento {
-  id            String   @id @default(cuid())
-  orgId         String
-  sessaoId      String
-  tipo          String // SANGRIA | SUPRIMENTO
-  valorCents    Int
-  motivo        String
-  contaOutraId  String? // conta de destino (sangria) ou de origem (suprimento), quando o dinheiro vai/vem de outra conta
-  userId        String?
-  em            DateTime @default(now())
+  id           String   @id @default(cuid())
+  orgId        String
+  sessaoId     String
+  tipo         String // SANGRIA | SUPRIMENTO
+  valorCents   Int
+  motivo       String
+  contaOutraId String? // conta de destino (sangria) ou de origem (suprimento), quando o dinheiro vai/vem de outra conta
+  userId       String?
+  em           DateTime @default(now())
 
   @@index([sessaoId])
   @@index([orgId, em])
