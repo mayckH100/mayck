@@ -4,18 +4,20 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { get, post } from '../../api';
 import { useApi, Async, Empty, Modal, Field, useAction, useToast, fmtDate } from '../../ui';
 import VendaBalcao from './Balcao';
+import { Cabecalho } from '../pagina';
 import { CaixaBanner, AbrirCaixaModal, CaixasHistorico, type EstadoCaixa } from './Caixa';
 import { brl, toCents, toMil, qtd, STATUS_PEDIDO } from '../format';
 
-export const GRUPOS: { label: string; status: string; origem?: 'balcao' }[] = [
-  { label: 'Todos', status: '' },
-  { label: 'Vendas balcão', status: '', origem: 'balcao' },
-  { label: 'Orçamentos', status: 'RASCUNHO' },
-  { label: 'Aprovação', status: 'EM_APROVACAO,BLOQUEADO' },
-  { label: 'Aguardando estoque', status: 'AGUARDANDO_SUPRIMENTO' },
-  { label: 'Separação', status: 'APROVADO,RESERVADO,EM_SEPARACAO,SEPARADO' },
-  { label: 'Faturados e em transporte', status: 'FATURADO,EM_TRANSPORTE,ENTREGA_PARCIAL' },
-  { label: 'Encerrados', status: 'ENTREGUE,DEVOLVIDO,CANCELADO' },
+/** `id` (v1.37.0): atalho na URL (?grupo=aprovacao) usado pelas telas-resumo. */
+export const GRUPOS: { label: string; status: string; origem?: 'balcao'; id: string }[] = [
+  { label: 'Todos', status: '', id: 'todos' },
+  { label: 'Vendas balcão', status: '', origem: 'balcao', id: 'balcao' },
+  { label: 'Orçamentos', status: 'RASCUNHO', id: 'orcamentos' },
+  { label: 'Aprovação', status: 'EM_APROVACAO,BLOQUEADO', id: 'aprovacao' },
+  { label: 'Aguardando estoque', status: 'AGUARDANDO_SUPRIMENTO', id: 'estoque' },
+  { label: 'Separação', status: 'APROVADO,RESERVADO,EM_SEPARACAO,SEPARADO', id: 'separacao' },
+  { label: 'Faturados e em transporte', status: 'FATURADO,EM_TRANSPORTE,ENTREGA_PARCIAL', id: 'faturados' },
+  { label: 'Encerrados', status: 'ENTREGUE,DEVOLVIDO,CANCELADO', id: 'encerrados' },
 ];
 /** URL da lista para o filtro escolhido (Vendas balcão = origem=balcao). */
 export const urlPedidos = (g: { status: string; origem?: string }) => `/erp/vendas/pedidos?status=${g.status}${g.origem ? `&origem=${g.origem}` : ''}`;
@@ -27,7 +29,7 @@ export function badgeStatus(s: string) {
 
 export default function Pedidos({ balcao: abrirBalcao = false }: { balcao?: boolean } = {}) {
   const [sp] = useSearchParams();
-  const [grupo, setGrupo] = useState(abrirBalcao ? 'Vendas balcão' : 'Todos');
+  const [grupo, setGrupo] = useState(() => (abrirBalcao ? 'Vendas balcão' : sp.get('grupo') === 'caixas' ? 'Caixas' : GRUPOS.find((x) => x.id === sp.get('grupo'))?.label ?? 'Todos'));
   const g = GRUPOS.find((x) => x.label === grupo) ?? GRUPOS[0];
   const caixasAba = grupo === 'Caixas';
   const state = useApi<any[]>(caixasAba ? null : urlPedidos(g), [grupo]);
@@ -46,21 +48,19 @@ export default function Pedidos({ balcao: abrirBalcao = false }: { balcao?: bool
   const nav = useNavigate();
   return (
     <>
-      <div className="page-head">
-        <div><h1>{abrirBalcao ? 'Venda balcão (PDV)' : 'Pedidos de venda'}</h1><p className="muted">{abrirBalcao ? 'Venda na hora: baixa o estoque e já lança no caixa. As vendas feitas aparecem logo abaixo.' : 'Do orçamento à entrega: aprovação, reserva de estoque, separação por QR e faturamento.'}</p></div>
-        <div className="row" style={{ gap: 6 }}>
-          <button className="btn" onClick={() => setNovo(true)}>+ Orçamento</button>
-          <button className="btn primary" onClick={iniciarVenda}>Venda balcão</button>
-        </div>
-      </div>
+      {/* v1.37.0: um botão principal por tela; o outro vai para o menu ⋯. Ajuda no "?". */}
+      <Cabecalho titulo={abrirBalcao ? 'Venda balcão (PDV)' : 'Pedidos de venda'}
+        ajuda={abrirBalcao ? 'Venda na hora: baixa o estoque e já lança no caixa. As vendas feitas aparecem logo abaixo. F2 lê um código em qualquer tela.' : 'Do orçamento à entrega: aprovação, reserva de estoque, separação por QR e faturamento.'}
+        acao={abrirBalcao ? { label: 'Nova venda', onClick: iniciarVenda } : { label: '+ Orçamento', onClick: () => setNovo(true) }}
+        mais={abrirBalcao ? [{ label: '+ Orçamento', onClick: () => setNovo(true) }, { label: 'Abrir outro caixa', onClick: () => setAbrirCaixa('so') }, { label: 'Ler código', to: '/erp/balcao/ler' }] : [{ label: 'Venda balcão', onClick: iniciarVenda }, { label: 'Localizar pedido', to: '/erp/pedidos/localizar' }]} />
       {(abrirBalcao || abertas.length > 0) && <CaixaBanner estado={caixa.data} sessaoId={sessaoId} onEscolher={setSessaoEscolhida} onAbrir={() => setAbrirCaixa('so')} onReload={caixa.reload} />}
-      <div className="row" style={{ marginBottom: 10, flexWrap: 'wrap' }}>{GRUPOS.map((x) => <button key={x.label} className={`btn sm ${grupo === x.label ? 'primary' : ''}`} onClick={() => setGrupo(x.label)}>{x.label}</button>)}
+      <div className="filtro-chips" role="group" aria-label="Filtrar pedidos">{GRUPOS.map((x) => <button key={x.label} className={`btn sm ${grupo === x.label ? 'primary' : ''}`} onClick={() => setGrupo(x.label)}>{x.label}</button>)}
         <button className={`btn sm ${caixasAba ? 'primary' : ''}`} onClick={() => setGrupo('Caixas')}>Caixas</button></div>
       {caixasAba ? <CaixasHistorico /> : <Async state={state}>{(d) => d.length === 0 ? <div className="card"><Empty title={g.origem ? 'Nenhuma venda balcão ainda' : 'Nenhum pedido aqui'}>{g.origem ? 'Clique em “Venda balcão” para vender na hora: a venda aparece aqui, em Todos e em Encerrados.' : 'Crie um orçamento para um cliente ou faça uma venda balcão.'}</Empty></div> : (
         <div className="card table-wrap"><table>
-          <thead><tr><th>Nº</th><th>Cliente</th><th>Status</th><th>Total</th><th>Criado</th><th></th></tr></thead>
+          <thead><tr><th>Nº</th><th>Cliente</th><th>Status</th><th>Total</th><th className="col-sec">Criado</th><th></th></tr></thead>
           <tbody>{d.map((p) => (
-            <tr key={p.id}><td><strong>{p.numero}</strong></td><td>{p.parceiro?.fantasia || p.parceiro?.nome}</td><td>{badgeStatus(p.statusOperacional)}{p.balcao && <span className="badge" style={{ marginLeft: 4 }}>Balcão</span>}</td><td>{brl(p.totalCents)}</td><td>{fmtDate(p.createdAt)}</td><td><button className="btn sm" onClick={() => nav(`/erp/pedidos/${p.id}`)}>Abrir</button></td></tr>
+            <tr key={p.id}><td><strong>{p.numero}</strong></td><td>{p.parceiro?.fantasia || p.parceiro?.nome}</td><td>{badgeStatus(p.statusOperacional)}{p.balcao && <span className="badge" style={{ marginLeft: 4 }}>Balcão</span>}</td><td>{brl(p.totalCents)}</td><td className="col-sec">{fmtDate(p.createdAt)}</td><td><button className="btn sm" onClick={() => nav(`/erp/pedidos/${p.id}`)}>Abrir</button></td></tr>
           ))}</tbody>
         </table></div>
       )}</Async>}

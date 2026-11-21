@@ -21,6 +21,18 @@ export type EntradaChangelog = {
 
 export const CHANGELOG: EntradaChangelog[] = [
   {
+    versao: '1.37.0',
+    data: '21/11/2026',
+    titulo: 'MCK ERP mais limpo: menu por áreas e telas-resumo com o que precisa de atenção',
+    itens: [
+      'Menu do ERP em áreas: Início, Vendas, Compras, Estoque, Produção, Financeiro, Fiscal e Configurações. Cada área abre as suas seções (no celular, em botões no topo da tela).',
+      'Cada área abre numa tela-resumo com os números principais e atalhos para o que precisa de atenção, como compras atrasadas, aprovações pendentes e estoque abaixo do mínimo.',
+      'Menos texto nas telas: as explicações ficam no botão "?" ao lado do título, e ações menos usadas (exportar, importar, regras) ficam no menu "⋯".',
+      'Rastreio de lote agora fica em Estoque, e Prazos e avisos fica em Compras. Endereços antigos continuam funcionando, e a tecla F2 segue abrindo a leitura de código.',
+      'No celular, as tabelas mostram só as colunas principais; o resto aparece ao abrir o item.',
+    ],
+  },
+  {
     versao: '1.36.0',
     data: '20/11/2026',
     titulo: 'Compras com etapas e prazo: veja na hora se a ordem de compra está no prazo, chega em breve ou atrasou',

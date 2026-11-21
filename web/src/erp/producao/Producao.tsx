@@ -4,18 +4,25 @@ import { get, post, put } from '../../api';
 import { useApi, Async, Empty, Modal, Field, useAction, fmtDate } from '../../ui';
 import { brl, qtd, toMil, toCents, fromCents } from '../format';
 import { BuscaProduto } from '../comum';
+import { useSearchParams } from 'react-router-dom';
+import { Cabecalho } from '../pagina';
 
 const ST: Record<string, string> = { PLANEJADA: 'Planejada', LIBERADA: 'Liberada', EM_PRODUCAO: 'Em produção', ENCERRADA: 'Encerrada', CANCELADA: 'Cancelada' };
 const ACAO: Record<string, string> = { LIBERAR: 'Liberar (reserva componentes)', INICIAR: 'Iniciar', ENCERRAR: 'Encerrar', CANCELAR: 'Cancelar', ESTORNAR_LIBERACAO: 'Estornar liberação' };
 
-export default function Producao() {
-  const [aba, setAba] = useState<'ops' | 'estr' | 'mrp'>('ops');
+/** Subcategorias de Produção com rota própria (v1.37.0). */
+export type AbaProducao = 'ops' | 'estr' | 'mrp';
+const TELAS: Record<AbaProducao, { titulo: string; ajuda: string }> = {
+  ops: { titulo: 'Ordens de produção', ajuda: 'Liberar reserva os componentes; o apontamento consome (backflush) e cria o lote do produto com rastreio.' },
+  estr: { titulo: 'Estruturas e roteiros', ajuda: 'Do que o produto é feito (multinível) e as etapas de fabricação, com o custo padrão.' },
+  mrp: { titulo: 'MRP', ajuda: 'Calcula o que comprar e o que produzir a partir dos pedidos, do estoque e das estruturas; aplicar cria as OPs e a solicitação de compra.' },
+};
+
+export default function Producao({ aba = 'ops' }: { aba?: AbaProducao }) {
+  const t = TELAS[aba];
   return (
     <div className="page">
-      <div className="page-head"><div><h1>Produção</h1><p className="muted">Estrutura → ordem de produção → consumo e lote com rastreio → MRP do que comprar e produzir.</p></div></div>
-      <div className="row" style={{ marginBottom: 10, flexWrap: 'wrap' }}>
-        {(['ops', 'estr', 'mrp'] as const).map((a) => <button key={a} className={`btn sm ${aba === a ? 'primary' : ''}`} onClick={() => setAba(a)}>{{ ops: 'Ordens de produção', estr: 'Estruturas e roteiros', mrp: 'MRP' }[a]}</button>)}
-      </div>
+      <Cabecalho titulo={t.titulo} ajuda={t.ajuda} />
       {aba === 'ops' && <Ops />}
       {aba === 'estr' && <Estruturas />}
       {aba === 'mrp' && <Mrp />}
@@ -25,7 +32,8 @@ export default function Producao() {
 
 function Ops() {
   const l = useApi<any[]>('/erp/producao/ops');
-  const [nova, setNova] = useState(false); const [aberta, setAberta] = useState<string | null>(null);
+  const [sp] = useSearchParams();
+  const [nova, setNova] = useState(sp.get('nova') === '1'); const [aberta, setAberta] = useState<string | null>(null);
   const [f, setF] = useState<any>({ produto: null, qtd: '', inicio: '', fim: '' });
   const { busy, run } = useAction();
   return (

@@ -22,7 +22,7 @@ const configDe = (orgId: string) => prisma.erpConfigFiscal.upsert({ where: { org
 const publica = (c: Awaited<ReturnType<typeof configDe>>) => { const { certPfx, certSenha, ...r } = c; return { ...r, temCertificado: !!certPfx }; };
 async function certDe(orgId: string) {
   const c = await configDe(orgId);
-  if (!c.certPfx || !c.certSenha) throw badRequest('Envie o certificado A1 da empresa em Fiscal → Configuração');
+  if (!c.certPfx || !c.certSenha) throw badRequest('Envie o certificado A1 da empresa em Fiscal › Emitente e certificado');
   const cert = lerPfx(decrypt(c.certPfx), decrypt(c.certSenha));
   if (cert.validade < new Date()) throw badRequest('O certificado A1 está vencido');
   return { c, cert };
@@ -110,7 +110,7 @@ fiscalRouter.delete('/regras/:id', ah(async (req, res) => {
 /** Monta os dados da NF-e a partir do pedido (itens, desconto e frete rateados, regras por produto/NCM). */
 export async function dadosDoPedido(orgId: string, pedidoId: string, numero: number, cNF: number, emissao: Date): Promise<{ dados: DadosNfe; parceiroId: string }> {
   const c = await configDe(orgId);
-  if (!c.cnpj || !c.razaoSocial) throw badRequest('Preencha os dados do emitente em Fiscal → Configuração');
+  if (!c.cnpj || !c.razaoSocial) throw badRequest('Preencha os dados do emitente em Fiscal › Emitente e certificado');
   const p = await prisma.erpPedidoVenda.findFirst({ where: { id: pedidoId, orgId }, include: { itens: { orderBy: { posicao: 'asc' } } } });
   if (!p) throw notFound('Pedido');
   const dest = await prisma.erpParceiro.findUniqueOrThrow({ where: { id: p.parceiroId } });

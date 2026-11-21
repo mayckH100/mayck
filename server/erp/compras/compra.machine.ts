@@ -69,7 +69,7 @@ export const maquinaCompra: Maquina<StatusCompra, EventoCompra, CtxCompra> = {
     { de: 'AGUARDANDO_QUALIDADE', evento: 'LIBERAR_QUALIDADE', para: 'EM_CONFERENCIA' },
     { de: 'AGUARDANDO_QUALIDADE', evento: 'REPROVAR_QUALIDADE', para: 'ENVIADO', guarda: (c) => (c.motivo ? null : 'Informe o motivo da reprovação (ex.: devolvido ao fornecedor)') },
     { de: 'EM_CONFERENCIA', evento: 'CONCLUIR_CONFERENCIA', para: 'LIBERADA_ESTOQUE' },
-    { de: 'LIBERADA_ESTOQUE', evento: 'FINALIZAR', para: 'RECEBIDO', guarda: (c) => (c.nfPendente ? 'Há NF-e vinculada ainda não lançada: lance a nota em Estoque › NF-e (ela dá a entrada e finaliza)' : null), emite: ['compras.pedido.recebido'] },
+    { de: 'LIBERADA_ESTOQUE', evento: 'FINALIZAR', para: 'RECEBIDO', guarda: (c) => (c.nfPendente ? 'Há NF-e vinculada ainda não lançada: lance a nota em Estoque › Entrada por XML (ela dá a entrada e finaliza)' : null), emite: ['compras.pedido.recebido'] },
     { de: RECEBE, evento: 'RECEBER_PARCIAL', para: 'RECEBIDO_PARCIAL' },
     { de: RECEBE, evento: 'RECEBER', para: 'RECEBIDO', emite: ['compras.pedido.recebido'] },
     { de: ['RASCUNHO', 'EM_APROVACAO', 'APROVADO', 'ENVIADO'], evento: 'CANCELAR', para: 'CANCELADO', guarda: (c) => (c.motivo ? null : 'Informe o motivo do cancelamento'), emite: ['compras.pedido.cancelado'] },

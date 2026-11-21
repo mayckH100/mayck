@@ -70,18 +70,9 @@ p { margin: 0 0 8px; }
 .menu-trunc { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .nav-trocar { margin-top: 10px; padding-top: 4px; border-top: 1px solid rgba(255,255,255,.08); }
 .nav-modulo { border-left: 0; margin-left: 0; padding-left: 0; }
-/* Abas do MCK ERP: uma linha só; no celular rola na horizontal. */
-.erp-abas { display: flex; gap: 2px; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none; border-bottom: 1px solid var(--line); margin: -8px 0 16px; -webkit-overflow-scrolling: touch; }
-.erp-abas::-webkit-scrollbar { display: none; }
 /* Filtros compactos no cabeçalho da página (período e filial). */
 .page-head .filtros { flex-wrap: nowrap; }
 .page-head .filtros input, .page-head .filtros select { width: auto; }
-.erp-abas a { flex: none; padding: 10px 12px; color: var(--muted); font-weight: 600; font-size: 13px; white-space: nowrap; border-bottom: 2px solid transparent; margin-bottom: -1px; }
-.erp-abas a:hover { color: var(--ink); text-decoration: none; }
-.erp-abas a.active { color: var(--brand); border-bottom-color: var(--brand); }
-.erp-subabas { margin-top: -12px; border-bottom-style: dashed; }
-.erp-subabas a { padding: 8px 10px; font-size: 12.5px; }
-.erp-abas a:focus-visible { outline: 2px solid var(--brand); outline-offset: -2px; border-radius: 6px; }
 .content { padding: 24px; max-width: 1280px; width: 100%; }
 .page-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 18px; flex-wrap: wrap; }
 .btn.menu-btn { display: none; }
@@ -226,7 +217,6 @@ tr:hover td { background: #fafcfb; }
   .topo-secao { font-size: 13px; }
   .topo-acao-txt { display: none; }
   .topo-acao { width: 36px; height: 36px; padding: 0; font-size: 20px; font-weight: 700; }
-  .erp-abas { margin: -4px -14px 12px; padding: 0 8px; }
   .content h1 { font-size: 18px; }
   .page-head .filtros { display: grid; grid-template-columns: 1fr 1fr; width: 100%; }
   .page-head .filtros input, .page-head .filtros select { width: 100%; min-width: 0; }
@@ -317,3 +307,97 @@ tr:hover td { background: #fafcfb; }
 }
 .linklike { background: none; border: 0; padding: 0 0 0 8px; color: var(--muted); cursor: pointer; text-decoration: underline dotted; }
 .linklike:hover { color: var(--danger, #c00); }
+
+/* ---------- MCK ERP v1.37.0: áreas → subcategorias, telas-resumo e cabeçalho padrão ---------- */
+.so-celular { display: none; }
+.nav-erp a.nav-sub { padding: 6px 10px 6px 36px; font-size: 13px; opacity: .85; }
+.nav-erp a.nav-sub::before { content: none; }
+.nav-erp a.nav-sub.active { opacity: 1; background: rgba(217,4,41,.22); color: #fff; box-shadow: inset 3px 0 0 var(--brand); }
+.nav a.area-aberta:not(.active) { background: rgba(255,255,255,.08); color: #fff; font-weight: 700; }
+/* Cabeçalho: título + "?" à esquerda; busca, um botão principal e "⋯" à direita. */
+.erp-cab { align-items: center; }
+.erp-titulo { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.erp-titulo h1 { margin: 0; }
+.erp-cab-acoes { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.erp-cab-acoes select, .erp-cab-acoes input { width: auto; }
+.busca-cab input { width: 240px; }
+.ajuda { position: relative; display: inline-flex; }
+.ajuda-btn { width: 24px; height: 24px; border-radius: 50%; border: 1px solid var(--line); background: var(--panel); color: var(--muted); font-weight: 800; font-size: 13px; line-height: 1; cursor: pointer; display: grid; place-items: center; padding: 0; flex: none; }
+.ajuda-btn:hover, .ajuda-btn[aria-expanded="true"] { color: var(--brand); border-color: var(--brand); }
+.ajuda-pop { position: absolute; left: 0; top: calc(100% + 8px); width: max-content; max-width: min(340px, calc(100vw - 32px)); background: #111113; color: #f4f4f5; font-size: 13px; font-weight: 400; line-height: 1.45; padding: 10px 12px; border-radius: 10px; box-shadow: 0 12px 32px rgba(0,0,0,.2); z-index: 60; white-space: normal; }
+.ajuda-pop b, .ajuda-pop strong { color: #fff; }
+.menu-mais { position: relative; display: inline-flex; }
+.btn.mais-btn { width: 36px; height: 36px; padding: 0; font-size: 18px; letter-spacing: 1px; }
+.menu-mais .menu-pop { min-width: 210px; }
+.menu-mais .menu-pop a[role="menuitem"]:hover { text-decoration: none; }
+.acoes-linha { width: 1%; white-space: nowrap; text-align: right; }
+.acoes-linha .menu-mais .btn.mais-btn { width: 32px; height: 32px; }
+/* Telas-resumo */
+.erp-resumo { display: grid; gap: 16px; }
+.erp-resumo > .page-head { margin-bottom: 0; }
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; }
+.kpi { display: grid; gap: 2px; align-content: start; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 16px; box-shadow: var(--shadow); color: var(--ink); min-width: 0; }
+a.kpi:hover { text-decoration: none; border-color: #c9c9cf; }
+.kpi-l { color: var(--muted); font-size: 12px; font-weight: 600; }
+.kpi-v { font-size: 24px; font-weight: 800; line-height: 1.2; overflow-wrap: anywhere; }
+.kpi-d { color: var(--muted); font-size: 12px; }
+.kpi.tom-perigo { box-shadow: inset 4px 0 0 var(--danger), var(--shadow); }
+.kpi.tom-perigo .kpi-v { color: var(--danger); }
+.kpi.tom-alerta { box-shadow: inset 4px 0 0 #f59e0b, var(--shadow); }
+.kpi.tom-alerta .kpi-v { color: var(--warn); }
+.kpi.tom-ok .kpi-v { color: #1d6b3a; }
+.pendencias { padding: 14px 16px 6px; }
+.pendencias h2 { margin: 0 0 4px; font-size: 15px; }
+.pendencias ul { list-style: none; margin: 0; padding: 0; }
+.pendencias li + li { border-top: 1px solid var(--line); }
+.pend { display: flex; align-items: center; gap: 10px; padding: 11px 2px; color: var(--ink); min-height: 48px; }
+.pend:hover { text-decoration: none; background: #fafafa; }
+.pend-ico { width: 22px; text-align: center; flex: none; }
+.pend-txt { flex: 1; min-width: 0; }
+.pend-n { flex: none; min-width: 28px; padding: 2px 9px; border-radius: 999px; font-weight: 800; font-size: 13px; text-align: center; background: var(--warn-soft); color: var(--warn); }
+.pend.tom-perigo .pend-n { background: var(--danger-soft); color: var(--danger); }
+.pend.tom-neutro .pend-n { background: #eef2f1; color: #44544f; }
+.pend-seta { color: var(--muted); font-size: 18px; flex: none; }
+.pend-ok { padding: 10px 2px 12px; color: #1d6b3a; font-weight: 600; }
+.erp-sublista { padding: 4px 0; display: grid; }
+.erp-sublista a { display: flex; justify-content: space-between; align-items: center; min-height: 48px; padding: 0 16px; color: var(--ink); font-weight: 500; }
+.erp-sublista a + a { border-top: 1px solid var(--line); }
+.erp-sublista a:hover { text-decoration: none; background: #fafafa; }
+.erp-sublista a span:last-child { color: var(--muted); font-size: 18px; }
+.erp-areas { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.erp-area-tile { display: flex; align-items: center; gap: 10px; min-height: 56px; padding: 10px 14px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); color: var(--ink); font-weight: 700; box-shadow: var(--shadow); }
+.erp-area-tile:hover { text-decoration: none; }
+.erp-area-ico { font-size: 20px; }
+/* Filtros em chips que rolam numa linha (pedidos, ordens de compra). */
+.filtro-chips { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; margin-bottom: 10px; padding-bottom: 2px; -webkit-overflow-scrolling: touch; }
+.filtro-chips::-webkit-scrollbar { display: none; }
+.filtro-chips .btn { flex: none; }
+/* Subcategorias no celular (chips no topo da tela). */
+.erp-chips { display: none; }
+@media (max-width: 820px) {
+  .so-celular { display: grid; }
+  .erp-chips { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; margin: -4px -14px 12px; padding: 0 14px 2px; -webkit-overflow-scrolling: touch; }
+  .erp-chips::-webkit-scrollbar { display: none; }
+  .erp-chips a { flex: none; padding: 7px 12px; border-radius: 999px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); font-size: 13px; font-weight: 600; white-space: nowrap; }
+  .erp-chips a:hover { text-decoration: none; }
+  .erp-chips a.active { background: var(--ink); border-color: var(--ink); color: #fff; }
+  .erp-chips a.erp-chip-area { color: var(--muted); border-style: dashed; }
+  .erp-chips a.erp-chip-area.active { background: var(--panel); color: var(--muted); border-color: var(--line); }
+  .col-sec { display: none; }
+  .table-wrap th, .table-wrap td { padding: 8px 6px; }
+  .table-wrap td .badge { white-space: normal; }
+  .card.table-wrap { padding: 8px 10px; }
+  .erp-cab { align-items: flex-start; }
+  .erp-cab-acoes { width: 100%; }
+  .erp-cab-acoes .busca-cab { flex: 1 1 100%; order: -1; }
+  .busca-cab input { width: 100%; }
+  .erp-cab-acoes > .btn.primary { flex: 1; min-height: 40px; }
+  .erp-titulo h1 { font-size: 19px; }
+  .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .kpi { padding: 12px; }
+  .kpi-v { font-size: 20px; }
+  .erp-resumo { gap: 12px; }
+  .erp-resumo .erp-cab-acoes { width: auto; }
+  .ajuda-pop { position: fixed; left: 16px; right: 16px; top: 64px; max-width: none; width: auto; }
+}
+@media (pointer: coarse) { .btn { min-height: 36px; } .btn.sm { min-height: 32px; } }

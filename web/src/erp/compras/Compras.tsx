@@ -6,6 +6,8 @@ import { useApi, Async, Empty, Modal, Field, useAction, fmtDate } from '../../ui
 import { brl, qtd, toMil, toCents, fromCents } from '../format';
 import { BuscaParceiro, EditorItens, type LinhaItem } from '../comum';
 import OQueComprar from './OQueComprar';
+import { useSearchParams } from 'react-router-dom';
+import { Cabecalho } from '../pagina';
 import { linhaCompra, qtdComEmbalagem, temEmbalagem } from '../../../../server/erp/shared/embalagem';
 import { ROTULO_STATUS_COMPRA, ROTULO_EVENTO_COMPRA, ETAPAS_COMPRA } from '../../../../server/erp/compras/compra.machine';
 import { diaBr } from '../../../../server/erp/compras/prazo';
@@ -19,16 +21,23 @@ const SeloPrazo = ({ prazo }: { prazo: any }) => (prazo && prazo.codigo !== 'NA'
 const ACAO: Record<string, string> = { ...ROTULO_EVENTO_COMPRA, ENVIAR: 'Enviar para aprovação', CANCELAR: 'Cancelar', REABRIR: 'Reabrir', ATENDER: 'Marcar atendida' };
 const precisaMotivo = (a: string) => ['REPROVAR', 'CANCELAR', 'REPROVAR_QUALIDADE'].includes(a);
 
-export default function Compras() {
-  const [aba, setAba] = useState<'oqc' | 'sol' | 'cot' | 'ped' | 'avisos' | 'config'>('oqc');
-  const av = useApi<any>('/erp/compras/avisos', [aba]);
-  const naoLidos = av.data?.naoLidos ?? 0;
+/** Subcategorias de Compras (v1.37.0: cada uma com rota própria; o menu fica na barra lateral / chips no celular). */
+export type AbaCompras = 'oqc' | 'sol' | 'cot' | 'ped' | 'avisos' | 'config';
+const TELAS: Record<AbaCompras, { titulo: string; ajuda: string }> = {
+  oqc: { titulo: 'O que comprar', ajuda: 'Produtos zerados ou abaixo do mínimo, com a quantidade sugerida pelo histórico de saída, custo e fornecedor. Ajuste a quantidade e gere o pedido de compra (rascunho por fornecedor).' },
+  ped: { titulo: 'Ordens de compra', ajuda: 'Etapas: negociação → aprovação → emitida → entrega → NF → (qualidade) → conferência → estoque. O selo mostra se está no prazo, chega em breve ou atrasada.' },
+  sol: { titulo: 'Solicitações de compra', ajuda: 'Quem precisa de material pede aqui; o gestor aprova e a solicitação vira cotação ou ordem de compra. O MRP também cria solicitações.' },
+  cot: { titulo: 'Cotações', ajuda: 'Peça preço a vários fornecedores, compare no mapa e escolha o vencedor de cada item: os pedidos de compra são gerados ao encerrar.' },
+  avisos: { titulo: 'Avisos de compras', ajuda: 'Avisos de prazo e de etapas das ordens de compra. A rotina roda uma vez por dia e não repete o mesmo aviso no mesmo dia.' },
+  config: { titulo: 'Prazos e avisos', ajuda: 'Quando uma OC "chega em breve", se passa pela qualidade e quais avisos saem para a equipe e para o fornecedor (fornecedor: desligado por padrão).' },
+};
+
+export default function Compras({ aba = 'oqc' }: { aba?: AbaCompras }) {
+  const av = useApi<any>(aba === 'avisos' ? '/erp/compras/avisos' : null, [aba]);
+  const t = TELAS[aba];
   return (
     <div className="page">
-      <div className="page-head"><div><h1>Compras</h1><p className="muted">Solicitação → aprovação → cotação → ordem de compra → entrega → NF → (qualidade) → conferência → estoque.</p></div></div>
-      <div className="row" style={{ marginBottom: 10, flexWrap: 'wrap' }}>
-        {(['oqc', 'sol', 'cot', 'ped', 'avisos', 'config'] as const).map((a) => <button key={a} className={`btn sm ${aba === a ? 'primary' : ''}`} onClick={() => setAba(a)}>{{ oqc: 'O que comprar', ped: 'Ordens de compra', sol: 'Solicitações', cot: 'Cotações', avisos: '🔔 Avisos', config: '⚙️ Prazos e avisos' }[a]}{a === 'avisos' && naoLidos > 0 && <span className="badge red" style={{ marginLeft: 6 }}>{naoLidos}</span>}</button>)}
-      </div>
+      <Cabecalho titulo={t.titulo} ajuda={t.ajuda} />
       {aba === 'oqc' && <OQueComprar />}
       {aba === 'sol' && <Solicitacoes />}
       {aba === 'cot' && <Cotacoes />}
@@ -144,7 +153,9 @@ const FILTROS_OC: { id: string; nome: string; status?: string[] }[] = [
 function PedidosCompra() {
   const l = useApi<any[]>('/erp/compras/pedidos');
   const [novo, setNovo] = useState(false); const [aberto, setAberto] = useState<string | null>(null);
-  const [filtro, setFiltro] = useState('abertas');
+  const [sp] = useSearchParams();
+  // v1.37.0: atalhos do resumo abrem já filtrado (?filtro=atrasados|em_breve|aprovacao|recebimento…).
+  const [filtro, setFiltro] = useState(() => { const f = sp.get('filtro'); return f && FILTROS_OC.some((x) => x.id === f) ? f : 'abertas'; });
   const passa = (p: any, id: string) => {
     if (id === 'atrasados') return p.prazo?.codigo === 'ATRASADO';
     if (id === 'em_breve') return p.prazo?.codigo === 'EM_BREVE';
@@ -156,14 +167,14 @@ function PedidosCompra() {
       <button className="btn primary" style={{ marginBottom: 10 }} onClick={() => setNovo(true)}>+ Ordem de compra</button>
       <Async state={l}>{(d) => (
         <>
-          <div className="row" style={{ flexWrap: 'wrap', gap: 4, marginBottom: 8 }} role="tablist" aria-label="Filtrar ordens de compra">
+          <div className="filtro-chips" role="tablist" aria-label="Filtrar ordens de compra">
             {FILTROS_OC.map((f) => { const n = d.filter((p) => passa(p, f.id)).length; return <button key={f.id} role="tab" aria-selected={filtro === f.id} className={`btn sm ${filtro === f.id ? 'primary' : 'ghost'}`} onClick={() => setFiltro(f.id)}>{f.nome} <span className={`badge ${f.id === 'atrasados' && n ? 'red' : ''}`}>{n}</span></button>; })}
           </div>
           {d.length === 0 ? <div className="card"><Empty title="Nenhuma ordem de compra">Crie direto aqui ou gere pela cotação.</Empty></div> : (() => {
             const lista = d.filter((p) => passa(p, filtro));
             return lista.length === 0 ? <div className="card"><Empty title="Nada neste filtro" /></div> : (
-              <div className="card table-wrap"><table><thead><tr><th>Nº</th><th>Fornecedor</th><th>Total</th><th>Previsão</th><th>Prazo</th><th>Etapa</th><th></th></tr></thead>
-                <tbody>{lista.map((p) => <tr key={p.id}><td>{p.numero}</td><td>{p.parceiro?.fantasia || p.parceiro?.nome}</td><td>{brl(p.totalCents)}</td><td>{p.prazo?.previsaoDia ? diaBr(p.prazo.previsaoDia) : '—'}</td><td><SeloPrazo prazo={p.prazo} /></td><td><span className={`badge ${COR_STATUS_OC[p.status] ?? ''}`}>{STATUS_OC[p.status] ?? p.status}</span>{p.exigeQualidade && !['RECEBIDO', 'CANCELADO'].includes(p.status) && <span className="badge" style={{ marginLeft: 4 }} title="Passa pela liberação da qualidade">🔬</span>}</td><td><button className="btn sm" onClick={() => setAberto(p.id)}>Abrir</button></td></tr>)}</tbody></table></div>
+              <div className="card table-wrap"><table><thead><tr><th>Nº</th><th>Fornecedor</th><th className="col-sec">Total</th><th className="col-sec">Previsão</th><th>Prazo</th><th className="col-sec">Etapa</th><th></th></tr></thead>
+                <tbody>{lista.map((p) => <tr key={p.id}><td>{p.numero}</td><td>{p.parceiro?.fantasia || p.parceiro?.nome}</td><td className="col-sec">{brl(p.totalCents)}</td><td className="col-sec">{p.prazo?.previsaoDia ? diaBr(p.prazo.previsaoDia) : '—'}</td><td><SeloPrazo prazo={p.prazo} /></td><td className="col-sec"><span className={`badge ${COR_STATUS_OC[p.status] ?? ''}`}>{STATUS_OC[p.status] ?? p.status}</span>{p.exigeQualidade && !['RECEBIDO', 'CANCELADO'].includes(p.status) && <span className="badge" style={{ marginLeft: 4 }} title="Passa pela liberação da qualidade">🔬</span>}</td><td><button className="btn sm" onClick={() => setAberto(p.id)}>Abrir</button></td></tr>)}</tbody></table></div>
             );
           })()}
         </>
@@ -242,8 +253,8 @@ function PedidoCompra({ id, onClose }: { id: string; onClose: () => void }) {
           <table><thead><tr><th>Produto</th><th>Qtd</th><th>Recebido</th><th>Preço</th><th>Total</th></tr></thead>
             <tbody>{p.itens.map((i: any) => <tr key={i.id}><td className="small">{i.produto?.sku} · {i.descricao}{i.produto && temEmbalagem(i.produto) && <div className="muted">{linhaCompra(i.qtdMil, i.precoUnitCents, i.produto).texto}</div>}</td><td>{qtdComEmbalagem(i.qtdMil, i.produto ?? {})}</td><td>{qtd(i.recebidoMil)}</td><td>{brl(i.precoUnitCents)}</td><td>{brl(i.totalCents)}</td></tr>)}</tbody></table>
           {p.nfes.length > 0 && <p className="small">Notas: {p.nfes.map((n: any) => `${n.numero}/${n.serie} (${n.status === 'LANCADA' ? 'lançada' : 'pendente'})`).join(', ')}</p>}
-          {['ENVIADO', 'RECEBIDO_PARCIAL', 'AGUARDANDO_NF'].includes(p.status) && <p className="small muted">A NF pode ser registrada pela importação do XML em Estoque › NF-e (vinculando a esta OC) ou pelo botão "NF registrada".</p>}
-          {['EM_CONFERENCIA', 'LIBERADA_ESTOQUE'].includes(p.status) && p.nfes.some((n: any) => n.status === 'PENDENTE') && <p className="small muted">A entrada no estoque acontece ao lançar a NF-e em Estoque › NF-e.</p>}
+          {['ENVIADO', 'RECEBIDO_PARCIAL', 'AGUARDANDO_NF'].includes(p.status) && <p className="small muted">A NF pode ser registrada pela importação do XML em Estoque › Entrada por XML (vinculando a esta OC) ou pelo botão "NF registrada".</p>}
+          {['EM_CONFERENCIA', 'LIBERADA_ESTOQUE'].includes(p.status) && p.nfes.some((n: any) => n.status === 'PENDENTE') && <p className="small muted">A entrada no estoque acontece ao lançar a NF-e em Estoque › Entrada por XML.</p>}
           <div className="row" style={{ justifyContent: 'flex-end', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
             <button className="btn ghost" onClick={() => imprimir(p)}>Imprimir / PDF</button>
             {p.acoes.filter((a: string) => a !== 'APROVAR' || !p.precisaGestor || can('OWNER', 'ADMIN')).map((a: string) => <button key={a} className={`btn ${['APROVAR', 'ENVIAR', 'ENVIAR_FORNECEDOR', 'LIBERAR_QUALIDADE', 'CONCLUIR_CONFERENCIA'].includes(a) ? 'primary' : ''}`} disabled={busy} onClick={() => acao(a)}>{ACAO[a] ?? a}</button>)}
@@ -280,7 +291,7 @@ function Avisos({ onLidos }: { onLidos: () => void }) {
   return (
     <Async state={l}>{(d) => (
       <>
-        <div className="row between" style={{ marginBottom: 8 }}><p className="small muted">Avisos de prazo e de etapas das ordens de compra. A rotina roda uma vez por dia (a partir da hora do alerta do ERP) e não repete o mesmo aviso no mesmo dia.</p>
+        <div className="row" style={{ marginBottom: 8, justifyContent: 'flex-end' }}>
           {d.naoLidos > 0 && <button className="btn sm" disabled={busy} onClick={async () => { if (await run(() => post('/erp/compras/avisos/lidos', {}), 'Marcados como lidos')) { l.reload(); onLidos(); } }}>Marcar todos como lidos</button>}</div>
         {d.avisos.length === 0 ? <div className="card"><Empty title="Nenhum aviso">Quando uma OC atrasar, estiver para chegar, aguardar aprovação ou tiver NF/estoque liberado, o aviso aparece aqui.</Empty></div> : (
           <div className="card table-wrap"><table><thead><tr><th>Quando</th><th>Aviso</th><th>Para</th><th>Envio</th></tr></thead>
@@ -306,7 +317,7 @@ function ConfigAvisos() {
           <Field label="'Chega em breve' quando faltam até (dias)"><input value={v.compraEmBreveDias} inputMode="numeric" disabled={!gestor} onChange={(e) => set('compraEmBreveDias', Number(e.target.value.replace(/\D/g, '')) || 0)} /></Field>
           <label className="row small"><input type="checkbox" checked={v.compraQualidadePadrao} disabled={!gestor} onChange={(e) => set('compraQualidadePadrao', e.target.checked)} /> Toda ordem de compra nova passa pela liberação da qualidade (também dá para ligar por produto ou por OC)</label>
           <h3 style={{ marginTop: 12 }}>Avisos para a equipe</h3>
-          <p className="small muted">Sempre aparecem em Compras › 🔔 Avisos. {c.alertaAtivo ? 'O alerta diário do ERP está ligado: dá para receber também no WhatsApp dos números de alerta.' : 'Para receber também no WhatsApp, ligue o alerta diário em ERP › Alertas e cadastre os números.'}</p>
+          <p className="small muted">Sempre aparecem em Compras › Avisos. {c.alertaAtivo ? 'O alerta diário do ERP está ligado: dá para receber também no WhatsApp dos números de alerta.' : 'Para receber também no WhatsApp, ligue o alerta diário em Configurações › Alertas por WhatsApp e cadastre os números.'}</p>
           <label className="row small"><input type="checkbox" checked={v.compraAvisoEquipeWhats} disabled={!gestor} onChange={(e) => set('compraAvisoEquipeWhats', e.target.checked)} /> Enviar os avisos de compras também no WhatsApp dos números de alerta do ERP</label>
           <h3 style={{ marginTop: 12 }}>Avisos para o fornecedor</h3>
           <label className="row small"><input type="checkbox" checked={v.compraAvisoFornecedor} disabled={!gestor} onChange={(e) => set('compraAvisoFornecedor', e.target.checked)} /> Mandar lembrete antes da data prevista e cobrança quando atrasar (só OC emitida)</label>

@@ -3,33 +3,33 @@ import { ERP_ITENS, abaAtiva, grupoAtivo, subitensDe } from '../../web/src/erp/E
 import { secaoDaRota, modulosVisiveis, type Acesso } from '../../web/src/modulos';
 
 // Pedido do dono (20/11 17:01, v1.35.0): "Localizar pedido deve ficar dentro da categoria Pedidos" e
-// "o leitor deve ser uma subcategoria de Venda no balcão".
-describe('ERP · menu com subitens (Pedidos › Localizar, Venda balcão › Ler código)', () => {
-  it('Localizar pedido é subitem de Pedidos e Ler código é subitem de Venda balcão', () => {
+// "o leitor deve ser uma subcategoria de Venda no balcão". v1.37.0 (menu em áreas): as duas telas ficam na
+// área Vendas, junto de Pedidos e Venda balcão, e continuam fora do primeiro nível do menu.
+describe('ERP · Localizar pedido e Ler código dentro de Vendas', () => {
+  it('Localizar pedido e Ler código são subcategorias de Vendas', () => {
     const loc = ERP_ITENS.find((i) => i.label === 'Localizar pedido')!;
     expect(loc.to).toBe('/erp/pedidos/localizar');
-    expect(loc.pai).toBe('/erp/pedidos');
+    expect(loc.pai).toBe('/erp/vendas');
     const ler = ERP_ITENS.find((i) => /Ler código/.test(i.label))!;
     expect(ler.to).toBe('/erp/balcao/ler');
-    expect(ler.pai).toBe('/erp/balcao');
+    expect(ler.pai).toBe('/erp/vendas');
     expect(ler.module).toBe('erp_vendas');
-    expect(subitensDe('/erp/pedidos').map((i) => i.to)).toEqual(['/erp/pedidos/localizar']);
-    expect(subitensDe('/erp/balcao').map((i) => i.to)).toEqual(['/erp/balcao/ler']);
-    // nenhum item solto no topo para essas duas telas
-    expect(ERP_ITENS.filter((i) => !i.pai).some((i) => /Localizar|Ler código/.test(i.label))).toBe(false);
+    const vendas = subitensDe('/erp/vendas').map((i) => i.to);
+    expect(vendas).toEqual(expect.arrayContaining(['/erp/balcao', '/erp/pedidos', '/erp/pedidos/localizar', '/erp/balcao/ler']));
+    // nenhum item solto no primeiro nível para essas telas
+    expect(ERP_ITENS.filter((i) => !i.pai).some((i) => /Localizar|Ler código|Pedidos/.test(i.label))).toBe(false);
   });
 
-  it('aba e grupo ativos', () => {
+  it('aba e área ativas', () => {
     expect(abaAtiva('/erp/pedidos/localizar')).toBe('/erp/pedidos/localizar');
-    expect(grupoAtivo('/erp/pedidos/localizar')).toBe('/erp/pedidos');
+    expect(grupoAtivo('/erp/pedidos/localizar')).toBe('/erp/vendas');
     expect(abaAtiva('/erp/pedidos/9')).toBe('/erp/pedidos');
-    expect(grupoAtivo('/erp/pedidos/9')).toBe('/erp/pedidos');
+    expect(grupoAtivo('/erp/pedidos/9')).toBe('/erp/vendas');
     expect(abaAtiva('/erp/balcao/ler')).toBe('/erp/balcao/ler');
-    expect(grupoAtivo('/erp/balcao/ler')).toBe('/erp/balcao');
-    expect(grupoAtivo('/erp/balcao')).toBe('/erp/balcao');
-    expect(secaoDaRota('/erp/pedidos/localizar')).toBe('Localizar pedido');
-    expect(secaoDaRota('/erp/balcao/ler')).toBe('📷 Ler código');
-    expect(secaoDaRota('/erp/balcao')).toBe('Venda balcão (PDV)');
+    expect(grupoAtivo('/erp/balcao/ler')).toBe('/erp/vendas');
+    expect(grupoAtivo('/erp/balcao')).toBe('/erp/vendas');
+    expect(secaoDaRota('/erp/pedidos/localizar')).toBe('Vendas › Localizar pedido');
+    expect(secaoDaRota('/erp/balcao/ler')).toBe('Vendas › Ler código');
   });
 
   it('Ler código segue a permissão de vendas; Localizar a do ERP', () => {

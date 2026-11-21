@@ -3,7 +3,7 @@ import { Routes, Route, Navigate, NavLink, useLocation, useNavigate } from 'reac
 import { useAuth } from './auth';
 import { get } from './api';
 import { Loading, useApi } from './ui';
-import { MODULOS, acaoDaRota, gruposComunsVisiveis, moduloDaRota, modulosVisiveis, rotaAtiva, secaoDaRota, type Modulo, type ModuloId, type NavItem } from './modulos';
+import { MODULOS, acaoDaRota, gruposComunsVisiveis, itensDoMenu, moduloDaRota, modulosVisiveis, rotaAtiva, secaoDaRota, type Modulo, type ModuloId, type NavItem } from './modulos';
 import { AcaoDoTopo, MenuConta, ModuloTitulo } from './Topo';
 import { Login, Register, AcceptInvite, NoOrg, Forgot, Reset, Verify, Completar } from './pages/Auth';
 import { InstallButton } from './pwa';
@@ -39,11 +39,12 @@ import ErpPedido from './erp/vendas/Pedido';
 import ErpLocalizar from './erp/vendas/Localizar';
 import ErpLerCodigo from './erp/leitura/LerCodigo';
 
-/** /erp/localizar (antigo) → /erp/pedidos/localizar, mantendo ?q= (QR lidos antes da 1.35.0). */
-function RedirecionaLocalizar() {
+/** Rotas antigas do ERP → novas (ROTAS_ANTIGAS), mantendo ?q= etc. Ex.: /erp/localizar (QR lidos antes da 1.35.0). */
+function RedirecionaErp() {
   const loc = useLocation();
-  return <Navigate to={`/erp/pedidos/localizar${loc.search}`} replace />;
+  return <Navigate to={`${ROTAS_ANTIGAS[loc.pathname.replace(/\/$/, '')] ?? '/erp'}${loc.search}`} replace />;
 }
+import { InicioErp as ErpInicio, VendasResumo as ErpVendasResumo, ComprasResumo as ErpComprasResumo, EstoqueResumo as ErpEstoqueResumo, ProducaoResumo as ErpProducaoResumo, FinanceiroResumo as ErpFinanceiroResumo, FiscalResumo as ErpFiscalResumo, ConfigResumo as ErpConfigResumo } from './erp/inicio/Resumos';
 import ErpCompras from './erp/compras/Compras';
 import ErpProducao from './erp/producao/Producao';
 import ErpFinanceiro from './erp/financeiro/Financeiro';
@@ -52,7 +53,7 @@ import ErpMaquininhas from './erp/vendas/Maquininhas';
 import ErpBi from './erp/bi/Bi';
 import Sdr from './pages/Sdr';
 import ErpAlertas from './erp/alertas/Alertas';
-import { ErpAbas } from './erp/ErpNav';
+import { ErpAbas, abaAtiva, grupoAtivo, ROTAS_ANTIGAS } from './erp/ErpNav';
 import ErpGate from './erp/ErpGate';
 import Tutorials from './Tutorials';
 import SubscriptionGate from './SubscriptionGate';
@@ -77,14 +78,19 @@ function SideNav({ atual, modulos }: { atual: Modulo; modulos: Modulo[] }) {
       {n.sub && <div className="sep">{n.sub}</div>}
       {n.href
         ? <a href={n.href}><span aria-hidden>{n.icon}</span>{n.label}</a>
-        : <NavLink to={n.to} end={n.end || n.to === '/'} className={({ isActive }) => [isActive ? 'active' : '', n.pai ? 'nav-sub' : ''].filter(Boolean).join(' ')}>{n.icon && <span aria-hidden>{n.icon}</span>}{n.label}</NavLink>}
+        : <NavLink to={n.to} end={n.end || n.to === '/'} className={({ isActive }) => [(erp ? erpAtivo(n) : isActive) ? 'active' : '', erp && !n.pai && grupoErp === n.to ? 'area-aberta' : '', n.pai ? 'nav-sub' : ''].filter(Boolean).join(' ')} aria-current={erp && erpAtivo(n) ? 'page' : undefined}>{n.icon && <span aria-hidden>{n.icon}</span>}{n.label}</NavLink>}
     </div>
   );
+  // v1.37.0: no ERP, áreas + subcategorias só da área aberta; o item ativo é a tela exata (a área fica destacada).
+  const erp = atual.id === 'erp';
+  const grupoErp = erp ? grupoAtivo(loc.pathname) : null;
+  const abaErp = erp ? abaAtiva(loc.pathname) : null;
+  const erpAtivo = (n: NavItem) => (n.pai ? abaErp === n.to : abaErp === n.to && !!abaErp);
   const outros = modulos.filter((m) => m.id !== atual.id);
   return (
     <nav className="nav" aria-label={`Menu do ${atual.label}`}>
       <div className="nav-group current">
-        <div className="nav-items nav-modulo">{atual.items.map(link)}</div>
+        <div className={`nav-items nav-modulo${erp ? ' nav-erp' : ''}`}>{itensDoMenu(atual, loc.pathname).map(link)}</div>
       </div>
       {grupos.map((g) => {
         const aberto = abertos.includes(g.id);
@@ -318,34 +324,62 @@ export default function App() {
             <Route path="/canais" element={<Channels />} />
             <Route path="/integracoes" element={<Integrations />} />
             <Route path="/sdr" element={<Sdr />} />
-            <Route path="/erp" element={<ErpPainel />} />
-            <Route path="/erp/funil" element={<ErpFunil />} />
+            {/* MCK ERP v1.37.0: áreas (tela-resumo) → subcategorias. Rotas antigas continuam (mesmo endereço ou redirecionamento). */}
+            <Route path="/erp" element={<ErpInicio />} />
+            <Route path="/erp/bi" element={<ErpBi />} />
+            <Route path="/erp/relatorios" element={<RelatoriosErp />} />
+            <Route path="/erp/vendas" element={<ErpVendasResumo />} />
+            <Route path="/erp/balcao" element={<ErpPedidos key="balcao" balcao />} />
+            <Route path="/erp/balcao/ler" element={<ErpLerCodigo />} />
+            <Route path="/erp/pedidos" element={<ErpPedidos key="pedidos" />} />
+            <Route path="/erp/pedidos/localizar" element={<ErpLocalizar />} />
+            <Route path="/erp/pedidos/:id" element={<ErpPedido />} />
+            <Route path="/erp/caixa/:id" element={<ErpRelatorioCaixa />} />
             <Route path="/erp/clientes" element={<ErpClientes key="c" />} />
             <Route path="/erp/clientes/:id" element={<ErpCliente360 />} />
+            <Route path="/erp/funil" element={<ErpFunil />} />
+            <Route path="/erp/crm" element={<ErpPainel />} />
+            <Route path="/erp/compras" element={<ErpComprasResumo />} />
+            <Route path="/erp/compras/o-que-comprar" element={<ErpCompras key="oqc" aba="oqc" />} />
+            <Route path="/erp/compras/ordens" element={<ErpCompras key="ped" aba="ped" />} />
+            <Route path="/erp/compras/solicitacoes" element={<ErpCompras key="sol" aba="sol" />} />
+            <Route path="/erp/compras/cotacoes" element={<ErpCompras key="cot" aba="cot" />} />
+            <Route path="/erp/compras/avisos" element={<ErpCompras key="avisos" aba="avisos" />} />
+            <Route path="/erp/compras/configuracoes" element={<ErpCompras key="config" aba="config" />} />
             <Route path="/erp/fornecedores" element={<ErpClientes key="f" papel="fornecedor" />} />
             <Route path="/erp/fornecedores/:id" element={<ErpCliente360 />} />
-            <Route path="/erp/alertas" element={<ErpAlertas />} />
+            <Route path="/erp/estoque" element={<ErpEstoqueResumo />} />
             <Route path="/erp/produtos" element={<ErpProdutos />} />
-            <Route path="/erp/estoque" element={<ErpEstoque />} />
+            <Route path="/erp/estoque/saldos" element={<ErpEstoque key="saldos" aba="saldos" />} />
+            <Route path="/erp/estoque/lotes" element={<ErpEstoque key="lotes" aba="lotes" />} />
             <Route path="/erp/rastreio" element={<ErpRastreio />} />
-            <Route path="/erp/pedidos" element={<ErpPedidos key="pedidos" />} />
-            <Route path="/erp/balcao" element={<ErpPedidos key="balcao" balcao />} />
-            <Route path="/erp/pedidos/:id" element={<ErpPedido />} />
-            <Route path="/erp/pedidos/localizar" element={<ErpLocalizar />} />
-            {/* v1.35.0: Localizar pedido ficou dentro de Pedidos; links antigos continuam funcionando. */}
-            <Route path="/erp/localizar" element={<RedirecionaLocalizar />} />
-            <Route path="/erp/balcao/ler" element={<ErpLerCodigo />} />
-            <Route path="/erp/caixa/:id" element={<ErpRelatorioCaixa />} />
-            <Route path="/erp/compras" element={<ErpCompras />} />
-            <Route path="/erp/producao" element={<ErpProducao />} />
-            <Route path="/erp/financeiro" element={<ErpFinanceiro />} />
-            <Route path="/erp/fiscal" element={<ErpFiscal />} />
+            <Route path="/erp/estoque/entrada-xml" element={<ErpEstoque key="xml" aba="xml" />} />
+            <Route path="/erp/estoque/etiquetas" element={<ErpEstoque key="etiquetas" aba="etiquetas" />} />
+            <Route path="/erp/estoque/inventario" element={<ErpEstoque key="inventarios" aba="inventarios" />} />
+            <Route path="/erp/estoque/movimentacoes" element={<ErpEstoque key="movimentos" aba="movimentos" />} />
+            <Route path="/erp/estoque/depositos" element={<ErpEstoque key="depositos" aba="depositos" />} />
+            <Route path="/erp/producao" element={<ErpProducaoResumo />} />
+            <Route path="/erp/producao/ordens" element={<ErpProducao key="ops" aba="ops" />} />
+            <Route path="/erp/producao/estruturas" element={<ErpProducao key="estr" aba="estr" />} />
+            <Route path="/erp/producao/mrp" element={<ErpProducao key="mrp" aba="mrp" />} />
+            <Route path="/erp/financeiro" element={<ErpFinanceiroResumo />} />
+            <Route path="/erp/financeiro/receber" element={<ErpFinanceiro key="RECEBER" aba="RECEBER" />} />
+            <Route path="/erp/financeiro/pagar" element={<ErpFinanceiro key="PAGAR" aba="PAGAR" />} />
+            <Route path="/erp/financeiro/fluxo" element={<ErpFinanceiro key="painel" aba="painel" />} />
+            <Route path="/erp/financeiro/contas" element={<ErpFinanceiro key="contas" aba="contas" />} />
+            <Route path="/erp/financeiro/dre" element={<ErpFinanceiro key="dre" aba="dre" />} />
+            <Route path="/erp/fiscal" element={<ErpFiscalResumo />} />
+            <Route path="/erp/fiscal/notas" element={<ErpFiscal key="nfe" aba="nfe" />} />
+            <Route path="/erp/fiscal/emitente" element={<ErpFiscal key="cfg" aba="cfg" />} />
+            <Route path="/erp/fiscal/regras" element={<ErpFiscal key="regras" aba="regras" />} />
+            <Route path="/erp/configuracoes" element={<ErpConfigResumo />} />
+            <Route path="/erp/alertas" element={<ErpAlertas />} />
             <Route path="/erp/maquininhas" element={<ErpMaquininhas />} />
-            <Route path="/erp/bi" element={<ErpBi />} />
+            <Route path="/erp/funcionarios" element={<Team erp />} />
+            {Object.keys(ROTAS_ANTIGAS).map((de) => <Route key={de} path={de} element={<RedirecionaErp />} />)}
+            <Route path="/erp/*" element={<Navigate to="/erp" replace />} />
             <Route path="/relatorios" element={<Reports />} />
             <Route path="/equipe" element={<Team />} />
-            <Route path="/erp/funcionarios" element={<Team erp />} />
-            <Route path="/erp/relatorios" element={<RelatoriosErp />} />
             <Route path="/plano" element={<Plan />} />
             <Route path="/assinatura" element={<Navigate to="/plano" replace />} />
             <Route path="/master" element={<Master />} />

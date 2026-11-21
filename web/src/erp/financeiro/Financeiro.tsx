@@ -5,20 +5,29 @@ import { useAuth } from '../../auth';
 import { useApi, Async, Empty, Modal, Field, useAction, useToast } from '../../ui';
 import { brl, toCents, fromCents } from '../format';
 import NovoTitulo, { NATUREZA } from './NovoTitulo';
+import { useSearchParams } from 'react-router-dom';
+import { Cabecalho, MenuMais } from '../pagina';
 import Categorias from './Categorias';
 
 const ST: Record<string, string> = { EM_ABERTO: 'Em aberto', PARCIAL: 'Parcial', PAGO: 'Pago', CANCELADO: 'Cancelado' };
 const dt = (d?: string | null) => (d ? new Date(d).toLocaleDateString('pt-BR', { timeZone: 'UTC' }) : '—');
 const hojeIso = () => new Date().toISOString().slice(0, 10);
 
-export default function Financeiro() {
-  const [aba, setAba] = useState<'painel' | 'RECEBER' | 'PAGAR' | 'contas' | 'dre'>('painel');
+/** Subcategorias do Financeiro com rota própria (v1.37.0). O painel antigo virou "Fluxo de caixa". */
+export type AbaFinanceiro = 'painel' | 'RECEBER' | 'PAGAR' | 'contas' | 'dre';
+const TELAS: Record<AbaFinanceiro, { titulo: string; ajuda: string }> = {
+  painel: { titulo: 'Fluxo de caixa', ajuda: 'Saldo das contas, atrasos por faixa e o fluxo projetado: saldo atual + a receber − a pagar (o que venceu entra hoje).' },
+  RECEBER: { titulo: 'Contas a receber', ajuda: 'O faturamento gera as contas a receber. Dê baixa (total ou parcial, com juros), gere Pix copia-e-cola ou estorne.' },
+  PAGAR: { titulo: 'Contas a pagar', ajuda: 'A NF-e de entrada gera as contas a pagar dos fornecedores; contas da empresa (água, luz, internet…) entram aqui também, com parcelas automáticas.' },
+  contas: { titulo: 'Contas e conciliação', ajuda: 'Contas bancárias e caixa. Importe o extrato OFX do internet banking e concilie com os lançamentos.' },
+  dre: { titulo: 'DRE', ajuda: 'DRE gerencial pelo plano de contas. Lançamentos sem categoria entram como receita bruta (recebimentos) ou despesa operacional (pagamentos).' },
+};
+
+export default function Financeiro({ aba = 'painel' }: { aba?: AbaFinanceiro }) {
+  const t = TELAS[aba];
   return (
     <div className="page">
-      <div className="page-head"><div><h1>Financeiro</h1><p className="muted">Faturamento gera contas a receber; NF-e de entrada gera contas a pagar. Baixa, Pix, conciliação e DRE.</p></div></div>
-      <div className="row" style={{ marginBottom: 10, flexWrap: 'wrap' }}>
-        {([['painel', 'Painel'], ['RECEBER', 'A receber'], ['PAGAR', 'A pagar'], ['contas', 'Contas e conciliação'], ['dre', 'DRE']] as const).map(([a, l]) => <button key={a} className={`btn sm ${aba === a ? 'primary' : ''}`} onClick={() => setAba(a)}>{l}</button>)}
-      </div>
+      <Cabecalho titulo={t.titulo} ajuda={t.ajuda} />
       {aba === 'painel' && <Painel />}
       {(aba === 'RECEBER' || aba === 'PAGAR') && <Titulos key={aba} tipo={aba} />}
       {aba === 'contas' && <Contas />}
@@ -34,7 +43,7 @@ function Painel() {
     <Async state={st}>{(d) => (
       <>
         <div className="grid g2">
-          <div className="card"><span className="muted small">Saldo em contas</span><h2>{brl(d.saldoCents)}</h2><div className="small">{d.contas.map((c: any) => `${c.nome}: ${brl(c.saldoCents)}`).join(' · ') || 'Cadastre uma conta em "Contas e conciliação"'}</div></div>
+          <div className="card"><span className="muted small">Saldo em contas</span><h2>{brl(d.saldoCents)}</h2><div className="small">{d.contas.map((c: any) => `${c.nome}: ${brl(c.saldoCents)}`).join(' · ') || 'Cadastre uma conta em Financeiro › Contas e conciliação'}</div></div>
           <div className="card"><span className="muted small">Menor saldo projetado (30 dias)</span><h2>{brl(Math.min(...d.fluxo.map((f: any) => f.saldoCents)))}</h2></div>
           <Faixas t="A receber por atraso" a={d.receber} />
           <Faixas t="A pagar por atraso" a={d.pagar} />
@@ -50,18 +59,19 @@ function Titulos({ tipo }: { tipo: 'RECEBER' | 'PAGAR' }) {
   const [filtro, setFiltro] = useState('ABERTOS');
   const [nat, setNat] = useState(''); // a pagar: '' todas | FORNECEDOR | CONTAS (água, luz, internet...)
   const l = useApi<any[]>(`/erp/financeiro/titulos?tipo=${tipo}&status=${filtro === 'TODOS' ? '' : filtro}${tipo === 'PAGAR' && nat ? `&natureza=${nat}` : ''}`, [filtro, nat]);
-  const [novo, setNovo] = useState(false); const [baixar, setBaixar] = useState<string | null>(null); const [cats, setCats] = useState(false);
+  const [sp] = useSearchParams();
+  const [novo, setNovo] = useState(sp.get('nova') === '1'); const [baixar, setBaixar] = useState<string | null>(null); const [cats, setCats] = useState(false);
   return (
     <>
       <div className="row" style={{ marginBottom: 10, gap: 6 }}>
         <button className="btn primary" onClick={() => setNovo(true)}>+ {tipo === 'RECEBER' ? 'Conta a receber' : 'Conta a pagar'}</button>
         <select value={filtro} onChange={(e) => setFiltro(e.target.value)} aria-label="Filtro"><option value="ABERTOS">Em aberto</option><option value="PAGO">Pagos</option><option value="CANCELADO">Cancelados</option><option value="TODOS">Todos</option></select>
-        <button className="btn" onClick={() => setCats(true)}>Categorias</button>
         {tipo === 'PAGAR' && ([['', 'Todas'], ['FORNECEDOR', 'Fornecedores'], ['CONTAS', 'Contas da empresa']] as const).map(([v, r]) => <button key={v} className={`btn sm ${nat === v ? 'primary' : ''}`} onClick={() => setNat(v)}>{r}</button>)}
+        <span style={{ marginLeft: 'auto' }}><MenuMais acoes={[{ label: 'Categorias e tipos de conta', onClick: () => setCats(true) }]} /></span>
       </div>
       <Async state={l}>{(d) => d.length === 0 ? <div className="card"><Empty title="Nada por aqui">{tipo === 'RECEBER' ? 'Pedidos faturados entram aqui sozinhos.' : 'NF-e de entrada lançadas entram aqui sozinhas.'}</Empty></div> : (
-        <div className="card table-wrap"><table><thead><tr><th>Vencimento</th><th>{tipo === 'RECEBER' ? 'Cliente' : 'Fornecedor / conta'}</th><th>Descrição</th><th>Valor</th><th>Saldo</th><th>Status</th><th></th></tr></thead>
-          <tbody>{d.map((t) => <tr key={t.id}><td style={{ color: t.vencido ? '#dc2626' : undefined }}>{dt(t.vencimento)}</td><td>{t.natureza && t.natureza !== 'FORNECEDOR' ? <span className="badge">{t.tipoConta ?? NATUREZA[t.natureza] ?? 'Conta'}</span> : t.parceiro ?? '—'}</td><td className="small">{t.descricao}</td><td>{brl(t.valorCents)}</td><td>{brl(t.saldoCents)}</td><td>{ST[t.status]}</td><td><button className="btn sm" onClick={() => setBaixar(t.id)}>Abrir</button></td></tr>)}</tbody></table>
+        <div className="card table-wrap"><table><thead><tr><th>Vencimento</th><th>{tipo === 'RECEBER' ? 'Cliente' : 'Fornecedor / conta'}</th><th className="col-sec">Descrição</th><th className="col-sec">Valor</th><th>Saldo</th><th className="col-sec">Status</th><th></th></tr></thead>
+          <tbody>{d.map((t) => <tr key={t.id}><td style={{ color: t.vencido ? '#dc2626' : undefined }}>{dt(t.vencimento)}</td><td>{t.natureza && t.natureza !== 'FORNECEDOR' ? <span className="badge">{t.tipoConta ?? NATUREZA[t.natureza] ?? 'Conta'}</span> : t.parceiro ?? '—'}</td><td className="small col-sec">{t.descricao}</td><td className="col-sec">{brl(t.valorCents)}</td><td>{brl(t.saldoCents)}</td><td className="col-sec">{ST[t.status]}</td><td><button className="btn sm" onClick={() => setBaixar(t.id)}>Abrir</button></td></tr>)}</tbody></table>
           <p className="small">Total em aberto: <b>{brl(d.reduce((a, t) => a + t.saldoCents, 0))}</b></p></div>
       )}</Async>
       {novo && <NovoTitulo tipo={tipo} onClose={() => setNovo(false)} onDone={() => { setNovo(false); l.reload(); }} />}
@@ -179,7 +189,7 @@ function Dre() {
         <input type="date" value={p.ate} onChange={(e) => setP({ ...p, ate: e.target.value })} aria-label="Até" />
         <select value={p.regime} onChange={(e) => setP({ ...p, regime: e.target.value })} aria-label="Regime"><option value="competencia">Competência</option><option value="caixa">Caixa</option></select>
       </div>
-      <Async state={st}>{(d) => <div className="card"><table><tbody>{linhas.map(([k, l, tot]) => <tr key={k} style={{ fontWeight: tot ? 700 : 400 }}><td>{l}</td><td style={{ textAlign: 'right', color: d[k] < 0 ? '#dc2626' : undefined }}>{brl(d[k])}</td></tr>)}</tbody></table><p className="small muted">DRE gerencial pelo plano de contas. Lançamentos sem categoria entram como receita bruta (recebimentos) ou despesa operacional (pagamentos).</p></div>}</Async>
+      <Async state={st}>{(d) => <div className="card"><table><tbody>{linhas.map(([k, l, tot]) => <tr key={k} style={{ fontWeight: tot ? 700 : 400 }}><td>{l}</td><td style={{ textAlign: 'right', color: d[k] < 0 ? '#dc2626' : undefined }}>{brl(d[k])}</td></tr>)}</tbody></table></div>}</Async>
     </>
   );
 }

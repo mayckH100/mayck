@@ -4,6 +4,7 @@ import { post } from '../../api';
 import { useApi, Async, useAction } from '../../ui';
 import { useAuth } from '../../auth';
 import { brl } from '../format';
+import { Ajuda } from '../pagina';
 
 const hoje = () => new Date().toLocaleDateString('sv-SE', { timeZone: 'America/Sao_Paulo' });
 
@@ -14,8 +15,8 @@ export default function RelatoriosErp() {
   const { busy, run } = useAction();
   return (
     <>
-      <div className="page-head">
-        <div><h1>Relatórios</h1><p className="muted">Resumo do dia. Todo dia às 22h ele vai sozinho para o proprietário por WhatsApp e e-mail.</p></div>
+      <div className="page-head erp-cab">
+        <div className="erp-titulo"><h1>Relatório do dia</h1><Ajuda>Resumo do dia. Todo dia às 22h ele vai sozinho para o proprietário por WhatsApp e e-mail.</Ajuda></div>
         <div className="row" style={{ gap: 6 }}>
           <input type="date" value={dia} max={hoje()} onChange={(e) => e.target.value && setDia(e.target.value)} aria-label="Dia" />
           <a className="btn" href={`/api/erp/relatorios/dia.csv?data=${dia}`} download>Baixar (planilha)</a>

@@ -25,8 +25,8 @@ test('O que comprar: lista, quantidade sugerida, embalagem e pedido de compra', 
   const s = await db.erpSaldo.findFirstOrThrow({ where: { produtoId: paraf.id } });
   await db.erpMovimento.create({ data: { orgId: paraf.orgId, produtoId: paraf.id, loteId: s.loteId, enderecoId: s.enderecoId, tipo: 'SAIDA', qtdMil: -60_000, saldoAposMil: 5_000, docTipo: 'pedido_venda', createdAt: new Date(Date.now() - 5 * 86_400_000) } });
 
-  await page.goto('/erp/compras');
-  await expect(page.getByRole('button', { name: 'O que comprar' })).toBeVisible();
+  await page.goto('/erp/compras/o-que-comprar'); // v1.37.0: subcategoria com rota própria
+  await expect(page.getByRole('heading', { level: 1, name: 'O que comprar' })).toBeVisible();
   await expect(page.getByText('Ferragens Silva').first()).toBeVisible();
   await expect(page.getByText('vende ~2 peças por dia, dura 2 dias, compra para 30 dias, arredondado para embalagem inteira')).toBeVisible();
   await expect(page.getByLabel('Quantidade de Parafuso 6 mm')).toHaveValue('6');
