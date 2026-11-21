@@ -5,6 +5,7 @@ import { get, post, put, del } from '../../api';
 import { useAuth } from '../../auth';
 import { useApi, Async, Field, useAction, useToast, copy } from '../../ui';
 import { Ajuda } from '../pagina';
+import { Voltar } from '../Voltar';
 
 export default function Maquininhas() {
   const st = useApi<any>('/erp/vendas/maquininhas/config');
@@ -18,7 +19,7 @@ export default function Maquininhas() {
 
   return (
     <div className="page">
-      <div className="page-head erp-cab"><div className="erp-titulo"><h1>Maquininhas</h1><Ajuda>Envie a cobrança do cartão direto do PDV para a maquininha. A venda só é registrada quando o pagamento é aprovado.</Ajuda></div></div>
+      <div className="page-head erp-cab"><div className="erp-titulo"><Voltar /><h1>Maquininhas</h1><Ajuda>Envie a cobrança do cartão direto do PDV para a maquininha. A venda só é registrada quando o pagamento é aprovado.</Ajuda></div></div>
       <Async state={st}>{(d) => {
         const cfg = d.config;
         const atual = prov ?? cfg?.provedor ?? 'mercadopago_point';

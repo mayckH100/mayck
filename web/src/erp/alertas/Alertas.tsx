@@ -7,6 +7,7 @@ import { get, post, put } from '../../api';
 import { useApi, Async, Field, useAction } from '../../ui';
 import { brl } from '../format';
 import { Ajuda } from '../pagina';
+import { Voltar } from '../Voltar';
 
 const SITUACAO: Record<string, string> = {
   PENDENTE: 'Aguardando resposta', PROCESSANDO: 'Gerando pedido', AGUARDANDO_FORNECEDOR: 'Perguntando o fornecedor', CONCLUIDA: 'Aprovada',
@@ -17,7 +18,7 @@ export default function Alertas() {
   const st = useApi<any>('/erp/alertas');
   return (
     <>
-      <div className="page-head erp-cab"><div className="erp-titulo"><h1>Alertas por WhatsApp</h1><Ajuda>Um resumo por dia no seu WhatsApp, com seções numeradas e ações sugeridas: contas vencendo, estoque baixo (com sugestão de compra), validade, produtos parados, caixa e alterações de ontem.</Ajuda></div></div>
+      <div className="page-head erp-cab"><div className="erp-titulo"><Voltar /><h1>Alertas por WhatsApp</h1><Ajuda>Um resumo por dia no seu WhatsApp, com seções numeradas e ações sugeridas: contas vencendo, estoque baixo (com sugestão de compra), validade, produtos parados, caixa e alterações de ontem.</Ajuda></div></div>
       <Async state={st}>{(c) => <Form inicial={c} onSaved={st.reload} />}</Async>
       <Aprovacoes />
     </>

@@ -9,6 +9,7 @@ import { get } from '../../api';
 import { Modal } from '../../ui';
 import { CampoLeitura } from './Leitor';
 import { Ajuda } from '../pagina';
+import { Voltar } from '../Voltar';
 
 const AJUDA = 'Leia o código do pedido, recibo ou romaneio, a etiqueta do lote, o código de barras do produto ou a chave da nota (DANFE). Também pode digitar.';
 
@@ -41,7 +42,7 @@ export function AtalhoLerCodigo() {
 export default function LerCodigoPagina() {
   const abrir = useAbrirLeitura();
   return <>
-    <div className="page-head erp-cab"><div className="erp-titulo"><h1>📷 Ler código</h1><Ajuda>{AJUDA} Dica: a tecla <b>F2</b> abre o leitor em qualquer tela do ERP.</Ajuda></div></div>
+    <div className="page-head erp-cab"><div className="erp-titulo"><Voltar /><h1>📷 Ler código</h1><Ajuda>{AJUDA} Dica: a tecla <b>F2</b> abre o leitor em qualquer tela do ERP.</Ajuda></div></div>
     <div className="card" data-testid="ler-codigo"><CampoLeitura continuo={false} onCodigo={abrir} /></div>
   </>;
 }

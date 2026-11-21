@@ -9,6 +9,7 @@ import { useEffect, useRef } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import { useAuth, type Role } from '../auth';
 import { AtalhoLerCodigo } from './leitura/LerCodigo';
+import { useRastroErp } from './Voltar';
 
 /** Item do menu do ERP. `pai` = subcategoria da área com essa rota inicial. `area` = permissão de área do ERP. */
 export type ErpItem = { to: string; label: string; end?: boolean; module?: string; pai?: string; icon?: string; roles?: Role[]; area?: ErpAreaPerm; ajuda?: string };
@@ -36,7 +37,7 @@ export const AREAS: Area[] = [
     { to: '/erp/compras/ordens', label: 'Ordens de compra' },
     { to: '/erp/compras/solicitacoes', label: 'Solicitações' },
     { to: '/erp/compras/cotacoes', label: 'Cotações' },
-    { to: '/erp/compras/avisos', label: 'Avisos' },
+    { to: '/erp/compras/avisos', label: 'Avisos de compras' },
     { to: '/erp/fornecedores', label: 'Fornecedores' },
     { to: '/erp/compras/configuracoes', label: 'Prazos e avisos' },
   ] },
@@ -97,6 +98,15 @@ export const ROTAS_ANTIGAS: Record<string, string> = {
   '/erp/fiscal/config': '/erp/fiscal/emitente',
   '/erp/financeiro/painel': '/erp/financeiro/fluxo',
   '/erp/bi/painel': '/erp/bi',
+  // v1.37.1: o BI "sumiu" para o dono. Sinônimos que alguém possa ter salvo ou digitado levam ao BI.
+  '/erp/indicadores': '/erp/bi',
+  '/erp/inicio/indicadores': '/erp/bi',
+  '/erp/inicio/bi': '/erp/bi',
+  '/erp/painel-bi': '/erp/bi',
+  '/erp/bi/indicadores': '/erp/bi',
+  '/erp/avisos': '/erp/compras/avisos',
+  '/erp/relatorio': '/erp/relatorios',
+  '/erp/relatorio-do-dia': '/erp/relatorios',
 };
 
 const bate = (i: ErpItem, path: string) => (i.end ? path === i.to : path === i.to || path.startsWith(`${i.to}/`));
@@ -131,6 +141,22 @@ export function rotuloDaRota(path: string): string | null {
   return `${area.label} › ${item.label}`;
 }
 
+/**
+ * Tela "um nível acima" (v1.37.1, seta ← do cabeçalho): subcategoria → resumo da área; detalhe (pedido, cliente,
+ * fornecedor, caixa…) → a lista de onde ele é; resumo da área → Início; Início → null (sem seta).
+ */
+export function rotaPai(path: string): string | null {
+  const p = path.replace(/\/+$/, '') || '/';
+  if (p === '/erp' || !p.startsWith('/erp/')) return null;
+  if (p.startsWith('/erp/caixa/')) return '/erp/balcao';
+  if (AREAS.some((a) => a.home === p)) return '/erp';
+  const a = abaAtiva(p);
+  if (!a) return '/erp';
+  const item = ERP_ITENS.find((i) => i.to === a)!;
+  if (a !== p) return a; // detalhe dentro de uma lista (ex.: /erp/pedidos/123 → /erp/pedidos)
+  return item.pai ?? '/erp';
+}
+
 /** Acesso às áreas do ERP como o servidor (requireErpArea): sem nenhuma área marcada (permissão antiga) vê tudo. */
 export const AREAS_PERM: ErpAreaPerm[] = ['erp_vendas', 'erp_estoque', 'erp_compras', 'erp_financeiro', 'erp_relatorios'];
 export function podeArea(area: ErpAreaPerm | undefined, hasModule: (m: string) => boolean) {
@@ -153,6 +179,7 @@ export function ErpAbas() {
   const area = areaDaRota(loc.pathname);
   const ativa = abaAtiva(loc.pathname);
   const resumo = ehResumoDaArea(loc.pathname);
+  useRastroErp();
   useEffect(() => {
     const el = barra.current?.querySelector<HTMLElement>('a.active');
     const b = barra.current;

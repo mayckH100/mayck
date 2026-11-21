@@ -82,12 +82,51 @@ export function useAction() {
   return { busy, run };
 }
 
+/**
+ * v1.37.1: o botão voltar do Android (e do navegador) fecha o modal aberto em vez de sair da tela.
+ * Cada modal empilha uma entrada no histórico (mesmo endereço, mantendo o estado do React Router); voltar fecha só o
+ * de cima. Fechado pelo ✕/Esc, a entrada extra é removida com history.back() — exceto se a tela já navegou.
+ */
+const pilhaModais: number[] = [];
+let ignorarPops = 0;
+let proxModal = 1;
+function useVoltarFechaModal(onClose: () => void) {
+  const fechar = useRef(onClose);
+  fechar.current = onClose;
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.history?.pushState) return;
+    const id = proxModal++;
+    const marca = () => (window.history.state as any)?.mckModal === id;
+    let vivo = true;
+    const empilhar = () => { try { window.history.pushState({ ...(window.history.state ?? {}), mckModal: id }, ''); } catch { /* sem histórico */ } };
+    empilhar();
+    pilhaModais.push(id);
+    const aoVoltar = () => {
+      if (ignorarPops > 0) { ignorarPops--; return; }
+      if (pilhaModais[pilhaModais.length - 1] !== id) return;
+      fechar.current();
+      // se o modal não pôde fechar (ex.: cobrança pendente na maquininha), devolve a entrada para o próximo "voltar"
+      setTimeout(() => { if (vivo && !marca()) empilhar(); }, 250);
+    };
+    window.addEventListener('popstate', aoVoltar);
+    return () => {
+      vivo = false;
+      window.removeEventListener('popstate', aoVoltar);
+      const i = pilhaModais.lastIndexOf(id);
+      if (i >= 0) pilhaModais.splice(i, 1);
+      // fechado por ✕/Esc/salvar: tira a entrada extra, se a tela não mudou nesse meio-tempo
+      setTimeout(() => { if (marca()) { ignorarPops++; window.history.back(); setTimeout(() => { if (ignorarPops > 0) ignorarPops = 0; }, 800); } }, 0);
+    };
+  }, []);
+}
+
 export function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
   useEffect(() => {
     const h = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
     window.addEventListener('keydown', h);
     return () => window.removeEventListener('keydown', h);
   }, [onClose]);
+  useVoltarFechaModal(onClose);
   return (
     <div className="modal-bg" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div className="modal" role="dialog" aria-modal="true" aria-label={title}>

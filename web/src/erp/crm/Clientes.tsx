@@ -7,6 +7,7 @@ import ImportarExportar from '../ImportarExportar';
 import { useAuth } from '../../auth';
 import { fmtDoc, toCents, fromCents } from '../format';
 import { Ajuda } from '../pagina';
+import { Voltar } from '../Voltar';
 
 export default function Clientes({ papel = 'cliente' }: { papel?: 'cliente' | 'fornecedor' }) {
   const [q, setQ] = useState('');
@@ -20,7 +21,7 @@ export default function Clientes({ papel = 'cliente' }: { papel?: 'cliente' | 'f
   return (
     <>
       <div className="page-head erp-cab">
-        <div className="erp-titulo"><h1>{forn ? 'Fornecedores' : 'Clientes'}</h1><Ajuda>Digite o CNPJ e o resto vem da Receita.</Ajuda></div>
+        <div className="erp-titulo"><Voltar /><h1>{forn ? 'Fornecedores' : 'Clientes'}</h1><Ajuda>Digite o CNPJ e o resto vem da Receita.</Ajuda></div>
         <div className="erp-cab-acoes">
           <form className="busca-cab" onSubmit={(e) => { e.preventDefault(); setQuery(q); }}><input type="search" placeholder="Nome, CPF/CNPJ ou e-mail" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Pesquisar" /></form>
           <button className="btn primary" onClick={() => setNovo(true)}>{forn ? '+ Novo fornecedor' : '+ Novo cliente'}</button>

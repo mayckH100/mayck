@@ -5,6 +5,7 @@ import { post, get } from '../../api';
 import { useApi, Async, Modal, Field, useAction } from '../../ui';
 import { brl, toCents } from '../format';
 import { Ajuda } from '../pagina';
+import { Voltar } from '../Voltar';
 
 export default function Funil() {
   const state = useApi<any>('/erp/crm/funil');
@@ -16,7 +17,7 @@ export default function Funil() {
   return (
     <>
       <div className="page-head erp-cab">
-        <div className="erp-titulo"><h1>Funil de vendas</h1><Ajuda>Arraste os cards entre as etapas. Ganhar ou perder fecha a oportunidade e registra na linha do tempo do cliente.</Ajuda></div>
+        <div className="erp-titulo"><Voltar /><h1>Funil de vendas</h1><Ajuda>Arraste os cards entre as etapas. Ganhar ou perder fecha a oportunidade e registra na linha do tempo do cliente.</Ajuda></div>
         <button className="btn primary" onClick={() => setNova(true)}>+ Oportunidade</button>
       </div>
       <Async state={state}>{(d) => (

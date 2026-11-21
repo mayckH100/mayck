@@ -5,6 +5,7 @@ import { post, patch, put, del } from '../../api';
 import { useApi, Async, useAction, fmtDate, Field, Modal } from '../../ui';
 import { brl, fmtDoc } from '../format';
 import { ParceiroForm } from './Clientes';
+import { Voltar } from '../Voltar';
 
 const ICONE: Record<string, string> = { WHATSAPP: '💬', EMAIL: '✉', LIGACAO: '☏', NOTA: '📝', CHAMADO: '🎫', SISTEMA: '⚙' };
 
@@ -18,10 +19,10 @@ export default function Cliente360() {
         <>
           <div className="page-head">
             <div>
-              <h1>{p.fantasia || p.nome}</h1>
+              <div className="erp-titulo"><Voltar /><h1>{p.fantasia || p.nome}</h1></div>
               <p className="muted">{fmtDoc(p.documento)} · {p.municipio ? `${p.municipio}/${p.uf}` : 'sem endereço'} · <span className={`badge ${p.status === 'ATIVO' ? 'green' : p.status === 'BLOQUEADO' ? 'red' : ''}`}>{p.status}</span></p>
             </div>
-            <div className="row"><Link className="btn" to={p.ehFornecedor && !p.ehCliente ? '/erp/fornecedores' : '/erp/clientes'}>Voltar</Link><button className="btn" onClick={() => setEditando(true)}>Editar</button>{p.ehCliente && p.status !== 'BLOQUEADO' && <Link className="btn primary" to={`/erp/pedidos?parceiroId=${p.id}`}>+ Orçamento</Link>}</div>
+            <div className="row"><button className="btn" onClick={() => setEditando(true)}>Editar</button>{p.ehCliente && p.status !== 'BLOQUEADO' && <Link className="btn primary" to={`/erp/pedidos?parceiroId=${p.id}`}>+ Orçamento</Link>}</div>
           </div>
           <div className="grid g4">
             <div className="card stat"><div className="l">Total comprado</div><div className="v">{brl(p.resumo.totalGanhoCents)}</div><div className="small muted">{p.resumo.negociosGanhos} negócio(s)</div></div>

@@ -318,6 +318,22 @@ tr:hover td { background: #fafcfb; }
 .erp-cab { align-items: center; }
 .erp-titulo { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .erp-titulo h1 { margin: 0; }
+/* v1.37.1: seta ← "voltar um nível" à esquerda do título (área de toque de 44 px no celular). */
+.erp-voltar { width: 40px; height: 40px; margin-left: -6px; flex: none; display: grid; place-items: center; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--ink); font-size: 22px; font-weight: 700; line-height: 1; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.erp-voltar:hover { background: rgba(0,0,0,.06); }
+.erp-voltar:active { background: rgba(0,0,0,.12); }
+.erp-voltar:focus-visible { outline: 2px solid var(--brand); outline-offset: 1px; }
+/* Início: cartão grande dos Indicadores (BI) */
+.bi-inicio { display: block; padding: 14px 16px; border: 1px solid var(--line); border-left: 4px solid var(--brand); }
+.bi-inicio-topo { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+.bi-inicio-topo h2 { margin: 0; font-size: 17px; }
+.bi-inicio .kpis { margin: 0; }
+.bi-inicio-mais { display: flex; align-items: center; justify-content: center; gap: 6px; min-height: 44px; margin-top: 10px; border-radius: 10px; background: var(--ink); color: #fff; font-weight: 700; }
+.bi-inicio-mais:hover { text-decoration: none; opacity: .92; }
+.atalhos-inicio { display: flex; flex-wrap: wrap; gap: 8px; }
+.atalhos-inicio a { display: inline-flex; align-items: center; gap: 6px; min-height: 44px; padding: 0 14px; border: 1px solid var(--line); border-radius: 999px; background: var(--panel); color: var(--ink); font-weight: 600; font-size: 14px; }
+.atalhos-inicio a:hover { text-decoration: none; border-color: var(--brand); }
+.atalhos-inicio .n { background: var(--brand); color: #fff; border-radius: 999px; padding: 1px 7px; font-size: 12px; }
 .erp-cab-acoes { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .erp-cab-acoes select, .erp-cab-acoes input { width: auto; }
 .busca-cab input { width: 240px; }
@@ -393,6 +409,8 @@ a.kpi:hover { text-decoration: none; border-color: #c9c9cf; }
   .busca-cab input { width: 100%; }
   .erp-cab-acoes > .btn.primary { flex: 1; min-height: 40px; }
   .erp-titulo h1 { font-size: 19px; }
+  .erp-voltar { width: 44px; height: 44px; margin-left: -10px; margin-right: -4px; }
+  .atalhos-inicio a { flex: 1 1 calc(50% - 8px); justify-content: center; }
   .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
   .kpi { padding: 12px; }
   .kpi-v { font-size: 20px; }

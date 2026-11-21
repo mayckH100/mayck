@@ -9,6 +9,7 @@ import { useApi, Async, Empty, Modal, Field, useAction } from '../../ui';
 import { useAuth } from '../../auth';
 import { brl, toCents } from '../format';
 import { Ajuda } from '../pagina';
+import { Voltar } from '../Voltar';
 
 export const FORMA_NOME: Record<string, string> = { DINHEIRO: 'Dinheiro', PIX: 'Pix', CARTAO: 'Cartão' };
 
@@ -218,7 +219,7 @@ export default function RelatorioCaixa() {
   return (
     <>
       <div className="page-head erp-cab">
-        <div className="erp-titulo"><h1>Relatório do caixa</h1><Ajuda>Abertura, vendas por forma de pagamento, sangrias, suprimentos e conferência do dinheiro.</Ajuda></div>
+        <div className="erp-titulo"><Voltar /><h1>Relatório do caixa</h1><Ajuda>Abertura, vendas por forma de pagamento, sangrias, suprimentos e conferência do dinheiro.</Ajuda></div>
         <div className="row" style={{ gap: 6 }}><Link className="btn" to="/erp/balcao">Voltar ao PDV</Link><button className="btn primary" onClick={imprimir} disabled={!det.data}>Imprimir</button></div>
       </div>
       <Async state={det}>{(d) => (

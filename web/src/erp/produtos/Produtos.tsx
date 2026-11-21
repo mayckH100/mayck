@@ -10,6 +10,7 @@ import { UNIDADES_CADASTRO, unidadeValida, unidadeLegivel, qtdUn, nomeUnidade, n
 import { descricaoEmbalagem } from '../../../../server/erp/shared/embalagem';
 import { LotesProduto } from '../estoque/lotes';
 import { Ajuda } from '../pagina';
+import { Voltar } from '../Voltar';
 
 export default function Produtos() {
   const [q, setQ] = useState(''); const [query, setQuery] = useState('');
@@ -23,7 +24,7 @@ export default function Produtos() {
   return (
     <>
       <div className="page-head erp-cab">
-        <div className="erp-titulo"><h1>Produtos</h1><Ajuda>Cadastro com dados fiscais, controle de lote e validade, e alertas de estoque mínimo.</Ajuda></div>
+        <div className="erp-titulo"><Voltar /><h1>Produtos</h1><Ajuda>Cadastro com dados fiscais, controle de lote e validade, e alertas de estoque mínimo.</Ajuda></div>
         <div className="erp-cab-acoes">
           <form className="busca-cab" onSubmit={(e) => { e.preventDefault(); setQuery(q); }}><input type="search" placeholder="Nome, código ou código de barras" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Pesquisar" /></form>
           <button className="btn primary" onClick={() => setEdit({})}>+ Produto</button>

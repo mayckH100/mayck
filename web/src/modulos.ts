@@ -65,7 +65,8 @@ export const itemVisivel = (n: NavItem, a: Acesso) =>
 export function itensDoMenu(m: Modulo, path: string): NavItem[] {
   if (m.id !== 'erp') return m.items;
   const g = grupoAtivo(path);
-  return m.items.filter((i) => !i.pai || i.pai === g);
+  // v1.37.1: as subcategorias do Início (Indicadores (BI), Relatório do dia) ficam sempre à vista: o dono não achava o BI.
+  return m.items.filter((i) => !i.pai || i.pai === g || i.pai === '/erp');
 }
 
 /** Módulos que a pessoa enxerga (com pelo menos um item liberado), já com os itens filtrados. */

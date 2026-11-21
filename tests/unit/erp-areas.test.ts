@@ -58,7 +58,9 @@ describe('ERP · áreas → subcategorias', () => {
     const erp = MODULOS.find((m) => m.id === 'erp')!;
     const naCompras = itensDoMenu(erp, '/erp/compras/ordens');
     expect(naCompras.filter((i) => !i.pai)).toHaveLength(8);
-    expect(naCompras.filter((i) => i.pai).every((i) => i.pai === '/erp/compras')).toBe(true);
+    // v1.37.1: subcategorias do Início (Indicadores (BI), Relatório do dia) sempre à vista
+    expect(naCompras.filter((i) => i.pai).every((i) => i.pai === '/erp/compras' || i.pai === '/erp')).toBe(true);
+    expect(naCompras.some((i) => i.to === '/erp/bi' && i.label === 'Indicadores (BI)')).toBe(true);
     expect(naCompras.some((i) => i.to === '/erp/compras/o-que-comprar')).toBe(true);
     expect(itensDoMenu(erp, '/erp/fornecedores/1').some((i) => i.to === '/erp/compras/ordens')).toBe(true);
     const bot = MODULOS.find((m) => m.id === 'bot')!;

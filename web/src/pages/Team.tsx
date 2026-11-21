@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { post, patch, del } from '../api';
 import { useAuth, ROLE_LABEL } from '../auth';
 import { useApi, Async, useAction, Field, fmtDate, useToast, copy } from '../ui';
+import { Voltar } from '../erp/Voltar';
 
 type Mod = { id: string; label: string; app: string };
 type Perms = { catalog: Mod[]; defaults: Record<'ADMIN' | 'AGENT', string[]>; roleModules: Record<string, string[]>; mine: string[]; myChannelIds: string[] | null };
@@ -93,7 +94,7 @@ export default function Team({ erp = false }: { erp?: boolean }) {
   const canEditMember = (m: any) => admin && perms && m.role !== 'OWNER' && m.user.id !== me?.user.id && (m.role !== 'ADMIN' || isOwner);
   return (
     <>
-      <div className="page-head"><div><h1>{erp ? 'Funcionários' : 'Equipe'}</h1><p className="muted">{erp ? 'Cadastre o funcionário pelo e-mail e marque as áreas do MCK ERP que ele pode usar. Você muda isso quando quiser em "Permissões".' : <>Papéis: Proprietário (tudo), Administrador (fluxos, IA, canais, equipe) e Atendente (Inbox, Kanban e contatos). Em cada pessoa você escolhe os módulos e os canais WhatsApp que ela pode acessar.</>}</p></div></div>
+      <div className="page-head"><div><div className="erp-titulo">{erp && <Voltar />}<h1>{erp ? 'Funcionários' : 'Equipe'}</h1></div><p className="muted">{erp ? 'Cadastre o funcionário pelo e-mail e marque as áreas do MCK ERP que ele pode usar. Você muda isso quando quiser em "Permissões".' : <>Papéis: Proprietário (tudo), Administrador (fluxos, IA, canais, equipe) e Atendente (Inbox, Kanban e contatos). Em cada pessoa você escolhe os módulos e os canais WhatsApp que ela pode acessar.</>}</p></div></div>
       <div className="grid g2">
         {admin && perms && (
           <form className="card stack" onSubmit={async (e) => {

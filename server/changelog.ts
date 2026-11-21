@@ -21,6 +21,17 @@ export type EntradaChangelog = {
 
 export const CHANGELOG: EntradaChangelog[] = [
   {
+    versao: '1.37.1',
+    data: '21/11/2026',
+    titulo: 'MCK ERP: seta para voltar tela por tela e Indicadores (BI) logo no Início',
+    itens: [
+      'Seta ← ao lado do título de cada tela do ERP: volta da seção para a área, do pedido ou cadastro para a lista de onde você veio, e da área para o Início.',
+      'O botão voltar do celular também volta tela por tela e fecha a janela aberta antes de sair da tela.',
+      'Os Indicadores (BI) aparecem no topo do Início, com um botão para ver todos, e ficam sempre à vista no menu.',
+      'Atalhos no Início para Relatório do dia, Avisos de compras e O que comprar.',
+    ],
+  },
+  {
     versao: '1.37.0',
     data: '21/11/2026',
     titulo: 'MCK ERP mais limpo: menu por áreas e telas-resumo com o que precisa de atenção',

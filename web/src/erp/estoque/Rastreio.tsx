@@ -9,6 +9,7 @@ import { useApi, Async, Empty } from '../../ui';
 import { qtdUn } from '../../../../server/erp/shared/unidade';
 import { LoteCard, CampoLeitura, dataBr } from './lotes';
 import { Ajuda } from '../pagina';
+import { Voltar } from '../Voltar';
 
 const COR: Record<string, string> = { entrada: '#16a34a', producao: '#16a34a', devolucao: '#16a34a', saida: '#dc2626', consumo: '#b45309', baixa: '#dc2626', inventario: '#7c3aed', transferencia: '#2563eb', reserva: '#64748b', separacao: '#0891b2', qualidade: '#64748b' };
 const hora = (d: string) => new Date(d).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', dateStyle: 'short', timeStyle: 'short' });
@@ -20,7 +21,7 @@ export default function Rastreio() {
   return (
     <>
       <div className="page-head erp-cab">
-        <div className="erp-titulo"><h1>Rastreio de lote</h1><Ajuda>Digite ou leia: código do produto, lote, lote do fornecedor, número/chave da nota ou número do pedido.</Ajuda></div>
+        <div className="erp-titulo"><Voltar /><h1>Rastreio de lote</h1><Ajuda>Digite ou leia: código do produto, lote, lote do fornecedor, número/chave da nota ou número do pedido.</Ajuda></div>
       </div>
       <div className="card" style={{ marginBottom: 12 }}>
         <CampoLeitura continuo={false} autoFocus={!loteId && !pedidoId} placeholder="Ex.: MCK0001, L2611-0001, ABC123, 1234, pedido 15" onCodigo={(c) => ir({ q: c })} />

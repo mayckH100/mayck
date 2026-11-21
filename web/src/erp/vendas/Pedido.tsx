@@ -9,6 +9,7 @@ import { brl, qtd, toMil } from '../format';
 import { badgeStatus } from './Pedidos';
 import { CampoLeitura } from '../leitura/Leitor';
 import { imprimirDocumento, type TipoDocumento } from './documento';
+import { Voltar } from '../Voltar';
 
 const ROTULO: Record<string, string> = { ENVIAR: 'Enviar para aprovação', APROVAR: 'Aprovar', REPROVAR: 'Reprovar', RESERVAR: 'Tentar reservar de novo', SEPARAR: 'Liberar separação', CONFERIR: 'Concluir conferência', FATURAR: 'Faturar', EXPEDIR: 'Expedir', ENTREGAR: 'Confirmar entrega', ENTREGAR_PARCIAL: 'Entrega parcial', DEVOLVER: 'Devolução', CANCELAR: 'Cancelar pedido' };
 const PEDE: Record<string, { campo: string; label: string }[]> = {
@@ -32,13 +33,13 @@ export default function Pedido() {
         <>
           <div className="page-head">
             <div>
-              <h1>Pedido nº {p.numero} {badgeStatus(p.statusOperacional)}</h1>
+              <div className="erp-titulo"><Voltar /><h1>Pedido nº {p.numero} {badgeStatus(p.statusOperacional)}</h1></div>
               <p className="muted"><Link to={`/erp/clientes/${p.parceiro?.id}`}>{p.parceiro?.fantasia || p.parceiro?.nome}</Link> · criado {fmtDate(p.createdAt)} · financeiro: {p.statusFinanceiro}{p.nfNumero ? ` · NF ${p.nfNumero}` : ''}{p.rastreio ? ` · rastreio ${p.rastreio}` : ''}</p>
               {p.motivoBloqueio && <p className="small" style={{ color: '#b45309' }}>{p.motivoBloqueio}</p>}
               {p.motivoCancelamento && <p className="small" style={{ color: '#dc2626' }}>{p.motivoCancelamento}</p>}
             </div>
             <div className="row" style={{ flexWrap: 'wrap' }}>
-              <Link className="btn" to="/erp/pedidos">Voltar</Link>
+              
               <Link className="btn" to={`/erp/rastreio?pedido=${p.id}`}>🔎 Lotes deste pedido</Link>
               <Imprimir pedidoId={p.id} balcao={!!p.nfNumero?.startsWith('BALCAO-')} />
               {p.acoes.filter((a: string) => !OCULTAS.has(a) && (a !== 'APROVAR' || can('OWNER', 'ADMIN'))).map((a: string) => (
