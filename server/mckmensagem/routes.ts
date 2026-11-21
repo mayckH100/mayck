@@ -234,7 +234,7 @@ mckmensagemRouter.post('/leads/bulk', ah(async (req, res) => {
 /** Exclusão em massa por ids (até 500 por requisição). Ids de outra organização são ignorados. */
 export const BULK_DELETE_MAX = 500;
 const bulkDeleteSchema = z.object({
-  ids: z.array(z.string().trim().min(1).max(40), { required_error: 'Informe os contatos a excluir' })
+  ids: z.array(z.string().trim().min(1).max(40), { error: 'Informe os contatos a excluir' })
     .min(1, 'Selecione ao menos um contato').max(BULK_DELETE_MAX, `Exclua no máximo ${BULK_DELETE_MAX} contatos por vez`),
 }).strict();
 
@@ -250,7 +250,7 @@ const leadCreate = z.object({
   phone: z.string().trim().min(8).max(30),
   name: z.string().trim().max(100).optional().nullable(),
   tags: tagsSchema.optional(),
-  consentSource: z.enum(CONSENT_SOURCES, { errorMap: () => ({ message: 'Informe a origem do consentimento (FORMULARIO, IMPORTACAO, ANUNCIO_CTWA ou MANUAL)' }) }),
+  consentSource: z.enum(CONSENT_SOURCES, { error: () => ({ message: 'Informe a origem do consentimento (FORMULARIO, IMPORTACAO, ANUNCIO_CTWA ou MANUAL)' }) }),
   consentAt: z.coerce.date().optional(),
   campaignId: z.string().optional().nullable(),
 });

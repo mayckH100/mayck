@@ -138,7 +138,7 @@ comprasRouter.put('/cotacoes/:id/respostas', ah(async (req, res) => {
 /** Encerra: escolhe vencedora por item (a melhor do mapa, ou a escolha do comprador) e gera um pedido de compra por fornecedor. */
 comprasRouter.post('/cotacoes/:id/encerrar', ah(async (req, res) => {
   const orgId = orgOf(req);
-  const b = z.object({ escolhas: z.record(z.string()).default({}) }).parse(req.body);
+  const b = z.object({ escolhas: z.record(z.string(), z.string()).default({}) }).parse(req.body);
   const c = await prisma.erpCotacao.findFirst({ where: { id: req.params.id, orgId }, include: { itens: true, respostas: true } });
   if (!c) throw notFound('Cotação');
   if (c.status !== 'ABERTA') throw badRequest('Cotação já encerrada');

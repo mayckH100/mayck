@@ -13,7 +13,7 @@ export const graphSchema = z.object({
     id: z.string().min(1).max(64),
     type: z.enum(NODE_TYPES),
     position: z.object({ x: z.number(), y: z.number() }).default({ x: 0, y: 0 }),
-    data: z.record(z.any()).default({}),
+    data: z.record(z.string(), z.any()).default({}),
   })).max(300),
   edges: z.array(z.object({
     id: z.string().min(1).max(200),

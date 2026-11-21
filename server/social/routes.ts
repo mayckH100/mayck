@@ -111,7 +111,7 @@ socialRouter.delete('/posts/:id', ah(async (req, res) => {
  * a tela acompanha pelo GET /posts. Em "partial"/"failed", tenta de novo só os destinos que falharam.
  */
 socialRouter.post('/posts/:id/publish', ah(async (req, res) => {
-  const { confirm } = z.object({ confirm: z.literal(true, { errorMap: () => ({ message: 'Confirme a aprovação para publicar' }) }) }).parse(req.body ?? {});
+  const { confirm } = z.object({ confirm: z.literal(true, { error: () => ({ message: 'Confirme a aprovação para publicar' }) }) }).parse(req.body ?? {});
   void confirm;
   const cur = await editablePost(String(req.params.id));
   if (cur.status === 'published') throw badRequest('Esta publicação já foi publicada em todos os destinos');

@@ -107,7 +107,7 @@ orgRouter.patch('/', requireRole('OWNER', 'ADMIN'), ah(async (req, res) => {
       if (!n) { ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Telefone reserva inválido: use o formato +55 DDD número (ex.: +5511999998888)' }); return z.NEVER; }
       return n;
     }),
-    handoffAlertMinutes: z.number({ invalid_type_error: 'Minutos do aviso inválidos' }).int('Minutos do aviso devem ser um número inteiro').min(1, 'Minutos do aviso: mínimo 1').max(120, 'Minutos do aviso: máximo 120').optional(),
+    handoffAlertMinutes: z.number({ error: 'Minutos do aviso inválidos' }).int('Minutos do aviso devem ser um número inteiro').min(1, 'Minutos do aviso: mínimo 1').max(120, 'Minutos do aviso: máximo 120').optional(),
     handoffNotifyPhones: notifyPhonesSchema.optional(),
     // O que os números de aviso recebem (todos ligados por padrão).
     alertHandoff: z.boolean().optional(),

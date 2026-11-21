@@ -188,7 +188,7 @@ flowsRouter.post('/http-test', editors, ah(async (req, res) => {
   const body = z.object({
     method: z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']), url: z.string().min(1).max(2000),
     headers: z.string().max(5000).optional(), body: z.string().max(20000).optional(), integrationId: z.string().optional(),
-    sampleVars: z.record(z.string()).optional(),
+    sampleVars: z.record(z.string(), z.string()).optional(),
   }).parse(req.body);
   const vars = body.sampleVars ?? {};
   let url = renderTemplate(body.url, vars);

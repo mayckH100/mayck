@@ -21,6 +21,15 @@ export type EntradaChangelog = {
 
 export const CHANGELOG: EntradaChangelog[] = [
   {
+    versao: '1.35.1',
+    data: '20/11/2026',
+    titulo: 'Atualizações de segurança',
+    itens: [
+      'Atualizamos componentes internos do sistema para corrigir falhas de segurança conhecidas.',
+      'Nada muda no seu uso: telas e funções continuam iguais.',
+    ],
+  },
+  {
     versao: '1.35.0',
     data: '20/11/2026',
     titulo: 'IA mais inteligente e confiável: aprende com as suas correções, entende melhor a conversa e nunca passa o cliente para a equipe sem ele pedir',

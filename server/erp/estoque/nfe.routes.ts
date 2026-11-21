@@ -143,7 +143,7 @@ nfeRouter.post('/:id/lancar', ah(async (req, res) => {
   const b = z.object({
     enderecoId: z.string(), quarentena: z.boolean().default(false), usarLoteFornecedor: z.boolean().default(false),
     aceitarDivergencias: z.boolean().default(false),
-    lotesManuais: z.record(z.array(z.object({ numero: z.string().trim().max(40), qtdMil: z.number().int().min(1), validade: z.string().nullish(), fabricacao: z.string().nullish() }))).default({}),
+    lotesManuais: z.record(z.string(), z.array(z.object({ numero: z.string().trim().max(40), qtdMil: z.number().int().min(1), validade: z.string().nullish(), fabricacao: z.string().nullish() }))).default({}),
   }).parse(req.body);
   const n = await prisma.erpNfeEntrada.findFirst({ where: { id: req.params.id, orgId }, include: { itens: true } });
   if (!n) throw notFound('NF-e');

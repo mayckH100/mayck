@@ -378,3 +378,11 @@ Entradas antigas assinadas "Hark" podem ser de qualquer um. Se não souber qual 
 - **Testes:** typecheck servidor+web; build; unit 78 arquivos / 693; integração 89 arquivos, todos passaram (em lotes num só processo, banco limpo a cada lote; NUNCA deixar dois vitest rodando juntos — `pkill -f 'node.*vitest'` antes). Novos: tests/integration/ia-qualidade-correcoes.test.ts (loja de carros), tests/unit/ia-camada.test.ts, tests/unit/erp-menu-grupos.test.ts; sdr-conversa ajustado à regra.
 - **Produção:** sem deploy (o Mayck dispara). Commits com [skip render].
 - **Falta / melhorar:** testar com a MCK IA real (crítica de valores e correções); a checagem de valores pode marcar contas feitas pela IA (ex.: 2 × R$ 22 = R$ 44) — por isso o bloqueio vem desligado; "IA respondeu mal" só para respostas da IA (não para fluxos); painel de Qualidade não existe no Master (só por empresa).
+
+## Atualização 2026-11-20 (noite, 3) — Leandro: correções de segurança das dependências — v1.35.1
+- **Feito:** `npm audit` de 10 alertas para 0: vitest 3→4, zod 3→4, react-router-dom 6→7, node-forge 1.4.3 e override `effect` (dependência do Prisma). Sete arquivos do servidor ajustados ao zod 4 (`z.record` com chave explícita etc.). Novidades 1.35.1 ("Atualizações de segurança").
+- **Passado:** o package-lock foi gerado com `npx npm@11` (o npm 10.9.9 local quebrava ao gerar); conferido que `npm ci --dry-run` com npm 10.9.9 aceita o lock (o Render usa `npm ci`).
+- **Testes:** unit 693/693; integração 89 arquivos, todos passaram (em lotes de 6, banco limpo a cada lote).
+- **Migração:** nenhuma. Próxima livre: 0063.
+- **Produção:** sem deploy (o Mayck dispara). Commit com [skip render].
+- **Falta:** conferir o primeiro build do Render com o lock novo.
