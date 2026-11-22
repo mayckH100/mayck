@@ -12,6 +12,7 @@ import { createContactAiNote } from './contacts.js';
 import { isProductActive } from '../billing/service.js';
 import { channelLabels, type ChannelLabelInfo } from '../whatsapp/channelLabel.js';
 import { allowedChannels, channelWhere } from '../lib/permissions.js';
+import { enviarPesquisaAoEncerrar } from '../inbox/service.js';
 
 /** Rótulo do WhatsApp da conversa para a tela ("WhatsApp 2 · Amanda" + número). */
 const channelOf = (labels: Map<string, ChannelLabelInfo>, id: string | null) => {
@@ -89,6 +90,8 @@ conversationsRouter.get('/:id', ah(async (req, res) => {
     messages: messages.map((m) => ({ ...m, authorName: authors.find((a) => a.id === m.authorUserId)?.name })),
     // Notas para a IA do CONTATO (valem em todas as conversas dele); a tela as intercala na linha do tempo.
     aiNotes: contact ? await listContactAiNotes(conv.orgId, contact.id) : [],
+    // v1.41.0: responsável (distribuição automática ou quem assumiu).
+    assignedUser: conv.assignedUserId ? await prisma.user.findUnique({ where: { id: conv.assignedUserId }, select: { id: true, name: true } }) : null,
     activeRun,
   });
 }));
@@ -134,6 +137,8 @@ conversationsRouter.post('/:id/action', ah(async (req, res) => {
   }
   const u = await prisma.conversation.update({ where: { id: conv.id }, data });
   await audit(req, `inbox.${action}`, { entity: 'conversation', entityId: conv.id });
+  // v1.41.0: pesquisa de satisfação ao encerrar (só se a empresa ligou; falha nunca impede o encerramento).
+  if (action === 'close' && conv.status !== 'CLOSED') await enviarPesquisaAoEncerrar(u);
   res.json(u);
 }));
 

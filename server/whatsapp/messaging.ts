@@ -182,4 +182,11 @@ export async function handoffToHuman(conversation: Conversation, reason: string)
   }
   // Aviso imediato para os números de aviso da organização (não segura a resposta ao cliente).
   notifyHandoffInBackground(conversation, reason);
+  // v1.41.0: distribuição automática para um atendente e, fora do horário, mensagem automática ao cliente.
+  try {
+    const { aoIrParaHumano } = await import('../inbox/service.js');
+    await aoIrParaHumano(conversation, null);
+  } catch (e) {
+    console.error('[inbox] após transferência', (e as Error).message);
+  }
 }

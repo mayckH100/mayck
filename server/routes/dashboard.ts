@@ -1,4 +1,6 @@
 import { Router } from 'express';
+import { resumoCsat } from '../inbox/service.js';
+import { mediaCsat } from '../inbox/core.js';
 import { channelLabels } from '../whatsapp/channelLabel.js';
 import { z } from 'zod';
 import { prisma } from '../db.js';
@@ -119,6 +121,9 @@ dashboardRouter.get('/reports', ah(async (req, res) => {
   }
   for (const a of ai) if (series[dayKey(a.createdAt, tz)]) series[dayKey(a.createdAt, tz)].aiRequests++;
   const withResp = convs.filter((c) => c.firstResponseAt && c.createdAt >= since);
+  // v1.41.0: pesquisa de satisfação (notas respondidas no período, pela data da resposta).
+  const csat = await resumoCsat(orgId, since);
+  const notas = csat.respondidas.map((r) => r.score!).filter((n) => n >= 1 && n <= 5);
   const bySender = (s: string) => msgs.filter((m) => m.direction === 'OUT' && m.sender === s && SENT.includes(m.status)).length;
   res.json({
     days,
@@ -141,6 +146,10 @@ dashboardRouter.get('/reports', ah(async (req, res) => {
     }).sort((a, b) => b.total - a.total),
     ai: { requests: ai.length, errors: ai.filter((a) => !a.success).length, handoffs: ai.filter((a) => a.handoff).length, tokens: ai.reduce((a, u) => a + u.promptTokens + u.completionTokens, 0) },
     funnel: [{ id: null, name: 'Sem etapa', color: '#94a3b8' }, ...stages].map((s) => ({ id: s.id, name: s.name, color: s.color, count: contacts.find((c) => c.stageId === s.id)?._count._all ?? 0 })),
-    agents: agents.map((a) => ({ id: a.user.id, name: a.user.name, role: a.role, sent: msgs.filter((m) => m.sender === 'agent' && m.authorUserId === a.user.id && SENT.includes(m.status)).length })),
+    agents: agents.map((a) => {
+      const minhas = csat.respondidas.filter((r) => r.assignedUserId === a.user.id).map((r) => r.score!);
+      return { id: a.user.id, name: a.user.name, role: a.role, sent: msgs.filter((m) => m.sender === 'agent' && m.authorUserId === a.user.id && SENT.includes(m.status)).length, csatAverage: mediaCsat(minhas), csatCount: minhas.length };
+    }),
+    csat: { average: mediaCsat(notas), count: notas.length, asked: csat.enviadas, distribution: [1, 2, 3, 4, 5].map((n) => ({ score: n, count: notas.filter((x) => x === n).length })) },
   });
 }));

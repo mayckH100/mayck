@@ -27,6 +27,7 @@ import { aiRouter } from './routes/ai.js';
 import { contactsRouter } from './routes/contacts.js';
 import { kanbanRouter } from './routes/kanban.js';
 import { conversationsRouter } from './routes/conversations.js';
+import { inboxRouter } from './inbox/routes.js';
 import { teamRouter } from './routes/team.js';
 import { plansRouter, publicPlansRouter } from './routes/plans.js';
 import { publicSiteRouter } from './routes/site.js';
@@ -150,6 +151,7 @@ export function createApp() {
   app.use('/api/contacts', requireOrg, requireModule('contatos', [{ method: 'GET', path: /^\/$/, anyOf: ['agenda'] }, { method: 'PATCH', path: /^\/[^/]+$/, anyOf: ['inbox'] }, ...['GET', 'POST', 'PATCH', 'DELETE'].map((method) => ({ method, path: /^\/[^/]+\/ai-notes(\/[^/]+)?$/, anyOf: ['inbox' as const] }))]), requireMckbotForWrites, contactsRouter);
   app.use('/api/kanban', requireOrg, requireModule('kanban', [{ method: 'GET', path: /^\/$/, anyOf: ['inbox'] }]), requireMckbotForWrites, kanbanRouter);
   app.use('/api/conversations', requireOrg, requireModule('inbox'), conversationsRouter);
+  app.use('/api/inbox', requireOrg, requireModule('inbox'), inboxRouter); // v1.41.0: respostas rápidas, atendimento e mensagens agendadas
   app.use('/api/team', requireOrg, requireModule('equipe', [{ method: 'GET', path: /^\/$/, anyOf: ['agenda', 'inbox'] }]), teamRouter);
   app.use('/api/plans', requireOrg, requireModule('plano'), plansRouter);
   app.use('/api/indicacao', requireOrg, referralRouter); // Indique e ganhe: link, contagem e meses ganhos da organização

@@ -24,6 +24,7 @@ import { transcribeAudio, type TranscribeOutcome } from '../ai/voice/service.js'
 import { isAudioType } from '../ai/voice/spoken.js';
 import { isProductActive } from '../billing/service.js';
 import { tratarRespostaAprovacao } from '../erp/alertas/aprovacao.js';
+import { aoIrParaHumano, tratarRespostaCsat } from '../inbox/service.js';
 
 const OPT_OUT = new Set(['sair', 'parar', 'stop', 'descadastrar']);
 
@@ -150,6 +151,13 @@ export async function handleInboundMessage(channel: Channel, m: InboundMessage, 
   }
 
   return withConversationLock(`contact:${contact.id}`, async () => {
+    // v1.41.0: resposta à pesquisa de satisfação (nota 1 a 5 até 24 h depois de encerrar): grava a nota na conversa
+    // encerrada e agradece, sem abrir conversa nova nem acionar IA/fluxos. Qualquer outra resposta segue o caminho normal.
+    if (m.type === 'text' && m.text?.trim() && !contact!.optOut) {
+      const csat = await tratarRespostaCsat({ orgId, contact: contact!, channelId: channel.id, text: m.text, waMessageId: m.waMessageId, timestamp: m.timestamp })
+        .catch((e) => { console.error('[inbox] resposta da pesquisa', orgId, (e as Error).message); return false; });
+      if (csat) return 'ok' as const;
+    }
     // Cada WhatsApp conectado tem a sua conversa com o cliente: a resposta sai pelo mesmo número
     // que recebeu (antes a conversa era única por contato e a resposta saía pelo primeiro número).
     let conv = await openConversationFor(orgId, contact!.id, channel.id);
@@ -223,6 +231,9 @@ export async function handleInboundMessage(channel: Channel, m: InboundMessage, 
     }
     // SDR com IA (segundo plano): captura quem chamou, para a cadência quando o lead responde e qualifica pela IA.
     if (!contact.optOut) sdrOnInboundInBackground({ conv, contact, text: asText ? text : '', isFirst, autoReplySkipped: skipAutoReply });
+    // v1.41.0: conversa com humano (ou contato salvo no celular, sem resposta automática): distribui para um atendente
+    // e, fora do horário, avisa o cliente (só no modo humano; o contato salvo no celular não recebe nada automático).
+    if (!contact.optOut && (conv.mode === 'HUMAN' || skipAutoReply)) await aoIrParaHumano(conv, contact, { avisar: conv.mode === 'HUMAN' && !skipAutoReply });
     if (conv.mode === 'HUMAN' || contact.optOut || skipAutoReply) return 'ok' as const;
     // Cliente já em atendimento por outro WhatsApp da organização: não abre atendimento paralelo aqui.
     if (await redirectIfActiveElsewhere(conv, contact, channel, now)) return 'ok' as const;
@@ -238,12 +249,17 @@ export async function handleInboundMessage(channel: Channel, m: InboundMessage, 
       }
     }
     const finalMessage = message;
+    let resultado: string | undefined;
     await withConversationLock(conv.id, async () => {
       // MCK Mensagens: lead abordado por campanha que respondeu → qualificação do SDR com IA (quando ligada).
       // No modo "Só fluxos" a IA não responde neste canal, então a qualificação também não roda.
       if (mode !== 'flows' && asText && (await qualifyLeadInbound(conv!, contact!, text))) return;
-      await automateInbound(conv!, contact!, finalMessage, { isFirst, replyId: m.replyId, mode });
+      resultado = await automateInbound(conv!, contact!, finalMessage, { isFirst, replyId: m.replyId, mode });
     });
+    // v1.41.0: nenhuma automação respondeu (sem fluxo e sem IA automática no canal) = a mensagem fica para a equipe:
+    // distribui e, fora do horário, avisa o cliente. Com a IA ou um fluxo respondendo, nada disso acontece.
+    // (Transferência pela IA/fluxo já é tratada dentro de handoffToHuman.)
+    if (resultado === 'none') await aoIrParaHumano(conv, contact);
     return 'ok' as const;
   });
 }

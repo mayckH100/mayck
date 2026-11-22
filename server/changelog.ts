@@ -21,6 +21,19 @@ export type EntradaChangelog = {
 
 export const CHANGELOG: EntradaChangelog[] = [
   {
+    versao: '1.41.0',
+    data: '22/11/2026',
+    titulo: 'Inbox mais completo: respostas rápidas, distribuição automática, horário de atendimento, pesquisa de satisfação e mensagens agendadas',
+    itens: [
+      'Respostas rápidas: cadastre atalhos para as mensagens que você mais manda e, no campo de mensagem, digite / para escolher e inserir. Use {nome} para o primeiro nome do cliente.',
+      'Distribuição automática: as conversas que vão para a sua equipe são divididas entre os atendentes, um de cada vez (rodízio) ou para quem está menos ocupado, só entre quem está online e tem acesso àquele WhatsApp.',
+      'Horário de atendimento: defina os dias e horários da equipe e, fora deles, o cliente recebe uma mensagem automática (no máximo uma vez a cada tantas horas). Se a IA estiver respondendo, ela continua respondendo normalmente.',
+      'Pesquisa de satisfação: ao encerrar a conversa, o cliente pode receber "De 1 a 5, como foi seu atendimento?". A nota média aparece em Relatórios, também por atendente.',
+      'Mensagens agendadas: escreva agora e escolha a data e a hora para enviar ao cliente.',
+      'Tudo isso fica no Inbox, no botão ⚙️ Atendimento (para Proprietário e Administrador), e vem desligado até você ligar.',
+    ],
+  },
+  {
     versao: '1.40.0',
     data: '22/11/2026',
     titulo: 'Preparação do app MCKBOT para Android',

@@ -5,6 +5,8 @@ import { useAuth } from '../auth';
 import { post, patch } from '../api';
 import { AiNotesPanel } from '../AiNotes';
 import { useApi, Async, Empty, Loading, ErrorBox, fmtDate, initials, StatusBadge, useAction, Modal, Field } from '../ui';
+import { ListaBarra, listaFiltrada, AgendarModal, AtendimentoModal } from './InboxExtras';
+import { renderResposta, termoBarra, type RespostaRapida } from '../../../server/inbox/core';
 
 const TABS = [['open', 'Abertas'], ['pending', 'Aguardando humano'], ['closed', 'Encerradas']] as const;
 const SENDER: Record<string, string> = { contact: '', bot: 'Automação', ai: 'IA', agent: 'Atendente', system: 'Sistema' };
@@ -20,6 +22,8 @@ export default function Inbox() {
   const [channelId, setChannelId] = useState('');
   const channels = useApi<any[]>('/channels');
   const multi = (channels.data?.length ?? 0) > 1;
+  const [showCfg, setShowCfg] = useState(false);
+  const respostas = useApi<{ items: RespostaRapida[] }>('/inbox/respostas-rapidas');
   const list = useApi<any>(`/conversations?status=${tab}&q=${encodeURIComponent(query)}${channelId ? `&channelId=${encodeURIComponent(channelId)}` : ''}`, [tab, query, channelId]);
   useEffect(() => {
     const t = setInterval(() => list.reload(), 8000);
@@ -27,7 +31,10 @@ export default function Inbox() {
   }, [list.reload]);
   return (
     <>
-      <div className="page-head"><div><h1>Inbox</h1><p className="muted">Atendimento compartilhado. Atualiza automaticamente a cada 8 segundos.</p></div></div>
+      <div className="page-head"><div><h1>Inbox</h1><p className="muted">Atendimento compartilhado. Atualiza automaticamente a cada 8 segundos.</p></div>
+        {can('OWNER', 'ADMIN') && <button className="btn sm" onClick={() => setShowCfg(true)} title="Respostas rápidas, distribuição automática, horário de atendimento e pesquisa de satisfação">⚙️ Atendimento</button>}
+      </div>
+      {showCfg && <AtendimentoModal onClose={() => setShowCfg(false)} onChange={respostas.reload} />}
       {noNotify && <AvisoNumeroBanner />}
       <div className="inbox">
         <div className="list">
@@ -67,13 +74,13 @@ export default function Inbox() {
             ))}
           </div>
         </div>
-        {id ? <Chat id={id} onChange={list.reload} /> : <div className="chat"><Empty title="Selecione uma conversa">Escolha uma conversa à esquerda para ver as mensagens.</Empty></div>}
+        {id ? <Chat id={id} onChange={list.reload} respostas={respostas.data?.items ?? []} /> : <div className="chat"><Empty title="Selecione uma conversa">Escolha uma conversa à esquerda para ver as mensagens.</Empty></div>}
       </div>
     </>
   );
 }
 
-function Chat({ id, onChange }: { id: string; onChange: () => void }) {
+function Chat({ id, onChange, respostas }: { id: string; onChange: () => void; respostas: RespostaRapida[] }) {
   const state = useApi<any>(`/conversations/${id}`, [id]);
   const stages = useApi<any>('/kanban');
   const flows = useApi<any[]>('/flows');
@@ -84,8 +91,13 @@ function Chat({ id, onChange }: { id: string; onChange: () => void }) {
   const [showFlow, setShowFlow] = useState(false);
   const [showTpl, setShowTpl] = useState(false);
   const [tpl, setTpl] = useState({ name: '', language: 'pt_BR' });
+  // v1.41.0: "/" abre as respostas rápidas; agendar mensagem.
+  const [barra, setBarra] = useState<{ termo: string; inicio: number } | null>(null);
+  const [barraAtivo, setBarraAtivo] = useState(0);
+  const [showAgendar, setShowAgendar] = useState(false);
+  const taRef = useRef<HTMLTextAreaElement>(null);
   // v1.35.0: "IA respondeu mal" — a resposta certa vira item da base de conhecimento.
-  const { can } = useAuth();
+  const { can, me } = useAuth();
   const [fix, setFix] = useState<{ id: string; body: string } | null>(null);
   const [fixText, setFixText] = useState('');
   const { busy, run } = useAction();
@@ -111,6 +123,20 @@ function Chat({ id, onChange }: { id: string; onChange: () => void }) {
     }
     refresh();
   };
+  const atualizarBarra = (valor: string, cursor: number) => {
+    const t = !note ? termoBarra(valor, cursor) : null;
+    setBarra(t);
+    setBarraAtivo(0);
+  };
+  const inserirResposta = (r: RespostaRapida) => {
+    if (!barra) return;
+    const fim = barra.inicio + 1 + barra.termo.length;
+    const pronto = renderResposta(r.text, { nome: state.data?.contact?.name, atendente: me?.user?.name });
+    const novo = text.slice(0, barra.inicio) + pronto + text.slice(fim);
+    setText(novo);
+    setBarra(null);
+    requestAnimationFrame(() => { const el = taRef.current; if (el) { el.focus(); const pos = barra.inicio + pronto.length; el.setSelectionRange(pos, pos); } });
+  };
   const action = (action: string, msg: string) => run(() => post(`/conversations/${id}/action`, { action }), msg).then(refresh);
   return (
     <div className="chat">
@@ -120,7 +146,7 @@ function Chat({ id, onChange }: { id: string; onChange: () => void }) {
             <span className="avatar">{initials(d.contact?.name ?? d.contact?.phone)}</span>
             <div style={{ flex: 1, minWidth: 140 }}>
               <strong>{d.contact?.name ?? d.contact?.phone}</strong>
-              <div className="small muted">{d.contact?.phone} · <StatusBadge status={d.conversation.status} /> · {d.conversation.mode === 'HUMAN' ? 'Atendimento humano' : 'Robô'}{d.conversation.channel && <> · <span title="WhatsApp desta conversa">📲 {d.conversation.channel.via}</span></>}</div>
+              <div className="small muted">{d.contact?.phone} · <StatusBadge status={d.conversation.status} /> · {d.conversation.mode === 'HUMAN' ? 'Atendimento humano' : 'Robô'}{d.conversation.channel && <> · <span title="WhatsApp desta conversa">📲 {d.conversation.channel.via}</span></>}{d.assignedUser && <> · <span title="Responsável pela conversa">👤 {d.assignedUser.name}</span></>}</div>
             </div>
             <select aria-label="Etapa do Kanban" style={{ width: 170 }} value={d.contact?.stageId ?? ''} onChange={(e) => run(() => patch(`/contacts/${d.contact.id}`, { stageId: e.target.value || null }), 'Etapa atualizada').then(refresh)}>
               <option value="">Sem etapa</option>
@@ -171,17 +197,34 @@ function Chat({ id, onChange }: { id: string; onChange: () => void }) {
               {!d.conversation.withinWindow && !note && (
                 <div className="alert warn small">Fora da janela de 24 horas: o WhatsApp só permite enviar um <strong>modelo aprovado</strong>. <button className="btn sm" onClick={() => setShowTpl(true)}>Enviar modelo</button></div>
               )}
-              <textarea placeholder={aiNote ? 'Nota para a IA sobre este contato (o cliente não vê; a IA considera ao responder)' : note ? 'Nota interna (o contato não vê)' : 'Mensagem…'} value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }} aria-label="Mensagem" />
+              <div style={{ position: 'relative' }}>
+                {barra && <ListaBarra itens={respostas} termo={barra.termo} ativo={barraAtivo} onEscolher={inserirResposta} vars={{ nome: d.contact?.name, atendente: me?.user?.name }} />}
+                <textarea ref={taRef} placeholder={aiNote ? 'Nota para a IA sobre este contato (o cliente não vê; a IA considera ao responder)' : note ? 'Nota interna (o contato não vê)' : 'Mensagem… (digite / para respostas rápidas)'} value={text}
+                  onChange={(e) => { setText(e.target.value); atualizarBarra(e.target.value, e.target.selectionStart ?? e.target.value.length); }}
+                  onBlur={() => setTimeout(() => setBarra(null), 150)}
+                  onKeyDown={(e) => {
+                    if (barra) {
+                      const lista = listaFiltrada(respostas, barra.termo);
+                      if (e.key === 'Escape') { e.preventDefault(); setBarra(null); return; }
+                      if (e.key === 'ArrowDown' && lista.length) { e.preventDefault(); setBarraAtivo((barraAtivo + 1) % lista.length); return; }
+                      if (e.key === 'ArrowUp' && lista.length) { e.preventDefault(); setBarraAtivo((barraAtivo - 1 + lista.length) % lista.length); return; }
+                      if ((e.key === 'Enter' || e.key === 'Tab') && !e.shiftKey && lista.length) { e.preventDefault(); inserirResposta(lista[Math.min(barraAtivo, lista.length - 1)]); return; }
+                    }
+                    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
+                  }} aria-label="Mensagem" />
+              </div>
               <div className="row between">
                 <div className="row">
                   <label className="row small"><input type="checkbox" checked={note} onChange={(e) => { setNote(e.target.checked); if (!e.target.checked) setAiNote(false); }} /> Nota interna</label>
                   <label className="row small" title="A nota fica salva no contato (vale em todas as conversas dele) e a IA passa a considerá-la. Nunca é enviada ao cliente."><input type="checkbox" checked={aiNote} onChange={(e) => { setAiNote(e.target.checked); if (e.target.checked) setNote(true); }} /> 🧠 Nota para a IA</label>
                   <button className="btn sm" onClick={() => setShowFlow(true)}>Enviar fluxo</button>
+                  {!note && <button className="btn sm" onClick={() => setShowAgendar(true)} title="Enviar esta mensagem numa data e hora">🕒 Agendar</button>}
                 </div>
                 <button className="btn primary" disabled={!text.trim() || busy} onClick={send}>{aiNote ? 'Salvar nota para a IA' : note ? 'Salvar nota' : 'Enviar'}</button>
               </div>
             </div>
           )}
+          {showAgendar && <AgendarModal conversationId={id} textoInicial={text} onClose={() => setShowAgendar(false)} onDone={() => { setText(''); refresh(); }} />}
           {fix && (
             <Modal title="IA respondeu mal" onClose={() => setFix(null)}>
               <p className="small muted" style={{ marginTop: 0 }}>Resposta da IA: “{fix.body.slice(0, 300)}”</p>

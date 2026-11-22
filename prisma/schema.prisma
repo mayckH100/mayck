@@ -311,6 +311,8 @@ model Contact {
   optOut        Boolean   @default(false)
   savedInPhone  Boolean   @default(false) // salvo na agenda do celular de algum número QR conectado (informativo)
   lastMessageAt DateTime?
+  /// v1.41.0: última mensagem automática de "fora do horário" enviada a este contato (máx. 1 a cada X horas).
+  awayMessageAt DateTime?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
@@ -357,6 +359,8 @@ model Conversation {
   aiIntent           String?
   /// Voz: preferência do cliente nesta conversa — 'audio' | 'texto' (nulo = segue o modo da empresa). Migração 0053.
   voicePreference    String?
+  /// v1.41.0: quando a conversa foi distribuída automaticamente para o atendente (rodízio / menos ocupado).
+  assignedAt         DateTime?
   createdAt          DateTime  @default(now())
 
   @@index([orgId, status])
@@ -2662,4 +2666,81 @@ model SdrEvent {
 
   @@index([orgId, leadId, createdAt])
   @@index([orgId, type, createdAt])
+}
+
+// ---------- v1.41.0: Inbox — respostas rápidas, distribuição, horário, pesquisa de satisfação e mensagens agendadas ----------
+
+/// Configuração do atendimento do Inbox por organização (sem registro = tudo desligado, comportamento antigo).
+model InboxSettings {
+  orgId              String   @id
+  /// Distribuição automática de conversas que vão para humano.
+  autoAssign         Boolean  @default(false)
+  /// rodizio | menos_ocupado
+  assignStrategy     String   @default("rodizio")
+  /// Só distribui para quem está com o app aberto (sessão ativa nos últimos 15 min).
+  assignOnlineOnly   Boolean  @default(true)
+  /// Membros que participam (JSON: [userId,...]); vazio = todos com acesso ao Inbox e ao canal.
+  assignUserIds      String   @default("[]")
+  lastAssignedUserId String?
+  /// Horário de atendimento (JSON: [{ dia: 0-6, inicio: "08:00", fim: "18:00" }]) no fuso da organização.
+  hoursEnabled       Boolean  @default(false)
+  hours              String   @default("[]")
+  awayMessage        String   @default("")
+  awayEveryHours     Int      @default(12)
+  /// Pesquisa de satisfação (nota 1 a 5) ao encerrar a conversa.
+  csatEnabled        Boolean  @default(false)
+  csatQuestion       String   @default("")
+  csatThanks         String   @default("")
+  updatedAt          DateTime @updatedAt
+}
+
+/// Resposta rápida do Inbox: digitar "/atalho" no campo de mensagem insere o texto (variáveis {nome} e {atendente}).
+model QuickReply {
+  id          String   @id @default(cuid())
+  orgId       String
+  shortcut    String
+  text        String
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([orgId, shortcut])
+}
+
+/// Pesquisa de satisfação enviada ao encerrar a conversa; a nota (1 a 5) vem da resposta seguinte, em até 24 h.
+model CsatRating {
+  id             String    @id @default(cuid())
+  orgId          String
+  conversationId String
+  contactId      String
+  assignedUserId String?
+  askedAt        DateTime  @default(now())
+  /// Nota 1–5 (nulo = não respondeu ou respondeu outra coisa).
+  score          Int?
+  answeredAt     DateTime?
+  /// PENDENTE | RESPONDIDA | IGNORADA (respondeu sem nota) | EXPIRADA
+  status         String    @default("PENDENTE")
+
+  @@index([orgId, askedAt])
+  @@index([contactId, status])
+}
+
+/// Mensagem agendada pelo atendente no Inbox (enviada pelo agendador do servidor na data/hora).
+model ScheduledMessage {
+  id             String   @id @default(cuid())
+  orgId          String
+  conversationId String
+  contactId      String
+  body           String
+  sendAt         DateTime
+  /// PENDENTE | ENVIANDO | ENVIADA | FALHOU | CANCELADA
+  status         String   @default("PENDENTE")
+  createdById    String?
+  messageId      String?
+  error          String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([status, sendAt])
+  @@index([orgId, conversationId])
 }

@@ -61,9 +61,26 @@ export default function Reports() {
               </div>
             </div>
             <div className="card"><h2>Equipe</h2>
-              <table className="small"><thead><tr><th>Pessoa</th><th>Mensagens enviadas</th></tr></thead><tbody>{r.agents.map((a: any) => <tr key={a.id}><td>{a.name}</td><td>{a.sent}</td></tr>)}</tbody></table>
+              <table className="small"><thead><tr><th>Pessoa</th><th>Mensagens enviadas</th><th title="Média da pesquisa de satisfação das conversas que a pessoa atendeu">Satisfação</th></tr></thead><tbody>{r.agents.map((a: any) => <tr key={a.id}><td>{a.name}</td><td>{a.sent}</td><td>{a.csatCount ? `${String(a.csatAverage).replace('.', ',')} (${a.csatCount})` : '—'}</td></tr>)}</tbody></table>
             </div>
           </div>
+          {r.csat && (
+            <div className="card"><h2>Pesquisa de satisfação</h2>
+              {r.csat.count === 0 ? <p className="small muted">Nenhuma nota no período. {r.csat.asked ? `${r.csat.asked} pesquisa(s) enviada(s) ainda sem nota.` : 'Ligue a pesquisa no Inbox › ⚙️ Atendimento › Pesquisa de satisfação.'}</p> : (
+                <div className="grid g2">
+                  <div className="stack">
+                    <div className="row between"><span>Nota média</span><strong style={{ fontSize: '1.6em' }}>{String(r.csat.average).replace('.', ',')} / 5</strong></div>
+                    <div className="row between"><span>Avaliações</span><strong>{fmtNum(r.csat.count)}</strong></div>
+                    <div className="row between"><span>Pesquisas enviadas</span><strong>{fmtNum(r.csat.asked)}</strong></div>
+                    <div className="row between"><span>Taxa de resposta</span><strong>{r.csat.asked ? `${Math.round((r.csat.count / r.csat.asked) * 100)}%` : '—'}</strong></div>
+                  </div>
+                  <div className="stack">{(() => { const max = Math.max(1, ...r.csat.distribution.map((x: any) => x.count)); return [...r.csat.distribution].reverse().map((x: any) => (
+                    <div key={x.score}><div className="row between small"><span>{'⭐'.repeat(x.score)}</span><strong>{x.count}</strong></div><div className="bar"><span style={{ width: `${(x.count / max) * 100}%`, background: x.score >= 4 ? '#0b7a5a' : x.score === 3 ? '#d4a017' : '#d64545' }} /></div></div>
+                  )); })()}</div>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}</Async>
     </>
