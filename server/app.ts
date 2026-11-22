@@ -176,9 +176,10 @@ export function createApp() {
   const candidates = [path.resolve(here, '../web'), path.resolve(here, '../../dist/web'), path.resolve(process.cwd(), 'dist/web')];
   const webDir = candidates.find((p) => existsSync(path.join(p, 'index.html')));
   // Digital Asset Links para um futuro app TWA na Play Store (defina TWA_ASSETLINKS com o JSON gerado pelo Bubblewrap).
+  // Padrão: app Android oficial br.com.mckdesenvolvimento.mckbot (impressão digital pública da chave de assinatura, v1.40.0).
+  const TWA_ASSETLINKS_PADRAO = JSON.stringify([{ relation: ['delegate_permission/common.handle_all_urls'], target: { namespace: 'android_app', package_name: 'br.com.mckdesenvolvimento.mckbot', sha256_cert_fingerprints: ['5D:5B:9D:45:C7:B7:62:2B:C5:39:24:E5:1C:5B:53:EB:CB:8E:BA:2F:B1:B7:D5:C0:A5:F8:9D:BC:A9:C1:F2:1E'] } }]);
   app.get('/.well-known/assetlinks.json', (_req, res) => {
-    const raw = process.env.TWA_ASSETLINKS;
-    if (!raw) return void res.status(404).json([]);
+    const raw = process.env.TWA_ASSETLINKS || TWA_ASSETLINKS_PADRAO;
     try { res.type('application/json').send(JSON.stringify(JSON.parse(raw))); } catch { res.status(500).json([]); }
   });
   if (webDir) {

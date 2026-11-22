@@ -21,6 +21,12 @@ export type EntradaChangelog = {
 
 export const CHANGELOG: EntradaChangelog[] = [
   {
+    versao: '1.40.0',
+    data: '22/11/2026',
+    titulo: 'Preparação do app MCKBOT para Android',
+    itens: ['O MCKBOT ganhou a base para o app oficial de Android, que abre direto no seu painel, com o mesmo login de sempre.'],
+  },
+  {
     versao: '1.39.0',
     data: '21/11/2026',
     titulo: 'Novo Blog da MCK com guias práticos de WhatsApp, IA e vendas',

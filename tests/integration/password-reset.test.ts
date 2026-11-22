@@ -158,7 +158,9 @@ describe('Planos públicos', () => {
 });
 
 describe('PWA', () => {
-  it('rota assetlinks para TWA responde 404 sem configuração', async () => {
-    expect((await request(app).get('/.well-known/assetlinks.json')).status).toBe(404);
+  it('rota assetlinks serve o app Android oficial por padrão', async () => {
+    const r = await request(app).get('/.well-known/assetlinks.json');
+    expect(r.status).toBe(200);
+    expect(r.body[0].target.package_name).toBe('br.com.mckdesenvolvimento.mckbot');
   });
 });

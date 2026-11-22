@@ -33,7 +33,7 @@ export function loadHtml(file: string): string {
  */
 export function rootWantsApp(cookies: Record<string, unknown> | undefined, query: Record<string, unknown> | undefined): boolean {
   if (typeof cookies?.[SESSION_COOKIE_NAME] === 'string' && (cookies[SESSION_COOKIE_NAME] as string).length > 0) return true;
-  if (query && 'source' in query && query.source === 'pwa') return true;
+  if (query && 'source' in query && (query.source === 'pwa' || query.source === 'twa')) return true; // twa: app Android da Play Store
   if (query && 'app' in query) return true; // escape manual: /?app=1 sempre abre o app
   // Retornos para a raiz (Mercado Pago ?billing=, Google Agenda ?google=): sempre o app, como antes.
   if (query && ('billing' in query || 'google' in query)) return true;
