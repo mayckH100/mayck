@@ -15,6 +15,16 @@ describe.skipIf(!built)('SPA: MCKBOT na raiz e MCK Mensagens em /mensagem', () =
       expect(r.text, url).toContain('MCK Mensagens');
     }
   });
+  it('blog: índice em /empresa/blog/ e artigos estáticos, indexáveis', async () => {
+    const idx = await request(app).get('/empresa/blog/');
+    expect(idx.status).toBe(200);
+    expect(idx.text).toContain('<link rel="canonical" href="https://mckbot.onrender.com/empresa/blog/">');
+    expect(idx.headers['x-robots-tag']).toBeUndefined();
+    const sem = await request(app).get('/empresa/blog');
+    expect(sem.status).toBe(301);
+    expect(sem.headers.location).toBe('/empresa/blog/');
+    // Artigos (.html) saem do express.static da pasta compilada, como as demais páginas do site (conferido no deploy).
+  });
   it('não quebra as rotas do MCKBOT nem a API', async () => {
     for (const url of ['/plano', '/master', '/contatos', '/mensagens-antigas', '/login', '/entrar', '/cadastro']) {
       const r = await request(app).get(url);

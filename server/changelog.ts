@@ -21,6 +21,16 @@ export type EntradaChangelog = {
 
 export const CHANGELOG: EntradaChangelog[] = [
   {
+    versao: '1.39.0',
+    data: '21/11/2026',
+    titulo: 'Novo Blog da MCK com guias práticos de WhatsApp, IA e vendas',
+    itens: [
+      'Blog no site da MCK DESENVOLVIMENTO com 8 guias: chatbot para WhatsApp, como automatizar o WhatsApp Business, IA para responder clientes, mensagens automáticas prontas, como enviar mensagens sem ser bloqueado, funil de vendas, agendamento pelo WhatsApp e ERP para pequenas empresas.',
+      'Cada página por segmento, o MCKBOT, o MCK Mensagens e os Planos indicam os artigos relacionados.',
+      'Correção na novidade de 03/11: a IA só passa a conversa para uma pessoa da sua equipe quando o cliente pede.',
+    ],
+  },
+  {
     versao: '1.38.0',
     data: '21/11/2026',
     titulo: 'Site da MCK DESENVOLVIMENTO mais claro, rápido e fácil de achar no Google',

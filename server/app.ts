@@ -234,6 +234,15 @@ export function createApp() {
     // Site institucional MCK DESENVOLVIMENTO (páginas estáticas em web/public/empresa; a home dele é a raiz "/").
     const novidadesHtml = path.join(webDir, 'empresa', 'novidades.html');
     if (existsSync(novidadesHtml)) app.get(['/empresa/novidades', '/empresa/novidades/'], (_req, res) => res.sendFile(novidadesHtml));
+    // Blog (v1.39.0): índice em /empresa/blog/ (o static usa index:false; /empresa/blog → 301 /empresa/blog/); artigos são .html servidos pelo static.
+    const blogHtml = [path.join(webDir, 'empresa', 'blog', 'index.html'), path.join(webDir, 'public', 'empresa', 'blog', 'index.html')].find((f) => existsSync(f));
+    if (blogHtml) {
+      app.get(['/empresa/blog/', '/empresa/blog/index.html'], (req, res) => {
+        if (req.path === '/empresa/blog') return res.redirect(301, '/empresa/blog/'); // rota não estrita do Express
+        res.setHeader('Cache-Control', 'no-cache');
+        res.sendFile(blogHtml);
+      });
+    }
     app.get('*', (_req, res) => sendSpa(res));
   }
 
