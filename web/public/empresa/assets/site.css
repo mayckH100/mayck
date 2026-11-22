@@ -132,3 +132,22 @@ a.card.seg { display: block; color: inherit; text-decoration: none; transition: 
 a.card.seg:hover { transform: translateY(-2px); box-shadow: 0 10px 30px rgba(0,0,0,.08); }
 a.card.seg h3 { margin-top: 0; }
 a.chip { text-decoration: none; color: inherit; }
+/* v1.38.0 — site mais profissional */
+section.hero{padding:0}
+.hero .wrap{padding-top:72px;padding-bottom:80px}
+.hero:not(.sub) h1{font-size:clamp(32px,3.6vw,48px)}
+.hero.sub .wrap{padding-top:64px;padding-bottom:64px}
+picture{display:block}picture img{width:100%;height:auto}
+.hero .shot img,.card.product .pimg img{aspect-ratio:16/9;object-fit:cover}
+.trust-mini{list-style:none;padding:0;margin:4px 0 0;display:flex;flex-wrap:wrap;gap:8px 18px;font-size:14px;color:#b9b9c4}
+.trust-mini li:before{content:"✓";color:var(--red2);font-weight:800;margin-right:6px}
+.trust .card h3{font-size:18px}.trust .card a{color:var(--red)}
+.social{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
+.social .sn{display:inline-flex;align-items:center;padding:8px 14px;border-radius:999px;border:1px solid rgba(255,255,255,.2);color:#fff;font-weight:600;font-size:14px}
+.social .sn:hover{background:rgba(255,255,255,.08);text-decoration:none}
+a:focus-visible,button:focus-visible,summary:focus-visible{outline:3px solid var(--red2);outline-offset:2px;border-radius:6px}
+nav.main{gap:2px}nav.main a{padding:8px 9px}
+header.site .wrap{gap:20px}
+@media (max-width:1280px){.hdr-cta .ghost{display:none}}
+@media (max-width:980px){section.hero{padding:0}.hero .wrap{padding-top:40px;padding-bottom:48px;gap:28px}header.site.open .hdr-cta{top:calc(72px + 300px)}}
+@media (max-width:560px){.hero:not(.sub) h1{font-size:30px}.hero .lead{font-size:17px}.trust-mini{font-size:13px}}

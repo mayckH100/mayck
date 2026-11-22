@@ -21,6 +21,17 @@ export type EntradaChangelog = {
 
 export const CHANGELOG: EntradaChangelog[] = [
   {
+    versao: '1.38.0',
+    data: '21/11/2026',
+    titulo: 'Site da MCK DESENVOLVIMENTO mais claro, rápido e fácil de achar no Google',
+    itens: [
+      'Página inicial com a proposta direta, botão "Teste grátis 7 dias" e o passo a passo em 3 etapas.',
+      'Nova seção de segurança e confiança (CNPJ, proteção dos dados, cópia de segurança diária e LGPD) e perguntas frequentes.',
+      'Imagens mais leves e site mais rápido no celular.',
+      'Rodapé com WhatsApp, e-mail, Instagram, YouTube e LinkedIn oficiais da MCK.',
+    ],
+  },
+  {
     versao: '1.37.2',
     data: '21/11/2026',
     titulo: 'Alerta diário do WhatsApp mais curto, sem repetir o mesmo produto',

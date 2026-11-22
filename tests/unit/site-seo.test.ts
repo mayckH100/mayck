@@ -43,6 +43,35 @@ describe('site /empresa: SEO', () => {
     expect(qtd).toBeGreaterThan(0);
   });
 
+  it('v1.38.0: twitter card completo, favicons, imagens webp com tamanho e redes oficiais em todas as páginas', () => {
+    for (const f of pages) {
+      const html = readFileSync(path.join(EMPRESA, f), 'utf8');
+      for (const k of ['twitter:title', 'twitter:description', 'twitter:image']) expect(html, `${f} ${k}`).toContain(`name="${k}"`);
+      expect(html).toContain('rel="apple-touch-icon"');
+      expect(html).not.toMatch(/<picture><picture/);
+      for (const m of html.matchAll(/<source srcset="(\/empresa\/assets\/img\/[^"]+\.webp)"/g)) expect(readdirSync(path.join(EMPRESA, 'assets/img'))).toContain(path.basename(m[1]));
+      for (const m of html.matchAll(/<img [^>]*>/g)) { expect(m[0]).toMatch(/alt="[^"]+"/); expect(m[0]).toMatch(/width="\d+" height="\d+"/); }
+      const org = jsonLd(html)[0]['@graph'].find((n: any) => n['@type'] === 'Organization');
+      for (const u of ['https://www.instagram.com/mckdesenvolvimento/', 'https://www.youtube.com/@mckdesenvolvimento', 'https://www.linkedin.com/company/mckdesenvolvimento']) {
+        expect(org.sameAs).toContain(u);
+        expect(html).toContain(`href="${u}"`);
+      }
+      expect(html).toContain('href="/cadastro">Teste grátis 7 dias</a>');
+    }
+  });
+
+  it('home: hero com CTA de teste grátis, 3 passos, segurança e FAQ com FAQPage igual às perguntas', () => {
+    const html = readFileSync(path.join(EMPRESA, 'index.html'), 'utf8');
+    expect((html.match(/<h1>/g) ?? []).length).toBe(1);
+    expect(html).toMatch(/<div class="actions"><a class="btn red" href="\/cadastro">Teste grátis 7 dias<\/a>/);
+    expect((html.match(/<div class="step">/g) ?? []).length).toBe(3);
+    expect(html).toContain('id="seguranca"');
+    const faq = jsonLd(html)[0]['@graph'].find((n: any) => n['@type'] === 'FAQPage');
+    expect(faq.mainEntity.length).toBe((html.match(/<details><summary>/g) ?? []).length);
+    const erp = jsonLd(html)[0]['@graph'].find((n: any) => n.name === 'MCK ERP');
+    expect(erp.offers.map((o: any) => o.priceCurrency)).toEqual(['BRL', 'BRL']);
+  });
+
   it('produtos têm SoftwareApplication com ofertas em BRL', () => {
     for (const f of ['mckbot.html', 'mck-mensagens.html']) {
       const app = jsonLd(readFileSync(path.join(EMPRESA, f), 'utf8'))[0]['@graph'].find((n: any) => n['@type'] === 'SoftwareApplication');

@@ -222,6 +222,8 @@ export function createApp() {
       setHeaders: (res, file) => {
         // Service worker e manifests sempre revalidados, para atualizações do PWA chegarem logo.
         if (/(sw\.js|\.webmanifest)$/.test(file)) res.setHeader('Cache-Control', 'no-cache');
+        // Imagens e vídeos do site /empresa mudam raramente: 7 dias de cache (site mais rápido na volta do visitante).
+        else if (/[\\/]empresa[\\/]assets[\\/](img|videos)[\\/].+\.(webp|jpe?g|png|mp4)$/.test(file)) res.setHeader('Cache-Control', 'public, max-age=604800');
         if (file.endsWith('.webmanifest')) res.setHeader('Content-Type', 'application/manifest+json');
         if (file.endsWith('sw.js')) res.setHeader('Service-Worker-Allowed', '/');
       },
