@@ -4,6 +4,7 @@ import { useAuth } from '../auth';
 import AvisoNumeroBanner from '../AvisoNumeroBanner';
 import { useApi, Async, Empty, useAction, Modal, Field, fmtDate, StatusBadge, useToast, copy } from '../ui';
 import { fmtWaDownSince } from '../WaDownBanner';
+import SiteChat from './SiteChat';
 
 /** "Quem responde automaticamente" no canal: só fluxos, só IA, ou fluxos + IA (padrão). */
 const AUTO_REPLY_OPTIONS: { v: 'flows' | 'ai' | 'both'; label: string; help: string }[] = [
@@ -183,6 +184,7 @@ export default function Channels() {
           ))}
         </div>
       )}</Async>
+      <SiteChat admin={admin} />
       {adding && (
         <AddChannel count={state.data?.length ?? 0} onClose={() => setAdding(false)} onCreated={(c) => { setAdding(false); state.reload(); setQrFor(c); }} />
       )}

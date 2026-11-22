@@ -15,6 +15,9 @@ import { tempoDigitandoMs } from './protecao/core.js';
 export const PROVIDER_CLOUD = 'whatsapp_cloud';
 export const PROVIDER_QR = 'whatsapp_qr';
 export const isQrChannel = (c?: Pick<Channel, 'provider'> | null) => c?.provider === PROVIDER_QR;
+/** v1.44.0: chat do site do cliente (widget). A resposta fica no banco e o widget busca por polling. */
+export const PROVIDER_SITE = 'site';
+export const isSiteChannel = (c?: Pick<Channel, 'provider'> | null) => c?.provider === PROVIDER_SITE;
 
 export const WINDOW_MS = 24 * 3600 * 1000;
 
@@ -24,7 +27,7 @@ export function isWithinWindow(conv: Pick<Conversation, 'lastInboundAt'>, now = 
 
 /** A regra da janela de 24h é da API oficial; no modo QR (WhatsApp Web) ela não se aplica. */
 export function windowApplies(channel?: Pick<Channel, 'provider'> | null): boolean {
-  return !isQrChannel(channel);
+  return !isQrChannel(channel) && !isSiteChannel(channel);
 }
 
 function describe(p: OutboundPayload, qr = false): { type: string; body: string | null; mediaUrl: string | null; transcript?: string } {
@@ -47,8 +50,8 @@ export async function resolveChannel(conv: Pick<Conversation, 'channelId' | 'org
     const ch = await prisma.channel.findFirst({ where: { id: conv.channelId, orgId: conv.orgId } });
     if (ch) return ch;
   }
-  return (await prisma.channel.findFirst({ where: { orgId: conv.orgId, status: 'CONNECTED' }, orderBy: { createdAt: 'asc' } }))
-    ?? prisma.channel.findFirst({ where: { orgId: conv.orgId }, orderBy: { createdAt: 'asc' } });
+  return (await prisma.channel.findFirst({ where: { orgId: conv.orgId, status: 'CONNECTED', provider: { not: 'site' } }, orderBy: { createdAt: 'asc' } }))
+    ?? prisma.channel.findFirst({ where: { orgId: conv.orgId, provider: { not: 'site' } }, orderBy: { createdAt: 'asc' } });
 }
 
 /**
@@ -89,6 +92,18 @@ export async function sendOutbound(args: {
   if (!(await isProductActive(conversation.orgId, args.product ?? 'MCKBOT'))) return fail('Assinatura inativa');
   if (contact.optOut && sender !== 'agent') return fail('Contato pediu para não receber mensagens automáticas (opt-out)');
   if (qr) return sendViaQr(channel!, conversation, contact, payload, msg, fail, sender);
+  if (isSiteChannel(channel)) {
+    // Chat do site: não há envio externo; a mensagem fica disponível para o widget do visitante.
+    if (payload.type === 'template') return fail('Modelos (templates) só existem na API oficial do WhatsApp. No chat do site envie texto.');
+    const now = new Date();
+    const updated = await prisma.message.update({
+      where: { id: msg.id },
+      data: { status: 'SENT', attempts: 1, ...(payload.type === 'buttons' ? { type: 'text', body: numberedOptions(payload.text, payload.buttons) } : {}) },
+    });
+    await prisma.conversation.update({ where: { id: conversation.id }, data: { lastMessageAt: now, ...(conversation.firstResponseAt ? {} : { firstResponseAt: now }) } });
+    conversation.firstResponseAt ??= now;
+    return updated;
+  }
   const accessToken = decryptOrNull(channel?.accessTokenEnc);
   if (!channel || channel.status !== 'CONNECTED' || !channel.phoneNumberId || !accessToken) {
     return fail('Canal WhatsApp não conectado: configure as credenciais da Cloud API em Canais WhatsApp');

@@ -365,7 +365,7 @@ export type SendResult = { ok: true; personalized?: boolean } | { ok: false; rea
 async function conversationFor(orgId: string, contact: Contact) {
   const recent = await prisma.conversation.findFirst({ where: { orgId, contactId: contact.id, status: { not: 'CLOSED' }, channelId: { not: null } }, orderBy: { lastMessageAt: 'desc' } });
   if (recent) return recent;
-  const ch = await prisma.channel.findFirst({ where: { orgId, status: 'CONNECTED' }, orderBy: { createdAt: 'asc' } });
+  const ch = await prisma.channel.findFirst({ where: { orgId, status: 'CONNECTED', provider: { not: 'site' } }, orderBy: { createdAt: 'asc' } });
   return ch ? openConversationFor(orgId, contact.id, ch.id) : null;
 }
 

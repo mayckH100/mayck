@@ -440,11 +440,13 @@ const campaignBase = z.object({
   repescagemDias: z.number().int().min(REPESCAGEM_LIMITES.diasMin).max(REPESCAGEM_LIMITES.diasMax).optional(),
   repescagemMax: z.number().int().min(REPESCAGEM_LIMITES.maxMin).max(REPESCAGEM_LIMITES.maxMax).optional(),
   repescagemModelo: z.string().max(2000).optional(),
+  // v1.44.0: número em nível Risco → pausa automática; auto = volta sozinha, manual = espera o Retomar.
+  riscoRetomada: z.enum(['auto', 'manual']).optional(),
 });
 
 async function checkChannel(orgId: string, channelId?: string) {
   if (!channelId) return;
-  if (!(await prisma.channel.findFirst({ where: { id: channelId, orgId } }))) throw new HttpError(400, 'Canal WhatsApp inválido');
+  if (!(await prisma.channel.findFirst({ where: { id: channelId, orgId, provider: { not: 'site' } } }))) throw new HttpError(400, 'Canal WhatsApp inválido');
 }
 function checkIntervals(min: number, max: number) {
   if (min > max) throw new HttpError(400, 'O intervalo mínimo não pode ser maior que o máximo');
@@ -488,7 +490,8 @@ mckmensagemRouter.patch('/campaigns/:id', ah(async (req, res) => {
   checkIntervals(body.minIntervalSec ?? c.minIntervalSec, body.maxIntervalSec ?? c.maxIntervalSec);
   // Mexeu na repescagem: tira o aviso de pausa (o agendador recoloca se o motivo continuar).
   const repescagemMudou = ['repescagemAtiva', 'repescagemDias', 'repescagemMax'].some((k) => k in body);
-  const updated = await prisma.campaign.update({ where: { id: c.id }, data: { ...body, ...(repescagemMudou ? { repescagemPausa: null, repescagemPausaEm: null } : {}) } });
+  const riscoMudou = 'riscoRetomada' in body && body.riscoRetomada !== c.riscoRetomada;
+  const updated = await prisma.campaign.update({ where: { id: c.id }, data: { ...body, ...(repescagemMudou ? { repescagemPausa: null, repescagemPausaEm: null } : {}), ...(riscoMudou ? { riscoPausa: null, riscoPausaEm: null } : {}) } });
   await audit(req, 'mckmensagem.campaign.update', { entity: 'Campaign', entityId: c.id, meta: Object.keys(body) });
   res.json(await campaignView(updated));
 }));
@@ -531,7 +534,8 @@ mckmensagemRouter.post('/campaigns/:id/start', ah(async (req, res) => {
   if (!pending) throw new HttpError(400, semConsentimento
     ? `Nenhum lead elegível: ${semConsentimento} contato(s) ainda estão com consentimento pendente. Registre o consentimento em Contatos para enviar.`
     : 'Nenhum lead elegível (com consentimento e sem opt-out) para esta campanha');
-  const updated = await prisma.campaign.update({ where: { id: c.id }, data: { status: 'EM_ANDAMENTO' } });
+  // v1.44.0: Retomar tira o aviso de pausa por Risco (o agendador pausa de novo se o número continuar em Risco).
+  const updated = await prisma.campaign.update({ where: { id: c.id }, data: { status: 'EM_ANDAMENTO', riscoPausa: null, riscoPausaEm: null } });
   await audit(req, 'mckmensagem.campaign.start', { entity: 'Campaign', entityId: c.id, meta: { added, pending } });
   res.json({ ...(await campaignView(updated)), added, pending, semConsentimento });
 }));

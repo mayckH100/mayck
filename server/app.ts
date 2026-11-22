@@ -28,6 +28,10 @@ import { contactsRouter } from './routes/contacts.js';
 import { kanbanRouter } from './routes/kanban.js';
 import { conversationsRouter } from './routes/conversations.js';
 import { inboxRouter } from './inbox/routes.js';
+import { origemRouter } from './origem/routes.js';
+import { publicPixRouter } from './pix/routes.js';
+import { siteAdminRouter, sitePublicRouter } from './site/routes.js';
+import { WIDGET_JS } from './site/widgetJs.js';
 import { teamRouter } from './routes/team.js';
 import { plansRouter, publicPlansRouter } from './routes/plans.js';
 import { publicSiteRouter } from './routes/site.js';
@@ -83,6 +87,15 @@ export function createApp() {
   // Webhook do Mercado Pago: público (sem sessão/CSRF), validado por assinatura + consulta à API.
   app.use('/api/billing/mp/webhook', rateLimit({ windowMs: 60 * 1000, limit: 120, standardHeaders: 'draft-7', legacyHeaders: false }), billingWebhookRouter);
 
+  // v1.44.0: chat para o site do cliente — script público e API do visitante (sem sessão/CSRF; CORS próprio; limites por IP).
+  app.get('/widget.js', (_req, res) => {
+    res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
+    res.setHeader('Cache-Control', 'public, max-age=600');
+    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+    res.send(WIDGET_JS);
+  });
+  app.use('/api/public/chat', express.json({ limit: '16kb' }), express.text({ limit: '16kb', type: 'text/plain' }), sitePublicRouter);
+
   // Health check leve (não toca no banco — permite o Postgres grátis do Neon escalar a zero).
   app.get('/api/health', (_req, res) => res.json({ ok: true }));
   // Versão no ar (número, commit e data do build), sem login e sem dados sensíveis.
@@ -131,6 +144,7 @@ export function createApp() {
 
   app.use('/api/auth', authRouter);
   app.use('/api/public/indica', publicReferralRouter); // programa de indicação: o código existe? (sem login)
+  app.use('/api/public/pix', publicPixRouter); // v1.44.0: imagem do QR da cobrança Pix (token aleatório por cobrança)
   app.use('/api/public/plans', publicPlansRouter); // vitrine de planos, sem login
   app.use('/api/public/site', publicSiteRouter); // site oficial /empresa: contato, Facebook, promoção, tutoriais (sem login, só leitura)
   app.use('/api/public/agenda', publicAgendaRouter); // evento (.ics/página "Adicionar à agenda") e feed webcal por URL secreta
@@ -145,6 +159,7 @@ export function createApp() {
   app.use('/api/announcements', announcementsRouter); // avisos do Master para os clientes (pop-up com imagem)
   app.use('/api/social', requireSuperAdmin, socialRouter); // Novidades: redes sociais do Painel Master
   app.use('/api/org', requireOrg, orgRouter);
+  app.use('/api/channels/site', requireOrg, requireModule('canais'), siteAdminRouter); // v1.44.0: chat para o site
   app.use('/api/channels', requireOrg, requireModule('canais', [{ method: 'GET', path: /^\/$/ }]), channelsRouter); // lista de canais: usada pelo Inbox e pelo aviso do topo (filtrada pelos canais do membro)
   app.use('/api/flows', requireOrg, requireModule('fluxos', [{ method: 'GET', path: /^\/$/, anyOf: ['inbox'] }, { method: 'POST', path: /^\/[^/]+\/start$/, anyOf: ['inbox'] }]), requireMckbotForWrites, flowsRouter);
   app.use('/api/ai', requireOrg, requireModule('ia'), requireMckbotForWrites, aiRouter);
@@ -169,6 +184,7 @@ export function createApp() {
   // Etapa de qualificação do SDR com IA (v1.20.0): liberada também para quem tem só o MCK Mensagens (guarda própria).
   app.use('/api/sdr/qualificacao', requireOrg, sdrQualificacaoRouter);
   app.use('/api/sdr', requireOrg, requireModule('sdr', [{ method: 'GET', path: /^\/acesso\/?$/, anyOf: ['mensagens'] }]), requireSdr, sdrRouter);
+  app.use('/api/origens', requireOrg, requireModule('relatorios'), origemRouter); // v1.44.0: links de origem (wa.me com código)
   app.use('/api/reports', requireOrg, requireModule('relatorios'));
   app.use('/api', requireOrg, dashboardRouter);
   app.use('/api', (_req, res) => res.status(404).json({ error: 'Rota não encontrada' }));

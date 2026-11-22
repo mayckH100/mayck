@@ -82,7 +82,9 @@ channelsRouter.get('/alertas', requireRole('OWNER', 'ADMIN'), ah(async (req, res
 
 channelsRouter.get('/', ah(async (req, res) => {
   const allowed = allowedChannels(req); // membro com canais limitados só vê os seus
-  const list = await prisma.channel.findMany({ where: { orgId: orgOf(req), ...(allowed ? { id: { in: allowed } } : {}) }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] });
+  // v1.44.0: o chat do site só aparece com ?site=1 (Inbox e Equipe); as telas de WhatsApp continuam só com WhatsApp.
+  const site = req.query.site === '1';
+  const list = await prisma.channel.findMany({ where: { orgId: orgOf(req), ...(site ? {} : { provider: { not: 'site' } }), ...(allowed ? { id: { in: allowed } } : {}) }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] });
   const labels = await channelLabels(orgOf(req));
   res.json(await Promise.all(list.map((c) => view(c, req, labels.get(c.id)))));
 }));
@@ -96,7 +98,7 @@ channelsRouter.post('/', requireRole('OWNER', 'ADMIN'), ah(async (req, res) => {
   // Sem nome informado: "WhatsApp N" (próximo número da organização).
   const typed = sanitizeChannelName(body.name);
   if (typed.length > CHANNEL_NAME_MAX) throw badRequest(`Nome do WhatsApp: no máximo ${CHANNEL_NAME_MAX} caracteres`);
-  const name = typed || `WhatsApp ${(await prisma.channel.count({ where: { orgId } })) + 1}`;
+  const name = typed || `WhatsApp ${(await prisma.channel.count({ where: { orgId, provider: { not: 'site' } } })) + 1}`;
   // Novo número com a IA automática da organização ligada: começa no modo "Só IA" (todo WhatsApp
   // conectado responde com a IA). Sem IA ligada, mantém "Fluxos + IA". O dono pode trocar em Canais.
   const autoReplyMode = await defaultAutoReplyMode(orgId);

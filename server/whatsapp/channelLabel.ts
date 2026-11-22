@@ -58,8 +58,17 @@ function infoOf(c: ChannelRow, ordinal: number): ChannelLabelInfo {
 
 /** Rótulos de todos os canais da organização (ordem de criação). Só canais da própria organização. */
 export async function channelLabels(orgId: string): Promise<Map<string, ChannelLabelInfo>> {
-  const list = await prisma.channel.findMany({ where: { orgId }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }], select: { id: true, name: true, displayPhone: true, createdAt: true } });
-  return new Map(list.map((c, i) => [c.id, infoOf(c, i + 1)] as const));
+  const list = await prisma.channel.findMany({ where: { orgId }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }], select: { id: true, name: true, displayPhone: true, createdAt: true, provider: true } });
+  // v1.44.0: o chat do site não entra na numeração "WhatsApp N" e aparece como "Site".
+  let n = 0;
+  return new Map(list.map((c) => {
+    if (c.provider === 'site') {
+      const nome = sanitizeChannelName(c.name);
+      const label = nome && nome.toLowerCase() !== 'site' ? `Site · ${nome}` : 'Site';
+      return [c.id, { id: c.id, ordinal: 0, name: nome, label, phone: null, via: label }] as const;
+    }
+    return [c.id, infoOf(c, ++n)] as const;
+  }));
 }
 
 /** Rótulo de um canal da organização (nulo se o canal não existir nela). */

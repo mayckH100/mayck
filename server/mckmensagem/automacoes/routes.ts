@@ -929,7 +929,7 @@ automacoesRouter.put('/config', ah(async (req, res) => {
 
 /** Status real das integrações (nada simulado): canais WhatsApp do banco/sessão QR e SMTP configurado. */
 automacoesRouter.get('/integracoes', ah(async (req, res) => {
-  const channels = await prisma.channel.findMany({ where: { orgId: orgOf(req) }, orderBy: { createdAt: 'asc' } });
+  const channels = await prisma.channel.findMany({ where: { orgId: orgOf(req), provider: { not: 'site' } }, orderBy: { createdAt: 'asc' } });
   const labels = await channelLabels(orgOf(req));
   res.json({
     whatsapp: channels.map((c) => ({

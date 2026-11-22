@@ -1,3 +1,4 @@
+import { lerReferral, type Referral } from '../origem/core.js';
 import { config } from '../config.js';
 import { httpFetch } from '../lib/fetcher.js';
 
@@ -139,6 +140,8 @@ export interface InboundMessage {
   fileName?: string;
   /** Modo QR: LID do remetente (ex.: "123456@lid"), quando conhecido, para não duplicar o contato. */
   lid?: string;
+  /** v1.44.0: anúncio Click-to-WhatsApp (API oficial) que originou a conversa. */
+  referral?: Referral;
 }
 export interface StatusUpdate {
   phoneNumberId: string;
@@ -178,6 +181,7 @@ export function parseWebhook(body: any): { messages: InboundMessage[]; statuses:
         messages.push({
           phoneNumberId, waMessageId: String(m.id), from: String(m.from), profileName: names.get(String(m.from)),
           timestamp: new Date(Number(m.timestamp ?? Date.now() / 1000) * 1000), type: String(m.type), text, replyId, mediaId, fileName,
+          ...(m.referral ? { referral: lerReferral(m.referral) } : {}),
         });
       }
       for (const s of v.statuses ?? []) {

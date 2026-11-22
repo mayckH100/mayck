@@ -15,9 +15,38 @@ import { parseJson } from '../lib/json.js';
 import { parseLocal } from '../agenda/time.js';
 import { normalizarAtalho, validarFaixas, descreverHorario, ATALHO_MAX, RESPOSTA_MAX, AWAY_PADRAO, CSAT_PERGUNTA_PADRAO, CSAT_OBRIGADO_PADRAO } from './core.js';
 import { getInboxSettings, candidatosDistribuicao, faixasDe } from './service.js';
+import { iaDoAssistente, resumirConversa, sugerirResposta, AssistenteIndisponivel } from './assistente.js';
+import { pixRouter } from '../pix/routes.js';
 
 export const inboxRouter = Router();
 const admins = requireRole('OWNER', 'ADMIN');
+
+// v1.44.0: cobrança Pix na conversa (chave da empresa, cobranças, baixa manual).
+inboxRouter.use(pixRouter);
+
+// ---------------- Assistente do atendente (v1.44.0) ----------------
+
+/** A IA da empresa pode ser usada pelo assistente agora? (para habilitar os botões com dica) */
+inboxRouter.get('/assistente', ah(async (req, res) => {
+  const ia = await iaDoAssistente(orgOf(req));
+  res.json(ia.ok ? { disponivel: true } : { disponivel: false, motivo: ia.motivo });
+}));
+
+async function assistente(req: import('express').Request, res: import('express').Response, tipo: 'resumo' | 'sugestao') {
+  const conv = await prisma.conversation.findFirst({ where: { id: req.params.id, orgId: orgOf(req), ...channelWhere(req) }, select: { id: true, orgId: true } });
+  if (!conv) throw notFound('Conversa');
+  try {
+    if (tipo === 'resumo') return void res.json({ resumo: await resumirConversa(conv.orgId, conv.id) });
+    const me = await prisma.user.findUnique({ where: { id: req.auth!.userId }, select: { name: true } });
+    res.json({ sugestao: await sugerirResposta(conv.orgId, conv.id, me?.name) });
+  } catch (e) {
+    if (e instanceof AssistenteIndisponivel) throw new HttpError(400, e.message);
+    console.warn('[assistente] falha da IA', { orgId: conv.orgId, tipo, error: (e as Error).message });
+    throw new HttpError(502, 'A IA não respondeu agora. Tente de novo em instantes.');
+  }
+}
+inboxRouter.post('/conversas/:id/resumo', ah((req, res) => assistente(req, res, 'resumo')));
+inboxRouter.post('/conversas/:id/sugestao', ah((req, res) => assistente(req, res, 'sugestao')));
 
 // ---------------- Respostas rápidas ----------------
 

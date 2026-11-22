@@ -1,3 +1,4 @@
+import { detectarOrigem, registrarOrigem } from '../origem/service.js';
 import { prisma } from '../db.js';
 import { parseWebhook, downloadCloudMedia, type InboundMessage } from './cloudClient.js';
 import { decryptOrNull } from '../lib/crypto.js';
@@ -164,6 +165,16 @@ export async function handleInboundMessage(channel: Channel, m: InboundMessage, 
     // Cada WhatsApp conectado tem a sua conversa com o cliente: a resposta sai pelo mesmo número
     // que recebeu (antes a conversa era única por contato e a resposta saía pelo primeiro número).
     let conv = await openConversationFor(orgId, contact!.id, channel.id);
+
+    // v1.44.0: origem do lead — código de um link de origem no texto ("Olá! [ref:instagram-bio]") ou anúncio
+    // Click-to-WhatsApp (referral da API oficial). O código sai do texto antes de gravar (IA e equipe veem só "Olá!").
+    if (m.referral || (m.type === 'text' && m.text)) {
+      const origem = await detectarOrigem(orgId, m.text, m.referral).catch(() => null);
+      if (origem) {
+        if (origem.texto !== undefined) m = { ...m, text: origem.texto || 'Olá' };
+        await registrarOrigem(contact!, conv, origem);
+      }
+    }
 
     // v1.22.0: resposta automática do lead (saudação/ausência, menu, "estou dirigindo"...) logo depois de um envio nosso.
     // Verificada ANTES de gravar, dentro da trava do contato: a mensagem já nasce marcada e nenhuma qualificação,

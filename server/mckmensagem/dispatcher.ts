@@ -4,7 +4,8 @@ import { openConversationFor } from '../whatsapp/multiCanal.js';
 import { TZ } from './constants.js';
 import { isProductActive } from '../billing/service.js';
 import type { Campaign, Lead } from '@prisma/client';
-import { verificarEnvioEmMassa } from '../whatsapp/protecao/service.js';
+import { verificarEnvioEmMassa, saudeDoNumero } from '../whatsapp/protecao/service.js';
+import type { NivelSaude } from '../whatsapp/protecao/core.js';
 
 type Sender = typeof sendOutbound;
 let sender: Sender = sendOutbound;
@@ -43,7 +44,47 @@ export function personalize(message: string, lead: Pick<Lead, 'name'>): string {
   return message.replace(/\{\s*nome\s*\}/gi, first).replace(/[ \t]+([,.!?])/g, '$1').replace(/[ \t]{2,}/g, ' ').trim();
 }
 
-export type TickResult = { campaignId: string; action: 'sent' | 'failed' | 'skipped' | 'outside_window' | 'daily_limit' | 'waiting_interval' | 'completed' | 'subscription_inactive' | 'number_protection' }[];
+export type TickResult = { campaignId: string; action: 'sent' | 'failed' | 'skipped' | 'outside_window' | 'daily_limit' | 'waiting_interval' | 'completed' | 'subscription_inactive' | 'number_protection' | 'number_risk' }[];
+
+// ---------------- v1.44.0: pausa automática com o número em Risco ----------------
+export const PAUSA_RISCO_AUTO = 'Campanha pausada automaticamente: o número está em nível Risco na Saúde do número (Canais). Ela volta sozinha quando o nível melhorar.';
+export const PAUSA_RISCO_MANUAL = 'Campanha pausada automaticamente: o número está em nível Risco na Saúde do número (Canais). Veja as dicas do painel e clique em Retomar quando quiser continuar.';
+export type DecisaoRisco = 'pausar' | 'pausar_manual' | 'manter' | 'retomar' | 'seguir';
+
+/** O que fazer com a campanha conforme o nível do número. Puro. nivel null = não deu para avaliar agora. */
+export function decisaoRisco(a: { nivel: NivelSaude | null; retomada: string; pausada: boolean }): DecisaoRisco {
+  if (a.nivel === 'RISCO') return a.retomada === 'manual' ? 'pausar_manual' : 'pausar';
+  if (a.nivel === null) return a.pausada ? 'manter' : 'seguir';
+  return a.pausada ? 'retomar' : 'seguir';
+}
+
+async function notaCampanha(c: Campaign, texto: string) {
+  console.warn('[mckmensagem] campanha', { campaignId: c.id, orgId: c.orgId, aviso: texto });
+}
+
+/** Confere a Saúde do número (só QR) antes de enviar. Devolve 'number_risk' quando a campanha deve esperar. */
+async function travaRisco(c: Campaign, now: Date): Promise<'number_risk' | null> {
+  const channel = await prisma.channel.findFirst({ where: { id: c.channelId, orgId: c.orgId } });
+  const qr = channel?.provider === 'whatsapp_qr';
+  const nivel = qr ? ((await saudeDoNumero(channel!, now).catch(() => null))?.nivel ?? null) : 'BOM';
+  const d = decisaoRisco({ nivel, retomada: c.riscoRetomada, pausada: !!c.riscoPausa });
+  if (d === 'pausar' || d === 'pausar_manual') {
+    const motivo = d === 'pausar' ? PAUSA_RISCO_AUTO : PAUSA_RISCO_MANUAL;
+    if (c.riscoPausa !== motivo || d === 'pausar_manual') {
+      await prisma.campaign.update({ where: { id: c.id }, data: { riscoPausa: motivo, riscoPausaEm: now, ...(d === 'pausar_manual' ? { status: 'PAUSADA' } : {}) } });
+      if (c.riscoPausa !== motivo) await notaCampanha(c, motivo);
+      c.riscoPausa = motivo;
+    }
+    return 'number_risk';
+  }
+  if (d === 'manter') return 'number_risk';
+  if (d === 'retomar') {
+    await prisma.campaign.update({ where: { id: c.id }, data: { riscoPausa: null, riscoPausaEm: null } });
+    await notaCampanha(c, 'Campanha retomada: o número saiu do nível Risco.');
+    c.riscoPausa = null;
+  }
+  return null;
+}
 
 /** Um passo do disparador: no máximo um envio por campanha EM_ANDAMENTO por chamada. */
 export async function tick(now = new Date()): Promise<TickResult> {
@@ -73,6 +114,8 @@ async function stepCampaign(c: Campaign, now: Date): Promise<TickResult[number][
     next = last?.sentAt ? last.sentAt.getTime() + c.minIntervalSec * 1000 : 0;
   }
   if (now.getTime() < next) return 'waiting_interval';
+  // v1.44.0: número em nível Risco na Saúde do número → pausa (volta sozinha ou espera o Retomar, conforme a campanha).
+  if (await travaRisco(c, now)) return 'number_risk';
 
   // Pula (IGNORADA) quem não pode receber até achar alguém elegível.
   for (;;) {

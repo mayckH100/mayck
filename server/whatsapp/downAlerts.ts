@@ -99,7 +99,7 @@ export async function tickDownAlerts(now = new Date(), opts: { bootAt?: Date } =
   const bootAt = opts.bootAt ?? new Date(processBootAt);
   if (now.getTime() - bootAt.getTime() < BOOT_GRACE_MS) return { alerts: 0, reminders: 0, back: 0 };
   const channels = await prisma.channel.findMany({
-    where: { OR: [{ status: 'CONNECTED' }, { waUpSeenAt: { not: null } }] },
+    where: { provider: { not: 'site' }, OR: [{ status: 'CONNECTED' }, { waUpSeenAt: { not: null } }] },
     orderBy: { id: 'asc' }, take: 2000,
   });
   const out = { alerts: 0, reminders: 0, back: 0 };
@@ -130,7 +130,7 @@ const hourSP = (d: Date) => Number(d.toLocaleString('en-US', { timeZone: 'Americ
 /** Canais fora do ar há mais de 1 h (episódios do monitor), de todas as organizações. */
 export async function channelsDownOverHour(now = new Date()) {
   const rows = await prisma.channel.findMany({
-    where: { status: { not: 'CONNECTED' }, waDownSince: { lte: new Date(now.getTime() - DIGEST_MIN_DOWN_MS) } },
+    where: { provider: { not: 'site' }, status: { not: 'CONNECTED' }, waDownSince: { lte: new Date(now.getTime() - DIGEST_MIN_DOWN_MS) } },
     orderBy: { waDownSince: 'asc' }, take: 500,
   });
   const orgIds = [...new Set(rows.map((r) => r.orgId))];

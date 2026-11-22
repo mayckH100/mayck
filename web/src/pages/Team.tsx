@@ -75,7 +75,7 @@ function MemberPerms({ m, perms, channels, onSaved, soErp }: { m: any; perms: Pe
 export default function Team({ erp = false }: { erp?: boolean }) {
   const soErp = erp;
   const state = useApi<any>('/team');
-  const chState = useApi<any[]>('/channels');
+  const chState = useApi<any[]>('/channels?site=1');
   const { me, can } = useAuth();
   const [email, setEmail] = useState('');
   const [role, setRole] = useState<'ADMIN' | 'AGENT'>('AGENT');

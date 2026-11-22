@@ -27,6 +27,8 @@ export interface Campaign {
   /** v1.43.0: repescagem automática de quem não respondeu. */
   repescagemAtiva?: boolean; repescagemDias?: number; repescagemMax?: number; repescagemModelo?: string;
   repescagemPausa?: string | null; repescagemPausaEm?: string | null;
+  /** v1.44.0: pausa automática com o número em nível Risco. */
+  riscoRetomada?: 'auto' | 'manual'; riscoPausa?: string | null; riscoPausaEm?: string | null;
 }
 export interface Metrics {
   totalLeads: number; byStatus: Record<LeadStatus, number>; sent: number; failed: number; optOuts: number;

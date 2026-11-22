@@ -23,7 +23,7 @@ function ChannelSelect({ value, onChange, channels }: { value: string; onChange:
   );
 }
 
-type Form = { name: string; message: string; channelId: string; dailyLimit: number; minIntervalSec: number; maxIntervalSec: number; windowStart: string; windowEnd: string } & RepescagemForm;
+type Form = { name: string; message: string; channelId: string; dailyLimit: number; minIntervalSec: number; maxIntervalSec: number; windowStart: string; windowEnd: string; riscoRetomada: 'auto' | 'manual' } & RepescagemForm;
 
 function CampaignForm({ initial, onClose, onSaved }: { initial?: Campaign; onClose: () => void; onSaved: (c: Campaign) => void }) {
   const channels = useApi<ChannelLite[]>('/channels');
@@ -31,9 +31,9 @@ function CampaignForm({ initial, onClose, onSaved }: { initial?: Campaign; onClo
   const [f, setF] = useState<Form>(() => initial
     ? {
       name: initial.name, message: initial.message, channelId: initial.channelId, dailyLimit: initial.dailyLimit, minIntervalSec: initial.minIntervalSec, maxIntervalSec: initial.maxIntervalSec, windowStart: initial.windowStart, windowEnd: initial.windowEnd,
-      repescagemAtiva: !!initial.repescagemAtiva, repescagemDias: initial.repescagemDias ?? 2, repescagemMax: initial.repescagemMax ?? 2, repescagemModelo: initial.repescagemModelo ?? '',
+      repescagemAtiva: !!initial.repescagemAtiva, repescagemDias: initial.repescagemDias ?? 2, repescagemMax: initial.repescagemMax ?? 2, repescagemModelo: initial.repescagemModelo ?? '', riscoRetomada: initial.riscoRetomada ?? 'auto',
     }
-    : { name: '', message: 'Olá {nome}! ', channelId: '', ...SAFE_DEFAULTS, repescagemAtiva: true, repescagemDias: 2, repescagemMax: 2, repescagemModelo: '' });
+    : { name: '', message: 'Olá {nome}! ', channelId: '', ...SAFE_DEFAULTS, repescagemAtiva: true, repescagemDias: 2, repescagemMax: 2, repescagemModelo: '', riscoRetomada: 'auto' });
   const [previewName, setPreviewName] = useState('Ana Souza');
   const { busy, run } = useAction();
   // Um único número conectado: já vem selecionado.
@@ -81,6 +81,12 @@ function CampaignForm({ initial, onClose, onSaved }: { initial?: Campaign; onClo
         </div>
         {intervalErr && <div className="alert err">O intervalo mínimo não pode ser maior que o máximo.</div>}
         <RepescagemFields f={f} set={(k, v) => setF((x) => ({ ...x, [k]: v }))} campaignId={initial?.id} />
+        <Field label="Se o número entrar em nível Risco (Saúde do número)" hint="A campanha pausa sozinha para proteger o número contra bloqueio.">
+          <select value={f.riscoRetomada} onChange={(e) => set('riscoRetomada', e.target.value as 'auto' | 'manual')}>
+            <option value="auto">Pausar e retomar sozinha quando o nível melhorar</option>
+            <option value="manual">Pausar e esperar eu clicar em Retomar</option>
+          </select>
+        </Field>
         <div className={`alert ${risky ? 'warn' : 'info'}`}>
           <strong>Boas práticas:</strong> envie só para quem autorizou, comece devagar (até {SAFE_DEFAULTS.dailyLimit}/dia em números novos), mantenha intervalos de {SAFE_DEFAULTS.minIntervalSec}–{SAFE_DEFAULTS.maxIntervalSec}s, respeite o horário comercial e ofereça sempre a opção de sair. Envios em massa sem consentimento podem bloquear o número.
           {risky && <div style={{ marginTop: 4 }}>⚠ Os limites escolhidos estão acima do recomendado.</div>}
@@ -198,6 +204,7 @@ function CampaignDetail({ id, list, reload }: { id: string; list: Campaign[]; re
         </div>
       </div>
       <div className="stack">
+        {c.riscoPausa && <div className="alert warn">⚠ {c.riscoPausa} <a href="/canais">Ver Saúde do número ↗</a></div>}
         <div className="card stack"><h2 style={{ margin: 0 }}>Progresso</h2><Progress c={c} /></div>
         <Async state={metrics}>{(m) => <MetricsView m={m} />}</Async>
         <CampaignGroups c={c} />
@@ -256,6 +263,7 @@ export default function MmCampaigns() {
                 <CampaignBadge status={c.status} />
               </div>
               <Progress c={c} />
+              {c.riscoPausa && <div className="small" style={{ color: '#b7791f' }} title={c.riscoPausa}>⚠ Pausada: número em nível Risco{c.status === 'PAUSADA' ? ' — clique em Retomar quando quiser' : ' — volta sozinha quando melhorar'}</div>}
               {c.repescagemPausa && <div className="small" style={{ color: '#b7791f' }}>⚠ Repescagem pausada — veja os detalhes</div>}
               <div className="row between">
                 <Actions c={c} a={a} onEdit={() => setEditing(c)} compact />

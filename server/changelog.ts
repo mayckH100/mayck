@@ -21,6 +21,19 @@ export type EntradaChangelog = {
 
 export const CHANGELOG: EntradaChangelog[] = [
   {
+    versao: '1.44.0',
+    data: '22/11/2026',
+    titulo: 'Inbox com assistente da IA e cobrança Pix, chat para o seu site e saiba de onde veio cada cliente',
+    itens: [
+      'Assistente no Inbox: o botão "Resumo" mostra a conversa em poucas linhas, com o próximo passo, e o "Sugerir resposta" escreve um rascunho no campo de mensagem usando a IA da empresa e a base de conhecimento. Você revisa e envia; nada sai sozinho.',
+      'Cobrança Pix na conversa: cadastre a chave Pix da empresa uma vez e, no Inbox, clique em "💠 Cobrar Pix", informe o valor e o cliente recebe o QR code e o código "Pix copia e cola". O dinheiro cai direto na sua conta, sem taxa. Depois de conferir no extrato, marque como paga.',
+      'Chat para o seu site: em Canais, crie o chat, escolha a cor e a mensagem de boas-vindas e copie o código para o seu site. O visitante conversa por um botão no canto da tela e a mensagem chega no Inbox como "Site", com IA, fluxos, distribuição e horário de atendimento.',
+      'Links de origem: em Relatórios › Origem dos leads, crie um link de WhatsApp para cada lugar onde você divulga (bio do Instagram, panfleto, Google). Quando o cliente chama, o sistema registra de onde ele veio. Anúncios de clique para o WhatsApp da API oficial são marcados sozinhos.',
+      'Relatórios mostram conversas e clientes novos por origem, e a origem aparece no topo de cada conversa do Inbox.',
+      'Campanhas mais seguras: se o número ficar em nível Risco na Saúde do número, a campanha pausa sozinha e avisa. Você escolhe se ela volta sozinha quando o nível melhorar ou se espera você clicar em Retomar.',
+    ],
+  },
+  {
     versao: '1.43.0',
     data: '22/11/2026',
     titulo: 'Campanhas: veja quem respondeu, quem leu e quem não viu, e a repescagem automática fala de novo com quem não respondeu',

@@ -43,7 +43,7 @@ conversationsRouter.get('/', ah(async (req, res) => {
   const convs = await prisma.conversation.findMany({ where, orderBy: { lastMessageAt: 'desc' }, take: 100 });
   const contacts = await prisma.contact.findMany({ where: { orgId, id: { in: convs.map((c) => c.contactId) } } });
   const lastMsgs = await Promise.all(convs.map((c) => prisma.message.findFirst({ where: { orgId, conversationId: c.id, direction: { in: ['IN', 'OUT'] } }, orderBy: { createdAt: 'desc' } })));
-  const qrIds = new Set((await prisma.channel.findMany({ where: { orgId, provider: 'whatsapp_qr' }, select: { id: true } })).map((c) => c.id));
+  const qrIds = new Set((await prisma.channel.findMany({ where: { orgId, provider: { in: ['whatsapp_qr', 'site'] } }, select: { id: true } })).map((c) => c.id));
   const counts = await prisma.conversation.groupBy({ by: ['status'], where: { orgId, ...channelWhere(req) }, _count: { _all: true } });
   const labels = await channelLabels(orgId);
   res.json({

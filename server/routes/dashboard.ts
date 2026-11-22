@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { agruparOrigens } from '../origem/core.js';
 import { resumoCsat } from '../inbox/service.js';
 import { mediaCsat } from '../inbox/core.js';
 import { channelLabels } from '../whatsapp/channelLabel.js';
@@ -33,7 +34,7 @@ dashboardRouter.get('/dashboard', ah(async (req, res) => {
     prisma.flowRun.groupBy({ by: ['status'], where: { orgId, startedAt: { gte: since7 } }, _count: { _all: true } }),
     prisma.flowRun.findMany({ where: { orgId, status: 'FAILED' }, orderBy: { updatedAt: 'desc' }, take: 5, select: { id: true, flowId: true, error: true, updatedAt: true, conversationId: true } }),
     prisma.message.findMany({ where: { orgId, direction: 'OUT', status: 'FAILED' }, orderBy: { createdAt: 'desc' }, take: 5, select: { id: true, error: true, createdAt: true, conversationId: true, body: true } }),
-    prisma.channel.findMany({ where: { orgId }, select: { id: true, name: true, status: true, displayPhone: true, lastError: true, lastWebhookAt: true } }),
+    prisma.channel.findMany({ where: { orgId, provider: { not: 'site' } }, select: { id: true, name: true, status: true, displayPhone: true, lastError: true, lastWebhookAt: true } }),
     prisma.aiSettings.findUnique({ where: { orgId } }),
     prisma.aiUsage.groupBy({ by: ['success'], where: { orgId, createdAt: { gte: since30 } }, _count: { _all: true } }),
     prisma.aiUsage.aggregate({ where: { orgId, createdAt: { gte: since30 } }, _sum: { promptTokens: true, completionTokens: true } }),
@@ -124,6 +125,13 @@ dashboardRouter.get('/reports', ah(async (req, res) => {
   // v1.41.0: pesquisa de satisfação (notas respondidas no período, pela data da resposta).
   const csat = await resumoCsat(orgId, since);
   const notas = csat.respondidas.map((r) => r.score!).filter((n) => n >= 1 && n <= 5);
+  // v1.44.0: origem do lead — conversas novas e contatos novos (1º contato) no período, por origem.
+  const [convOrigem, leadsOrigem, linksOrigem] = await Promise.all([
+    prisma.conversation.findMany({ where: { orgId, createdAt: { gte: since } }, select: { origem: true } }),
+    prisma.contact.findMany({ where: { orgId, createdAt: { gte: since } }, select: { origem: true } }),
+    prisma.origemLink.findMany({ where: { orgId }, select: { code: true, name: true } }),
+  ]);
+  const origens = agruparOrigens(convOrigem.map((c) => c.origem), leadsOrigem.map((c) => c.origem), new Map(linksOrigem.map((l) => [l.code, l.name])));
   const bySender = (s: string) => msgs.filter((m) => m.direction === 'OUT' && m.sender === s && SENT.includes(m.status)).length;
   res.json({
     days,
@@ -150,6 +158,7 @@ dashboardRouter.get('/reports', ah(async (req, res) => {
       const minhas = csat.respondidas.filter((r) => r.assignedUserId === a.user.id).map((r) => r.score!);
       return { id: a.user.id, name: a.user.name, role: a.role, sent: msgs.filter((m) => m.sender === 'agent' && m.authorUserId === a.user.id && SENT.includes(m.status)).length, csatAverage: mediaCsat(minhas), csatCount: minhas.length };
     }),
+    origens,
     csat: { average: mediaCsat(notas), count: notas.length, asked: csat.enviadas, distribution: [1, 2, 3, 4, 5].map((n) => ({ score: n, count: notas.filter((x) => x === n).length })) },
   });
 }));

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useApi, Async, fmtNum, fmtDuration, Empty, StatusBadge } from '../ui';
+import { OrigemCard } from './OrigemLinks';
 
 function Bars({ series, keys }: { series: any[]; keys: { k: string; color: string; label: string }[] }) {
   const max = Math.max(1, ...series.map((s) => keys.reduce((a, k) => a + s[k.k], 0)));
@@ -64,6 +65,7 @@ export default function Reports() {
               <table className="small"><thead><tr><th>Pessoa</th><th>Mensagens enviadas</th><th title="Média da pesquisa de satisfação das conversas que a pessoa atendeu">Satisfação</th></tr></thead><tbody>{r.agents.map((a: any) => <tr key={a.id}><td>{a.name}</td><td>{a.sent}</td><td>{a.csatCount ? `${String(a.csatAverage).replace('.', ',')} (${a.csatCount})` : '—'}</td></tr>)}</tbody></table>
             </div>
           </div>
+          {r.origens && <OrigemCard origens={r.origens} />}
           {r.csat && (
             <div className="card"><h2>Pesquisa de satisfação</h2>
               {r.csat.count === 0 ? <p className="small muted">Nenhuma nota no período. {r.csat.asked ? `${r.csat.asked} pesquisa(s) enviada(s) ainda sem nota.` : 'Ligue a pesquisa no Inbox › ⚙️ Atendimento › Pesquisa de satisfação.'}</p> : (

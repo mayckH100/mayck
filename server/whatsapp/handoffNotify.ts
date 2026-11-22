@@ -54,7 +54,7 @@ export async function saveNotifyStatus(orgId: string, st: Omit<NotifyStatus, 'at
 
 /** Canais que podem enviar, o da conversa primeiro. */
 async function candidateChannels(orgId: string, preferredChannelId?: string | null) {
-  const chans = await prisma.channel.findMany({ where: { orgId }, orderBy: { createdAt: 'asc' } });
+  const chans = await prisma.channel.findMany({ where: { orgId, provider: { not: 'site' } }, orderBy: { createdAt: 'asc' } });
   return chans.sort((a, b) => (a.id === preferredChannelId ? -1 : b.id === preferredChannelId ? 1 : 0));
 }
 

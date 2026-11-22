@@ -348,6 +348,9 @@ model Contact {
   lastMessageAt DateTime?
   /// v1.41.0: última mensagem automática de "fora do horário" enviada a este contato (máx. 1 a cada X horas).
   awayMessageAt DateTime?
+  /// v1.44.0: origem do lead (1º contato): código do link de origem ("instagram-bio") ou "anuncio" (Click-to-WhatsApp).
+  origem        String?
+  origemEm      DateTime?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
@@ -396,6 +399,9 @@ model Conversation {
   voicePreference    String?
   /// v1.41.0: quando a conversa foi distribuída automaticamente para o atendente (rodízio / menos ocupado).
   assignedAt         DateTime?
+  /// v1.44.0: origem desta conversa (link de origem, anúncio Click-to-WhatsApp ou "site") e detalhe (JSON do anúncio).
+  origem             String?
+  origemDetalhe      String?
   createdAt          DateTime  @default(now())
 
   @@index([orgId, status])
@@ -710,6 +716,10 @@ model Campaign {
   /// Aviso de pausa automática (ex.: número em nível Risco). Nulo = rodando normalmente.
   repescagemPausa  String?
   repescagemPausaEm DateTime?
+  /// v1.44.0: pausa automática quando o número da campanha fica em nível Risco. auto = volta sozinha | manual = fica PAUSADA.
+  riscoRetomada  String    @default("auto")
+  riscoPausa     String?
+  riscoPausaEm   DateTime?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
@@ -2807,4 +2817,68 @@ model ScheduledMessage {
 
   @@index([status, sendAt])
   @@index([orgId, conversationId])
+}
+
+/// v1.44.0: chave Pix da empresa para cobranças na conversa (BR Code estático, sem intermediário).
+model PixSettings {
+  orgId     String   @id
+  /// cpf | cnpj | email | telefone | aleatoria
+  keyType   String
+  key       String
+  name      String
+  city      String
+  updatedAt DateTime @updatedAt
+}
+
+/// v1.44.0: cobrança Pix enviada numa conversa do Inbox (baixa manual).
+model PixCharge {
+  id             String    @id @default(cuid())
+  orgId          String
+  conversationId String
+  contactId      String
+  amountCents    Int
+  description    String    @default("")
+  txid           String
+  code           String
+  /// PENDENTE | PAGA | CANCELADA
+  status         String    @default("PENDENTE")
+  /// Token aleatório da imagem pública do QR (chat do site).
+  publicToken    String    @unique
+  createdById    String?
+  paidAt         DateTime?
+  paidById       String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([orgId, createdAt])
+  @@index([conversationId])
+}
+
+/// v1.44.0: links wa.me rastreáveis ("Olá! [ref:instagram-bio]") para saber de onde veio cada conversa.
+model OrigemLink {
+  id        String   @id @default(cuid())
+  orgId     String
+  code      String
+  name      String
+  channelId String?
+  text      String   @default("Olá!")
+  createdAt DateTime @default(now())
+
+  @@unique([orgId, code])
+}
+
+/// v1.44.0: chat para o site do cliente (um por canal do tipo "site").
+model SiteWidget {
+  channelId      String   @id
+  orgId          String
+  /// Identificador público usado no <script data-org="...">.
+  publicKey      String   @unique
+  color          String   @default("#d90429")
+  title          String   @default("Fale com a gente")
+  welcome        String   @default("Olá! Como podemos ajudar?")
+  /// Domínios autorizados (um por linha). Vazio = qualquer site.
+  allowedOrigins String   @default("")
+  /// Pedir nome (e WhatsApp opcional) antes da 1ª mensagem.
+  askName        Boolean  @default(true)
+  updatedAt      DateTime @updatedAt
 }

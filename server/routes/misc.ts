@@ -134,7 +134,7 @@ orgRouter.patch('/', requireRole('OWNER', 'ADMIN'), ah(async (req, res) => {
 orgRouter.get('/handoff-notify', requireRole('OWNER', 'ADMIN'), ah(async (req, res) => {
   const orgId = orgOf(req);
   const org = await prisma.organization.findUniqueOrThrow({ where: { id: orgId } });
-  const chans = await prisma.channel.findMany({ where: { orgId }, orderBy: { createdAt: 'asc' }, select: { id: true, displayPhone: true, status: true } });
+  const chans = await prisma.channel.findMany({ where: { orgId, provider: { not: 'site' } }, orderBy: { createdAt: 'asc' }, select: { id: true, displayPhone: true, status: true } });
   const labels = await channelLabels(orgId);
   const me = await prisma.user.findUnique({ where: { id: req.auth!.userId }, select: { phone: true } });
   res.json({

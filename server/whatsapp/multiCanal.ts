@@ -40,7 +40,7 @@ export async function openConversationFor(orgId: string, contactId: string, chan
 /** Conversa com atendimento em andamento do mesmo contato em OUTRO WhatsApp conectado da organização. */
 export async function activeConversationElsewhere(conv: Conversation, channel: Channel, now = new Date()): Promise<Conversation | null> {
   const since = new Date(now.getTime() - ATENDIMENTO_ATIVO_JANELA_MS);
-  const outros = await prisma.channel.findMany({ where: { orgId: conv.orgId, id: { not: channel.id }, status: 'CONNECTED' }, select: { id: true } });
+  const outros = await prisma.channel.findMany({ where: { orgId: conv.orgId, id: { not: channel.id }, status: 'CONNECTED', provider: { not: 'site' } }, select: { id: true } });
   if (!outros.length) return null;
   return prisma.conversation.findFirst({
     where: {

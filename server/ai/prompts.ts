@@ -12,6 +12,8 @@ export const PROMPT_VERSIONS = {
   voz: 'voz-reescrita@2026-11-07',
   revisao: 'revisao@2026-11-08',
   repescagem: 'repescagem@2026-11-22',
+  'assistente-resumo': 'assistente-resumo@2026-11-22',
+  'assistente-sugestao': 'assistente-sugestao@2026-11-22',
 } as const;
 
 export type AiPurpose = keyof typeof PROMPT_VERSIONS;
@@ -27,6 +29,8 @@ export const PURPOSE_LABEL: Record<string, string> = {
   voz: 'Voz',
   revisao: 'Revisão da resposta',
   repescagem: 'Campanhas: repescagem de quem não respondeu',
+  'assistente-resumo': 'Inbox: resumo da conversa (assistente)',
+  'assistente-sugestao': 'Inbox: sugestão de resposta (assistente)',
   outros: 'Outros (antes da 1.35.0)',
 };
 
