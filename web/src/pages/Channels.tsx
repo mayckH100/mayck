@@ -5,6 +5,7 @@ import AvisoNumeroBanner from '../AvisoNumeroBanner';
 import { useApi, Async, Empty, useAction, Modal, Field, fmtDate, StatusBadge, useToast, copy } from '../ui';
 import { fmtWaDownSince } from '../WaDownBanner';
 import SiteChat from './SiteChat';
+import { AquecimentoNumero, TEXTO_AQUECIMENTO_HONESTO } from './AquecimentoNumero';
 
 /** "Quem responde automaticamente" no canal: só fluxos, só IA, ou fluxos + IA (padrão). */
 const AUTO_REPLY_OPTIONS: { v: 'flows' | 'ai' | 'both'; label: string; help: string }[] = [
@@ -158,6 +159,7 @@ export default function Channels() {
               <div className="grid g4" style={{ gap: 8 }}>
                 {[['Hoje', c.stats.today], ['7 dias', c.stats.d7], ['30 dias', c.stats.d30], ['Total', c.stats.total]].map(([l, v]) => <div key={l as string} className="stat"><div className="l">{l}</div><div className="v" style={{ fontSize: 18 }}>{v}</div></div>)}
               </div>
+              {c.provider === 'whatsapp_qr' && <AquecimentoNumero c={c} admin={admin} />}
               <SaudeNumero c={c} admin={admin} />
               {admin && (
                 <div className="row">
@@ -454,6 +456,7 @@ const pctTxt = (v: number | null) => (v === null ? '—' : `${(v * 100).toFixed(
 /** Painel "Saúde do número" no cartão do canal (níveis Bom/Atenção/Risco, números de hoje e da semana, dicas e limites). */
 function SaudeNumero({ c, admin }: { c: any; admin: boolean }) {
   const [open, setOpen] = useState(false);
+  const [limites, setLimites] = useState(false);
   const st = useApi<any>(`/channels/${c.id}/saude`, [c.id]);
   const s = st.data;
   return (
@@ -475,15 +478,27 @@ function SaudeNumero({ c, admin }: { c: any; admin: boolean }) {
             7 dias: {s.numeros.conversas7d} contato(s) em envios em massa · {s.numeros.responderam7d} respondeu(ram) · {s.numeros.saidas7d} pediu(ram) para sair · {s.numeros.bloqueios7d} bloqueio(s)/número sem WhatsApp · {s.numeros.desconexoes7d} desconexão(ões)
             {s.taxaResposta === null && ' · taxas aparecem a partir de 20 envios em massa na semana'}
           </div>
+          {s.qr && (s.numeros.aquecimentoHoje > 0 || s.numeros.aquecimento7d > 0) && (
+            <div className="muted" title="Conversas automáticas entre os seus próprios números (não entram nas taxas acima)">🔥 Aquecimento: {s.numeros.aquecimentoHoje} enviada(s) e {s.numeros.aquecimentoRecebidasHoje} recebida(s) hoje · {s.numeros.aquecimento7d} enviada(s) em 7 dias</div>
+          )}
           {s.motivos.length > 0 && <ul style={{ margin: 0, paddingLeft: 18 }}>{s.motivos.map((m: string) => <li key={m}>{m}</li>)}</ul>}
-          <button type="button" className="linklike small" style={{ alignSelf: 'flex-start' }} onClick={() => setOpen(!open)}>{open ? 'Ocultar detalhes' : 'Dicas, desconexões e limites'}</button>
+          <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
+            {s.qr && <button type="button" className="btn sm" onClick={() => setLimites(true)}>🛡️ Limites de envio em massa</button>}
+            <button type="button" className="linklike small" onClick={() => setOpen(!open)}>{open ? 'Ocultar dicas' : 'Dicas e desconexões'}</button>
+          </div>
+          {limites && (
+            <Modal title={`🛡️ Limites de envio — ${c.label ?? c.name}`} onClose={() => setLimites(false)}>
+              <div className="alert small" style={{ marginBottom: 8 }}>{TEXTO_AQUECIMENTO_HONESTO}</div>
+              <ProtecaoForm c={c} s={s} admin={admin} onSaved={() => { st.reload(); setLimites(false); }} />
+            </Modal>
+          )}
           {open && (
             <div className="stack" style={{ gap: 8 }}>
               <div><strong>Dicas</strong><ul style={{ margin: '4px 0 0', paddingLeft: 18 }}>{s.dicas.map((d: string) => <li key={d}>{d}</li>)}</ul></div>
               <div><strong>Desconexões recentes</strong>{s.eventos.length === 0 ? <div className="muted">Nenhuma nos últimos 30 dias.</div> : (
                 <ul style={{ margin: '4px 0 0', paddingLeft: 18 }}>{s.eventos.map((e: any, i: number) => <li key={i}>{fmtDate(e.createdAt)} · {EVENTO[e.type] ?? e.type}{e.detail ? <span className="muted"> ({e.detail})</span> : null}</li>)}</ul>
               )}</div>
-              {s.qr ? <ProtecaoForm c={c} s={s} admin={admin} onSaved={st.reload} /> : <div className="muted">API oficial: os limites de envio são os da Meta (qualidade e nível do número no Gerenciador do WhatsApp). Os números acima continuam valendo.</div>}
+              {s.qr ? null : <div className="muted">API oficial: os limites de envio são os da Meta (qualidade e nível do número no Gerenciador do WhatsApp). Os números acima continuam valendo.</div>}
             </div>
           )}
         </>
@@ -513,7 +528,7 @@ function ProtecaoForm({ c, s, admin, onSaved }: { c: any; s: any; admin: boolean
           <Field label="Intervalo mínimo entre envios (s)" hint="Sorteado entre o mínimo e o máximo"><input type="number" min={3} max={600} value={f.minGapSec} onChange={num('minGapSec')} /></Field>
           <Field label="Intervalo máximo entre envios (s)" hint="Padrão 20 a 60 s"><input type="number" min={3} max={900} value={f.maxGapSec} onChange={num('maxGapSec')} /></Field>
         </div>
-        <label className="row"><input type="checkbox" checked={!!f.warmupEnabled} onChange={(e) => setF({ ...f, warmupEnabled: e.target.checked })} /> Aquecimento de número novo (20 → 50 → 100 por dia nos primeiros dias)</label>
+        <label className="row"><input type="checkbox" checked={!!f.warmupEnabled} onChange={(e) => setF({ ...f, warmupEnabled: e.target.checked })} /> Limite menor para número novo nos envios em massa (20 → 50 → 100 por dia nos primeiros dias). As conversas automáticas ficam em “🔥 Aquecer número”.</label>
         <Field label="Dias de aquecimento" hint={s.limites.aquecendo ? `Em aquecimento: dia ${s.limites.diaAquecimento}, até ${s.limites.dia} envios em massa hoje.` : 'Padrão 14 dias, contados desde que o número foi adicionado.'}><input type="number" min={3} max={30} value={f.warmupDays} onChange={num('warmupDays')} /></Field>
         <label className="row"><input type="checkbox" checked={!!f.typingEnabled} onChange={(e) => setF({ ...f, typingEnabled: e.target.checked })} /> Mostrar “digitando…” antes das respostas automáticas (robô e IA)</label>
         {admin && (

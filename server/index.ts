@@ -22,6 +22,7 @@ import { tickWeeklyReport } from './lib/weeklyReport.js';
 import { tickSdr } from './sdr/service.js';
 import { startKeepAlive } from './lib/keepAlive.js';
 import { tickMensagensAgendadas } from './inbox/service.js';
+import { tickAquecimento } from './whatsapp/aquecimento/service.js';
 
 const app = createApp();
 const server = app.listen(config.PORT, () => {
@@ -98,6 +99,14 @@ if (config.ENABLE_SCHEDULER === 'true') {
     if (agendadasRunning) return;
     agendadasRunning = true;
     tickMensagensAgendadas().catch((e) => console.error('[inbox-agendadas]', (e as Error).message)).finally(() => { agendadasRunning = false; });
+  }, 30_000).unref();
+  // v1.45.0: aquecimento ativo dos números QR (conversas entre os números da própria empresa), a cada 30 s.
+  // Cada resposta e cada nova conversa têm trava atômica no banco. AQUECIMENTO=off desliga na hora.
+  let aquecimentoRunning = false;
+  setInterval(() => {
+    if (aquecimentoRunning || config.NODE_ENV === 'test') return;
+    aquecimentoRunning = true;
+    tickAquecimento().catch((e) => console.error('[aquecimento]', (e as Error).message)).finally(() => { aquecimentoRunning = false; });
   }, 30_000).unref();
   setInterval(() => {
     prisma.session.deleteMany({ where: { expiresAt: { lt: new Date() } } }).catch(() => undefined);

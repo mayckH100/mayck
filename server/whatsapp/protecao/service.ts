@@ -125,6 +125,12 @@ export async function saudeDoNumero(channel: Channel, now = new Date()) {
     saidas = await prisma.message.count({ where: { conversationId: { in: convIds }, direction: 'INTERNAL', createdAt: { gte: d7 }, body: { startsWith: OPT_OUT_NOTE } } });
   }
   const ev7 = eventos.filter((e) => e.createdAt >= d7);
+  // v1.45.0: aquecimento ativo (conversas entre os números da própria empresa) aparece separado e não entra nas taxas.
+  const [aquecimentoHoje, aquecimentoRecebidasHoje, aquecimento7d] = await Promise.all([
+    prisma.warmupMessage.count({ where: { channelId: channel.id, direction: 'OUT', kind: 'text', createdAt: { gte: diaIni } } }).catch(() => 0),
+    prisma.warmupMessage.count({ where: { channelId: channel.id, direction: 'IN', createdAt: { gte: diaIni } } }).catch(() => 0),
+    prisma.warmupMessage.count({ where: { channelId: channel.id, direction: 'OUT', kind: 'text', createdAt: { gte: d7 } } }).catch(() => 0),
+  ]);
   const dados = {
     qr, protecaoLigada: cfg.enabled, aquecendo: lim.aquecendo,
     enviadosHoje, emMassaHoje, emMassaHora, limiteDia: lim.dia, limiteHora: lim.hora, falhasHoje,
@@ -136,7 +142,7 @@ export async function saudeDoNumero(channel: Channel, now = new Date()) {
   const saude = avaliarSaude(dados);
   return {
     channelId: channel.id, qr, ...saude,
-    numeros: { enviadosHoje, enviadosHora, emMassaHoje, emMassaHora, falhasHoje, conversas7d: convIds.length, responderam7d: responderam, saidas7d: saidas, bloqueios7d: dados.bloqueios7d, desconexoes7d: dados.desconexoes7d },
+    numeros: { enviadosHoje, enviadosHora, emMassaHoje, emMassaHora, falhasHoje, conversas7d: convIds.length, responderam7d: responderam, saidas7d: saidas, bloqueios7d: dados.bloqueios7d, desconexoes7d: dados.desconexoes7d, aquecimentoHoje, aquecimentoRecebidasHoje, aquecimento7d },
     limites: { dia: lim.dia, hora: lim.hora, aquecendo: lim.aquecendo, diaAquecimento: lim.diaAquecimento, fimAquecimento: lim.fimAquecimento },
     config: { ...cfg, warmupStartedAt: row?.warmupStartedAt ?? null, inicioAquecimento },
     eventos: eventos.slice(0, 10).map((e) => ({ type: e.type, detail: e.detail, createdAt: e.createdAt })),

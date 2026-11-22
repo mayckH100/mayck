@@ -281,6 +281,95 @@ model ChannelHealthEvent {
   @@index([channelId, createdAt])
 }
 
+/// v1.45.0: aquecimento ATIVO do número QR (conversas automáticas entre os números da própria empresa).
+model WarmupConfig {
+  channelId      String    @id
+  orgId          String
+  enabled        Boolean   @default(false)
+  /// Duração em dias (padrão 14), contada a partir de startedAt.
+  days           Int       @default(14)
+  startedAt      DateTime?
+  /// Janela de horário (Brasília): início incluído, fim excluído.
+  startHour      Int       @default(8)
+  endHour        Int       @default(21)
+  /// Ids dos números (canais) que podem ser par deste, separados por vírgula. Vazio = todos os números próprios.
+  peerChannelIds String    @default("")
+  /// Este número pode responder/ajudar a aquecer os outros números da empresa.
+  allowAsPeer    Boolean   @default(true)
+  /// Gerar as frases com a IA da empresa (sem IA/cota: banco de frases local).
+  useAi          Boolean   @default(true)
+  /// Incluir os números próprios extras (celular pessoal etc.) cadastrados pela empresa.
+  useExtras      Boolean   @default(true)
+  /// Próxima conversa iniciada por este número (o agendador usa como trava atômica).
+  nextAt         DateTime?
+  /// Motivo da pausa automática (risco, desconectado...). Vazio = rodando.
+  pausedReason   String?
+  pausedAt       DateTime?
+  updatedAt      DateTime  @updatedAt
+
+  @@index([orgId])
+}
+
+/// v1.45.0: números próprios extras (até 5 por empresa) declarados pela empresa como dela, para o aquecimento.
+model WarmupExtraNumber {
+  id                String   @id @default(cuid())
+  orgId             String
+  /// Só dígitos com DDI (ex.: 5511999990000).
+  phone             String
+  label             String?
+  confirmedByUserId String?
+  confirmedAt       DateTime @default(now())
+  createdAt         DateTime @default(now())
+
+  @@unique([orgId, phone])
+}
+
+/// v1.45.0: mensagens do aquecimento. Ficam FORA de Message (não aparecem no Inbox, relatórios, IA ou fluxos).
+model WarmupMessage {
+  id            String   @id @default(cuid())
+  orgId         String
+  channelId     String
+  /// OUT = enviada por este número | IN = recebida por este número
+  direction     String
+  /// text | reaction
+  kind          String   @default("text")
+  peerChannelId String?
+  peerPhone     String?
+  body          String
+  waMessageId   String?
+  jid           String?
+  exchangeId    String?
+  /// ia | local
+  source        String?
+  createdAt     DateTime @default(now())
+
+  @@index([channelId, createdAt])
+  @@index([orgId, waMessageId])
+}
+
+/// v1.45.0: conversa de aquecimento em andamento (ida e volta entre dois números próprios).
+model WarmupExchange {
+  id                 String    @id @default(cuid())
+  orgId              String
+  initiatorChannelId String
+  peerChannelId      String
+  /// JSON: lista de falas; pares saem do número que iniciou, ímpares do par.
+  lines              String
+  nextIndex          Int       @default(1)
+  /// PENDENTE | ENVIANDO | CONCLUIDA | CANCELADA
+  status             String    @default("PENDENTE")
+  dueAt              DateTime
+  claimedAt          DateTime?
+  source             String    @default("local")
+  note               String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  @@index([status, dueAt])
+  @@index([initiatorChannelId])
+  @@index([peerChannelId])
+}
+
 /// Estado de autenticação do Baileys (modo QR), cifrado com a MASTER_KEY. Nada de sessão em disco local.
 /// type = "creds" (keyId vazio) ou o tipo de chave do Signal (pre-key, session, sender-key, app-state-sync-key...).
 model WaAuthState {

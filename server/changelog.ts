@@ -21,6 +21,19 @@ export type EntradaChangelog = {
 
 export const CHANGELOG: EntradaChangelog[] = [
   {
+    versao: '1.45.0',
+    data: '22/11/2026',
+    titulo: 'Aquecer número: conversas automáticas entre os seus próprios números do WhatsApp',
+    itens: [
+      'Em Canais, cada número conectado por QR code tem agora o bloco "🔥 Aquecimento do número", com o botão "🔥 Aquecer número" e o andamento: dia do aquecimento, nível, mensagens de hoje e mensagens recebidas.',
+      'Com dois ou mais números seus conectados, eles trocam mensagens casuais entre si, com ida e volta, "digitando…", leitura e às vezes uma reação. Começa com 10 a 15 mensagens no primeiro dia e sobe aos poucos até 60 a 80 por dia, só entre 8h e 21h (horário de Brasília), com intervalos longos e aleatórios.',
+      'Você escolhe quais números conversam entre si, a duração (padrão 14 dias) e o horário. Também dá para cadastrar até 5 números seus extras, como o seu celular pessoal, confirmando que são da empresa. O aquecimento nunca envia mensagens para clientes.',
+      'Essas mensagens não aparecem no Inbox, não acionam a IA nem os fluxos e não entram nos relatórios. Elas aparecem separadas na Saúde do número. Se o número ficar em Risco ou desconectar, o aquecimento pausa sozinho.',
+      'Número com menos de 14 dias e sem aquecimento ganha um aviso no cartão. Os limites de envio em massa saíram do link escondido e agora abrem pelo botão "🛡️ Limites de envio em massa".',
+      'Importante: o aquecimento reduz o risco, mas não garante que o WhatsApp não bloqueie o número. Usar o número normalmente (foto, nome, recado e conversas com contatos reais) também ajuda.',
+    ],
+  },
+  {
     versao: '1.44.0',
     data: '22/11/2026',
     titulo: 'Inbox com assistente da IA e cobrança Pix, chat para o seu site e saiba de onde veio cada cliente',

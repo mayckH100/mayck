@@ -26,6 +26,7 @@ import { isAudioType, duracaoPorExtenso, AUDIO_NAO_TRANSCRITO } from '../ai/voic
 import { isProductActive } from '../billing/service.js';
 import { tratarRespostaAprovacao } from '../erp/alertas/aprovacao.js';
 import { aoIrParaHumano, tratarRespostaCsat } from '../inbox/service.js';
+import { tratarRecebidoAquecimento } from './aquecimento/service.js';
 
 const OPT_OUT = new Set(['sair', 'parar', 'stop', 'descadastrar']);
 
@@ -281,11 +282,14 @@ export async function handleInboundMessage(channel: Channel, m: InboundMessage, 
 // ---------- Modo QR (Baileys) ----------
 
 /** Mensagem recebida pelo socket do Baileys → mesmo pipeline do webhook (contatos, conversas, fluxos, IA). */
-export async function handleQrMessage(channelId: string, raw: WAMessage): Promise<'ok' | 'duplicate' | 'ignored'> {
+export async function handleQrMessage(channelId: string, raw: WAMessage): Promise<'ok' | 'duplicate' | 'ignored' | 'aquecimento'> {
   const m = parseBaileysMessage(raw);
   if (!m) return 'ignored';
   const channel = await prisma.channel.findUnique({ where: { id: channelId } });
   if (!channel) return 'ignored';
+  // v1.45.0: mensagem de aquecimento entre os números da própria empresa. Fica só no aquecimento: não vira contato,
+  // conversa, lead nem relatório e não aciona IA, fluxos, SDR, distribuição, horário, pesquisa ou repescagem.
+  if (await tratarRecebidoAquecimento(channel, raw, m)) return 'aquecimento';
   await prisma.channel.update({ where: { id: channel.id }, data: { lastWebhookAt: new Date() } });
   const audio = normalizeMessageContent(raw.message)?.audioMessage ?? null;
   const baixar: BaixarMidia | undefined = m.type === 'audio'

@@ -18,6 +18,8 @@ import type { Channel } from '@prisma/client';
 import { DISARM_DOWN_ALERT } from '../whatsapp/downAlerts.js';
 import { saudeDoNumero, resetProtecaoState } from '../whatsapp/protecao/service.js';
 import { PROTECAO_FAIXAS } from '../whatsapp/protecao/core.js';
+import { statusAquecimento, cancelarConversas } from '../whatsapp/aquecimento/service.js';
+import { AQUECIMENTO_FAIXAS, MAX_NUMEROS_EXTRAS, soDigitos, mesmoNumero } from '../whatsapp/aquecimento/core.js';
 
 /** "Nome do WhatsApp": limpo (sem caracteres invisíveis/HTML), 1 a 40 caracteres. */
 const channelNameSchema = z.string().max(200).transform(sanitizeChannelName).pipe(z.string().min(1, 'Informe o nome do WhatsApp').max(CHANNEL_NAME_MAX, `Nome do WhatsApp: no máximo ${CHANNEL_NAME_MAX} caracteres`));
@@ -198,6 +200,95 @@ channelsRouter.put('/:id/protecao', requireRole('OWNER', 'ADMIN'), ah(async (req
   res.json(await saudeDoNumero(c));
 }));
 
+// ---------- v1.45.0: aquecimento ATIVO (conversas automáticas entre os números da própria empresa) ----------
+
+const aquecimentoSchema = z.object({
+  enabled: z.boolean().optional(),
+  days: z.number().int().min(AQUECIMENTO_FAIXAS.days[0]).max(AQUECIMENTO_FAIXAS.days[1]).optional(),
+  startHour: z.number().int().min(AQUECIMENTO_FAIXAS.startHour[0]).max(AQUECIMENTO_FAIXAS.startHour[1]).optional(),
+  endHour: z.number().int().min(AQUECIMENTO_FAIXAS.endHour[0]).max(AQUECIMENTO_FAIXAS.endHour[1]).optional(),
+  /** Números (canais) que podem ser par deste. Vazio = todos os números da empresa. */
+  peerChannelIds: z.array(z.string().min(1).max(60)).max(20).optional(),
+  allowAsPeer: z.boolean().optional(),
+  useAi: z.boolean().optional(),
+  useExtras: z.boolean().optional(),
+  /** Recomeça a contagem dos dias hoje. */
+  restart: z.boolean().optional(),
+}).strict();
+
+/** Números próprios extras (até 5 por empresa): só Proprietário/Administrador. */
+channelsRouter.get('/aquecimento/extras', ah(async (req, res) => {
+  const list = await prisma.warmupExtraNumber.findMany({ where: { orgId: orgOf(req) }, orderBy: { createdAt: 'asc' } });
+  res.json(list.map((e) => ({ id: e.id, phone: e.phone, label: e.label, confirmedAt: e.confirmedAt })));
+}));
+
+const extraSchema = z.object({
+  phone: z.string().min(8).max(30),
+  label: z.string().max(40).optional().nullable(),
+  /** A empresa declara que o número é dela (checkbox obrigatório na tela). */
+  confirm: z.literal(true, { message: 'Confirme que o número é da sua empresa (seu ou de alguém da equipe, com autorização).' }),
+}).strict();
+
+channelsRouter.post('/aquecimento/extras', requireRole('OWNER', 'ADMIN'), ah(async (req, res) => {
+  const body = extraSchema.parse(req.body);
+  const orgId = orgOf(req);
+  let phone = soDigitos(body.phone);
+  if (phone.length === 10 || phone.length === 11) phone = '55' + phone; // número brasileiro sem DDI
+  if (phone.length < 12 || phone.length > 15) throw badRequest('Número inválido: use DDI + DDD + número (ex.: 55 11 99999-0000).');
+  const atuais = await prisma.warmupExtraNumber.findMany({ where: { orgId } });
+  if (atuais.length >= MAX_NUMEROS_EXTRAS) throw badRequest(`No máximo ${MAX_NUMEROS_EXTRAS} números próprios extras.`);
+  if (atuais.some((e) => mesmoNumero(e.phone, phone))) throw badRequest('Este número já está cadastrado.');
+  const label = body.label?.replace(/[<>\u0000-\u001f]/g, '').trim().slice(0, 40) || null;
+  const e = await prisma.warmupExtraNumber.create({ data: { orgId, phone, label, confirmedByUserId: req.auth?.userId ?? null } });
+  await audit(req, 'channel.aquecimento_extra_add', { entity: 'warmup_extra', entityId: e.id, meta: { final: phone.slice(-4) } });
+  res.status(201).json({ id: e.id, phone: e.phone, label: e.label, confirmedAt: e.confirmedAt });
+}));
+
+channelsRouter.delete('/aquecimento/extras/:extraId', requireRole('OWNER', 'ADMIN'), ah(async (req, res) => {
+  const e = await prisma.warmupExtraNumber.findFirst({ where: { id: req.params.extraId, orgId: orgOf(req) } });
+  if (!e) throw notFound('Número');
+  await prisma.warmupExtraNumber.delete({ where: { id: e.id } });
+  await audit(req, 'channel.aquecimento_extra_remove', { entity: 'warmup_extra', entityId: e.id, meta: { final: e.phone.slice(-4) } });
+  res.json({ ok: true });
+}));
+
+/** Status do aquecimento ativo deste número (dia X de N, nível, mensagens de hoje, pares). */
+channelsRouter.get('/:id/aquecimento', ah(async (req, res) => {
+  res.json(await statusAquecimento(await canalVisivel(req)));
+}));
+
+/** Liga/desliga e configura o aquecimento ativo deste número (só Proprietário/Administrador). */
+channelsRouter.put('/:id/aquecimento', requireRole('OWNER', 'ADMIN'), ah(async (req, res) => {
+  const body = aquecimentoSchema.parse(req.body);
+  const c = await canalVisivel(req);
+  if (!isQrChannel(c)) throw badRequest('O aquecimento ativo é só para números conectados por QR code.');
+  const atual = await prisma.warmupConfig.findUnique({ where: { channelId: c.id } });
+  const startHour = body.startHour ?? atual?.startHour ?? 8, endHour = body.endHour ?? atual?.endHour ?? 21;
+  if (endHour <= startHour) throw badRequest('O horário final deve ser depois do inicial.');
+  if (endHour - startHour < 3) throw badRequest('Deixe pelo menos 3 horas de janela para o aquecimento.');
+  let peers: string | undefined;
+  if (body.peerChannelIds) {
+    const ids = [...new Set(body.peerChannelIds)].filter((id) => id !== c.id);
+    const validos = await prisma.channel.count({ where: { id: { in: ids }, orgId: c.orgId, provider: 'whatsapp_qr' } });
+    if (validos !== ids.length) throw badRequest('Escolha só números da sua empresa conectados por QR code.');
+    peers = ids.join(',');
+  }
+  const { restart, peerChannelIds: _p, ...rest } = body;
+  const ligando = body.enabled === true && !atual?.enabled;
+  const now = new Date();
+  const data = {
+    ...rest, startHour, endHour,
+    ...(peers !== undefined ? { peerChannelIds: peers } : {}),
+    // Ao ligar (ou recomeçar), o dia 1 é hoje e a primeira conversa sai em alguns minutos.
+    ...(ligando || restart ? { startedAt: now, nextAt: new Date(now.getTime() + (1 + Math.random() * 4) * 60_000), pausedReason: null, pausedAt: null } : {}),
+    ...(body.enabled === false ? { nextAt: null, pausedReason: null, pausedAt: null } : {}),
+  };
+  await prisma.warmupConfig.upsert({ where: { channelId: c.id }, create: { channelId: c.id, orgId: c.orgId, ...data }, update: data });
+  if (body.enabled === false) await cancelarConversas(c.id);
+  await audit(req, 'channel.aquecimento', { entity: 'channel', entityId: c.id, meta: { antes: atual ? { enabled: atual.enabled, days: atual.days, startHour: atual.startHour, endHour: atual.endHour } : null, depois: body } });
+  res.json(await statusAquecimento(c));
+}));
+
 /** Verifica as credenciais consultando a Graph API de verdade. Só aqui o canal vira CONNECTED. */
 channelsRouter.post('/:id/verify', requireRole('OWNER', 'ADMIN'), ah(async (req, res) => {
   const c = await prisma.channel.findFirst({ where: { id: req.params.id, orgId: orgOf(req) } });
@@ -331,6 +422,8 @@ channelsRouter.delete('/:id', requireRole('OWNER', 'ADMIN'), ah(async (req, res)
   await prisma.waAuthState.deleteMany({ where: { channelId: c.id } });
   await prisma.channelProtection.deleteMany({ where: { channelId: c.id } });
   await prisma.channelHealthEvent.deleteMany({ where: { channelId: c.id } });
+  await cancelarConversas(c.id);
+  await prisma.warmupConfig.deleteMany({ where: { channelId: c.id } });
   await prisma.channel.delete({ where: { id: c.id } });
   await audit(req, 'channel.delete', { entity: 'channel', entityId: c.id });
   res.json({ ok: true });

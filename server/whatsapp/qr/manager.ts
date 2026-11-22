@@ -21,7 +21,9 @@ export type QrStatus = 'NOT_CONNECTED' | 'CONNECTING' | 'QR_PENDING' | 'CONNECTE
 
 /** Subconjunto do socket do Baileys usado aqui (facilita testes com socket simulado). */
 export interface QrSocket {
-  sendMessage(jid: string, content: AnyMessageContent): Promise<{ key?: { id?: string | null }; message?: unknown } | undefined>;
+  sendMessage(jid: string, content: AnyMessageContent, options?: { messageId?: string }): Promise<{ key?: { id?: string | null }; message?: unknown } | undefined>;
+  /** Marcar como lida (v1.45.0: aquecimento). */
+  readMessages?(keys: { remoteJid?: string | null; id?: string | null; fromMe?: boolean | null; participant?: string | null }[]): Promise<void>;
   logout?(msg?: string): Promise<void>;
   end?(error: Error | undefined): void;
   /** Código de pareamento (Conectar com número de telefone). Só antes de registrar o aparelho. */
@@ -722,6 +724,34 @@ class QrSessionManager {
     await s.sock.sendPresenceUpdate(state, waIdToJid(waId)).catch(() => undefined);
   }
 
+  /**
+   * v1.45.0 (aquecimento): envia conteúdo já montado para um JID, com id da mensagem escolhido antes (o recebimento no
+   * outro número reconhece a mensagem pelo id). Mesma fila por contato e mesmas esperas do envio normal.
+   */
+  async sendRaw(channelId: string, jid: string, content: AnyMessageContent, messageId?: string): Promise<{ waMessageId: string }> {
+    const chainKey = `${channelId}:${jid}`;
+    const prev = this.sendChains.get(chainKey) ?? Promise.resolve();
+    const run = prev.catch(() => undefined).then(() => this.sendNow(channelId, chainKey, jid, content, messageId));
+    const tail = run.catch(() => undefined);
+    this.sendChains.set(chainKey, tail);
+    tail.then(() => { if (this.sendChains.get(chainKey) === tail) this.sendChains.delete(chainKey); });
+    return run;
+  }
+
+  /** v1.45.0: "digitando…"/pausa para um JID. Nunca lança. */
+  async presenceJid(channelId: string, jid: string, state: 'composing' | 'paused'): Promise<void> {
+    const s = this.sessions.get(channelId);
+    if (!s?.sock?.sendPresenceUpdate || s.status !== 'CONNECTED') return;
+    await s.sock.sendPresenceUpdate(state, jid).catch(() => undefined);
+  }
+
+  /** v1.45.0: marca uma mensagem recebida como lida. Nunca lança. */
+  async markRead(channelId: string, key: { remoteJid?: string | null; id?: string | null; participant?: string | null }): Promise<void> {
+    const s = this.sessions.get(channelId);
+    if (!s?.sock?.readMessages || s.status !== 'CONNECTED') return;
+    await s.sock.readMessages([{ ...key, fromMe: false }]).catch(() => undefined);
+  }
+
   async send(channelId: string, waId: string, payload: OutboundPayload): Promise<{ waMessageId: string }> {
     const content = buildQrContent(payload);
     const jid = waIdToJid(waId);
@@ -735,7 +765,7 @@ class QrSessionManager {
     return run;
   }
 
-  private async sendNow(channelId: string, chainKey: string, jid: string, content: AnyMessageContent): Promise<{ waMessageId: string }> {
+  private async sendNow(channelId: string, chainKey: string, jid: string, content: AnyMessageContent, messageId?: string): Promise<{ waMessageId: string }> {
     const notConnected = 'WhatsApp (QR) não conectado: abra Canais WhatsApp e conecte pelo QR code';
     const s = this.sessions.get(channelId);
     if (!s) throw new Error(notConnected);
@@ -752,7 +782,7 @@ class QrSessionManager {
     const gap = sendGapMs();
     const last = this.lastSendAt.get(chainKey);
     if (gap > 0 && last) { const wait = last + gap - Date.now(); if (wait > 0) await sleep(wait); }
-    const r = await sock.sendMessage(jid, content);
+    const r = messageId ? await sock.sendMessage(jid, content, { messageId }) : await sock.sendMessage(jid, content);
     this.lastSendAt.set(chainKey, Date.now());
     if (this.lastSendAt.size > 5000) this.lastSendAt.delete(this.lastSendAt.keys().next().value as string);
     const id = r?.key?.id;
