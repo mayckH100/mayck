@@ -33,7 +33,8 @@ import { isExplicitHumanRequest } from '../ai/humanRequest.js';
  */
 
 export type Intent = 'POSITIVO' | 'NEGATIVO' | 'DUVIDA' | 'SAIR';
-export const QUALIFYING_STATUSES = ['CONTATADO', 'RESPONDEU', 'AGUARDANDO'];
+// v1.43.0: SEM_RESPOSTA (parou depois da última repescagem) volta à qualificação normal se o contato responder depois.
+export const QUALIFYING_STATUSES = ['CONTATADO', 'RESPONDEU', 'AGUARDANDO', 'SEM_RESPOSTA'];
 
 // Configuração única (v1.20.0): a etapa de qualificação do SDR com IA é a fonte de verdade; a linha antiga de
 // LeadAiSettings vale como padrão enquanto a empresa não salvar pelo SDR (ver server/sdr/qualificacao.ts).

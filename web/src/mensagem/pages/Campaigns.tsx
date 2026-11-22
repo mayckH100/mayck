@@ -4,6 +4,7 @@ import { post, patch, del, get } from '../../api';
 import { useApi, Async, Empty, Field, Modal, useAction, useToast, fmtDate, fmtNum } from '../../ui';
 import { MetricsView } from './Dashboard';
 import { AddContactsModal } from './LeadBulk';
+import { CampaignGroups, RepescagemFields, type RepescagemForm } from './CampaignGroups';
 import {
   CampaignBadge, LEAD_STATUS_LABEL, SAFE_DEFAULTS, campaignProgress, downloadCsv, fetchAllLeads, fmtPhone, personalize, slug,
   type Campaign, type ChannelLite, type Metrics,
@@ -22,14 +23,17 @@ function ChannelSelect({ value, onChange, channels }: { value: string; onChange:
   );
 }
 
-type Form = { name: string; message: string; channelId: string; dailyLimit: number; minIntervalSec: number; maxIntervalSec: number; windowStart: string; windowEnd: string };
+type Form = { name: string; message: string; channelId: string; dailyLimit: number; minIntervalSec: number; maxIntervalSec: number; windowStart: string; windowEnd: string } & RepescagemForm;
 
 function CampaignForm({ initial, onClose, onSaved }: { initial?: Campaign; onClose: () => void; onSaved: (c: Campaign) => void }) {
   const channels = useApi<ChannelLite[]>('/channels');
   const connected = (channels.data ?? []).filter((c) => c.status === 'CONNECTED');
   const [f, setF] = useState<Form>(() => initial
-    ? { name: initial.name, message: initial.message, channelId: initial.channelId, dailyLimit: initial.dailyLimit, minIntervalSec: initial.minIntervalSec, maxIntervalSec: initial.maxIntervalSec, windowStart: initial.windowStart, windowEnd: initial.windowEnd }
-    : { name: '', message: 'Olá {nome}! ', channelId: '', ...SAFE_DEFAULTS });
+    ? {
+      name: initial.name, message: initial.message, channelId: initial.channelId, dailyLimit: initial.dailyLimit, minIntervalSec: initial.minIntervalSec, maxIntervalSec: initial.maxIntervalSec, windowStart: initial.windowStart, windowEnd: initial.windowEnd,
+      repescagemAtiva: !!initial.repescagemAtiva, repescagemDias: initial.repescagemDias ?? 2, repescagemMax: initial.repescagemMax ?? 2, repescagemModelo: initial.repescagemModelo ?? '',
+    }
+    : { name: '', message: 'Olá {nome}! ', channelId: '', ...SAFE_DEFAULTS, repescagemAtiva: true, repescagemDias: 2, repescagemMax: 2, repescagemModelo: '' });
   const [previewName, setPreviewName] = useState('Ana Souza');
   const { busy, run } = useAction();
   // Um único número conectado: já vem selecionado.
@@ -40,7 +44,7 @@ function CampaignForm({ initial, onClose, onSaved }: { initial?: Campaign; onClo
   const intervalErr = f.minIntervalSec > f.maxIntervalSec;
   const submit = async (e: FormEvent) => {
     e.preventDefault();
-    const body = { ...f, dailyLimit: Number(f.dailyLimit), minIntervalSec: Number(f.minIntervalSec), maxIntervalSec: Number(f.maxIntervalSec) };
+    const body = { ...f, dailyLimit: Number(f.dailyLimit), minIntervalSec: Number(f.minIntervalSec), maxIntervalSec: Number(f.maxIntervalSec), repescagemDias: Number(f.repescagemDias), repescagemMax: Number(f.repescagemMax) };
     const r = await run(() => (initial ? patch<Campaign>(`/mckmensagem/campaigns/${initial.id}`, body) : post<Campaign>('/mckmensagem/campaigns', body)), initial ? 'Campanha atualizada' : 'Campanha criada');
     if (r) onSaved(r);
   };
@@ -76,6 +80,7 @@ function CampaignForm({ initial, onClose, onSaved }: { initial?: Campaign; onClo
           <Field label="Até (horário de Brasília)"><input type="time" required value={f.windowEnd} onChange={(e) => set('windowEnd', e.target.value)} /></Field>
         </div>
         {intervalErr && <div className="alert err">O intervalo mínimo não pode ser maior que o máximo.</div>}
+        <RepescagemFields f={f} set={(k, v) => setF((x) => ({ ...x, [k]: v }))} campaignId={initial?.id} />
         <div className={`alert ${risky ? 'warn' : 'info'}`}>
           <strong>Boas práticas:</strong> envie só para quem autorizou, comece devagar (até {SAFE_DEFAULTS.dailyLimit}/dia em números novos), mantenha intervalos de {SAFE_DEFAULTS.minIntervalSec}–{SAFE_DEFAULTS.maxIntervalSec}s, respeite o horário comercial e ofereça sempre a opção de sair. Envios em massa sem consentimento podem bloquear o número.
           {risky && <div style={{ marginTop: 4 }}>⚠ Os limites escolhidos estão acima do recomendado.</div>}
@@ -195,11 +200,12 @@ function CampaignDetail({ id, list, reload }: { id: string; list: Campaign[]; re
       <div className="stack">
         <div className="card stack"><h2 style={{ margin: 0 }}>Progresso</h2><Progress c={c} /></div>
         <Async state={metrics}>{(m) => <MetricsView m={m} />}</Async>
+        <CampaignGroups c={c} />
         <div className="grid g2">
           <div className="card">
             <h2>Mensagem</h2>
             <div className="mm-preview"><div className="b">{personalize(c.message, 'Ana')}</div></div>
-            <p className="small muted" style={{ marginTop: 8, marginBottom: 0 }}>Limite {fmtNum(c.dailyLimit)}/dia · intervalo {c.minIntervalSec}–{c.maxIntervalSec}s · das {c.windowStart} às {c.windowEnd} (Brasília)</p>
+            <p className="small muted" style={{ marginTop: 8, marginBottom: 0 }}>Limite {fmtNum(c.dailyLimit)}/dia · intervalo {c.minIntervalSec}–{c.maxIntervalSec}s · das {c.windowStart} às {c.windowEnd} (Brasília) · repescagem {c.repescagemAtiva ? `ligada (${c.repescagemDias ?? 2} dias, até ${c.repescagemMax ?? 2}x)` : 'desligada'}</p>
           </div>
           <div className="card">
             <div className="row between"><h2 style={{ margin: 0 }}>Contatos vinculados{leads.data ? ` (${fmtNum(leads.data.total)})` : ''}</h2><span className="row"><button className="btn sm primary" onClick={() => setAdding(true)}>+ Adicionar contatos</button><NavLink to={`/contatos?campaignId=${c.id}`} className="small">Ver todos / remover →</NavLink></span></div>
@@ -250,6 +256,7 @@ export default function MmCampaigns() {
                 <CampaignBadge status={c.status} />
               </div>
               <Progress c={c} />
+              {c.repescagemPausa && <div className="small" style={{ color: '#b7791f' }}>⚠ Repescagem pausada — veja os detalhes</div>}
               <div className="row between">
                 <Actions c={c} a={a} onEdit={() => setEditing(c)} compact />
                 <div className="row">

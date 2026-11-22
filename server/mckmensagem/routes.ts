@@ -13,6 +13,8 @@ import { parseCsv, detectDelimiter, mapHeaderCell, rowFromCells, MAX_PHONES_PER_
 import { nameKey, siblingsOf, otherNumbersCount } from '../lib/same-client.js';
 import { mckIaReady } from '../ai/mckIa.js';
 import { qualiView, saveQualiFromRequest, testQuali } from '../sdr/qualificacaoRoutes.js';
+import { gruposDaCampanha, contarGrupos, gerarTextoRepescagem } from './repescagem.js';
+import { GRUPOS, GRUPO_ROTULO, REPESCAGEM_LIMITES, textoModelo } from './repescagemCore.js';
 
 export const mckmensagemRouter = Router();
 
@@ -433,6 +435,11 @@ const campaignBase = z.object({
   maxIntervalSec: z.number().int().min(10).max(7200).optional(),
   windowStart: hhmm.optional(),
   windowEnd: hhmm.optional(),
+  // v1.43.0: repescagem automática de quem não respondeu.
+  repescagemAtiva: z.boolean().optional(),
+  repescagemDias: z.number().int().min(REPESCAGEM_LIMITES.diasMin).max(REPESCAGEM_LIMITES.diasMax).optional(),
+  repescagemMax: z.number().int().min(REPESCAGEM_LIMITES.maxMin).max(REPESCAGEM_LIMITES.maxMax).optional(),
+  repescagemModelo: z.string().max(2000).optional(),
 });
 
 async function checkChannel(orgId: string, channelId?: string) {
@@ -463,7 +470,8 @@ mckmensagemRouter.post('/campaigns', ah(async (req, res) => {
   const orgId = orgOf(req);
   await checkChannel(orgId, body.channelId);
   checkIntervals(body.minIntervalSec ?? 45, body.maxIntervalSec ?? 120);
-  const c = await prisma.campaign.create({ data: { orgId, ...body } });
+  // v1.43.0: campanha nova nasce com a repescagem ligada (padrão 2 dias, até 2 repescagens).
+  const c = await prisma.campaign.create({ data: { orgId, repescagemAtiva: true, ...body } });
   await audit(req, 'mckmensagem.campaign.create', { entity: 'Campaign', entityId: c.id });
   res.status(201).json(await campaignView(c));
 }));
@@ -478,7 +486,9 @@ mckmensagemRouter.patch('/campaigns/:id', ah(async (req, res) => {
   const c = await getCampaign(orgId, req.params.id);
   await checkChannel(orgId, body.channelId);
   checkIntervals(body.minIntervalSec ?? c.minIntervalSec, body.maxIntervalSec ?? c.maxIntervalSec);
-  const updated = await prisma.campaign.update({ where: { id: c.id }, data: body });
+  // Mexeu na repescagem: tira o aviso de pausa (o agendador recoloca se o motivo continuar).
+  const repescagemMudou = ['repescagemAtiva', 'repescagemDias', 'repescagemMax'].some((k) => k in body);
+  const updated = await prisma.campaign.update({ where: { id: c.id }, data: { ...body, ...(repescagemMudou ? { repescagemPausa: null, repescagemPausaEm: null } : {}) } });
   await audit(req, 'mckmensagem.campaign.update', { entity: 'Campaign', entityId: c.id, meta: Object.keys(body) });
   res.json(await campaignView(updated));
 }));
@@ -534,6 +544,74 @@ mckmensagemRouter.post('/campaigns/:id/pause', ah(async (req, res) => {
   res.json(await campaignView(updated));
 }));
 
+// ---------------- Separação por grupos e repescagem (v1.43.0) ----------------
+
+const gruposQuery = z.object({
+  grupo: z.enum([...GRUPOS, 'SEM_RESPOSTA', 'REPESCADOS'] as [string, ...string[]]).optional(),
+  q: z.string().max(100).optional(),
+  page: z.coerce.number().int().min(1).max(10000).default(1),
+  pageSize: z.coerce.number().int().min(1).max(200).default(50),
+});
+
+function filtrarLinhas<T extends { grupo: string; repescagemStatus: string | null; repescagens: number; nome: string | null; telefone: string }>(linhas: T[], q: { grupo?: string; q?: string }) {
+  let out = linhas;
+  if (q.grupo === 'SEM_RESPOSTA') out = out.filter((l) => l.repescagemStatus === 'SEM_RESPOSTA');
+  else if (q.grupo === 'REPESCADOS') out = out.filter((l) => l.repescagens > 0);
+  else if (q.grupo) out = out.filter((l) => l.grupo === q.grupo);
+  if (q.q) {
+    const t = q.q.toLowerCase(), d = q.q.replace(/\D/g, '');
+    out = out.filter((l) => (l.nome ?? '').toLowerCase().includes(t) || (d && l.telefone.includes(d)));
+  }
+  return out;
+}
+
+/** Grupos da campanha: contagem e lista (com filtro por grupo e busca). */
+mckmensagemRouter.get('/campaigns/:id/grupos', ah(async (req, res) => {
+  const q = gruposQuery.parse(req.query);
+  const c = await getCampaign(orgOf(req), req.params.id);
+  const linhas = await gruposDaCampanha(c);
+  const filtradas = filtrarLinhas(linhas, q);
+  const ini = (q.page - 1) * q.pageSize;
+  res.json({
+    contagem: contarGrupos(linhas), rotulos: GRUPO_ROTULO, total: filtradas.length, page: q.page, pageSize: q.pageSize,
+    itens: filtradas.slice(ini, ini + q.pageSize),
+    repescagem: { ativa: c.repescagemAtiva, dias: c.repescagemDias, max: c.repescagemMax, pausa: c.repescagemPausa, pausaEm: c.repescagemPausaEm },
+  });
+}));
+
+const STATUS_MSG: Record<string, string> = { QUEUED: 'na fila', SENT: 'enviada', DELIVERED: 'entregue', READ: 'lida', FAILED: 'falhou' };
+const REPESCAGEM_STATUS: Record<string, string> = { RESPONDEU: 'respondeu', SEM_RESPOSTA: 'sem resposta', PARADA: 'parada', ENVIANDO: 'enviando' };
+
+/** CSV dos grupos (todos ou só um grupo). */
+mckmensagemRouter.get('/campaigns/:id/grupos/export', ah(async (req, res) => {
+  const q = gruposQuery.parse(req.query);
+  const c = await getCampaign(orgOf(req), req.params.id);
+  const linhas = filtrarLinhas(await gruposDaCampanha(c), q);
+  const esc = (v: unknown) => {
+    const s = v == null ? '' : v instanceof Date ? v.toISOString() : String(v);
+    const t = /^[=+\-@\t\r]/.test(s) ? `'${s}` : s;
+    return /[",\n;]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t;
+  };
+  const header = ['telefone', 'nome', 'grupo', 'status_mensagem', 'enviada_em', 'respondeu_em', 'status_lead', 'repescagens', 'repescagem', 'motivo', 'proxima_repescagem', 'erro'];
+  const rows = linhas.map((l) => [l.telefone, l.nome, l.grupoRotulo, l.statusMensagem ? STATUS_MSG[l.statusMensagem] ?? l.statusMensagem : '', l.enviadaEm, l.respondeuEm, l.leadStatus, l.repescagens,
+    l.repescagemStatus ? REPESCAGEM_STATUS[l.repescagemStatus] ?? l.repescagemStatus : '', l.repescagemMotivo, l.proximaRepescagemEm, l.erro].map(esc).join(','));
+  await audit(req, 'mckmensagem.campaign.grupos.export', { entity: 'Campaign', entityId: c.id, meta: { grupo: q.grupo ?? 'todos', count: linhas.length } });
+  res.setHeader('content-type', 'text/csv; charset=utf-8');
+  res.setHeader('content-disposition', `attachment; filename="campanha-grupos${q.grupo ? '-' + q.grupo.toLowerCase() : ''}.csv"`);
+  res.send('\uFEFF' + [header.join(','), ...rows].join('\n'));
+}));
+
+/** Prévia da repescagem (nada é enviado): texto da IA e um exemplo do texto modelo. */
+mckmensagemRouter.post('/campaigns/:id/repescagem/previa', ah(async (req, res) => {
+  const body = z.object({ grupo: z.enum(['VISUALIZOU', 'NAO_VISUALIZOU']).default('NAO_VISUALIZOU'), nome: z.string().max(60).optional(), modelo: z.string().max(2000).optional() }).parse(req.body ?? {});
+  const orgId = orgOf(req);
+  const c = await getCampaign(orgId, req.params.id);
+  const nome = body.nome ?? 'Ana Souza';
+  const campanha = { ...c, repescagemModelo: body.modelo ?? c.repescagemModelo };
+  const ia = await gerarTextoRepescagem({ orgId, campanha, nome, grupo: body.grupo, tentativa: 1, max: c.repescagemMax, anteriores: [c.message] });
+  res.json({ ia, modelo: textoModelo(campanha.repescagemModelo, body.grupo, nome) });
+}));
+
 // ---------------- Métricas ----------------
 
 mckmensagemRouter.get('/metrics', ah(async (req, res) => {
@@ -549,7 +627,7 @@ mckmensagemRouter.get('/metrics', ah(async (req, res) => {
   const failed = campaignIds.length ? await prisma.campaignRecipient.count({ where: { campaignId: { in: campaignIds }, status: 'FALHOU' } }) : 0;
   const optOuts = await prisma.lead.count({ where: { ...leadWhere, optOutAt: { not: null } } });
   const replies = byStatus.RESPONDEU + byStatus.QUALIFICADO + byStatus.AGUARDANDO + byStatus.CONVERTIDO;
-  const contacted = byStatus.CONTATADO + replies;
+  const contacted = byStatus.CONTATADO + byStatus.SEM_RESPOSTA + replies;
   const rate = (n: number) => (contacted ? Math.round((n / contacted) * 10000) / 100 : 0);
   res.json({
     totalLeads: Object.values(byStatus).reduce((a, b) => a + b, 0), byStatus, sent, failed, optOuts,

@@ -129,14 +129,14 @@ async function sendToLead(c: Campaign, lead: Lead, recipientId: string, now: Dat
     return false;
   }
   if (msg.status === 'FAILED') {
-    await prisma.campaignRecipient.update({ where: { id: recipientId }, data: { status: 'FALHOU', error: msg.error ?? 'Falha no envio' } });
+    await prisma.campaignRecipient.update({ where: { id: recipientId }, data: { status: 'FALHOU', error: msg.error ?? 'Falha no envio', messageId: msg.id } });
     await prisma.lead.update({ where: { id: lead.id }, data: { contactId: contact.id } });
     return false;
   }
-  await prisma.campaignRecipient.update({ where: { id: recipientId }, data: { status: 'ENVIADA', sentAt: now, error: null } });
+  await prisma.campaignRecipient.update({ where: { id: recipientId }, data: { status: 'ENVIADA', sentAt: now, error: null, messageId: msg.id } });
   await prisma.lead.update({
     where: { id: lead.id },
-    data: { contactId: contact.id, campaignId: lead.campaignId ?? c.id, ...(lead.status === 'NOVO' ? { status: 'CONTATADO' } : {}) },
+    data: { contactId: contact.id, campaignId: lead.campaignId ?? c.id, ...(lead.status === 'NOVO' || lead.status === 'SEM_RESPOSTA' ? { status: 'CONTATADO' } : {}) },
   });
   return true;
 }

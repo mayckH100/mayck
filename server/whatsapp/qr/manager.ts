@@ -392,6 +392,16 @@ class QrSessionManager {
         this.onStatus?.(s.channelId, u).catch(() => undefined);
       }
     });
+    // v1.43.0: recibos de entrega/leitura que chegam como "message-receipt.update" (alguns aparelhos/grupos) viram
+    // o mesmo status (entregue/lida) usado na separação da campanha. applyStatus nunca regride o status.
+    sock.ev.on('message-receipt.update', (updates) => {
+      if (gen !== s.generation) return;
+      for (const u of updates as { key?: { id?: string | null; fromMe?: boolean | null; remoteJid?: string | null }; receipt?: { readTimestamp?: unknown; playedTimestamp?: unknown; receiptTimestamp?: unknown } }[]) {
+        if (!u.key?.fromMe || !u.key.id) continue;
+        const status = u.receipt?.readTimestamp || u.receipt?.playedTimestamp ? 4 : u.receipt?.receiptTimestamp ? 3 : null;
+        if (status) this.onStatus?.(s.channelId, { key: u.key, update: { status } } as any).catch(() => undefined);
+      }
+    });
   }
 
   private async onConnectionUpdate(s: Session, gen: number, u: Partial<ConnectionState>) {

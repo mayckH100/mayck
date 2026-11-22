@@ -21,6 +21,19 @@ export type EntradaChangelog = {
 
 export const CHANGELOG: EntradaChangelog[] = [
   {
+    versao: '1.43.0',
+    data: '22/11/2026',
+    titulo: 'Campanhas: veja quem respondeu, quem leu e quem não viu, e a repescagem automática fala de novo com quem não respondeu',
+    itens: [
+      'Na tela de cada campanha, os contatos ficam separados sozinhos: Respondeu, Visualizou e não respondeu, Não visualizou, Não entregue e Saiu (SAIR). Clique num grupo para ver a lista e exporte em planilha (CSV).',
+      'Repescagem automática: depois de 2 dias sem resposta (você escolhe), o sistema manda uma nova mensagem para quem não respondeu, no máximo 2 vezes (você escolhe). Vem ligada nas campanhas novas e pode ser ligada nas antigas em Editar.',
+      'Quem respondeu qualquer coisa, inclusive "sim", nunca recebe repescagem. Também não recebe quem pediu para sair, já está sendo atendido, está em qualificação ou teve falha no envio.',
+      'A IA escreve uma mensagem curta e diferente para cada pessoa, com o nome dela, lembrando a oferta da campanha, sem pressão e sempre com a opção "responda SAIR". Sem IA, vai um texto modelo com variações que você pode editar.',
+      'Se a pessoa responder depois da repescagem, a conversa segue para a qualificação normal. Depois da última repescagem sem resposta, o contato fica como "Sem resposta" e não recebe mais nada.',
+      'A repescagem respeita o horário da campanha, o limite por dia e a proteção do número. Se o número ficar em nível Risco, ela pausa sozinha e avisa na campanha.',
+    ],
+  },
+  {
     versao: '1.42.0',
     data: '22/11/2026',
     titulo: 'A IA entende áudio e o seu número fica mais protegido contra bloqueio',

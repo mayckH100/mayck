@@ -641,7 +641,7 @@ model Lead {
   phone           String // E.164, ex.: +5511999998888
   name            String?
   tags            String    @default("[]")
-  status          String    @default("NOVO") // NOVO | CONTATADO | RESPONDEU | CONVERTIDO | DESCARTADO
+  status          String    @default("NOVO") // NOVO | CONTATADO | RESPONDEU | QUALIFICADO | AGUARDANDO | CONVERTIDO | DESCARTADO | SEM_RESPOSTA (v1.43.0)
   consentSource   String // FORMULARIO | IMPORTACAO | ANUNCIO_CTWA | MANUAL | MCKBOT (veio do MCKBOT, consentimento pendente)
   consentAt       DateTime? // null = consentimento ainda não registrado (contato vindo do MCKBOT): não recebe campanhas
   optOutAt        DateTime?
@@ -699,6 +699,17 @@ model Campaign {
   maxIntervalSec Int      @default(120)
   windowStart    String   @default("09:00")
   windowEnd      String   @default("20:00")
+  /// v1.43.0: repescagem automática de quem não respondeu (campanhas antigas ficam desligadas; novas nascem ligadas pela API).
+  repescagemAtiva  Boolean   @default(false)
+  /// Dias de espera depois do último envio (original ou repescagem) sem resposta.
+  repescagemDias   Int       @default(2)
+  /// Máximo de repescagens por contato; depois da última sem resposta o lead vira SEM_RESPOSTA.
+  repescagemMax    Int       @default(2)
+  /// Texto modelo (com {nome} e variações {a|b}) usado quando a IA não está disponível. Vazio = modelo padrão.
+  repescagemModelo String    @default("")
+  /// Aviso de pausa automática (ex.: número em nível Risco). Nulo = rodando normalmente.
+  repescagemPausa  String?
+  repescagemPausaEm DateTime?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
@@ -712,6 +723,19 @@ model CampaignRecipient {
   status     String    @default("PENDENTE") // PENDENTE | ENVIADA | FALHOU | IGNORADA
   sentAt     DateTime?
   error      String?
+  /// v1.43.0: mensagem original enviada (status enviada/entregue/lida vem de Message.status).
+  messageId          String?
+  /// v1.43.0: primeira resposta do contato depois do envio (qualquer resposta, inclusive "sim").
+  respondeuAt        DateTime?
+  /// v1.43.0: repescagens enviadas, última e o estado (null | ENVIANDO | RESPONDEU | SEM_RESPOSTA | PARADA).
+  repescagens        Int       @default(0)
+  ultimaRepescagemAt DateTime?
+  ultimaMensagemId   String?
+  repescagemStatus   String?
+  repescagemMotivo   String?
+  repescagemFalhas   Int       @default(0)
+  /// Não tentar antes deste horário (após falha passageira).
+  repescagemAposAt   DateTime?
 
   @@unique([campaignId, leadId])
   @@index([campaignId, status])

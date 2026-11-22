@@ -11,6 +11,7 @@ export const PROMPT_VERSIONS = {
   autoresposta: 'autoresposta@2026-11-07',
   voz: 'voz-reescrita@2026-11-07',
   revisao: 'revisao@2026-11-08',
+  repescagem: 'repescagem@2026-11-22',
 } as const;
 
 export type AiPurpose = keyof typeof PROMPT_VERSIONS;
@@ -25,6 +26,7 @@ export const PURPOSE_LABEL: Record<string, string> = {
   autoresposta: 'SDR: resposta automática',
   voz: 'Voz',
   revisao: 'Revisão da resposta',
+  repescagem: 'Campanhas: repescagem de quem não respondeu',
   outros: 'Outros (antes da 1.35.0)',
 };
 

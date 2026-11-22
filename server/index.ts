@@ -7,6 +7,7 @@ import { scheduledTick } from './flows/engine.js';
 import { qrManager } from './whatsapp/qr/manager.js';
 import { tick as mckmensagemTick } from './mckmensagem/dispatcher.js';
 import { tickLeadRetries } from './mckmensagem/qualificacao.js';
+import { tickRepescagem } from './mckmensagem/repescagem.js';
 import { tickAutomacoes } from './mckmensagem/automacoes/engine.js';
 import { handleQrMessage, handleQrStatus } from './whatsapp/inbound.js';
 import { syncSuperAdmins } from './auth/superadmin.js';
@@ -111,6 +112,7 @@ if (config.ENABLE_MCKMENSAGEM_CRON === 'true' && config.NODE_ENV !== 'test') {
     running = true;
     mckmensagemTick().catch((e) => console.error('[mckmensagem]', e))
       .then(() => tickLeadRetries()).catch((e) => console.error('[mckmensagem-ia]', e))
+      .then(() => tickRepescagem()).catch((e) => console.error('[repescagem]', e))
       .finally(() => { running = false; });
   }, 60_000).unref();
 }
