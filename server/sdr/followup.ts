@@ -48,7 +48,7 @@ export async function personalizeStep(lead: SdrLead, step: Step, baseText: strin
     if (lead.contactId) {
       const convs = await prisma.conversation.findMany({ where: { orgId: lead.orgId, contactId: lead.contactId }, select: { id: true }, take: 20 });
       const msgs = await prisma.message.findMany({ where: { orgId: lead.orgId, conversationId: { in: convs.map((c) => c.id) }, direction: { in: ['IN', 'OUT'] }, status: { not: 'FAILED' }, ...notAutoReply }, orderBy: { createdAt: 'desc' }, take: 12 });
-      transcript = msgs.reverse().map((m) => `${m.direction === 'IN' ? 'CLIENTE' : 'EMPRESA'}: ${(m.body ?? '').slice(0, 400)}`).join('\n');
+      transcript = msgs.reverse().map((m) => `${m.direction === 'IN' ? 'CLIENTE' : 'EMPRESA'}: ${(m.transcript || m.body || '').slice(0, 400)}`).join('\n');
     }
     // v1.35.0: camada única (modelo reserva, timeout, registro com finalidade).
     const r = await aiChat({ orgId: lead.orgId, purpose: 'sdr-followup', settings: ai, messages: followupPrompt(step, baseText, lead, transcript), temperature: 0.4, maxTokens: 400, timeoutMs: 20000, errorPrefix: 'SDR follow-up' });

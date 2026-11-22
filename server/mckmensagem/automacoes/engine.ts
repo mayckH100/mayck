@@ -4,6 +4,7 @@ import { openConversationFor } from '../../whatsapp/multiCanal.js';
 import type { OutboundPayload } from '../../whatsapp/cloudClient.js';
 import { sendMailResult } from '../../lib/mailer.js';
 import { isProductActive } from '../../billing/service.js';
+import { verificarEnvioEmMassa } from '../../whatsapp/protecao/service.js';
 import { parseJson } from '../../lib/json.js';
 import { gerarHorarios, regraSchema, localDate, localParts, zonedToUtc, hhmmToMin, type Regra } from './rules.js';
 import { renderMensagem, problemaRender } from './vars.js';
@@ -24,7 +25,7 @@ const MAX_LINHAS_POR_GERACAO = 20_000;
 export const CANAIS = ['WHATSAPP', 'EMAIL'] as const;
 export type Canal = typeof CANAIS[number];
 
-export interface SendResult { ok: boolean; provedorId?: string | null; error?: string | null; partesEnviadas?: number }
+export interface SendResult { ok: boolean; provedorId?: string | null; error?: string | null; partesEnviadas?: number; /** v1.42.0: segurado pela proteção do número: tentar de novo em X ms (não conta tentativa). */ adiarMs?: number }
 export interface AnexoEnvio { nome: string; mime: string; dados: Buffer; arquivoId: string; boletoId?: string | null }
 export interface SendArgs {
   orgId: string; automacao: Automacao; cliente: Cliente; texto: string; assunto?: string | null;
@@ -53,8 +54,13 @@ async function whatsappReal(a: SendArgs): Promise<SendResult> {
   if (a.texto.trim()) partes.push({ payload: { type: 'text', text: a.texto }, rotulo: 'texto' });
   for (const x of a.anexos ?? []) partes.push({ payload: { type: 'file', data: x.dados, filename: x.nome, mime: x.mime }, rotulo: `anexo "${x.nome}"` });
   const ids: string[] = [];
+  // v1.42.0: proteção do número (QR): limite por hora/dia, aquecimento e intervalo aleatório entre envios em massa.
+  if (!(a.partesJaEnviadas ?? 0)) {
+    const prot = await verificarEnvioEmMassa(conv.channelId);
+    if (!prot.ok) return { ok: false, error: prot.texto, adiarMs: prot.tentarEmMs, partesEnviadas: 0 };
+  }
   for (let i = a.partesJaEnviadas ?? 0; i < partes.length; i++) {
-    const msg = await sendOutbound({ conversation: conv, contact, payload: partes[i].payload, sender: 'bot', product: 'MCKMENSAGEM' });
+    const msg = await sendOutbound({ conversation: conv, contact, payload: partes[i].payload, sender: 'bot', product: 'MCKMENSAGEM', bulk: true });
     if (msg.status === 'FAILED') return { ok: false, error: `${msg.error ?? 'Falha no envio pelo WhatsApp'}${partes.length > 1 ? ` (${partes[i].rotulo})` : ''}`, partesEnviadas: i };
     if (msg.waMessageId) ids.push(msg.waMessageId);
   }
@@ -379,6 +385,8 @@ export async function processarOcorrencia(id: string, now = new Date()): Promise
   } catch (e) {
     res = { ok: false, error: (e as Error).message || 'Erro no envio' };
   }
+  // v1.42.0: segurado pela proteção do número: volta para a fila sem contar tentativa.
+  if (!res.ok && res.adiarMs) { await voltar(new Date(now.getTime() + Math.max(30_000, res.adiarMs))); return 'adiada'; }
   const tentativas = o.tentativas + 1;
   const partesEnviadas = Math.max(o.partesEnviadas, res.partesEnviadas ?? 0);
   if (res.ok) {

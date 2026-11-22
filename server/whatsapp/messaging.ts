@@ -9,6 +9,8 @@ import type { Channel, Conversation, Contact, Message } from '@prisma/client';
 import { markWaiting } from '../lib/waiting.js';
 import { viaLine } from './channelLabel.js';
 import { notifyHandoffInBackground } from './handoffNotify.js';
+import { digitandoLigado } from './protecao/service.js';
+import { tempoDigitandoMs } from './protecao/core.js';
 
 export const PROVIDER_CLOUD = 'whatsapp_cloud';
 export const PROVIDER_QR = 'whatsapp_qr';
@@ -63,6 +65,11 @@ export async function sendOutbound(args: {
   authorUserId?: string;
   /** App que está enviando (cobrança por produto). Padrão: MCKBOT. */
   product?: Product;
+  /**
+   * v1.42.0: envio em massa (campanha, cadência, automação, nova tentativa). Conta nos limites de proteção do número;
+   * quem envia confere antes com verificarEnvioEmMassa (server/whatsapp/protecao/service.ts).
+   */
+  bulk?: boolean;
 }): Promise<Message> {
   const { conversation, contact, payload, sender } = args;
   const channel = await resolveChannel(conversation);
@@ -73,6 +80,7 @@ export async function sendOutbound(args: {
       orgId: conversation.orgId, conversationId: conversation.id, channelId: channel?.id ?? null,
       direction: 'OUT', sender, type: d.type, body: d.body, mediaUrl: d.mediaUrl, status: 'QUEUED', authorUserId: args.authorUserId,
       ...(d.transcript ? { transcript: d.transcript } : {}),
+      ...(args.bulk ? { bulk: true } : {}),
     },
   });
   const fail = async (error: string, attempts = 0) =>
@@ -80,7 +88,7 @@ export async function sendOutbound(args: {
 
   if (!(await isProductActive(conversation.orgId, args.product ?? 'MCKBOT'))) return fail('Assinatura inativa');
   if (contact.optOut && sender !== 'agent') return fail('Contato pediu para não receber mensagens automáticas (opt-out)');
-  if (qr) return sendViaQr(channel!, conversation, contact, payload, msg, fail);
+  if (qr) return sendViaQr(channel!, conversation, contact, payload, msg, fail, sender);
   const accessToken = decryptOrNull(channel?.accessTokenEnc);
   if (!channel || channel.status !== 'CONNECTED' || !channel.phoneNumberId || !accessToken) {
     return fail('Canal WhatsApp não conectado: configure as credenciais da Cloud API em Canais WhatsApp');
@@ -117,6 +125,7 @@ export async function sendOutbound(args: {
 async function sendViaQr(
   channel: Channel, conversation: Conversation, contact: Contact, payload: OutboundPayload, msg: Message,
   fail: (error: string, attempts?: number) => Promise<Message>,
+  sender: 'bot' | 'ai' | 'agent' | 'system' = 'agent',
 ): Promise<Message> {
   if (payload.type === 'template') return fail('Modelos (templates) só existem na API oficial. No modo QR envie uma mensagem de texto.');
   if (!qrManager.canSend(channel.id)) return fail('WhatsApp (QR) não conectado: abra Canais WhatsApp e conecte pelo QR code');
@@ -127,6 +136,8 @@ async function sendViaQr(
       return fail(`Link de mídia recusado: ${(e as Error).message}`);
     }
   }
+  // v1.42.0: "digitando..." antes das respostas automáticas (robô, IA, sistema), como uma pessoa faria.
+  if (sender !== 'agent' && (payload.type === 'text' || payload.type === 'buttons')) await simularDigitando(channel.id, contact.waId, payload.text);
   try {
     const r = await qrManager.send(channel.id, contact.waId, payload);
     const now = new Date();
@@ -140,6 +151,22 @@ async function sendViaQr(
   } catch (e) {
     const message = (e as Error).message || 'Falha ao enviar pelo WhatsApp (QR)';
     return fail(message, 1);
+  }
+}
+
+/** Escala do tempo de "digitando..." (0 nos testes; QR_TYPING_SCALE=0 desliga em qualquer ambiente). */
+const typingScale = () => Number(process.env.QR_TYPING_SCALE ?? (process.env.NODE_ENV === 'test' ? 0 : 1));
+
+/** Mostra "digitando..." ao contato pelo tempo proporcional ao texto. Nunca lança nem segura o envio por erro. */
+async function simularDigitando(channelId: string, waId: string, text: string): Promise<void> {
+  try {
+    if (!(await digitandoLigado(channelId))) return;
+    const ms = Math.round(tempoDigitandoMs(text) * typingScale());
+    await qrManager.presence(channelId, waId, 'composing');
+    if (ms > 0) await new Promise((r) => setTimeout(r, ms));
+    await qrManager.presence(channelId, waId, 'paused');
+  } catch {
+    /* só um detalhe visual */
   }
 }
 

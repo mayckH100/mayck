@@ -1,3 +1,4 @@
+import { verificarEnvioEmMassa } from '../whatsapp/protecao/service.js';
 import { prisma } from '../db.js';
 import { mckQuotaStatus, MCK_QUOTA_REASON } from '../ai/mckQuota.js';
 import { type ChatMessage } from '../ai/providers.js';
@@ -203,7 +204,7 @@ export async function qualifyLeadInbound(conv: Conversation, contact: Contact, t
     orderBy: { createdAt: 'desc' }, take: adv ? HISTORICO_AVANCADO : 9,
   });
   // Remove a mensagem atual (já gravada) e garante que o histórico termine em "assistant" antes do texto do usuário.
-  const hist = recent.reverse().slice(0, -1).map((m) => ({ role: (m.direction === 'IN' ? 'user' : 'assistant') as 'user' | 'assistant', content: m.body ?? '' }));
+  const hist = recent.reverse().slice(0, -1).map((m) => ({ role: (m.direction === 'IN' ? 'user' : 'assistant') as 'user' | 'assistant', content: m.transcript || m.body || '' }));
 
   // v1.26.0: pedido EXPLÍCITO de pessoa → passa ao vendedor com o resumo (sem gastar IA). Única transferência da IA.
   // v1.35.0 (regra do dono): lead irritado NÃO transfere; a equipe é avisada e a IA continua respondendo.
@@ -343,10 +344,12 @@ export async function tickLeadRetries(now = new Date()): Promise<number> {
       await prisma.lead.update({ where: { id: lead.id }, data: { nextAttemptAt: null } });
       continue;
     }
+    // v1.42.0: proteção do número (QR): segura a nova tentativa se o número chegou ao limite ou está no intervalo.
+    if (!(await verificarEnvioEmMassa(conv.channelId, now)).ok) continue;
     // Claim atômico para não enviar duas vezes.
     const claimed = await prisma.lead.updateMany({ where: { id: lead.id, status: 'AGUARDANDO', nextAttemptAt: lead.nextAttemptAt }, data: { status: 'CONTATADO', nextAttemptAt: null } });
     if (claimed.count !== 1) continue;
-    const msg = await sendOutbound({ conversation: conv, contact, payload: { type: 'text', text: personalize(s.retryMessage, lead) }, sender: 'bot', product: 'MCKMENSAGEM' } as any);
+    const msg = await sendOutbound({ conversation: conv, contact, payload: { type: 'text', text: personalize(s.retryMessage, lead) }, sender: 'bot', product: 'MCKMENSAGEM', bulk: true } as any);
     if (msg.status === 'FAILED') {
       await prisma.lead.update({ where: { id: lead.id }, data: { status: 'AGUARDANDO', nextAttemptAt: new Date(now.getTime() + 3600e3) } });
       continue;

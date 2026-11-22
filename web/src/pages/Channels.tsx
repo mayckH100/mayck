@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
-import { get, post, patch, del } from '../api';
+import { get, post, patch, put, del } from '../api';
 import { useAuth } from '../auth';
 import AvisoNumeroBanner from '../AvisoNumeroBanner';
 import { useApi, Async, Empty, useAction, Modal, Field, fmtDate, StatusBadge, useToast, copy } from '../ui';
@@ -157,6 +157,7 @@ export default function Channels() {
               <div className="grid g4" style={{ gap: 8 }}>
                 {[['Hoje', c.stats.today], ['7 dias', c.stats.d7], ['30 dias', c.stats.d30], ['Total', c.stats.total]].map(([l, v]) => <div key={l as string} className="stat"><div className="l">{l}</div><div className="v" style={{ fontSize: 18 }}>{v}</div></div>)}
               </div>
+              <SaudeNumero c={c} admin={admin} />
               {admin && (
                 <div className="row">
                   {c.status !== 'CONNECTED' && <button className="btn sm primary" onClick={() => setQrFor(c)}>Conectar WhatsApp</button>}
@@ -439,5 +440,87 @@ function CodeTab({ channel, onConnected }: { channel: any; onConnected: (r: any)
         </div>
       )}
     </>
+  );
+}
+
+// ---------- v1.42.0: Saúde do número e proteção contra bloqueio ----------
+
+const NIVEL_COR: Record<string, string> = { BOM: 'green', ATENCAO: 'amber', RISCO: 'red' };
+const EVENTO: Record<string, string> = { desconexao: 'Desconexão', sessao_encerrada: 'Sessão encerrada pelo celular', restricao: 'Restrição do WhatsApp' };
+const pctTxt = (v: number | null) => (v === null ? '—' : `${(v * 100).toFixed(1).replace('.', ',').replace(',0', '')}%`);
+
+/** Painel "Saúde do número" no cartão do canal (níveis Bom/Atenção/Risco, números de hoje e da semana, dicas e limites). */
+function SaudeNumero({ c, admin }: { c: any; admin: boolean }) {
+  const [open, setOpen] = useState(false);
+  const st = useApi<any>(`/channels/${c.id}/saude`, [c.id]);
+  const s = st.data;
+  return (
+    <div className="stack small" style={{ gap: 6, borderTop: '1px solid var(--line, #e5e7eb)', paddingTop: 8 }}>
+      <div className="row between" style={{ gap: 8, flexWrap: 'wrap' }}>
+        <strong>Saúde do número</strong>
+        {s ? <span className={`badge ${NIVEL_COR[s.nivel] ?? ''}`} title="Avaliação dos últimos 7 dias">{s.rotulo}</span> : <span className="muted">carregando…</span>}
+      </div>
+      {st.error && !s && <div className="alert warn small">Não foi possível carregar a saúde do número.</div>}
+      {s && (
+        <>
+          <div className="grid g4" style={{ gap: 8 }}>
+            <div className="stat" title="Mensagens enviadas por este número hoje (todas)"><div className="l">Enviadas hoje</div><div className="v" style={{ fontSize: 18 }}>{s.numeros.enviadosHoje}</div></div>
+            <div className="stat" title="Mensagens enviadas na última hora"><div className="l">Última hora</div><div className="v" style={{ fontSize: 18 }}>{s.numeros.enviadosHora}</div></div>
+            <div className="stat" title="Envios em massa (campanhas, cadências, automações) hoje / limite seguro de hoje"><div className="l">Em massa hoje</div><div className="v" style={{ fontSize: 18 }}>{s.numeros.emMassaHoje}{s.qr && s.config.enabled ? <span className="muted" style={{ fontSize: 12 }}> / {s.limites.dia}</span> : null}</div></div>
+            <div className="stat" title="Contatos que responderam aos envios em massa nos últimos 7 dias"><div className="l">Taxa de resposta</div><div className="v" style={{ fontSize: 18 }}>{pctTxt(s.taxaResposta)}</div></div>
+          </div>
+          <div className="muted">
+            7 dias: {s.numeros.conversas7d} contato(s) em envios em massa · {s.numeros.responderam7d} respondeu(ram) · {s.numeros.saidas7d} pediu(ram) para sair · {s.numeros.bloqueios7d} bloqueio(s)/número sem WhatsApp · {s.numeros.desconexoes7d} desconexão(ões)
+            {s.taxaResposta === null && ' · taxas aparecem a partir de 20 envios em massa na semana'}
+          </div>
+          {s.motivos.length > 0 && <ul style={{ margin: 0, paddingLeft: 18 }}>{s.motivos.map((m: string) => <li key={m}>{m}</li>)}</ul>}
+          <button type="button" className="linklike small" style={{ alignSelf: 'flex-start' }} onClick={() => setOpen(!open)}>{open ? 'Ocultar detalhes' : 'Dicas, desconexões e limites'}</button>
+          {open && (
+            <div className="stack" style={{ gap: 8 }}>
+              <div><strong>Dicas</strong><ul style={{ margin: '4px 0 0', paddingLeft: 18 }}>{s.dicas.map((d: string) => <li key={d}>{d}</li>)}</ul></div>
+              <div><strong>Desconexões recentes</strong>{s.eventos.length === 0 ? <div className="muted">Nenhuma nos últimos 30 dias.</div> : (
+                <ul style={{ margin: '4px 0 0', paddingLeft: 18 }}>{s.eventos.map((e: any, i: number) => <li key={i}>{fmtDate(e.createdAt)} · {EVENTO[e.type] ?? e.type}{e.detail ? <span className="muted"> ({e.detail})</span> : null}</li>)}</ul>
+              )}</div>
+              {s.qr ? <ProtecaoForm c={c} s={s} admin={admin} onSaved={st.reload} /> : <div className="muted">API oficial: os limites de envio são os da Meta (qualidade e nível do número no Gerenciador do WhatsApp). Os números acima continuam valendo.</div>}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+function ProtecaoForm({ c, s, admin, onSaved }: { c: any; s: any; admin: boolean; onSaved: () => void }) {
+  const [f, setF] = useState<any>(() => ({ ...s.config }));
+  useEffect(() => setF({ ...s.config }), [s.config.hourLimit, s.config.dayLimit, s.config.minGapSec, s.config.maxGapSec, s.config.enabled, s.config.warmupEnabled, s.config.warmupDays, s.config.typingEnabled]);
+  const { busy, run } = useAction();
+  const num = (k: string) => (e: any) => setF({ ...f, [k]: e.target.value });
+  const save = (extra: Record<string, unknown> = {}) => run(() => put(`/channels/${c.id}/protecao`, {
+    enabled: !!f.enabled, typingEnabled: !!f.typingEnabled, warmupEnabled: !!f.warmupEnabled,
+    hourLimit: Number(f.hourLimit), dayLimit: Number(f.dayLimit), minGapSec: Number(f.minGapSec), maxGapSec: Number(f.maxGapSec), warmupDays: Number(f.warmupDays), ...extra,
+  }), 'Proteção do número salva').then((r) => r && onSaved());
+  return (
+    <form className="stack" style={{ gap: 6 }} onSubmit={(e) => { e.preventDefault(); save(); }}>
+      <fieldset disabled={!admin || busy} className="stack" style={{ gap: 6, border: 0, padding: 0, margin: 0 }} title={admin ? undefined : 'Só Proprietário ou Administrador pode alterar'}>
+        <strong>Proteção contra bloqueio</strong>
+        <p className="muted" style={{ margin: 0 }}>Vale para envios em massa deste número (campanhas, cadências do SDR, automações e novas tentativas). Respostas a quem chamou você nunca ficam presas. O que passar do limite espera e sai depois, sozinho.</p>
+        <label className="row"><input type="checkbox" checked={!!f.enabled} onChange={(e) => setF({ ...f, enabled: e.target.checked })} /> Limitar envios em massa (recomendado)</label>
+        <div className="grid g2" style={{ gap: 8 }}>
+          <Field label="Máximo por hora" hint="Padrão 60"><input type="number" min={5} max={500} value={f.hourLimit} onChange={num('hourLimit')} /></Field>
+          <Field label="Máximo por dia" hint="Padrão 300"><input type="number" min={10} max={3000} value={f.dayLimit} onChange={num('dayLimit')} /></Field>
+          <Field label="Intervalo mínimo entre envios (s)" hint="Sorteado entre o mínimo e o máximo"><input type="number" min={3} max={600} value={f.minGapSec} onChange={num('minGapSec')} /></Field>
+          <Field label="Intervalo máximo entre envios (s)" hint="Padrão 20 a 60 s"><input type="number" min={3} max={900} value={f.maxGapSec} onChange={num('maxGapSec')} /></Field>
+        </div>
+        <label className="row"><input type="checkbox" checked={!!f.warmupEnabled} onChange={(e) => setF({ ...f, warmupEnabled: e.target.checked })} /> Aquecimento de número novo (20 → 50 → 100 por dia nos primeiros dias)</label>
+        <Field label="Dias de aquecimento" hint={s.limites.aquecendo ? `Em aquecimento: dia ${s.limites.diaAquecimento}, até ${s.limites.dia} envios em massa hoje.` : 'Padrão 14 dias, contados desde que o número foi adicionado.'}><input type="number" min={3} max={30} value={f.warmupDays} onChange={num('warmupDays')} /></Field>
+        <label className="row"><input type="checkbox" checked={!!f.typingEnabled} onChange={(e) => setF({ ...f, typingEnabled: e.target.checked })} /> Mostrar “digitando…” antes das respostas automáticas (robô e IA)</label>
+        {admin && (
+          <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
+            <button className="btn sm primary">Salvar proteção</button>
+            <button type="button" className="btn sm" onClick={() => { if (confirm('Trocou o chip ou conectou um número novo? O aquecimento recomeça hoje.')) save({ restartWarmup: true }); }}>Número novo: recomeçar aquecimento</button>
+          </div>
+        )}
+      </fieldset>
+    </form>
   );
 }

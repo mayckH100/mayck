@@ -64,7 +64,7 @@ function Config() {
           ...(superAdmin ? { useMckSite: !!f.useMckSite } : {}),
           voiceEnabled: !!f.voiceEnabled, voiceReplyMode: f.voiceReplyMode, voiceProvider: f.voiceProvider, voiceName: f.voiceName ?? '',
           voiceModel: f.voiceModel ?? '', voiceStyle: f.voiceStyle ?? '', voiceMaxSeconds: Number(f.voiceMaxSeconds) || 45,
-          transcribeAudio: !!f.transcribeAudio, transcribeProvider: f.transcribeProvider ?? 'auto',
+          transcribeAudio: !!f.transcribeAudio, transcribeProvider: f.transcribeProvider ?? 'auto', transcribeMaxSeconds: Math.min(600, Math.max(10, Math.round(Number(f.transcribeMaxSeconds) || 120))),
         };
         if (apiKey) body.apiKey = apiKey;
         if (voiceKey) body.voiceApiKey = voiceKey;
@@ -194,7 +194,8 @@ function VoiceSettings({ f, setF, s, ro, voiceKey, setVoiceKey, busy, clearVoice
         <div className="stack">
           <h3 style={{ margin: 0 }}>Ouvir</h3>
           <label className="row"><input type="checkbox" checked={!!f.transcribeAudio} onChange={(e) => setF({ ...f, transcribeAudio: e.target.checked })} /> Ouvir os áudios dos clientes (a transcrição aparece no Inbox e a IA responde ao que foi dito)</label>
-          <Field label="Quem transcreve" hint="Áudios de até 2 minutos. Se não der para ouvir, a IA pede para o cliente escrever."><select value={f.transcribeProvider ?? 'auto'} onChange={(e) => setF({ ...f, transcribeProvider: e.target.value })}>{Object.entries(STT).map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select></Field>
+          <Field label="Quem transcreve" hint="Sem custo extra: com o Gemini (plano grátis) ou a MCK IA a transcrição já funciona; com OpenAI usa a sua chave. Se não der para ouvir, fica “[áudio não transcrito]” no Inbox e a IA pede para o cliente escrever."><select value={f.transcribeProvider ?? 'auto'} onChange={(e) => setF({ ...f, transcribeProvider: e.target.value })}>{Object.entries(STT).map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select></Field>
+          <Field label="Duração máxima do áudio (segundos)" hint="Padrão 120 (2 minutos). Áudios mais longos não são transcritos: a IA pede um áudio menor ou por escrito."><input type="number" min={10} max={600} step={10} value={f.transcribeMaxSeconds ?? 120} onChange={(e) => setF({ ...f, transcribeMaxSeconds: e.target.value })} /></Field>
         </div>
         <div className="stack">
           <h3 style={{ margin: 0 }}>Falar</h3>

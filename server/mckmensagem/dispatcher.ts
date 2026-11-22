@@ -4,6 +4,7 @@ import { openConversationFor } from '../whatsapp/multiCanal.js';
 import { TZ } from './constants.js';
 import { isProductActive } from '../billing/service.js';
 import type { Campaign, Lead } from '@prisma/client';
+import { verificarEnvioEmMassa } from '../whatsapp/protecao/service.js';
 
 type Sender = typeof sendOutbound;
 let sender: Sender = sendOutbound;
@@ -42,7 +43,7 @@ export function personalize(message: string, lead: Pick<Lead, 'name'>): string {
   return message.replace(/\{\s*nome\s*\}/gi, first).replace(/[ \t]+([,.!?])/g, '$1').replace(/[ \t]{2,}/g, ' ').trim();
 }
 
-export type TickResult = { campaignId: string; action: 'sent' | 'failed' | 'skipped' | 'outside_window' | 'daily_limit' | 'waiting_interval' | 'completed' | 'subscription_inactive' }[];
+export type TickResult = { campaignId: string; action: 'sent' | 'failed' | 'skipped' | 'outside_window' | 'daily_limit' | 'waiting_interval' | 'completed' | 'subscription_inactive' | 'number_protection' }[];
 
 /** Um passo do disparador: no máximo um envio por campanha EM_ANDAMENTO por chamada. */
 export async function tick(now = new Date()): Promise<TickResult> {
@@ -91,6 +92,13 @@ async function stepCampaign(c: Campaign, now: Date): Promise<TickResult[number][
       await prisma.campaignRecipient.update({ where: { id: r.id }, data: { status: 'IGNORADA', error: reason } });
       continue;
     }
+    // v1.42.0: proteção do número (QR): teto por hora/dia, aquecimento e intervalo aleatório entre envios do mesmo número
+    // (vale para todas as campanhas e cadências que usam o número). Segurado: o destinatário continua pendente.
+    const prot = await verificarEnvioEmMassa(c.channelId, now);
+    if (!prot.ok) {
+      nextAt.set(c.id, now.getTime() + Math.min(prot.tentarEmMs, 10 * 60_000));
+      return 'number_protection';
+    }
     const ok = await sendToLead(c, lead, r.id, now);
     const gap = c.minIntervalSec + random() * Math.max(0, c.maxIntervalSec - c.minIntervalSec);
     nextAt.set(c.id, now.getTime() + gap * 1000);
@@ -115,7 +123,7 @@ async function sendToLead(c: Campaign, lead: Lead, recipientId: string, now: Dat
 
   let msg;
   try {
-    msg = await sender({ conversation: conv, contact, payload: { type: 'text', text: personalize(c.message, lead) }, sender: 'bot', product: 'MCKMENSAGEM' });
+    msg = await sender({ conversation: conv, contact, payload: { type: 'text', text: personalize(c.message, lead) }, sender: 'bot', product: 'MCKMENSAGEM', bulk: true });
   } catch (e) {
     await prisma.campaignRecipient.update({ where: { id: recipientId }, data: { status: 'FALHOU', error: (e as Error).message?.slice(0, 500) || 'Erro no envio' } });
     return false;

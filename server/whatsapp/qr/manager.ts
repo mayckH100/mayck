@@ -2,6 +2,8 @@ import makeWASocket, {
   Browsers, DisconnectReason, fetchLatestBaileysVersion, makeCacheableSignalKeyStore, jidNormalizedUser,
   type AnyMessageContent, type WAMessage, type WAMessageUpdate, type ConnectionState, type WAVersion, type GroupMetadata,
 } from '@whiskeysockets/baileys';
+import { registrarEventoSaude } from '../protecao/service.js';
+import { tipoEventoDesconexao } from '../protecao/core.js';
 import QRCode from 'qrcode';
 import { prisma } from '../../db.js';
 import { useDbAuthState, clearAuthState, hasSavedSession, flushAuthState } from './authState.js';
@@ -427,6 +429,9 @@ class QrSessionManager {
       s.sock = null;
       s.ready = false;
       if (s.stopped) return;
+      // v1.42.0: saúde do número — guarda desconexões, sessão encerrada pelo celular e restrição do WhatsApp.
+      const tipo = s.status === 'QR_PENDING' ? null : tipoEventoDesconexao(code);
+      if (tipo) void registrarEventoSaude(s.channelId, tipo, `${err?.message ?? 'motivo desconhecido'}${code ? ` (código ${code})` : ''}`);
       if (code === DisconnectReason.loggedOut) {
         await this.handleLoggedOut(s, 'Sessão encerrada pelo celular (aparelho desconectado). Conecte de novo pelo QR code.');
         return;

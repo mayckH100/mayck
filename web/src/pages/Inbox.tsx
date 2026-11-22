@@ -180,7 +180,8 @@ function Chat({ id, onChange, respostas }: { id: string; onChange: () => void; r
                     {m.direction === 'OUT'
                       ? <div className="small"><span className="badge" title="A resposta foi enviada ao cliente como nota de voz; abaixo, o texto falado">🔊 enviado em áudio</span></div>
                       : <div className="small" style={{ fontWeight: 600 }}>🎤 Áudio</div>}
-                    {m.transcript ? <div className="small" style={{ fontStyle: 'italic', whiteSpace: 'pre-wrap' }} title={m.direction === 'OUT' ? 'Texto falado no áudio' : 'Transcrição feita pela IA'}>“{m.transcript}”</div>
+                    {m.transcript ? <div className="small" style={{ fontStyle: 'italic', whiteSpace: 'pre-wrap' }} title={m.direction === 'OUT' ? 'Texto falado no áudio' : 'Transcrição feita pela IA'}>{m.direction === 'IN' && <span className="muted" style={{ fontStyle: 'normal' }}>Transcrição: </span>}“{m.transcript}”</div>
+                      : m.body === '[áudio não transcrito]' ? <div className="small muted" title="Não deu para transcrever este áudio (sem provedor de IA capaz, áudio longo demais ou falha). Ouça no celular.">[áudio não transcrito]</div>
                       : m.body && !/^\[.*\]$/.test(m.body) ? m.body : <div className="small muted">sem transcrição</div>}
                   </div>
                 ) : m.body}

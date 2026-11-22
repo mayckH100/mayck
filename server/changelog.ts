@@ -21,6 +21,19 @@ export type EntradaChangelog = {
 
 export const CHANGELOG: EntradaChangelog[] = [
   {
+    versao: '1.42.0',
+    data: '22/11/2026',
+    titulo: 'A IA entende áudio e o seu número fica mais protegido contra bloqueio',
+    itens: [
+      'Quando o cliente manda áudio, a IA ouve, escreve o que foi dito embaixo do áudio no Inbox e responde como se ele tivesse escrito. Fluxos e qualificação de leads também usam esse texto.',
+      'Sem custo extra: funciona com o Gemini (plano grátis) ou com a MCK IA; com OpenAI, usa a sua própria chave. Você escolhe a duração máxima do áudio em IA › Voz (padrão 2 minutos).',
+      'Se não der para ouvir, fica marcado "[áudio não transcrito]" no Inbox e a IA pede para o cliente escrever. A conversa continua normalmente.',
+      'Proteção do número (WhatsApp por QR): campanhas, cadências e automações saem com intervalo aleatório entre uma mensagem e outra e respeitam um limite seguro por hora e por dia. Número novo começa devagar e o limite sobe sozinho nos primeiros dias.',
+      'As respostas automáticas mostram "digitando…" antes de chegar, como uma pessoa faria.',
+      'Novo painel "Saúde do número" em Canais: mensagens enviadas hoje e na última hora, taxa de resposta, pedidos de saída, bloqueios e desconexões recentes, com nível Bom, Atenção ou Risco e dicas do que fazer.',
+    ],
+  },
+  {
     versao: '1.41.0',
     data: '22/11/2026',
     titulo: 'Inbox mais completo: respostas rápidas, distribuição automática, horário de atendimento, pesquisa de satisfação e mensagens agendadas',

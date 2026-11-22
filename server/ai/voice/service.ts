@@ -15,7 +15,7 @@ import { mckQuotaStatus } from '../mckQuota.js';
 import { buildStt, buildTts, voiceTimeoutMs, INAUDIBLE, MckVoice, type TtsResult, type VoiceKeys, type VoiceProvider } from './providers.js';
 import {
   splitForVoice, cleanForSpeech, spokenRewritePrompt, estimateSpeechSeconds,
-  DEFAULT_VOICE_BY_ENGINE, DEFAULT_VOICE_STYLE, MAX_INBOUND_AUDIO_BYTES, MAX_INBOUND_AUDIO_SECONDS,
+  DEFAULT_VOICE_BY_ENGINE, DEFAULT_VOICE_STYLE, MAX_INBOUND_AUDIO_BYTES, limiteAudioSegundos, duracaoPorExtenso,
 } from './spoken.js';
 import { oggOpusDurationSec } from './ogg.js';
 
@@ -51,11 +51,11 @@ function usageModel(s: AiSettings, kind: 'transcricao' | 'voz', model: string, p
 
 export type TranscribeOutcome =
   | { ok: true; text: string }
-  | { ok: false; reason: string; code: 'desligada' | 'grande' | 'longo' | 'limite' | 'inaudivel' | 'falha' };
+  | { ok: false; reason: string; code: 'desligada' | 'grande' | 'longo' | 'limite' | 'inaudivel' | 'falha'; /** v1.42.0: duração máxima aceita (s) */ maxSeconds?: number };
 
 /**
  * Transcreve um áudio recebido. Só quando a IA está ativada e a transcrição ligada (padrão ligada).
- * Limites: 10 MB e 2 minutos; acima disso o cliente é convidado a escrever ou mandar um áudio menor.
+ * Limites: 10 MB e a duração máxima da empresa (padrão 2 minutos, v1.42.0); acima disso o cliente é convidado a escrever ou mandar um áudio menor.
  */
 export async function transcribeAudio(args: { orgId: string; conversationId: string | null; audio: Buffer; mime: string; seconds?: number | null }): Promise<TranscribeOutcome> {
   const { orgId, conversationId } = args;
@@ -63,7 +63,8 @@ export async function transcribeAudio(args: { orgId: string; conversationId: str
   if (!s || !s.enabled || !s.transcribeAudio) return { ok: false, code: 'desligada', reason: 'Transcrição de áudio desligada' };
   if (args.audio.length > MAX_INBOUND_AUDIO_BYTES) return { ok: false, code: 'grande', reason: 'Áudio maior que 10 MB' };
   const secs = args.seconds ?? oggOpusDurationSec(args.audio);
-  if (secs && secs > MAX_INBOUND_AUDIO_SECONDS) return { ok: false, code: 'longo', reason: `Áudio com mais de ${MAX_INBOUND_AUDIO_SECONDS / 60} minutos` };
+  const maxSeconds = limiteAudioSegundos(s.transcribeMaxSeconds);
+  if (secs && secs > maxSeconds) return { ok: false, code: 'longo', reason: `Áudio com mais de ${duracaoPorExtenso(maxSeconds)}`, maxSeconds };
   let built: { p: VoiceProvider; usageProvider: string };
   try {
     built = buildStt(s.transcribeProvider, voiceKeysOf(s));

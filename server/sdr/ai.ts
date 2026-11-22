@@ -59,8 +59,8 @@ export async function sdrPromptSection(orgId: string, conversationId: string): P
     const metodo = metodoPromptLine(intel.metodo); // v1.21.0: BANT/SPIN (vazio no Padrão)
     if (metodo) lines.push(metodo);
     if (intel.objecoes.enabled) {
-      const last = await prisma.message.findFirst({ where: { orgId, conversationId, direction: 'IN' }, orderBy: { createdAt: 'desc' }, select: { body: true } });
-      lines.push(...objecoesPromptLines(intel.objecoes.itens, detectObjecao(last?.body ?? '', intel.objecoes.itens)));
+      const last = await prisma.message.findFirst({ where: { orgId, conversationId, direction: 'IN' }, orderBy: { createdAt: 'desc' }, select: { body: true, transcript: true } });
+      lines.push(...objecoesPromptLines(intel.objecoes.itens, detectObjecao(last?.transcript || last?.body || '', intel.objecoes.itens)));
     }
     if (missing.length) lines.push('Ainda falta saber:', ...missing.map((q) => `- ${q.pergunta}`));
     else lines.push('- Todas as informações já foram coletadas: foque em ajudar e no próximo passo.');
@@ -106,7 +106,7 @@ export async function extractAnswers(orgId: string, conversationId: string, ques
   if (!ai || !ai.enabled) return null;
   if (ai.provider === 'mck' && (await mckQuotaStatus(orgId)).reached) return null;
   const history = await prisma.message.findMany({ where: { orgId, conversationId, direction: { in: ['IN', 'OUT'] }, status: { not: 'FAILED' }, ...notAutoReply }, orderBy: { createdAt: 'desc' }, take: 16 });
-  const transcript = history.reverse().map((m) => `${m.direction === 'IN' ? 'LEAD' : 'EMPRESA'}: ${(m.body ?? '').slice(0, 500)}`).join('\n');
+  const transcript = history.reverse().map((m) => `${m.direction === 'IN' ? 'LEAD' : 'EMPRESA'}: ${(m.transcript || m.body || '').slice(0, 500)}`).join('\n');
   if (!transcript) return null;
   const msgs: ChatMessage[] = [{ role: 'system', content: extractionPrompt(questions, answers) }, { role: 'user', content: `CONVERSA:\n${transcript}` }];
   try {

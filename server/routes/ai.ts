@@ -66,6 +66,8 @@ aiRouter.put('/settings', admins, ah(async (req, res) => {
     voiceStyle: z.string().trim().max(500).optional(),
     voiceMaxSeconds: z.number().int().min(10).max(120).optional(),
     transcribeAudio: z.boolean().optional(),
+    // v1.42.0: duração máxima do áudio do cliente para transcrever (s; padrão 120).
+    transcribeMaxSeconds: z.number().int().min(10).max(600).optional(),
     transcribeProvider: z.enum(TRANSCRIBE_ENGINES as unknown as [string, ...string[]]).optional(),
     voiceApiKey: z.string().trim().min(8).max(300).optional(),
     clearVoiceApiKey: z.boolean().optional(),

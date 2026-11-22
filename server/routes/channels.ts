@@ -16,6 +16,8 @@ import { AUTO_REPLY_MODES, autoReplyModeOf, defaultAutoReplyMode } from '../what
 import { channelInfo, channelLabels, sanitizeChannelName, customChannelName, CHANNEL_NAME_MAX, type ChannelLabelInfo } from '../whatsapp/channelLabel.js';
 import type { Channel } from '@prisma/client';
 import { DISARM_DOWN_ALERT } from '../whatsapp/downAlerts.js';
+import { saudeDoNumero, resetProtecaoState } from '../whatsapp/protecao/service.js';
+import { PROTECAO_FAIXAS } from '../whatsapp/protecao/core.js';
 
 /** "Nome do WhatsApp": limpo (sem caracteres invisíveis/HTML), 1 a 40 caracteres. */
 const channelNameSchema = z.string().max(200).transform(sanitizeChannelName).pipe(z.string().min(1, 'Informe o nome do WhatsApp').max(CHANNEL_NAME_MAX, `Nome do WhatsApp: no máximo ${CHANNEL_NAME_MAX} caracteres`));
@@ -151,6 +153,49 @@ channelsRouter.patch('/:id', requireRole('OWNER', 'ADMIN'), ah(async (req, res) 
   res.json(await view(updated, req));
 }));
 
+// ---------- v1.42.0: Saúde do número e proteção contra bloqueio ----------
+
+const faixa = (k: keyof typeof PROTECAO_FAIXAS) => z.number().int().min(PROTECAO_FAIXAS[k][0]).max(PROTECAO_FAIXAS[k][1]);
+const protecaoSchema = z.object({
+  enabled: z.boolean().optional(),
+  hourLimit: faixa('hourLimit').optional(),
+  dayLimit: faixa('dayLimit').optional(),
+  minGapSec: faixa('minGapSec').optional(),
+  maxGapSec: faixa('maxGapSec').optional(),
+  warmupEnabled: z.boolean().optional(),
+  warmupDays: faixa('warmupDays').optional(),
+  typingEnabled: z.boolean().optional(),
+  /** Número trocado/novo: recomeça o aquecimento hoje. */
+  restartWarmup: z.boolean().optional(),
+}).strict();
+
+async function canalVisivel(req: import('express').Request) {
+  const c = await prisma.channel.findFirst({ where: { id: req.params.id, orgId: orgOf(req) } });
+  const allowed = allowedChannels(req);
+  if (!c || (allowed && !allowed.includes(c.id))) throw notFound('Canal');
+  return c;
+}
+
+/** Painel "Saúde do número": envios de hoje/hora, taxa de resposta, saídas/bloqueios, desconexões, nível e dicas. */
+channelsRouter.get('/:id/saude', ah(async (req, res) => {
+  res.json(await saudeDoNumero(await canalVisivel(req)));
+}));
+
+/** Limites de proteção do número (só Proprietário/Administrador). */
+channelsRouter.put('/:id/protecao', requireRole('OWNER', 'ADMIN'), ah(async (req, res) => {
+  const body = protecaoSchema.parse(req.body);
+  const c = await canalVisivel(req);
+  const { restartWarmup, ...rest } = body;
+  const atual = await prisma.channelProtection.findUnique({ where: { channelId: c.id } });
+  const min = rest.minGapSec ?? atual?.minGapSec ?? 20, max = rest.maxGapSec ?? atual?.maxGapSec ?? 60;
+  if (max < min) throw badRequest('O intervalo máximo deve ser maior ou igual ao mínimo.');
+  const data = { ...rest, ...(restartWarmup ? { warmupStartedAt: new Date() } : {}) };
+  await prisma.channelProtection.upsert({ where: { channelId: c.id }, create: { channelId: c.id, orgId: c.orgId, ...data }, update: data });
+  resetProtecaoState();
+  await audit(req, 'channel.protecao', { entity: 'channel', entityId: c.id, meta: { antes: atual ? { enabled: atual.enabled, hourLimit: atual.hourLimit, dayLimit: atual.dayLimit, minGapSec: atual.minGapSec, maxGapSec: atual.maxGapSec, warmupEnabled: atual.warmupEnabled, warmupDays: atual.warmupDays, typingEnabled: atual.typingEnabled } : null, depois: body } });
+  res.json(await saudeDoNumero(c));
+}));
+
 /** Verifica as credenciais consultando a Graph API de verdade. Só aqui o canal vira CONNECTED. */
 channelsRouter.post('/:id/verify', requireRole('OWNER', 'ADMIN'), ah(async (req, res) => {
   const c = await prisma.channel.findFirst({ where: { id: req.params.id, orgId: orgOf(req) } });
@@ -282,6 +327,8 @@ channelsRouter.delete('/:id', requireRole('OWNER', 'ADMIN'), ah(async (req, res)
   if (!c) throw notFound('Canal');
   await qrManager.stop(c.id, { logout: isQrChannel(c) });
   await prisma.waAuthState.deleteMany({ where: { channelId: c.id } });
+  await prisma.channelProtection.deleteMany({ where: { channelId: c.id } });
+  await prisma.channelHealthEvent.deleteMany({ where: { channelId: c.id } });
   await prisma.channel.delete({ where: { id: c.id } });
   await audit(req, 'channel.delete', { entity: 'channel', entityId: c.id });
   res.json({ ok: true });

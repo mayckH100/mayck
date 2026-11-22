@@ -42,8 +42,27 @@ export const isKnownVoice = (v: string) => GEMINI_VOICES.some((x) => x.id === v)
 /** Voz equivalente nos provedores compatíveis com OpenAI (/audio/speech). */
 export const openAiVoiceFor = (v: string) => (GEMINI_VOICES.find((x) => x.id === v)?.genero === 'masculina' ? 'ash' : 'coral');
 
-/** Limites da transcrição: áudios maiores pedem para o cliente escrever. */
+/** Limites da transcrição: áudios maiores pedem para o cliente escrever. Duração padrão (configurável por empresa). */
 export const MAX_INBOUND_AUDIO_SECONDS = 120;
+/** v1.42.0: faixa aceita para a duração máxima configurável (s). */
+export const AUDIO_SECONDS_RANGE = [10, 600] as const;
+/** v1.42.0: texto registrado no lugar do áudio quando não deu para transcrever (a conversa segue normalmente). */
+export const AUDIO_NAO_TRANSCRITO = '[áudio não transcrito]';
+
+/** Duração máxima efetiva (s): valor da empresa dentro da faixa; vazio/inválido = 2 minutos. */
+export function limiteAudioSegundos(v?: number | null): number {
+  if (!v || !Number.isFinite(v) || v <= 0) return MAX_INBOUND_AUDIO_SECONDS;
+  return Math.min(AUDIO_SECONDS_RANGE[1], Math.max(AUDIO_SECONDS_RANGE[0], Math.round(v)));
+}
+
+/** "2 minutos", "1 minuto e 30 segundos", "45 segundos". */
+export function duracaoPorExtenso(seg: number): string {
+  const s = Math.max(0, Math.round(seg));
+  const m = Math.floor(s / 60), r = s % 60;
+  const min = m ? `${m} minuto${m > 1 ? 's' : ''}` : '';
+  const sec = r ? `${r} segundo${r > 1 ? 's' : ''}` : '';
+  return min && sec ? `${min} e ${sec}` : min || sec || '0 segundos';
+}
 export const MAX_INBOUND_AUDIO_BYTES = 10 * 1024 * 1024;
 
 /** Mensagem de voz/áudio recebida do WhatsApp? */

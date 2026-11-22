@@ -21,7 +21,7 @@ import { autoMarkOf } from '../sdr/autoReply.js';
 import { openConversationFor, redirectIfActiveElsewhere } from './multiCanal.js';
 import { safeSyncContactsToLeads, safeOnContactUpdated } from '../mckmensagem/contactSync.js';
 import { transcribeAudio, type TranscribeOutcome } from '../ai/voice/service.js';
-import { isAudioType } from '../ai/voice/spoken.js';
+import { isAudioType, duracaoPorExtenso, AUDIO_NAO_TRANSCRITO } from '../ai/voice/spoken.js';
 import { isProductActive } from '../billing/service.js';
 import { tratarRespostaAprovacao } from '../erp/alertas/aprovacao.js';
 import { aoIrParaHumano, tratarRespostaCsat } from '../inbox/service.js';
@@ -29,8 +29,8 @@ import { aoIrParaHumano, tratarRespostaCsat } from '../inbox/service.js';
 const OPT_OUT = new Set(['sair', 'parar', 'stop', 'descadastrar']);
 
 /** Texto ao cliente quando o áudio não pôde ser ouvido (a IA não responde "[audio]" às cegas). */
-export function audioFallbackText(code: string): string {
-  if (code === 'longo' || code === 'grande') return 'Seu áudio ficou um pouco longo para eu ouvir por aqui. Pode me mandar um áudio mais curto (até 2 minutos) ou escrever sua mensagem, por favor?';
+export function audioFallbackText(code: string, maxSeconds = 120): string {
+  if (code === 'longo' || code === 'grande') return `Seu áudio ficou um pouco longo para eu ouvir por aqui. Pode me mandar um áudio mais curto (até ${duracaoPorExtenso(maxSeconds)}) ou escrever sua mensagem, por favor?`;
   if (code === 'inaudivel') return 'Não consegui entender bem o seu áudio. Pode repetir ou escrever sua mensagem, por favor?';
   return 'Desculpe, não consegui ouvir seu áudio agora. Pode me escrever sua mensagem, por favor?';
 }
@@ -53,7 +53,10 @@ async function transcribeInbound(orgId: string, conversationId: string, messageI
     r = { ok: false, code: 'falha', reason: 'Falha ao baixar o áudio' };
   }
   if (r.ok) await prisma.message.update({ where: { id: messageId }, data: { transcript: r.text } }).catch(() => undefined);
-  else if (r.code !== 'desligada') await prisma.message.create({ data: { orgId, conversationId, direction: 'INTERNAL', sender: 'system', type: 'note', body: `Áudio não transcrito: ${r.reason}.`, status: 'NOTE' } }).catch(() => undefined);
+  // v1.42.0: sem transcrição possível (sem motor capaz, limite, falha): fica registrado "[áudio não transcrito]" no lugar
+  // do áudio e a conversa segue (a IA pede para o cliente escrever; fluxos e equipe continuam normalmente).
+  if (!r.ok && r.code !== 'desligada') await prisma.message.update({ where: { id: messageId }, data: { body: AUDIO_NAO_TRANSCRITO } }).catch(() => undefined);
+  if (!r.ok && r.code !== 'desligada') await prisma.message.create({ data: { orgId, conversationId, direction: 'INTERNAL', sender: 'system', type: 'note', body: `Áudio não transcrito: ${r.reason}.`, status: 'NOTE' } }).catch(() => undefined);
   return r;
 }
 
@@ -205,7 +208,7 @@ export async function handleInboundMessage(channel: Channel, m: InboundMessage, 
     if (isAudioType(m.type) && !skipAutoReply) {
       const tr = await transcribeInbound(orgId, conv.id, message.id, baixar ?? baixarCloud(channel, m));
       if (tr.ok) { text = tr.text; asText = true; message = { ...message, body: tr.text, transcript: tr.text }; }
-      else if (tr.code !== 'desligada') audioFail = tr;
+      else if (tr.code !== 'desligada') { audioFail = tr; message = { ...message, body: AUDIO_NAO_TRANSCRITO }; }
     }
 
     // MCK Mensagens: imagem/PDF de cliente com cobrança em aberto (ou que fala de pagamento) vira comprovante em análise.
@@ -244,7 +247,7 @@ export async function handleInboundMessage(channel: Channel, m: InboundMessage, 
       // (em vez de responder "[audio]" às cegas). Sem IA automática, segue o caminho de sempre (fluxos).
       const ai = await prisma.aiSettings.findUnique({ where: { orgId }, select: { enabled: true, autoReply: true } }).catch(() => null);
       if (mode !== 'flows' && ai?.enabled && ai.autoReply && (await isProductActive(orgId, 'MCKBOT').catch(() => false))) {
-        await sendOutbound({ conversation: conv, contact, payload: { type: 'text', text: audioFallbackText(audioFail.code) }, sender: 'ai' }).catch(() => undefined);
+        await sendOutbound({ conversation: conv, contact, payload: { type: 'text', text: audioFallbackText(audioFail.code, !audioFail.ok ? audioFail.maxSeconds : undefined) }, sender: 'ai' }).catch(() => undefined);
         return 'ok' as const;
       }
     }

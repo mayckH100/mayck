@@ -359,7 +359,7 @@ export function emailHtml(body: string, unsubUrl: string, org: string) {
   return `<div style="font-family:Arial,sans-serif;font-size:15px;color:#1f2937;max-width:560px">${paras}<hr style="border:none;border-top:1px solid #e5e7eb;margin:22px 0 10px"><p style="font-size:12px;color:#6b7280;margin:0">Você recebeu este e-mail de ${escHtml(org)}. Não quer receber mais? <a href="${escHtml(unsubUrl)}">Descadastrar</a>.</p></div>`;
 }
 
-export type SendResult = { ok: true; personalized?: boolean } | { ok: false; reason: string; retry?: boolean };
+export type SendResult = { ok: true; personalized?: boolean } | { ok: false; reason: string; retry?: boolean; /** v1.42.0: segurado pela proteção do número; tentar de novo em X ms (não é falha). */ waitMs?: number };
 
 /** Escolhe a conversa do contato (a mais recente com WhatsApp) ou abre uma no primeiro WhatsApp conectado. */
 async function conversationFor(orgId: string, contact: Contact) {
@@ -369,7 +369,7 @@ async function conversationFor(orgId: string, contact: Contact) {
   return ch ? openConversationFor(orgId, contact.id, ch.id) : null;
 }
 
-export async function sendStep(lead: SdrLead, step: Step, opts: { personalize?: boolean } = {}): Promise<SendResult> {
+export async function sendStep(lead: SdrLead, step: Step, opts: { personalize?: boolean; now?: Date } = {}): Promise<SendResult> {
   const allowed = channelAllowed(lead, step.canal);
   if (!allowed.ok) return { ok: false, reason: allowed.reason! };
   const minha = await orgName(lead.orgId);
@@ -392,7 +392,10 @@ export async function sendStep(lead: SdrLead, step: Step, opts: { personalize?: 
     const conv = await conversationFor(lead.orgId, contact);
     if (!conv) return { ok: false, reason: 'nenhum WhatsApp conectado', retry: true };
     if (conv.mode === 'HUMAN') return { ok: false, reason: 'atendente cuidando da conversa' };
-    const msg = await sendOutbound({ conversation: conv, contact, payload: { type: 'text', text: await textOf() }, sender: 'bot' });
+    const { verificarEnvioEmMassa } = await import('../whatsapp/protecao/service.js');
+    const prot = await verificarEnvioEmMassa(conv.channelId, opts.now);
+    if (!prot.ok) return { ok: false, reason: prot.texto, waitMs: prot.tentarEmMs };
+    const msg = await sendOutbound({ conversation: conv, contact, payload: { type: 'text', text: await textOf() }, sender: 'bot', bulk: true });
     if (msg.status === 'FAILED') return { ok: false, reason: (msg.error || 'falha no envio').slice(0, 160), retry: !/janela de 24|opt-out|Assinatura/.test(msg.error ?? '') };
     return { ok: true, personalized };
   }
@@ -470,7 +473,11 @@ export async function runStep(lead: SdrLead, s: SdrSettings, now = new Date(), o
     }
   }
   if ((await sentToday(cur.orgId, now, opts.tz)) >= s.dailyLimit) return { lead: cur, sent: false, waiting: 'limite diário' };
-  const r = await sendStep(cur, step, { personalize: intel.followupIa });
+  const r = await sendStep(cur, step, { personalize: intel.followupIa, now });
+  if (!r.ok && r.waitMs) {
+    // v1.42.0: proteção do número segurou o envio (limite/intervalo): adia o passo sem contar como falha.
+    return { lead: await prisma.sdrLead.update({ where: { id: cur.id }, data: { nextStepAt: new Date(now.getTime() + Math.max(60_000, Math.min(r.waitMs, DAY_MS))) } }), sent: false, waiting: 'proteção do número' };
+  }
   if (!r.ok) {
     const dueAt = cur.nextStepAt ?? now;
     if (r.retry && now.getTime() - dueAt.getTime() < DAY_MS) {
