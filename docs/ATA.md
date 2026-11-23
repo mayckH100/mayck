@@ -515,3 +515,4 @@ Entradas antigas assinadas "Hark" podem ser de qualquer um. Se não souber qual 
 - **Segurança:** `Permissions-Policy` passou a `microphone=(self)` (gravar no app). Nenhum segredo no repo; `.env` do worker só na VM.
 - **Testes:** typecheck servidor+web; tests/unit/voz-clonada.test.ts e tests/integration/voz-clonada.test.ts (worker falso com o mesmo contrato); integração de voz/IA/fluxos/versão/segurança/v146 passaram (9 arquivos, 86). Teste ponta a ponta com o worker real rodando no sandbox (register/convert/401/exclusão).
 - **Falta:** conta Oracle Always Free (aprovação + cartão do Mayck), instalar o worker e colar VOICE_WORKER_URL/VOICE_WORKER_SECRET no Render. Até lá: biblioteca funciona; voz clonada fica "aguardando servidor" e a IA responde por texto.
+- **Deploy:** manual de 621033f no Render (dep-dc1qrft9fdbs73bk46t0), Live ~00:07 BRT de 23/11; /api/versao = 1.47.0 · 621033f; /healthz 200; Permissions-Policy com microphone=(self). Migração 0071 aplicada.
