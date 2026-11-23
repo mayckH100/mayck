@@ -359,6 +359,7 @@ export function emailHtml(body: string, unsubUrl: string, org: string) {
   return `<div style="font-family:Arial,sans-serif;font-size:15px;color:#1f2937;max-width:560px">${paras}<hr style="border:none;border-top:1px solid #e5e7eb;margin:22px 0 10px"><p style="font-size:12px;color:#6b7280;margin:0">Você recebeu este e-mail de ${escHtml(org)}. Não quer receber mais? <a href="${escHtml(unsubUrl)}">Descadastrar</a>.</p></div>`;
 }
 
+export const SDR_OFFLINE = 'WhatsApp desconectado: o passo sai sozinho quando reconectar';
 export type SendResult = { ok: true; personalized?: boolean } | { ok: false; reason: string; retry?: boolean; /** v1.42.0: segurado pela proteção do número; tentar de novo em X ms (não é falha). */ waitMs?: number };
 
 /** Escolhe a conversa do contato (a mais recente com WhatsApp) ou abre uma no primeiro WhatsApp conectado. */
@@ -392,6 +393,10 @@ export async function sendStep(lead: SdrLead, step: Step, opts: { personalize?: 
     const conv = await conversationFor(lead.orgId, contact);
     if (!conv) return { ok: false, reason: 'nenhum WhatsApp conectado', retry: true };
     if (conv.mode === 'HUMAN') return { ok: false, reason: 'atendente cuidando da conversa' };
+    // v1.46.1: WhatsApp da conversa desconectado → adia o passo (não é falha; segue quando reconectar).
+    const { canalConectado } = await import('../whatsapp/conexao.js');
+    const canal = conv.channelId ? await prisma.channel.findFirst({ where: { id: conv.channelId, orgId: lead.orgId } }) : null;
+    if (canal && !canalConectado(canal)) return { ok: false, reason: SDR_OFFLINE, waitMs: 5 * 60_000 };
     const { verificarEnvioEmMassa } = await import('../whatsapp/protecao/service.js');
     const prot = await verificarEnvioEmMassa(conv.channelId, opts.now);
     if (!prot.ok) return { ok: false, reason: prot.texto, waitMs: prot.tentarEmMs };
@@ -476,7 +481,7 @@ export async function runStep(lead: SdrLead, s: SdrSettings, now = new Date(), o
   const r = await sendStep(cur, step, { personalize: intel.followupIa, now });
   if (!r.ok && r.waitMs) {
     // v1.42.0: proteção do número segurou o envio (limite/intervalo): adia o passo sem contar como falha.
-    return { lead: await prisma.sdrLead.update({ where: { id: cur.id }, data: { nextStepAt: new Date(now.getTime() + Math.max(60_000, Math.min(r.waitMs, DAY_MS))) } }), sent: false, waiting: 'proteção do número' };
+    return { lead: await prisma.sdrLead.update({ where: { id: cur.id }, data: { nextStepAt: new Date(now.getTime() + Math.max(60_000, Math.min(r.waitMs, DAY_MS))) } }), sent: false, waiting: r.reason === SDR_OFFLINE ? 'WhatsApp desconectado' : 'proteção do número' };
   }
   if (!r.ok) {
     const dueAt = cur.nextStepAt ?? now;

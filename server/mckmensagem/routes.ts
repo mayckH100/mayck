@@ -15,6 +15,7 @@ import { mckIaReady } from '../ai/mckIa.js';
 import { qualiView, saveQualiFromRequest, testQuali } from '../sdr/qualificacaoRoutes.js';
 import { gruposDaCampanha, contarGrupos, gerarTextoRepescagem } from './repescagem.js';
 import { GRUPOS, GRUPO_ROTULO, REPESCAGEM_LIMITES, textoModelo } from './repescagemCore.js';
+import { reenviarFalhasDeConexao, contarFalhasDeConexao } from './dispatcher.js';
 
 export const mckmensagemRouter = Router();
 
@@ -459,7 +460,9 @@ async function getCampaign(orgId: string, id: string): Promise<Campaign> {
 async function campaignView(c: Campaign) {
   const groups = await prisma.campaignRecipient.groupBy({ by: ['status'], where: { campaignId: c.id }, _count: { _all: true } });
   const recipients = Object.fromEntries(groups.map((g) => [g.status, g._count._all]));
-  return { ...c, recipients };
+  // v1.46.1: quantos falharam por desconexão (botão "Reenviar os que falharam por desconexão").
+  const falhasConexao = recipients.FALHOU ? await contarFalhasDeConexao(c.id) : 0;
+  return { ...c, recipients, falhasConexao };
 }
 
 mckmensagemRouter.get('/campaigns', ah(async (req, res) => {
@@ -538,6 +541,19 @@ mckmensagemRouter.post('/campaigns/:id/start', ah(async (req, res) => {
   const updated = await prisma.campaign.update({ where: { id: c.id }, data: { status: 'EM_ANDAMENTO', riscoPausa: null, riscoPausaEm: null } });
   await audit(req, 'mckmensagem.campaign.start', { entity: 'Campaign', entityId: c.id, meta: { added, pending } });
   res.json({ ...(await campaignView(updated)), added, pending, semConsentimento });
+}));
+
+/**
+ * v1.46.1: devolve à fila os destinatários que FALHARAM por desconexão/erro passageiro (campanhas antigas).
+ * Nunca pega ENVIADA nem quem já recebeu esta campanha (esses viram ENVIADA, sem reenvio).
+ */
+mckmensagemRouter.post('/campaigns/:id/reenviar-falhas-conexao', ah(async (req, res) => {
+  const orgId = orgOf(req);
+  const c = await getCampaign(orgId, req.params.id);
+  const r = await reenviarFalhasDeConexao(c);
+  await audit(req, 'mckmensagem.campaign.reenviar_falhas_conexao', { entity: 'Campaign', entityId: c.id, meta: r });
+  const updated = await getCampaign(orgId, c.id);
+  res.json({ ...(await campaignView(updated)), ...r });
 }));
 
 mckmensagemRouter.post('/campaigns/:id/pause', ah(async (req, res) => {

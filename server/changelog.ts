@@ -21,6 +21,18 @@ export type EntradaChangelog = {
 
 export const CHANGELOG: EntradaChangelog[] = [
   {
+    versao: '1.46.1',
+    data: '22/11/2026',
+    titulo: 'Campanhas esperam o WhatsApp voltar em vez de falhar',
+    itens: [
+      'Se o WhatsApp da campanha desconectar, a campanha fica aguardando com o aviso "o WhatsApp desconectou" e ninguém da lista é marcado como falha. Quando o WhatsApp reconectar, ela continua sozinha de onde parou, respeitando o horário, os limites e a proteção do número.',
+      'Quando um envio falha por queda de conexão ou instabilidade do WhatsApp, o contato volta para a fila e o envio é tentado de novo (até 3 vezes). Número inválido, sem WhatsApp ou bloqueado continua como falha.',
+      'Novo botão na tela da campanha: "Reenviar os que falharam por desconexão". Ele devolve para a fila só quem não recebeu por causa da queda, também nas campanhas antigas.',
+      'Ninguém recebe a mesma campanha duas vezes: antes de enviar ou de devolver para a fila, o sistema confere se a mensagem já saiu para aquele contato.',
+      'A repescagem e as cadências também esperam o WhatsApp reconectar em vez de gastar tentativas.',
+    ],
+  },
+  {
     versao: '1.46.0',
     data: '22/11/2026',
     titulo: 'Monte sua IA conversando e link para o cliente agendar sozinho',

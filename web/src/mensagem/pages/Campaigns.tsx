@@ -151,7 +151,20 @@ function useCampaignActions(reload: () => void) {
       ]);
     } catch (e) { toast((e as Error).message, 'err'); }
   };
-  return { starting, setStarting, pause, remove, exportReport };
+  // v1.46.1: devolve à fila só os que falharam por desconexão (nunca quem já recebeu).
+  const [reenviando, setReenviando] = useState(false);
+  const reenviarFalhas = async (c: Campaign) => {
+    if (reenviando) return;
+    setReenviando(true);
+    try {
+      const r = await post<{ devolvidos: number; jaRecebidos: number }>(`/mckmensagem/campaigns/${c.id}/reenviar-falhas-conexao`);
+      toast(r.devolvidos
+        ? `${fmtNum(r.devolvidos)} contato(s) voltaram para a fila${r.jaRecebidos ? ` · ${fmtNum(r.jaRecebidos)} já tinham recebido e não serão reenviados` : ''}.`
+        : r.jaRecebidos ? `Nenhum para reenviar: ${fmtNum(r.jaRecebidos)} já tinham recebido a mensagem.` : 'Nenhum contato para reenviar.', 'ok');
+      reload();
+    } catch (e) { toast((e as Error).message, 'err'); } finally { setReenviando(false); }
+  };
+  return { starting, setStarting, pause, remove, exportReport, reenviarFalhas, reenviando };
 }
 
 function Actions({ c, a, onEdit, compact }: { c: Campaign; a: ReturnType<typeof useCampaignActions>; onEdit: () => void; compact?: boolean }) {
@@ -205,7 +218,16 @@ function CampaignDetail({ id, list, reload }: { id: string; list: Campaign[]; re
       </div>
       <div className="stack">
         {c.riscoPausa && <div className="alert warn">⚠ {c.riscoPausa} <a href="/canais">Ver Saúde do número ↗</a></div>}
-        <div className="card stack"><h2 style={{ margin: 0 }}>Progresso</h2><Progress c={c} /></div>
+        {c.offlinePausa && <div className="alert warn">⏸ {c.offlinePausa} <a href="/canais">Conectar o WhatsApp ↗</a></div>}
+        <div className="card stack">
+          <h2 style={{ margin: 0 }}>Progresso</h2><Progress c={c} />
+          {!!c.falhasConexao && (
+            <div className="row between" style={{ flexWrap: 'wrap', gap: 8 }}>
+              <span className="small muted">{fmtNum(c.falhasConexao)} falharam porque o WhatsApp estava desconectado. Quem já recebeu nunca é reenviado.</span>
+              <button className="btn sm" disabled={a.reenviando} onClick={() => a.reenviarFalhas(c)}>{a.reenviando ? 'Devolvendo…' : '↻ Reenviar os que falharam por desconexão'}</button>
+            </div>
+          )}
+        </div>
         <Async state={metrics}>{(m) => <MetricsView m={m} />}</Async>
         <CampaignGroups c={c} />
         <div className="grid g2">
@@ -265,6 +287,7 @@ export default function MmCampaigns() {
               <Progress c={c} />
               {c.riscoPausa && <div className="small" style={{ color: '#b7791f' }} title={c.riscoPausa}>⚠ Pausada: número em nível Risco{c.status === 'PAUSADA' ? ' — clique em Retomar quando quiser' : ' — volta sozinha quando melhorar'}</div>}
               {c.repescagemPausa && <div className="small" style={{ color: '#b7791f' }}>⚠ Repescagem pausada — veja os detalhes</div>}
+              {c.offlinePausa && <div className="small" style={{ color: '#b7791f' }} title={c.offlinePausa}>⏸ Aguardando: o WhatsApp desconectou — continua sozinha quando reconectar</div>}
               <div className="row between">
                 <Actions c={c} a={a} onEdit={() => setEditing(c)} compact />
                 <div className="row">

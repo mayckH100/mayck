@@ -6,6 +6,7 @@ import { isProductActive } from '../billing/service.js';
 import type { Campaign, Lead } from '@prisma/client';
 import { verificarEnvioEmMassa, saudeDoNumero } from '../whatsapp/protecao/service.js';
 import type { NivelSaude } from '../whatsapp/protecao/core.js';
+import { canalConectado, tipoErroEnvio } from '../whatsapp/conexao.js';
 
 type Sender = typeof sendOutbound;
 let sender: Sender = sendOutbound;
@@ -44,7 +45,7 @@ export function personalize(message: string, lead: Pick<Lead, 'name'>): string {
   return message.replace(/\{\s*nome\s*\}/gi, first).replace(/[ \t]+([,.!?])/g, '$1').replace(/[ \t]{2,}/g, ' ').trim();
 }
 
-export type TickResult = { campaignId: string; action: 'sent' | 'failed' | 'skipped' | 'outside_window' | 'daily_limit' | 'waiting_interval' | 'completed' | 'subscription_inactive' | 'number_protection' | 'number_risk' }[];
+export type TickResult = { campaignId: string; action: 'sent' | 'failed' | 'skipped' | 'outside_window' | 'daily_limit' | 'waiting_interval' | 'completed' | 'subscription_inactive' | 'number_protection' | 'number_risk' | 'channel_offline' | 'retry_later' }[];
 
 // ---------------- v1.44.0: pausa automática com o número em Risco ----------------
 export const PAUSA_RISCO_AUTO = 'Campanha pausada automaticamente: o número está em nível Risco na Saúde do número (Canais). Ela volta sozinha quando o nível melhorar.';
@@ -60,6 +61,35 @@ export function decisaoRisco(a: { nivel: NivelSaude | null; retomada: string; pa
 
 async function notaCampanha(c: Campaign, texto: string) {
   console.warn('[mckmensagem] campanha', { campaignId: c.id, orgId: c.orgId, aviso: texto });
+}
+
+// ---------------- v1.46.1: WhatsApp desconectado não queima a lista ----------------
+export const PAUSA_OFFLINE = 'Campanha aguardando: o WhatsApp desconectou. Ela continua sozinha quando reconectar.';
+export const RETOMADA_OFFLINE = 'Campanha retomada: WhatsApp reconectado';
+/** Tentativas do envio original que podem falhar por conexão antes de virar FALHOU. */
+export const MAX_TENTATIVAS_CONEXAO = 3;
+
+/**
+ * Canal da campanha desconectado: não toca nos destinatários (seguem PENDENTE), registra o aviso uma vez e devolve
+ * 'channel_offline'. Conectado de novo: tira o aviso, registra a retomada e deixa a campanha seguir (janela, limites,
+ * proteção do número e aquecimento continuam valendo no resto do passo).
+ */
+async function travaOffline(c: Campaign, now: Date): Promise<'channel_offline' | null> {
+  const channel = await prisma.channel.findFirst({ where: { id: c.channelId, orgId: c.orgId } });
+  if (!canalConectado(channel)) {
+    if (c.offlinePausa !== PAUSA_OFFLINE) {
+      await prisma.campaign.update({ where: { id: c.id }, data: { offlinePausa: PAUSA_OFFLINE, offlinePausaEm: now } });
+      await notaCampanha(c, PAUSA_OFFLINE);
+      c.offlinePausa = PAUSA_OFFLINE;
+    }
+    return 'channel_offline';
+  }
+  if (c.offlinePausa) {
+    await prisma.campaign.update({ where: { id: c.id }, data: { offlinePausa: null, offlinePausaEm: null } });
+    await notaCampanha(c, RETOMADA_OFFLINE);
+    c.offlinePausa = null;
+  }
+  return null;
 }
 
 /** Confere a Saúde do número (só QR) antes de enviar. Devolve 'number_risk' quando a campanha deve esperar. */
@@ -114,6 +144,8 @@ async function stepCampaign(c: Campaign, now: Date): Promise<TickResult[number][
     next = last?.sentAt ? last.sentAt.getTime() + c.minIntervalSec * 1000 : 0;
   }
   if (now.getTime() < next) return 'waiting_interval';
+  // v1.46.1: WhatsApp do canal desconectado → espera sem tocar nos destinatários (só se ainda há fila).
+  if (await prisma.campaignRecipient.count({ where: { campaignId: c.id, status: 'PENDENTE' } }) > 0 && await travaOffline(c, now)) return 'channel_offline';
   // v1.44.0: número em nível Risco na Saúde do número → pausa (volta sozinha ou espera o Retomar, conforme a campanha).
   if (await travaRisco(c, now)) return 'number_risk';
 
@@ -142,14 +174,41 @@ async function stepCampaign(c: Campaign, now: Date): Promise<TickResult[number][
       nextAt.set(c.id, now.getTime() + Math.min(prot.tentarEmMs, 10 * 60_000));
       return 'number_protection';
     }
-    const ok = await sendToLead(c, lead, r.id, now);
+    const res = await sendToLead(c, lead, r, now);
+    if (res === 'duplicate') continue; // já tinha recebido: marcado ENVIADA sem reenviar; segue para o próximo
     const gap = c.minIntervalSec + random() * Math.max(0, c.maxIntervalSec - c.minIntervalSec);
-    nextAt.set(c.id, now.getTime() + gap * 1000);
-    return ok ? 'sent' : 'failed';
+    // Falha de conexão: espera um pouco mais antes de tentar de novo (o próximo passo também confere a conexão).
+    nextAt.set(c.id, now.getTime() + (res === 'retry' ? Math.max(gap, 120) : gap) * 1000);
+    return res === 'sent' ? 'sent' : res === 'retry' ? 'retry_later' : 'failed';
   }
 }
 
-async function sendToLead(c: Campaign, lead: Lead, recipientId: string, now: Date): Promise<boolean> {
+const NAO_FALHOU = { not: 'FAILED' } as const;
+
+/**
+ * Regra do dono: nunca enviar duas vezes para quem já recebeu. Procura uma mensagem desta campanha que já saiu para o
+ * contato: a guardada no destinatário (qualquer status menos FAILED) ou uma mensagem em massa com o mesmo texto,
+ * em qualquer conversa do contato, depois da criação da campanha. Devolve o id dela (ou null).
+ */
+export async function jaRecebeu(c: Pick<Campaign, 'id' | 'orgId' | 'createdAt'>, r: { messageId: string | null }, contactId: string | null, texto: string): Promise<string | null> {
+  if (r.messageId) {
+    const m = await prisma.message.findFirst({ where: { id: r.messageId, orgId: c.orgId, status: NAO_FALHOU }, select: { id: true } });
+    if (m) return m.id;
+  }
+  if (!contactId) return null;
+  const convIds = (await prisma.conversation.findMany({ where: { orgId: c.orgId, contactId }, select: { id: true } })).map((x) => x.id);
+  if (!convIds.length) return null;
+  const m = await prisma.message.findFirst({
+    where: { orgId: c.orgId, conversationId: { in: convIds }, direction: 'OUT', bulk: true, body: texto, status: NAO_FALHOU, createdAt: { gte: c.createdAt } },
+    orderBy: { createdAt: 'asc' }, select: { id: true },
+  });
+  return m?.id ?? null;
+}
+
+type ResultadoEnvio = 'sent' | 'failed' | 'retry' | 'duplicate';
+
+async function sendToLead(c: Campaign, lead: Lead, rec: { id: string; messageId: string | null; tentativas: number }, now: Date): Promise<ResultadoEnvio> {
+  const recipientId = rec.id;
   const waId = lead.phone.replace(/\D/g, '');
   let contact = lead.contactId ? await prisma.contact.findFirst({ where: { id: lead.contactId, orgId: c.orgId } }) : null;
   contact ??= await prisma.contact.findUnique({ where: { orgId_waId: { orgId: c.orgId, waId } } });
@@ -159,27 +218,93 @@ async function sendToLead(c: Campaign, lead: Lead, recipientId: string, now: Dat
   if (contact.optOut) {
     await prisma.lead.update({ where: { id: lead.id }, data: { optOutAt: now, contactId: contact.id } });
     await prisma.campaignRecipient.update({ where: { id: recipientId }, data: { status: 'IGNORADA', error: 'Contato com opt-out no MCKBOT' } });
-    return false;
+    return 'failed';
+  }
+  const texto = personalize(c.message, lead);
+  // Proteção contra duplicidade: já recebeu esta campanha → marca ENVIADA (com a mensagem que saiu) e não reenvia.
+  const anterior = await jaRecebeu(c, rec, contact.id, texto);
+  if (anterior) {
+    const m = await prisma.message.findUnique({ where: { id: anterior }, select: { createdAt: true } });
+    await prisma.campaignRecipient.update({ where: { id: recipientId }, data: { status: 'ENVIADA', sentAt: m?.createdAt ?? now, error: null, messageId: anterior } });
+    await prisma.lead.update({ where: { id: lead.id }, data: { contactId: contact.id } });
+    return 'duplicate';
   }
   // Conversa do contato no WhatsApp da campanha (não "puxa" a conversa de outro número da organização).
   const conv = await openConversationFor(c.orgId, contact.id, c.channelId);
 
   let msg;
   try {
-    msg = await sender({ conversation: conv, contact, payload: { type: 'text', text: personalize(c.message, lead) }, sender: 'bot', product: 'MCKMENSAGEM', bulk: true });
+    msg = await sender({ conversation: conv, contact, payload: { type: 'text', text: texto }, sender: 'bot', product: 'MCKMENSAGEM', bulk: true });
   } catch (e) {
-    await prisma.campaignRecipient.update({ where: { id: recipientId }, data: { status: 'FALHOU', error: (e as Error).message?.slice(0, 500) || 'Erro no envio' } });
-    return false;
+    return falhaDeEnvio(rec, (e as Error).message?.slice(0, 500) || 'Erro no envio', null);
   }
   if (msg.status === 'FAILED') {
-    await prisma.campaignRecipient.update({ where: { id: recipientId }, data: { status: 'FALHOU', error: msg.error ?? 'Falha no envio', messageId: msg.id } });
     await prisma.lead.update({ where: { id: lead.id }, data: { contactId: contact.id } });
-    return false;
+    return falhaDeEnvio(rec, msg.error ?? 'Falha no envio', msg.id ?? null);
   }
   await prisma.campaignRecipient.update({ where: { id: recipientId }, data: { status: 'ENVIADA', sentAt: now, error: null, messageId: msg.id } });
   await prisma.lead.update({
     where: { id: lead.id },
     data: { contactId: contact.id, campaignId: lead.campaignId ?? c.id, ...(lead.status === 'NOVO' || lead.status === 'SEM_RESPOSTA' ? { status: 'CONTATADO' } : {}) },
   });
-  return true;
+  return 'sent';
+}
+
+/**
+ * v1.46.1: falha de conexão/passageira (socket fechado, timeout, não conectado, 5xx) volta para PENDENTE contando a
+ * tentativa (até MAX_TENTATIVAS_CONEXAO); erro definitivo (número inválido, sem WhatsApp, bloqueado...) vira FALHOU.
+ * Só sai de PENDENTE (updateMany com status): nunca mexe em quem já foi marcado ENVIADA.
+ */
+async function falhaDeEnvio(rec: { id: string; tentativas: number }, erro: string, messageId: string | null): Promise<ResultadoEnvio> {
+  const tentativas = rec.tentativas + 1;
+  const conexao = tipoErroEnvio(erro) === 'conexao';
+  if (conexao && tentativas < MAX_TENTATIVAS_CONEXAO) {
+    await prisma.campaignRecipient.updateMany({
+      where: { id: rec.id, status: 'PENDENTE' },
+      data: { tentativas, error: `${erro} (tentativa ${tentativas} de ${MAX_TENTATIVAS_CONEXAO}; tenta de novo sozinha)`.slice(0, 500), ...(messageId ? { messageId } : {}) },
+    });
+    return 'retry';
+  }
+  await prisma.campaignRecipient.updateMany({
+    where: { id: rec.id, status: 'PENDENTE' },
+    data: { status: 'FALHOU', error: erro.slice(0, 500), ...(conexao ? { tentativas } : {}), ...(messageId ? { messageId } : {}) },
+  });
+  return 'failed';
+}
+
+// ---------------- v1.46.1: reenviar os que falharam por desconexão (campanhas antigas) ----------------
+
+/**
+ * Devolve à fila (PENDENTE) os destinatários FALHOU cujo erro foi de conexão. Nunca toca em ENVIADA/IGNORADA e
+ * pula quem já recebeu esta campanha (mensagem do destinatário com status diferente de FAILED ou mensagem em massa
+ * com o mesmo texto depois da criação da campanha), marcando-o ENVIADA. Campanha CONCLUIDA volta a EM_ANDAMENTO.
+ */
+export async function reenviarFalhasDeConexao(c: Campaign): Promise<{ devolvidos: number; jaRecebidos: number }> {
+  const falhas = await prisma.campaignRecipient.findMany({ where: { campaignId: c.id, status: 'FALHOU' } });
+  let devolvidos = 0, jaRecebidos = 0;
+  for (const r of falhas) {
+    if (tipoErroEnvio(r.error) !== 'conexao') continue;
+    const lead = await prisma.lead.findFirst({ where: { id: r.leadId, orgId: c.orgId } });
+    if (!lead) continue;
+    const waId = lead.phone.replace(/\D/g, '');
+    const contact = (lead.contactId ? await prisma.contact.findFirst({ where: { id: lead.contactId, orgId: c.orgId } }) : null)
+      ?? await prisma.contact.findUnique({ where: { orgId_waId: { orgId: c.orgId, waId } } });
+    const anterior = await jaRecebeu(c, r, contact?.id ?? null, personalize(c.message, lead));
+    if (anterior) {
+      const m = await prisma.message.findUnique({ where: { id: anterior }, select: { createdAt: true } });
+      const u = await prisma.campaignRecipient.updateMany({ where: { id: r.id, status: 'FALHOU' }, data: { status: 'ENVIADA', sentAt: m?.createdAt ?? new Date(), error: null, messageId: anterior } });
+      jaRecebidos += u.count;
+      continue;
+    }
+    const u = await prisma.campaignRecipient.updateMany({ where: { id: r.id, status: 'FALHOU' }, data: { status: 'PENDENTE', tentativas: 0, error: null } });
+    devolvidos += u.count;
+  }
+  if (devolvidos && c.status === 'CONCLUIDA') await prisma.campaign.update({ where: { id: c.id }, data: { status: 'EM_ANDAMENTO' } });
+  return { devolvidos, jaRecebidos };
+}
+
+/** Quantos FALHOU desta campanha foram por conexão (para mostrar o botão). */
+export async function contarFalhasDeConexao(campaignId: string): Promise<number> {
+  const falhas = await prisma.campaignRecipient.findMany({ where: { campaignId, status: 'FALHOU' }, select: { error: true } });
+  return falhas.filter((f) => tipoErroEnvio(f.error) === 'conexao').length;
 }

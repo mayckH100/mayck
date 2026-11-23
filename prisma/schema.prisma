@@ -811,6 +811,9 @@ model Campaign {
   riscoRetomada  String    @default("auto")
   riscoPausa     String?
   riscoPausaEm   DateTime?
+  /// v1.46.1: campanha aguardando porque o WhatsApp do canal desconectou (nulo = conectado). Volta sozinha ao reconectar.
+  offlinePausa   String?
+  offlinePausaEm DateTime?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
@@ -837,6 +840,8 @@ model CampaignRecipient {
   repescagemFalhas   Int       @default(0)
   /// Não tentar antes deste horário (após falha passageira).
   repescagemAposAt   DateTime?
+  /// v1.46.1: tentativas do envio original que falharam por conexão (máx. 3; depois vira FALHOU).
+  tentativas         Int       @default(0)
 
   @@unique([campaignId, leadId])
   @@index([campaignId, status])

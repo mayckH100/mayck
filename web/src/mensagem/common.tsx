@@ -29,6 +29,8 @@ export interface Campaign {
   repescagemPausa?: string | null; repescagemPausaEm?: string | null;
   /** v1.44.0: pausa automática com o número em nível Risco. */
   riscoRetomada?: 'auto' | 'manual'; riscoPausa?: string | null; riscoPausaEm?: string | null;
+  /** v1.46.1: aguardando o WhatsApp reconectar; e quantos falharam por desconexão (dá para devolver à fila). */
+  offlinePausa?: string | null; offlinePausaEm?: string | null; falhasConexao?: number;
 }
 export interface Metrics {
   totalLeads: number; byStatus: Record<LeadStatus, number>; sent: number; failed: number; optOuts: number;

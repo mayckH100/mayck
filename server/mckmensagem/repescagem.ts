@@ -11,6 +11,7 @@
  *   modelo da campanha com variações.
  */
 import { prisma } from '../db.js';
+import { canalConectado, erroDeConexao } from '../whatsapp/conexao.js';
 import type { Campaign, CampaignRecipient, Contact, Conversation, Lead } from '@prisma/client';
 import { sendOutbound } from '../whatsapp/messaging.js';
 import { openConversationFor } from '../whatsapp/multiCanal.js';
@@ -275,7 +276,8 @@ async function despausar(c: Campaign) {
 async function travaDeEnvio(c: Campaign, now: Date): Promise<RepescagemAcao | null> {
   if (!inWindow(c, now)) return 'outside_window';
   const channel = await prisma.channel.findFirst({ where: { id: c.channelId, orgId: c.orgId } });
-  if (!channel || channel.status !== 'CONNECTED') return 'channel_disconnected';
+  // v1.46.1: QR confere a sessão viva (não só o status gravado); desconectado = espera, sem gastar tentativa.
+  if (!channel || channel.status !== 'CONNECTED' || !canalConectado(channel)) return 'channel_disconnected';
   if (channel.provider !== 'whatsapp_qr') { await pausar(c, PAUSA_API_OFICIAL, now); return 'cloud_channel'; }
   const saude = await saudeDoNumero(channel, now).catch(() => null);
   if (saude?.nivel === 'RISCO') { await pausar(c, PAUSA_RISCO, now); return 'number_risk'; }
@@ -376,6 +378,11 @@ async function enviar(c: Campaign, r: CampaignRecipient, ctx: Contexto, tentativ
     msg = { status: 'FAILED', error: (e as Error).message?.slice(0, 300) || 'Erro no envio', id: null } as any;
   }
   if (msg.status === 'FAILED') {
+    // v1.46.1: queda do WhatsApp/erro passageiro não conta como falha do contato: tenta de novo em 10 min.
+    if (!erroIndicaBloqueio(msg.error) && erroDeConexao(msg.error)) {
+      await prisma.campaignRecipient.update({ where: { id: r.id }, data: { repescagemStatus: null, repescagemAposAt: new Date(now.getTime() + 10 * 60_000) } });
+      return 'failed';
+    }
     const falhas = r.repescagemFalhas + 1;
     const definitiva = erroIndicaBloqueio(msg.error) || falhas >= 3;
     await prisma.campaignRecipient.update({
