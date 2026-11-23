@@ -21,6 +21,17 @@ export type EntradaChangelog = {
 
 export const CHANGELOG: EntradaChangelog[] = [
   {
+    versao: '1.47.0',
+    data: '23/11/2026',
+    titulo: 'Voz do vendedor: áudios gravados que a IA escolhe e voz clonada',
+    itens: [
+      'Nova tela "Voz do vendedor" (Inteligência artificial › Voz): o vendedor ou o dono grava os áudios mais comuns (boas-vindas, formas de pagamento, entrega, garantia…) pelo próprio app ou envia o arquivo.',
+      'Com os áudios gravados ligados, a IA escolhe o áudio certo pela conversa e manda como áudio gravado no WhatsApp, na voz de verdade do vendedor. O que o áudio não cobre, ela escreve logo depois, e o mesmo áudio não se repete na conversa.',
+      'Voz clonada: com a autorização por escrito do dono da voz e uma gravação de 1 a 3 minutos, a IA passa a responder com áudio na voz dele. Você ouve uma prévia antes de ativar e pode excluir a voz quando quiser (a gravação e a voz criada são apagadas).',
+      'A voz clonada roda no servidor de voz da própria MCK, sem serviço pago e sem enviar a gravação para outras empresas. A gravação fica guardada cifrada. Se o servidor de voz estiver ocupado ou fora do ar, a resposta vai por escrito, sem o cliente ficar esperando.',
+    ],
+  },
+  {
     versao: '1.46.1',
     data: '22/11/2026',
     titulo: 'Campanhas esperam o WhatsApp voltar em vez de falhar',

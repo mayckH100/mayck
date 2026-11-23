@@ -1,0 +1,22 @@
+# HTTPS automático (Let's Encrypt pelo desafio TLS-ALPN na própria 443; a porta 80 fica fechada).
+{
+	auto_https disable_redirects
+	servers {
+		protocols h1 h2
+	}
+}
+{$VOICE_DOMAIN} {
+	tls {
+		issuer acme {
+			disable_http_challenge
+		}
+	}
+	request_body {
+		max_size 20MB
+	}
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		-Server
+	}
+	reverse_proxy voz:8080
+}

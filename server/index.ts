@@ -21,6 +21,7 @@ import { tickDownAlerts, maybeDownDigest } from './whatsapp/downAlerts.js';
 import { tickWeeklyReport } from './lib/weeklyReport.js';
 import { tickSdr } from './sdr/service.js';
 import { startKeepAlive } from './lib/keepAlive.js';
+import { startVoiceCloneLoop } from './ai/voice/clone/service.js';
 import { tickMensagensAgendadas } from './inbox/service.js';
 import { tickAquecimento } from './whatsapp/aquecimento/service.js';
 
@@ -38,6 +39,8 @@ syncSuperAdmins()
 if (config.ENABLE_SCHEDULER === 'true') {
   // MCK ERP: despachante de eventos (outbox). Também roda logo após cada ação; o intervalo só cobre retentativas.
   iniciarErp();
+  // v1.47.0: voz clonada (fila do servidor de voz e exclusões pendentes; não faz nada sem VOICE_WORKER_URL).
+  startVoiceCloneLoop();
   setInterval(() => {
     scheduledTick().catch((e) => console.error('[agendador]', e));
   }, 5000).unref();

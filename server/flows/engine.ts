@@ -83,9 +83,10 @@ export async function replyWithAi(conv: Conversation, contact: Contact, text: st
       console.warn('[ia-whatsapp] IA sem resposta útil: texto de falha enviado, sem transferir', { orgId: conv.orgId, conversationId: conv.id, reason: r.reason, error: r.error });
       await internalNote(`IA não conseguiu responder (${r.reason ?? 'motivo desconhecido'}). ${r.text ? 'Enviado o texto de falha' : 'Nada enviado ao cliente (ele já recebeu o aviso de instabilidade nesta meia hora)'}; a conversa continua com a IA (só transfere se o cliente pedir um atendente). O Proprietário é avisado (Perfil › Números de aviso › Falha da IA).`);
     }
-    if (r.text) {
+    if (r.text || r.clipId) {
       // v1.23.0: texto ou nota de voz (Inteligência artificial › Voz); falha na voz cai para o texto.
-      const m = await sendAiReply(conv, contact, r.text);
+      // v1.47.0: áudio gravado da biblioteca (r.clipId) sai antes do texto.
+      const m = await sendAiReply(conv, contact, r.text ?? '', { clipId: r.clipId });
       if (m?.status === 'FAILED') {
         console.error('[ia-whatsapp] falha ao enviar a resposta da IA', { orgId: conv.orgId, conversationId: conv.id, error: m.error });
         await internalNote(`Falha ao enviar a resposta da IA: ${m.error ?? 'erro desconhecido'}. A conversa continua com a IA.`);
@@ -245,8 +246,8 @@ async function executeNode(node: FlowNode, run: FlowRun, runVars: Record<string,
     case 'ai': {
       const text = input?.text ?? String(runVars.last_message ?? '');
       const r = await generateAiReply({ orgId: conv.orgId, conversationId: conv.id, text, extraInstructions: d.instructions });
-      if (r.text) {
-        const m = await sendAiReply(conv, contact, r.text);
+      if (r.text || r.clipId) {
+        const m = await sendAiReply(conv, contact, r.text ?? '', { clipId: r.clipId });
         const f = failedSend(m);
         if (f) return f;
       }

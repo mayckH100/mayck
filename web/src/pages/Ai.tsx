@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { AI_TEMPLATES, aiTemplateById } from '../lib/aiTemplates';
 import { post, put, del, get, postBlob } from '../api';
 import { useAuth } from '../auth';
@@ -168,6 +168,7 @@ const ENGINES: Record<string, { label: string; hint: string }> = {
   gemini: { label: 'Google Gemini (grátis)', hint: 'Usa a chave do Gemini da IA de texto (ou a MCK IA). Camada gratuita do Google.' },
   openai: { label: 'OpenAI', hint: 'Usa a chave da OpenAI da IA de texto (Provedor: OpenAI). Cobrado pela OpenAI na sua conta.' },
   elevenlabs: { label: 'ElevenLabs (voz mais humana)', hint: 'Usa a sua chave da ElevenLabs (conta própria; o plano grátis deles tem uma cota mensal de caracteres).' },
+  clone: { label: 'Voz clonada do vendedor (grátis)', hint: 'A voz do vendedor ou do responsável, criada no nosso servidor de voz. Cadastre em “Voz do vendedor”.' },
 };
 const STT: Record<string, string> = { auto: 'Igual à IA de texto', gemini: 'Google Gemini', openai: 'OpenAI (Whisper)', elevenlabs: 'ElevenLabs (Scribe)' };
 
@@ -212,7 +213,10 @@ function VoiceSettings({ f, setF, s, ro, voiceKey, setVoiceKey, busy, clearVoice
   };
   return (
     <fieldset disabled={ro} className="card stack" style={{ margin: 0, gridColumn: '1 / -1' }}>
-      <h2>Voz</h2>
+      <div className="row between" style={{ flexWrap: 'wrap', gap: 8 }}>
+        <h2 style={{ margin: 0 }}>Voz</h2>
+        <Link to="/ia/voz" className="btn sm">🎙️ Voz do vendedor: áudios gravados e voz clonada</Link>
+      </div>
       <p className="small muted" style={{ margin: 0 }}>A IA ouve os áudios dos clientes e pode responder com áudio, como uma pessoa. Links e detalhes (preços, listas) vão por escrito logo depois do áudio. Cada áudio ouvido ou gerado conta no limite de respostas da IA.</p>
       <div className="grid g2">
         <div className="stack">
@@ -235,7 +239,7 @@ function VoiceSettings({ f, setF, s, ro, voiceKey, setVoiceKey, busy, clearVoice
         <Field label="Motor da voz" hint={ENGINES[engine]?.hint}><select value={engine} onChange={(e) => setF({ ...f, voiceProvider: e.target.value, voiceName: '' })}>{Object.entries(ENGINES).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}</select></Field>
         <Field label="Voz" hint={engine === 'elevenlabs' ? 'Vozes da sua conta ElevenLabs (inclui as que você adicionou da biblioteca).' : 'Feminina ou masculina; ouça a prévia para escolher.'}>
           <select value={f.voiceName ?? ''} onChange={(e) => setF({ ...f, voiceName: e.target.value })} disabled={!voices.length}>
-            {!voices.length && <option value="">{needsKey ? 'Salve a chave da ElevenLabs para ver as vozes' : vErr ? 'Não foi possível carregar' : 'Carregando…'}</option>}
+            {!voices.length && <option value="">{engine === 'clone' ? 'Cadastre a voz em “Voz do vendedor”' : needsKey ? 'Salve a chave da ElevenLabs para ver as vozes' : vErr ? 'Não foi possível carregar' : 'Carregando…'}</option>}
             {voices.map((v) => <option key={v.id} value={v.id}>{v.label}</option>)}
           </select>
         </Field>

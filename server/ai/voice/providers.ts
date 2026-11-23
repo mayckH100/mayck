@@ -19,6 +19,7 @@ import { safeFetch } from '../../lib/ssrf.js';
 import { AiProviderError, listGeminiModels, parseGeminiResponse } from '../providers.js';
 import { mckIaChain, type MckIaLink } from '../mckIa.js';
 import { decodePcm, isOggOpus, oggOpusDurationSec, pcmToOggOpus } from './ogg.js';
+import { CloneVoice } from './clone/service.js';
 import { openAiVoiceFor, estimateSpeechSeconds, OPENAI_VOICES, isKnownVoice, DEFAULT_VOICE } from './spoken.js';
 
 export interface TranscribeResult { text: string; model: string; promptTokens: number; completionTokens: number }
@@ -352,8 +353,9 @@ export class FakeVoice implements VoiceProvider {
 }
 
 // ---------- Escolha do motor por organização ----------
-export type VoiceEngine = 'gemini' | 'openai' | 'elevenlabs';
-export const VOICE_ENGINES: readonly VoiceEngine[] = ['gemini', 'openai', 'elevenlabs'];
+export type VoiceEngine = 'gemini' | 'openai' | 'elevenlabs' | 'clone';
+/** v1.47.0: "clone" = voz clonada do vendedor/responsável no nosso servidor de voz (grátis; clone/service.ts). */
+export const VOICE_ENGINES: readonly VoiceEngine[] = ['gemini', 'openai', 'elevenlabs', 'clone'];
 export const TRANSCRIBE_ENGINES = ['auto', 'gemini', 'openai', 'elevenlabs'] as const;
 
 /** Configuração e chaves (já decifradas) que os motores de voz usam. */
@@ -365,12 +367,15 @@ export interface VoiceKeys {
   baseUrl?: string | null;
   /** chave da ElevenLabs (só se o cliente salvou) */
   voiceApiKey: string | null;
+  /** v1.47.0: organização e voz clonada escolhida (motor "clone"). */
+  orgId?: string;
+  cloneProfileId?: string | null;
 }
 
 /** Motor efetivo da transcrição: "auto" segue a IA de texto (MCK IA usa as chaves da plataforma). */
 export function sttEngineOf(transcribeProvider: string, textProvider: string): VoiceEngine | 'mck' | 'fake' {
   if (textProvider === 'fake') return 'fake';
-  if ((VOICE_ENGINES as readonly string[]).includes(transcribeProvider)) return transcribeProvider as VoiceEngine;
+  if ((VOICE_ENGINES as readonly string[]).includes(transcribeProvider) && transcribeProvider !== 'clone') return transcribeProvider as VoiceEngine;
   if (textProvider === 'mck') return 'mck';
   return textProvider === 'openai' ? 'openai' : 'gemini';
 }
@@ -391,6 +396,10 @@ const noKey = (msg: string) => new AiProviderError('http', msg, false, '400');
  */
 export function buildTts(engine: string, k: VoiceKeys): { p: VoiceProvider; usageProvider: string } {
   const e = (VOICE_ENGINES as readonly string[]).includes(engine) ? (engine as VoiceEngine) : 'gemini';
+  if (e === 'clone') {
+    if (!k.orgId || !k.cloneProfileId) throw noKey('Cadastre e ative a voz clonada em IA › Voz › Voz clonada');
+    return { p: new CloneVoice(k.orgId, k.cloneProfileId, k), usageProvider: k.provider === 'mck' ? 'mck' : 'clone' };
+  }
   if (k.provider === 'fake') {
     if (process.env.NODE_ENV !== 'test') throw new Error('Provedor de teste não pode ser usado fora dos testes');
     if (e === 'elevenlabs' && !k.voiceApiKey) throw noKey('Cole a sua chave da ElevenLabs para usar essa voz');

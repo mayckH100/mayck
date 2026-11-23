@@ -103,3 +103,28 @@ export async function postBlob(path: string, body: unknown, o: { timeoutMs?: num
   }
   return res.blob();
 }
+
+/** v1.47.0: envia um áudio (WAV/OGG) com campos extras em cabeçalhos (texto codificado). */
+export async function uploadAudio<T = any>(path: string, blob: Blob, fields: Record<string, string> = {}): Promise<T> {
+  const extra: Record<string, string> = {};
+  for (const [k, v] of Object.entries(fields)) extra[k] = encodeURIComponent(v);
+  let res: Response;
+  try {
+    res = await fetch('/api' + path, {
+      method: 'POST', credentials: 'same-origin', body: blob,
+      headers: { 'x-requested-with': 'mckbot', ...(csrfToken ? { 'x-csrf-token': csrfToken } : {}), 'content-type': 'application/octet-stream', 'x-file-type': blob.type || 'audio/wav', ...extra },
+    });
+  } catch {
+    throw new ApiError('Sem conexão com o servidor. Verifique sua internet.', 0);
+  }
+  const data = await res.json().catch(() => null);
+  if (!res.ok) throw new ApiError(data?.error ?? FRIENDLY[res.status] ?? `Erro ${res.status}`, res.status, data?.details);
+  return data as T;
+}
+
+/** v1.47.0: busca um áudio protegido (ex.: prévia da voz clonada) como Blob. */
+export async function getBlob(path: string): Promise<Blob> {
+  const res = await fetch('/api' + path, { credentials: 'same-origin', headers: { 'x-requested-with': 'mckbot' } });
+  if (!res.ok) { const d = await res.json().catch(() => null); throw new ApiError(d?.error ?? `Erro ${res.status}`, res.status); }
+  return res.blob();
+}

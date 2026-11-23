@@ -27,6 +27,7 @@ import { applyOrderTag, intentFromText, ordersPromptSection, tagConversation } f
 import { notAutoReply } from '../sdr/autoReply.js';
 import { detectVoicePreference, decideWithPreference, historyContent, isVoicePreference, MARK_CLIENT_AUDIO, stripVoiceMarkers, voicePromptSection, type VoicePreference } from './voice/preference.js';
 import { isAudioType } from './voice/spoken.js';
+import { clipsPromptSection, extractClipMarker, validClip } from './voice/clips.js';
 
 export interface AiReply {
   text: string | null; // texto a enviar ao contato (null = nada)
@@ -39,6 +40,8 @@ export interface AiReply {
   reason?: string;
   error?: string;
   usedContext: boolean;
+  /** v1.47.0: áudio gravado da biblioteca que a IA escolheu (vai como áudio gravado antes do texto). */
+  clipId?: string | null;
 }
 
 export async function reindexDoc(orgId: string, docId: string, content: string) {
@@ -264,7 +267,10 @@ async function generateAiReplyInner(args: { orgId: string; conversationId: strin
   // o que a IA de fato consegue fazer aqui. Falha aqui nunca derruba a resposta.
   const lastIn = history.find((m) => m.direction === 'IN');
   const inboundWasAudio = !!lastIn && history[0]?.id === lastIn.id && isAudioType(lastIn.type);
-  const voice = await voiceContext(orgId, conversationId, text, s, inboundWasAudio).catch(() => '');
+  const voiceBase = await voiceContext(orgId, conversationId, text, s, inboundWasAudio).catch(() => '');
+  // v1.47.0: biblioteca de áudios gravados (a IA escolhe pelo contexto com o marcador [AUDIO:id]).
+  const clipsSec = conversationId ? await clipsPromptSection(orgId, conversationId, !!s.voiceLibraryEnabled).catch(() => '') : '';
+  const voice = [voiceBase, clipsSec].filter(Boolean).join('\n');
   // Agenda: horários livres + regra do marcador [AGENDAR:{...}] (só se a empresa ligou o agendamento pela IA).
   // SDR com IA: perguntas de qualificação que faltam e, no modo automático, agenda pela IA para o lead.
   const sdrBook = await sdrForcesBooking(orgId, conversationId).catch(() => false);
@@ -332,6 +338,11 @@ async function generateAiReplyInner(args: { orgId: string; conversationId: strin
       const usageRow = await prisma.aiUsage.create({ data: { ...base, success: true } }).catch(() => null);
       // v1.26.0 (IA conversacional avançada): o plano interno [PLANO: ...] sai do texto antes de tudo.
       let raw = r.text;
+      // v1.47.0: áudio gravado escolhido pela IA ([AUDIO:id]); só vale se existir, estiver ativo e for da empresa.
+      const clipPick = extractClipMarker(raw);
+      raw = clipPick.text;
+      const clip = s.voiceLibraryEnabled && clipPick.clipId ? await validClip(orgId, clipPick.clipId) : null;
+      if (clipPick.clipId && !clip) console.warn('[voz-biblioteca] marcador de áudio ignorado', { orgId, conversationId: conversationId || null, clipId: clipPick.clipId });
       let plano: Plano | null = null;
       if (adv) ({ plano, texto: raw } = extrairPlano(raw));
       if (adv && plano) console.info('[ia-conversa] plano', { orgId, conversationId: conversationId || null, ...plano });
@@ -401,11 +412,12 @@ async function generateAiReplyInner(args: { orgId: string; conversationId: strin
           }
         }
       }
+      if (!out && clip) return { text: '', handoff: false, usedContext, clipId: clip.id };
       if (!out) {
         console.warn('[ia] resposta sem texto útil: texto de falha enviado, sem transferir', { orgId, conversationId: conversationId || null });
         return { text: fail, handoff: false, failed: true, reason: 'IA não soube responder', usedContext };
       }
-      return { text: out, handoff: false, usedContext };
+      return { text: out, handoff: false, usedContext, clipId: clip?.id ?? null };
     } catch (e) {
       lastErr = e;
       if (attempt === 1) firstErr = e;

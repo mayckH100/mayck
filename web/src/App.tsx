@@ -15,6 +15,7 @@ import Contacts from './pages/Contacts';
 import Flows from './pages/Flows';
 import FlowEditor from './pages/FlowEditor';
 import Ai from './pages/Ai';
+import VozVendedor from './pages/VozVendedor';
 import Products from './pages/Products';
 import Channels from './pages/Channels';
 import Integrations from './pages/Integrations';
@@ -320,6 +321,7 @@ export default function App() {
             <Route path="/fluxos" element={<Flows />} />
             <Route path="/fluxos/:id" element={<FlowEditor />} />
             <Route path="/ia" element={<Ai />} />
+            <Route path="/ia/voz" element={<VozVendedor />} />
             <Route path="/produtos" element={<Products />} />
             <Route path="/canais" element={<Channels />} />
             <Route path="/integracoes" element={<Integrations />} />

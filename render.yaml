@@ -18,6 +18,11 @@ services:
         sync: false # cole a connection string do Neon/Supabase (com sslmode=require)
       - key: MASTER_KEY
         generateValue: true # 256 bits em base64. NUNCA troque depois: os segredos salvos ficariam ilegíveis.
+      # v1.47.0: servidor de voz clonada (voice-worker/, VM Oracle Always Free). Sem eles a voz clonada fica "aguardando servidor".
+      - key: VOICE_WORKER_URL
+        sync: false
+      - key: VOICE_WORKER_SECRET
+        sync: false
       - key: GRAPH_API_VERSION
         value: v26.0
       - key: FLOW_MAX_STEPS

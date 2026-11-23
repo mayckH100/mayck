@@ -1,0 +1,25 @@
+# Sobe o worker (rede interna, sem porta pública) + Caddy (HTTPS automático na 443).
+# Segredos ficam no arquivo .env da VM (NUNCA no repositório). Veja .env.exemplo.
+services:
+  voz:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    volumes: ["voz-data:/data"]
+    expose: ["8080"]
+    mem_limit: 10g
+    read_only: true
+    tmpfs: ["/tmp"]
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: ["ALL"]
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    env_file: .env
+    ports: ["443:443"]
+    volumes: ["./Caddyfile:/etc/caddy/Caddyfile:ro", "caddy-data:/data", "caddy-config:/config"]
+    depends_on: [voz]
+volumes:
+  voz-data: {}
+  caddy-data: {}
+  caddy-config: {}

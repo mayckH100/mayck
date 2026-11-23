@@ -10,6 +10,8 @@ import { parseJson } from '../lib/json.js';
 import { generateAiReply, reindexDoc, retrieve } from '../ai/service.js';
 import { productsRouter } from './products.js';
 import { montarRouter } from '../ai/montar/routes.js';
+import { vozRouter } from '../ai/voice/clone/routes.js';
+import { activateProfile } from '../ai/voice/clone/service.js';
 import { mckIaReady } from '../ai/mckIa.js';
 import { CORRECTION_PREFIX } from '../ai/rag.js';
 import { PURPOSE_LABEL } from '../ai/prompts.js';
@@ -25,6 +27,8 @@ const admins = requireRole('OWNER', 'ADMIN');
 aiRouter.use('/products', productsRouter);
 // v1.46.0: assistente "Monte sua IA conversando" (prévia editável; só grava ao Aplicar).
 aiRouter.use('/montar', montarRouter);
+// v1.47.0: biblioteca de áudios gravados e voz clonada.
+aiRouter.use('/voz', vozRouter);
 
 async function settingsView(orgId: string) {
   const s = await prisma.aiSettings.upsert({ where: { orgId }, create: { orgId }, update: {} });
@@ -74,11 +78,23 @@ aiRouter.put('/settings', admins, ah(async (req, res) => {
     transcribeProvider: z.enum(TRANSCRIBE_ENGINES as unknown as [string, ...string[]]).optional(),
     voiceApiKey: z.string().trim().min(8).max(300).optional(),
     clearVoiceApiKey: z.boolean().optional(),
+    // v1.47.0: biblioteca de áudios gravados.
+    voiceLibraryEnabled: z.boolean().optional(),
   }).parse(req.body);
   const orgId = orgOf(req);
   // O site da MCK DESENVOLVIMENTO como conhecimento é só da organização da MCK: quem liga é o superadmin.
   if (body.useMckSite !== undefined && !req.auth!.isSuperAdmin) throw new HttpError(403, 'Só o administrador da plataforma pode ligar o conhecimento do site da MCK.');
   const { apiKey, clearApiKey, handoffKeywords, baseUrl, voiceApiKey, clearVoiceApiKey, ...rest } = body;
+  // v1.47.0: motor "Voz clonada": a voz escolhida (voiceName = id da voz) precisa estar pronta (prévia ouvida) e vira a ativa.
+  let cloneProfileId: string | null | undefined;
+  if (body.voiceProvider === 'clone') {
+    const cur = await prisma.aiSettings.findUnique({ where: { orgId }, select: { voiceCloneProfileId: true } });
+    const pid = body.voiceName || cur?.voiceCloneProfileId || '';
+    const vp = pid ? await prisma.voiceProfile.findFirst({ where: { id: pid, orgId, status: { in: ['PRONTA', 'ATIVA'] } }, select: { id: true } }) : null;
+    if (!vp) throw badRequest('Escolha uma voz clonada pronta (cadastre em IA › Voz › Voz clonada e ouça a prévia).');
+    await activateProfile(req, orgId, vp.id);
+    cloneProfileId = vp.id;
+  }
   if (baseUrl) {
     try { await assertPublicUrl(baseUrl); } catch (e) { throw badRequest(`URL da IA recusada: ${(e as Error).message}`); }
   }
@@ -91,6 +107,7 @@ aiRouter.put('/settings', admins, ah(async (req, res) => {
       handoffKeywords: handoffKeywords ? JSON.stringify(handoffKeywords) : undefined,
       apiKeyEnc: clearApiKey ? null : apiKey ? encrypt(apiKey) : undefined,
       voiceApiKeyEnc: clearVoiceApiKey ? null : voiceApiKey ? encrypt(voiceApiKey) : undefined,
+      voiceCloneProfileId: cloneProfileId,
     },
   });
   await audit(req, 'ai.settings_update', { entity: 'ai_settings', meta: { fields: Object.keys(body).filter((k) => k !== 'apiKey' && k !== 'voiceApiKey'), apiKeyChanged: !!apiKey || !!clearApiKey, voiceApiKeyChanged: !!voiceApiKey || !!clearVoiceApiKey } });
@@ -103,6 +120,11 @@ aiRouter.get('/voice/voices', admins, ah(async (req, res) => {
   const provider = z.enum(VOICE_ENGINES as unknown as [string, ...string[]]).parse(req.query.provider ?? 'gemini');
   const orgId = orgOf(req);
   let voices: VoiceOption[];
+  if (provider === 'clone') {
+    const ps = await prisma.voiceProfile.findMany({ where: { orgId, status: { in: ['PRONTA', 'ATIVA'] } }, select: { id: true, ownerName: true, ownerRole: true }, orderBy: { createdAt: 'asc' } });
+    const s = await prisma.aiSettings.findUnique({ where: { orgId }, select: { voiceCloneProfileId: true } });
+    return res.json({ provider, voices: ps.map((p) => ({ id: p.id, label: `${p.ownerName}${p.ownerRole ? ` (${p.ownerRole})` : ''}` })), needsKey: false, needsClone: !ps.length, defaultVoice: s?.voiceCloneProfileId && ps.some((p) => p.id === s.voiceCloneProfileId) ? s.voiceCloneProfileId : ps[0]?.id ?? '' });
+  }
   if (provider === 'gemini') voices = GEMINI_VOICES.map((v) => ({ id: v.id, label: v.label, genero: v.genero }));
   else if (provider === 'openai') voices = OPENAI_VOICES.map((v) => ({ id: v.id, label: v.label, genero: v.genero }));
   else {
@@ -139,6 +161,7 @@ aiRouter.post('/voice/preview', admins, ah(async (req, res) => {
   const text = body.text ?? `Oi! Aqui é do atendimento${org?.name ? ` da ${org.name}` : ''}. Tudo bem? Me conta como eu posso te ajudar hoje.`;
   const settings = {
     ...s,
+    voiceCloneProfileId: (body.voiceProvider ?? s.voiceProvider) === 'clone' ? (body.voiceName || s.voiceCloneProfileId) : s.voiceCloneProfileId,
     voiceProvider: body.voiceProvider ?? s.voiceProvider,
     voiceName: body.voiceName ?? s.voiceName,
     voiceModel: body.voiceModel ?? s.voiceModel,

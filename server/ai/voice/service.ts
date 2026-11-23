@@ -23,7 +23,7 @@ const startOfDay = (d = new Date()) => new Date(d.getFullYear(), d.getMonth(), d
 const startOfMonth = (d = new Date()) => new Date(d.getFullYear(), d.getMonth(), 1);
 
 /** Chaves decifradas para os motores de voz (nunca saem do servidor). */
-export const voiceKeysOf = (s: AiSettings): VoiceKeys => ({ provider: s.provider, model: s.model, apiKey: decryptOrNull(s.apiKeyEnc), baseUrl: s.baseUrl, voiceApiKey: decryptOrNull(s.voiceApiKeyEnc) });
+export const voiceKeysOf = (s: AiSettings): VoiceKeys => ({ provider: s.provider, model: s.model, apiKey: decryptOrNull(s.apiKeyEnc), baseUrl: s.baseUrl, voiceApiKey: decryptOrNull(s.voiceApiKeyEnc), orgId: s.orgId, cloneProfileId: s.voiceCloneProfileId ?? null });
 
 /**
  * Motivo de bloqueio pelos limites de uso (null = pode usar). Mesmas regras das respostas de texto; a cota

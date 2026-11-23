@@ -637,6 +637,10 @@ model AiSettings {
   voiceMaxSeconds      Int      @default(45)
   /// Ouvir (transcrever) os áudios dos clientes quando a IA está ativada (padrão ligado).
   transcribeAudio      Boolean  @default(true)
+  /// v1.47.0: biblioteca de áudios gravados pelo vendedor (a IA escolhe o certo pelo contexto e manda como áudio gravado).
+  voiceLibraryEnabled  Boolean  @default(false)
+  /// v1.47.0: voz clonada ativa (VoiceProfile.id) usada quando voiceProvider = "clone".
+  voiceCloneProfileId  String?
   /// Motor da transcrição: auto (o mesmo da IA de texto) | gemini | openai | elevenlabs.
   transcribeProvider   String   @default("auto")
   /// v1.42.0: duração máxima do áudio do cliente para transcrever (s). Padrão 2 minutos.
@@ -3007,4 +3011,80 @@ model BookingService {
   updatedAt   DateTime @updatedAt
 
   @@index([orgId])
+}
+
+/// v1.47.0: áudio gravado pelo vendedor/responsável (biblioteca). A IA escolhe pelo contexto e envia como áudio gravado (PTT).
+model VoiceClip {
+  id          String    @id @default(cuid())
+  orgId       String
+  title       String
+  /// Quando usar (a IA lê isto para escolher o áudio).
+  whenToUse   String    @default("")
+  /// O que é dito no áudio (a IA não promete nada além disto).
+  transcript  String    @default("")
+  /// OGG/Opus pronto para o WhatsApp.
+  audio       Bytes
+  seconds     Float     @default(0)
+  waveform    Bytes?
+  active      Boolean   @default(true)
+  useCount    Int       @default(0)
+  lastUsedAt  DateTime?
+  createdById String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([orgId, active])
+}
+
+/// v1.47.0: voz clonada (dado biométrico, LGPD art. 11): aceite por escrito do dono da voz, amostra cifrada, exclusão a pedido.
+model VoiceProfile {
+  id                String    @id @default(cuid())
+  orgId             String
+  /// Nome do dono da voz (vendedor ou responsável da empresa).
+  ownerName         String
+  ownerRole         String    @default("")
+  ownerEmail        String    @default("")
+  /// Texto do termo aceito (guardado como foi aceito) e quem/quando/de onde aceitou.
+  consentText       String
+  consentVersion    String    @default("")
+  consentAt         DateTime
+  consentIp         String?
+  consentUserId     String?
+  /// Amostra (OGG/Opus) cifrada com AES-256-GCM; apagada na exclusão.
+  sampleEnc         Bytes?
+  sampleSeconds     Float     @default(0)
+  /// Id da voz no servidor de voz (worker); não identifica a pessoa.
+  workerVoiceId     String    @unique
+  /// Voz-base do modo rápido (Gemini TTS): Puck (masculina) ou Kore (feminina); o timbre é trocado pelo clonado.
+  baseVoice         String    @default("Puck")
+  /// AGUARDANDO_AMOSTRA | NA_FILA | PROCESSANDO | PRONTA | ATIVA | ERRO | EXCLUIDA
+  status            String    @default("AGUARDANDO_AMOSTRA")
+  error             String?
+  attempts          Int       @default(0)
+  previewOgg        Bytes?
+  previewText       String    @default("")
+  activatedAt       DateTime?
+  deletedAt         DateTime?
+  deletedReason     String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@index([orgId, status])
+}
+
+/// v1.47.0: cache das frases já geradas na voz clonada (mesma frase não é gerada de novo).
+model VoiceCloneCache {
+  id        String   @id @default(cuid())
+  orgId     String
+  profileId String
+  textHash  String
+  ogg       Bytes
+  seconds   Float
+  waveform  Bytes?
+  hits      Int      @default(0)
+  createdAt DateTime @default(now())
+  lastUsedAt DateTime @default(now())
+
+  @@unique([profileId, textHash])
+  @@index([orgId, createdAt])
 }

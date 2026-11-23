@@ -56,3 +56,19 @@ export function maskSecret(v?: string | null): string | null {
   if (!v) return null;
   return v.length <= 4 ? '••••' : '••••' + v.slice(-4);
 }
+
+/** v1.47.0: cifra bytes (ex.: amostra de voz) com AES-256-GCM. Formato: 'MCK1' + iv(12) + tag(16) + dados. */
+export function encryptBytes(plain: Buffer, key: Buffer = getMasterKey(), aad?: string): Buffer {
+  const iv = randomBytes(12);
+  const cipher = createCipheriv('aes-256-gcm', key, iv);
+  if (aad) cipher.setAAD(Buffer.from(aad));
+  const data = Buffer.concat([cipher.update(plain), cipher.final()]);
+  return Buffer.concat([Buffer.from('MCK1'), iv, cipher.getAuthTag(), data]);
+}
+export function decryptBytes(payload: Buffer, key: Buffer = getMasterKey(), aad?: string): Buffer {
+  if (payload.length < 32 || payload.toString('ascii', 0, 4) !== 'MCK1') throw new Error('Formato de dado cifrado inválido');
+  const decipher = createDecipheriv('aes-256-gcm', key, payload.subarray(4, 16));
+  if (aad) decipher.setAAD(Buffer.from(aad));
+  decipher.setAuthTag(payload.subarray(16, 32));
+  return Buffer.concat([decipher.update(payload.subarray(32)), decipher.final()]);
+}
