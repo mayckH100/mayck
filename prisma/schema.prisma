@@ -641,6 +641,8 @@ model AiSettings {
   transcribeProvider   String   @default("auto")
   /// v1.42.0: duração máxima do áudio do cliente para transcrever (s). Padrão 2 minutos.
   transcribeMaxSeconds Int      @default(120)
+  /// v1.46.0: quando o assistente "Monte sua IA conversando" foi aplicado pela última vez (nulo = nunca).
+  assistenteAplicadoEm DateTime?
   /// v1.24.0 De onde a IA consulta os produtos: catalogo (padrão, só Produtos) | erp (só ERP com saldo) | ambos.
   productSource        String   @default("catalogo")
   /// ERP: false = só a situação (disponível / poucas unidades / sem estoque / sob encomenda); true = quantidade exata.
@@ -1300,6 +1302,8 @@ model Appointment {
   notifyOwner     Boolean   @default(false)
   teamContacts    String    @default("[]")
   reminderSentAt  DateTime?
+  /// v1.46.0: serviço escolhido na página pública de agendamento (source = LINK).
+  bookingServiceId String?
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
@@ -2970,4 +2974,32 @@ model SiteWidget {
   /// Pedir nome (e WhatsApp opcional) antes da 1ª mensagem.
   askName        Boolean  @default(true)
   updatedAt      DateTime @updatedAt
+}
+
+/// v1.46.0: página pública de agendamento da empresa (/agendar/:slug).
+model BookingPage {
+  orgId        String   @id
+  slug         String   @unique
+  enabled      Boolean  @default(false)
+  title        String   @default("")
+  intro        String   @default("")
+  /// Até quantos dias à frente o cliente pode marcar.
+  maxDaysAhead Int      @default(30)
+  updatedAt    DateTime @updatedAt
+}
+
+/// v1.46.0: serviço oferecido na página pública de agendamento (nome, duração, preço opcional).
+model BookingService {
+  id          String   @id @default(cuid())
+  orgId       String
+  name        String
+  durationMin Int      @default(30)
+  priceCents  Int?
+  description String   @default("")
+  active      Boolean  @default(true)
+  position    Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([orgId])
 }

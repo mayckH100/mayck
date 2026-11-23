@@ -4,21 +4,45 @@ import { AI_TEMPLATES, aiTemplateById } from '../lib/aiTemplates';
 import { post, put, del, get, postBlob } from '../api';
 import { useAuth } from '../auth';
 import { useApi, Async, Empty, useAction, Modal, Field, fmtDate, fmtNum } from '../ui';
+import MontarIaModal, { useSituacaoMontar } from './MontarIa';
 
 // Padrão Gemini: modelo recomendado pelo Google para projetos novos (out/2026), disponível no plano gratuito.
 const MODELS: Record<string, string> = { gemini: 'gemini-3.5-flash-lite', openai: '', mck: 'mck-ia' };
 
+const montarDispensadoKey = (orgId: string) => `mck:montar-ia:visto:${orgId}`;
+
 export default function Ai() {
-  const [sp0] = useSearchParams();
+  const [sp0, setSp0] = useSearchParams();
+  const { can, me } = useAuth();
+  const admin = can('OWNER', 'ADMIN');
   const [tab, setTab] = useState<'config' | 'kb' | 'test' | 'usage' | 'quality'>(sp0.get('aba') === 'testar' ? 'test' : 'config');
+  const [montar, setMontar] = useState(sp0.get('montar') === '1');
+  const [versao, setVersao] = useState(0);
+  // Primeiro acesso (sem instruções, sem documentos e nunca aplicado): abre o assistente uma vez por navegador.
+  const sit = useSituacaoMontar(admin && !montar);
+  useEffect(() => {
+    const orgId = me?.org?.id ?? '';
+    if (!sit || !orgId || sp0.get('aba')) return;
+    let visto = false;
+    try { visto = localStorage.getItem(montarDispensadoKey(orgId)) === '1'; } catch { /* modo privado */ }
+    if (!visto && !sit.aplicadoEm && !sit.temInstrucoes && sit.totalDocs === 0 && sit.disponivel) setMontar(true);
+  }, [sit]);
+  const fechar = () => {
+    try { localStorage.setItem(montarDispensadoKey(me?.org?.id ?? ''), '1'); } catch { /* modo privado */ }
+    setMontar(false);
+    if (sp0.get('montar')) { sp0.delete('montar'); setSp0(sp0, { replace: true }); }
+  };
   return (
     <>
-      <div className="page-head"><div><h1>Inteligência artificial</h1><p className="muted">Instruções, tom de voz, base de conhecimento, provedor/modelo, limites e transferência para humano.</p></div></div>
+      <div className="page-head"><div><h1>Inteligência artificial</h1><p className="muted">Instruções, tom de voz, base de conhecimento, provedor/modelo, limites e transferência para humano.</p></div>
+        {admin && <button className="btn primary" onClick={() => setMontar(true)} title="Cole o link do site/Instagram, escreva ou envie PDF/áudio: a IA monta tudo e você confere antes de aplicar">✨ Monte sua IA conversando</button>}
+      </div>
+      {montar && <MontarIaModal onClose={fechar} onApplied={() => setVersao((v) => v + 1)} />}
       <div className="tabs">
         {([['config', 'Configuração'], ['kb', 'Base de conhecimento'], ['test', 'Testar'], ['usage', 'Uso'], ['quality', 'Qualidade']] as const).map(([k, l]) => <button key={k} className={tab === k ? 'on' : ''} onClick={() => setTab(k)}>{l}</button>)}
       </div>
-      {tab === 'config' && <Config />}
-      {tab === 'kb' && <Knowledge />}
+      {tab === 'config' && <Config key={versao} />}
+      {tab === 'kb' && <Knowledge key={versao} onMontar={admin ? () => setMontar(true) : undefined} />}
       {tab === 'test' && <TestAi />}
       {tab === 'usage' && <Usage />}
       {tab === 'quality' && <Quality />}
@@ -252,7 +276,7 @@ export function MckQuotaInfo({ q }: { q: { limit: number; used: number; reached:
   return <div className="small muted">Respostas da MCK IA hoje: <strong>{fmtNum(q.used)}</strong>{q.limit ? ` de ${fmtNum(q.limit)} (${q.tierLabel})` : ' (sem limite diário)'}.</div>;
 }
 
-function Knowledge() {
+function Knowledge({ onMontar }: { onMontar?: () => void }) {
   const state = useApi<any[]>('/ai/knowledge');
   const { can } = useAuth();
   const [edit, setEdit] = useState<any>(null);
@@ -276,7 +300,8 @@ function Knowledge() {
         <p className="muted" style={{ margin: 0 }}>Cole FAQ, tabela de preços, políticas e horários. O texto é dividido em trechos e os mais relevantes vão para a IA a cada pergunta. Produtos com preço e estoque ficam em <a href="/produtos">Produtos</a>.</p>
         {!ro && <button className="btn primary" onClick={() => setEdit({ title: '', content: '' })}>+ Documento</button>}
       </div>
-      <Async state={state}>{(docs) => docs.length === 0 ? <div className="card"><Empty title="Base de conhecimento vazia">Sem documentos, a IA não sabe responder perguntas sobre preços e políticas (ela avisa que vai confirmar com a equipe).</Empty></div> : (
+      <Async state={state}>{(docs) => docs.length === 0 ? <div className="card"><Empty title="Base de conhecimento vazia">Sem documentos, a IA não sabe responder perguntas sobre preços e políticas (ela avisa que vai confirmar com a equipe).
+        {onMontar && <div style={{ marginTop: 12 }}><button className="btn primary" onClick={onMontar}>✨ Montar a partir do meu site, texto ou PDF</button></div>}</Empty></div> : (
         <div className="grid g2">
           {docs.map((d) => (
             <div key={d.id} className="card stack">

@@ -50,13 +50,21 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([]);
   const push = useCallback((text: string, kind: 'ok' | 'err' = 'ok') => {
     const id = Date.now() + Math.random();
-    setToasts((t) => [...t, { id, text, kind }]);
-    setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 4500);
+    setToasts((t) => [...t.slice(-3), { id, text, kind }]);
+    // Texto longo fica mais tempo na tela (até 12 s).
+    setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), Math.min(12000, 4500 + Math.max(0, text.length - 80) * 40));
   }, []);
+  // v1.46.0: avisos antigos que usavam o alert() do navegador ("o site diz…") viram o aviso do próprio app, sem travar a tela.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const original = window.alert;
+    window.alert = (msg?: unknown) => push(String(msg ?? ''), /inválid|erro|falh|não foi|passa de/i.test(String(msg ?? '')) ? 'err' : 'ok');
+    return () => { window.alert = original; };
+  }, [push]);
   return (
     <ToastCtx.Provider value={push}>
       {children}
-      <div className="toast-wrap" aria-live="polite">{toasts.map((t) => <div key={t.id} className={`toast ${t.kind === 'err' ? 'err' : ''}`}>{t.text}</div>)}</div>
+      <div className="toast-wrap" aria-live="polite">{toasts.map((t) => <div key={t.id} role={t.kind === 'err' ? 'alert' : 'status'} className={`toast ${t.kind === 'err' ? 'err' : ''}`} onClick={() => setToasts((x) => x.filter((y) => y.id !== t.id))}>{t.text}</div>)}</div>
     </ToastCtx.Provider>
   );
 }

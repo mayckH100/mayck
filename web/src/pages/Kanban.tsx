@@ -10,7 +10,7 @@ export default function Kanban() {
   const [query, setQuery] = useState('');
   const [sort, setSort] = useState('last_desc');
   const state = useApi<any>(`/kanban?sort=${sort}&q=${encodeURIComponent(query)}`, [sort, query]);
-  const { run } = useAction();
+  const { busy, run } = useAction();
   const { can, me } = useAuth();
   const [over, setOver] = useState<string | null>(null);
   const [edit, setEdit] = useState<any>(null);
@@ -93,7 +93,7 @@ export default function Kanban() {
             <Field label="Cor"><input type="color" value={edit.color} onChange={(e) => setEdit({ ...edit, color: e.target.value })} style={{ height: 38 }} /></Field>
             <div className="row between">
               {edit.id ? <button type="button" className="btn danger" onClick={async () => { if (confirm('Excluir esta coluna? Os contatos voltam para "Sem etapa".')) { await run(() => del(`/kanban/stages/${edit.id}`), 'Coluna excluída'); setEdit(null); state.reload(); } }}>Excluir coluna</button> : <span />}
-              <button className="btn primary">Salvar</button>
+              <button className="btn primary" disabled={busy}>{busy ? 'Salvando…' : 'Salvar'}</button>
             </div>
           </form>
         </Modal>

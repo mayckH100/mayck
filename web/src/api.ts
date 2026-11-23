@@ -44,7 +44,7 @@ export async function api<T = any>(path: string, opts: { method?: string; body?:
     const details = data?.details;
     let msg = data?.error ?? FRIENDLY[res.status] ?? `Erro ${res.status}`;
     if (Array.isArray(details) && details.length) msg += ': ' + details.join('; ');
-    else if (details?.fieldErrors) {
+    else if (details?.fieldErrors && !details.amigavel) {
       const f = Object.entries(details.fieldErrors as Record<string, string[]>).map(([k, v]) => `${k}: ${v.join(', ')}`);
       if (f.length) msg += ' — ' + f.join(' | ');
     }

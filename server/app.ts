@@ -39,6 +39,7 @@ import { integrationsRouter } from './routes/integrations.js';
 import { dashboardRouter } from './routes/dashboard.js';
 import { profileRouter, orgRouter, auditRouter } from './routes/misc.js';
 import { agendaRouter, publicAgendaRouter, googleCallbackRouter } from './agenda/routes.js';
+import { agendamentoAdminRouter, agendarPublicRouter, montarPaginaAgendar } from './agendamento/routes.js';
 import { e2eHooksEnabled, e2eRouter } from './lib/testHooks.js';
 import { outbox } from './lib/mailer.js';
 import { socialRouter, socialCallbackRouter, publicNovidadesRouter } from './social/routes.js';
@@ -95,6 +96,9 @@ export function createApp() {
     res.send(WIDGET_JS);
   });
   app.use('/api/public/chat', express.json({ limit: '16kb' }), express.text({ limit: '16kb', type: 'text/plain' }), sitePublicRouter);
+  // v1.46.0: página pública de agendamento (/agendar/:slug) e a API do cliente (sem sessão/CSRF; limites por IP e honeypot).
+  montarPaginaAgendar(app);
+  app.use('/api/public/agendar', express.json({ limit: '8kb' }), agendarPublicRouter);
 
   // Health check leve (não toca no banco — permite o Postgres grátis do Neon escalar a zero).
   app.get('/api/health', (_req, res) => res.json({ ok: true }));
@@ -171,6 +175,7 @@ export function createApp() {
   app.use('/api/plans', requireOrg, requireModule('plano'), plansRouter);
   app.use('/api/indicacao', requireOrg, referralRouter); // Indique e ganhe: link, contagem e meses ganhos da organização
   app.use('/api/billing', requireOrg, requireModule('plano', [{ method: 'GET', path: /^\/status$/ }]), billingRouter);
+  app.use('/api/agenda/link', requireOrg, requireModule('agenda'), requireMckbotForWrites, agendamentoAdminRouter); // v1.46.0: link público de agendamento
   app.use('/api/agenda', requireOrg, requireModule('agenda'), requireMckbotForWrites, agendaRouter);
   app.use('/api/integrations', requireOrg, requireModule('integracoes'), requireMckbotForWrites, integrationsRouter);
   app.use('/api/audit', requireOrg, requireModule('auditoria'), auditRouter);

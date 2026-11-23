@@ -288,7 +288,7 @@ export async function moveToMeetingStage(orgId: string, contactId: string) {
   }
 }
 
-interface Ctx { orgId: string; userId?: string | null; req?: Request | null; source?: 'MANUAL' | 'AI' | 'KANBAN'; force?: boolean }
+interface Ctx { orgId: string; userId?: string | null; req?: Request | null; source?: 'MANUAL' | 'AI' | 'KANBAN' | 'LINK'; force?: boolean; /** v1.46.0: serviço da página pública de agendamento. */ bookingServiceId?: string | null }
 
 async function checkRefs(orgId: string, input: Partial<AppointmentInput>) {
   if (input.contactId && !(await prisma.contact.findFirst({ where: { id: input.contactId, orgId }, select: { id: true } }))) throw notFound('Contato');
@@ -358,6 +358,7 @@ export async function createAppointment(input: AppointmentInput, ctx: Ctx): Prom
       notifyAssignee: input.notifyAssignee ?? s.notifyAssignee, notifyExtras: input.notifyExtras ?? s.notifyExtras,
       extraContacts: JSON.stringify(extras),
       notifyOwner: input.notifyOwner ?? (kind === 'MEETING' && s.notifyOwner), teamContacts: JSON.stringify(team),
+      bookingServiceId: ctx.bookingServiceId ?? null,
     },
   });
   if (kind === 'MEETING' && a.contactId) await moveToMeetingStage(ctx.orgId, a.contactId);
@@ -397,7 +398,7 @@ async function noteInConversation(a: Appointment) {
   try {
     const tz = await orgTz(a.orgId);
     const label = KIND_LABEL[a.kind] ?? 'Compromisso';
-    const quem = a.source === 'AI' ? ' pela IA' : '';
+    const quem = a.source === 'AI' ? ' pela IA' : a.source === 'LINK' ? ' pelo cliente no link de agendamento' : '';
     const via = await viaOf(a);
     const body = `📅 ${label} agendada${quem}: ${a.title} — ${humanPt(a.startAt, tz)}${via ? `\n${via}` : ''}`;
     await prisma.message.create({ data: { orgId: a.orgId, conversationId: a.conversationId, direction: 'INTERNAL', sender: 'system', type: 'note', body, status: 'NOTE' } });
@@ -579,6 +580,7 @@ export async function ownerPhones(orgId: string) {
 /** Quem marcou o compromisso: "IA" ou o nome do usuário. */
 async function bookedByOf(a: Appointment) {
   if (a.source === 'AI') return 'IA (WhatsApp)';
+  if (a.source === 'LINK') return 'o próprio cliente (link de agendamento)';
   if (!a.createdById) return null;
   const u = await prisma.user.findUnique({ where: { id: a.createdById }, select: { name: true } });
   return u?.name ?? null;

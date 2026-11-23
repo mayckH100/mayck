@@ -58,7 +58,8 @@ export default function Inbox() {
           <div className="items">
             {list.error && <ErrorBox error={list.error} onRetry={list.reload} />}
             {!list.data && list.loading && <Loading />}
-            {list.data?.items.length === 0 && <Empty title="Nenhuma conversa aqui">As conversas aparecem quando um contato envia mensagem para o seu número.</Empty>}
+            {list.data?.items.length === 0 && <Empty title="Nenhuma conversa aqui">{query ? 'Nenhuma conversa com esse nome ou telefone.' : tab === 'open' ? 'As conversas aparecem quando um cliente manda mensagem para o seu WhatsApp ou chat do site.' : tab === 'pending' ? 'Ninguém aguardando atendente agora. 🎉' : 'Conversas encerradas aparecem aqui.'}
+              {!query && tab === 'open' && can('OWNER', 'ADMIN') && !(channels.data ?? []).length && <div className="row" style={{ justifyContent: 'center', marginTop: 10 }}><Link className="btn sm primary" to="/canais">Conectar WhatsApp</Link><Link className="btn sm" to="/ia?aba=testar">Testar a IA</Link></div>}</Empty>}
             {list.data?.items.map((c: any) => (
               <button key={c.id} className={`conv-item ${c.id === id ? 'on' : ''}`} onClick={() => nav(`/inbox/${c.id}`)}>
                 <span className="avatar">{initials(c.contact?.name ?? c.contact?.phone)}</span>
@@ -261,10 +262,10 @@ function Chat({ id, onChange, respostas, ia }: { id: string; onChange: () => voi
           )}
           {showTpl && (
             <Modal title="Enviar modelo (template) aprovado" onClose={() => setShowTpl(false)}>
-              <form className="stack" onSubmit={async (e) => { e.preventDefault(); try { await post(`/conversations/${id}/messages`, { type: 'template', ...tpl }); } catch { /* falha fica registrada */ } setShowTpl(false); refresh(); }}>
+              <form className="stack" onSubmit={async (e) => { e.preventDefault(); const ok = await run(() => post(`/conversations/${id}/messages`, { type: 'template', ...tpl }), 'Modelo enviado'); if (ok) { setShowTpl(false); refresh(); } }}>
                 <Field label="Nome do modelo" hint="Exatamente como aprovado no Gerenciador do WhatsApp (ex.: hello_world)"><input required pattern="[a-z0-9_]+" value={tpl.name} onChange={(e) => setTpl({ ...tpl, name: e.target.value })} /></Field>
                 <Field label="Idioma"><input required value={tpl.language} onChange={(e) => setTpl({ ...tpl, language: e.target.value })} /></Field>
-                <button className="btn primary">Enviar modelo</button>
+                <button className="btn primary" disabled={busy}>{busy ? 'Enviando…' : 'Enviar modelo'}</button>
               </form>
             </Modal>
           )}

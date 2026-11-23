@@ -21,6 +21,19 @@ export type EntradaChangelog = {
 
 export const CHANGELOG: EntradaChangelog[] = [
   {
+    versao: '1.46.0',
+    data: '22/11/2026',
+    titulo: 'Monte sua IA conversando e link para o cliente agendar sozinho',
+    itens: [
+      'Novo botão "✨ Monte sua IA conversando" em Inteligência artificial (e nos Primeiros passos): cole o link do seu site ou o @ do Instagram, escreva sobre o seu negócio ou envie o PDF de preços ou um áudio explicando. A IA separa produtos, preços, horários, regras e o que nunca deve prometer.',
+      'Você confere e corrige tudo numa prévia antes de aplicar. Preço que não aparece no que você mandou vem marcado para conferir. Nada muda na sua conta antes de clicar em "Aplicar", e as suas instruções e documentos atuais não são apagados.',
+      'Ao aplicar, a IA ganha a base de conhecimento, as instruções e um fluxo de boas-vindas com menu (com a opção "Falar com um atendente"), além do horário de atendimento com a mensagem de fora do horário. Em poucos minutos o seu WhatsApp já responde sozinho.',
+      'Agenda: novo "🔗 Link de agendamento". Cadastre seus serviços com duração e preço, ligue a página e divulgue o link ou o QR code. O cliente escolhe o serviço, o dia e um horário livre, informa nome e WhatsApp e recebe a confirmação no WhatsApp.',
+      'O agendamento feito pelo link entra na Agenda, aparece como conversa nova no Inbox e move o cliente para "Reunião agendada" no Kanban. Horários já ocupados (e os do Google Agenda conectado) nunca aparecem, e a página tem proteção contra robôs e excesso de pedidos.',
+      'Acabamento: mensagens de erro dos formulários agora em português e com o nome do campo; avisos que abriam a janela do navegador agora aparecem no próprio app; botões de enviar e salvar mostram que estão carregando; no celular, as janelas abrem de baixo para cima e os botões não somem atrás da barra do navegador; telas vazias do Inbox, da Agenda e da Base de conhecimento indicam o próximo passo.',
+    ],
+  },
+  {
     versao: '1.45.0',
     data: '22/11/2026',
     titulo: 'Aquecer número: conversas automáticas entre os seus próprios números do WhatsApp',

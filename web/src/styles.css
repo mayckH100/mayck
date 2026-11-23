@@ -124,10 +124,10 @@ tr:hover td { background: #fafcfb; }
 .loading { display: flex; align-items: center; gap: 10px; color: var(--muted); padding: 24px; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .toast-wrap { position: fixed; right: 16px; bottom: 16px; display: grid; gap: 8px; z-index: 100; }
-.toast { background: #111113; color: #fff; padding: 10px 14px; border-radius: 10px; box-shadow: var(--shadow); max-width: 360px; }
+.toast { background: #111113; color: #fff; padding: 10px 14px; border-radius: 10px; box-shadow: var(--shadow); max-width: 360px; white-space: pre-line; cursor: pointer; }
 .toast.err { background: #8d2626; }
 .modal-bg { position: fixed; inset: 0; background: rgba(0,0,0,.5); display: grid; place-items: center; z-index: 50; padding: 16px; }
-.modal { background: #fff; border-radius: 14px; width: min(560px, 100%); max-height: 90vh; overflow: auto; padding: 20px; }
+.modal { background: #fff; border-radius: 14px; width: min(560px, 100%); max-height: 90vh; max-height: 90dvh; overflow: auto; overscroll-behavior: contain; padding: 20px; }
 .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin-bottom: 12px; flex-wrap: wrap; }
 .tabs button { border: 0; background: none; padding: 8px 12px; font-weight: 600; color: var(--muted); cursor: pointer; border-bottom: 2px solid transparent; font: inherit; }
 .tabs button.on { color: var(--brand); border-bottom-color: var(--brand); }
@@ -419,3 +419,14 @@ a.kpi:hover { text-decoration: none; border-color: #c9c9cf; }
   .ajuda-pop { position: fixed; left: 16px; right: 16px; top: 64px; max-width: none; width: auto; }
 }
 @media (pointer: coarse) { .btn { min-height: 36px; } .btn.sm { min-height: 32px; } }
+
+/* v1.46.0 — celular: modal em folha de baixo (botões nunca somem atrás da barra do navegador), avisos na largura da tela
+   e botões do cabeçalho das telas quebrando em linha sem estourar. */
+@media (max-width: 640px) {
+  .modal-bg { place-items: end stretch; padding: 0; }
+  .modal { width: 100%; max-height: 92dvh; border-radius: 16px 16px 0 0; padding: 16px 16px calc(16px + env(safe-area-inset-bottom)); }
+  .toast-wrap { left: 12px; right: 12px; bottom: calc(12px + env(safe-area-inset-bottom)); }
+  .toast { max-width: none; }
+  .page-head > .row { width: 100%; flex-wrap: wrap; }
+  .page-head > .row > .btn { flex: 1 1 auto; justify-content: center; }
+}

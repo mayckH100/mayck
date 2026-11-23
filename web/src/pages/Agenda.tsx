@@ -3,10 +3,11 @@ import { useSearchParams } from 'react-router-dom';
 import { get, post, patch, put, del, api, ApiError } from '../api';
 import { useAuth } from '../auth';
 import { useApi, Async, Empty, useAction, Modal, Field, useToast, copy, SenhaExclusaoModal } from '../ui';
+import { AgendaLinkCard } from './AgendaLink';
 
 const KIND: Record<string, string> = { MEETING: 'Reunião', TASK: 'Tarefa' };
 const STATUS: Record<string, [string, string]> = { SCHEDULED: ['Agendado', 'blue'], DONE: ['Concluído', 'green'], CANCELLED: ['Cancelado', 'red'] };
-const SOURCE: Record<string, string> = { MANUAL: 'Manual', AI: 'IA no WhatsApp', KANBAN: 'Kanban' };
+const SOURCE: Record<string, string> = { MANUAL: 'Manual', AI: 'IA no WhatsApp', KANBAN: 'Kanban', LINK: 'Link de agendamento' };
 /** Classificação da conversa pela IA (tag no card). */
 const INTENT: Record<string, [string, string]> = { REUNIAO: ['Reunião', 'blue'], PEDIDO: ['Pedido', 'amber'], AMBOS: ['Reunião + Pedido', 'green'] };
 const HANDLES: [string, string, string][] = [['REUNIAO', 'Agendar reunião', 'A IA só agenda reuniões.'], ['PEDIDO', 'Anotar pedido', 'A IA só anota pedidos.'], ['AMBOS', 'Ambos', 'A IA anota pedidos e agenda reuniões.']];
@@ -617,7 +618,8 @@ export default function Agenda() {
           </div>
           <Async state={state}>{(d) => {
             const items = (range === 'past' ? [...d.items].reverse() : d.items) as any[];
-            if (!items.length) return <Empty title="Nada agendado">Crie uma reunião ou tarefa — ou ligue em Configurações a opção para a IA agendar sozinha no WhatsApp.</Empty>;
+            if (!items.length) return <Empty title="Nada agendado">Crie uma reunião ou tarefa, ligue em Configurações a opção para a IA agendar sozinha no WhatsApp, ou divulgue o seu <strong>link de agendamento</strong> para o cliente marcar sozinho.
+              <div className="row" style={{ justifyContent: 'center', marginTop: 10 }}><button className="btn sm primary" onClick={() => setEdit(newDraft({ assignedUserId: me?.user.id ?? null }))}>+ Reunião</button></div></Empty>;
             const groups: Record<string, any[]> = {};
             for (const a of items) (groups[a.localStart.slice(0, 10)] ??= []).push(a);
             return (
@@ -663,6 +665,7 @@ export default function Agenda() {
           }}</Async>
         </div>
         <div className="stack" style={{ alignItems: 'stretch' }}>
+          <AgendaLinkCard />
           <OrdersCard handles={handles} />
           <SyncCard />
         </div>

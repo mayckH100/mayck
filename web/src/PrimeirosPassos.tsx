@@ -47,7 +47,7 @@ export default function PrimeirosPassos() {
         <Item ok={d.steps.instrucoes} n={2} title="Preencher as Instruções da IA">
           Conte quem é a empresa, o que vende, preços, horários e endereço. Comece por um modelo pronto do seu segmento.
           {d.placeholders > 0 && <> Ainda há <strong>{d.placeholders}</strong> campo(s) [preencha] para completar.</>}
-          <div style={{ marginTop: 6 }}><Link className="btn sm primary" to="/ia?modelo=1">Usar modelo do meu segmento</Link></div>
+          <div className="row" style={{ marginTop: 6 }}><Link className="btn sm primary" to="/ia?montar=1">✨ Montar com a IA (site, texto ou PDF)</Link><Link className="btn sm" to="/ia?modelo=1">Usar modelo do meu segmento</Link></div>
         </Item>
         <Item ok={d.steps.teste} n={3} title="Testar uma conversa">
           Faça uma pergunta como se fosse um cliente e veja a resposta da IA (nada é enviado no WhatsApp). <div style={{ marginTop: 6 }}><Link className="btn sm primary" to="/ia?aba=testar">Testar a IA</Link></div>

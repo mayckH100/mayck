@@ -107,9 +107,12 @@ export function MmNoOrg() {
   const { setMe, logout } = useAuth();
   const [name, setName] = useState('');
   const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
   const submit = async (e: FormEvent) => {
     e.preventDefault();
-    try { setMe(await post('/auth/orgs', { name })); } catch (err) { setError((err as Error).message); }
+    if (busy) return;
+    setBusy(true);
+    try { setMe(await post('/auth/orgs', { name })); } catch (err) { setError((err as Error).message); } finally { setBusy(false); }
   };
   return (
     <AuthLayout>
@@ -119,7 +122,7 @@ export function MmNoOrg() {
         <p className="muted">Crie a sua ou peça um novo convite ao administrador.</p>
         {error && <div className="alert err">{error}</div>}
         <Field label="Nome da organização"><input required minLength={2} value={name} onChange={(e) => setName(e.target.value)} /></Field>
-        <button className="btn primary">Criar organização</button>
+        <button className="btn primary" disabled={busy}>{busy ? 'Criando…' : 'Criar organização'}</button>
         <button type="button" className="btn" onClick={logout}>Sair</button>
       </form>
     </AuthLayout>

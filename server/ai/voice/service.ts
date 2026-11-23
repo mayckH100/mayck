@@ -57,9 +57,9 @@ export type TranscribeOutcome =
  * Transcreve um áudio recebido. Só quando a IA está ativada e a transcrição ligada (padrão ligada).
  * Limites: 10 MB e a duração máxima da empresa (padrão 2 minutos, v1.42.0); acima disso o cliente é convidado a escrever ou mandar um áudio menor.
  */
-export async function transcribeAudio(args: { orgId: string; conversationId: string | null; audio: Buffer; mime: string; seconds?: number | null }): Promise<TranscribeOutcome> {
+export async function transcribeAudio(args: { orgId: string; conversationId: string | null; audio: Buffer; mime: string; seconds?: number | null; /** v1.46.0: configuração usada no lugar da gravada (assistente "Monte sua IA"). */ settings?: AiSettings }): Promise<TranscribeOutcome> {
   const { orgId, conversationId } = args;
-  const s = await prisma.aiSettings.findUnique({ where: { orgId } }).catch(() => null);
+  const s = args.settings ?? await prisma.aiSettings.findUnique({ where: { orgId } }).catch(() => null);
   if (!s || !s.enabled || !s.transcribeAudio) return { ok: false, code: 'desligada', reason: 'Transcrição de áudio desligada' };
   if (args.audio.length > MAX_INBOUND_AUDIO_BYTES) return { ok: false, code: 'grande', reason: 'Áudio maior que 10 MB' };
   const secs = args.seconds ?? oggOpusDurationSec(args.audio);

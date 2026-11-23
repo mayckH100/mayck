@@ -34,10 +34,13 @@ export function textoDoPdf(buf: Buffer): string {
     let dec: string;
     try { dec = inflateSync(raw).toString('latin1'); } catch { dec = raw.toString('latin1'); }
     total += dec.length;
-    const strs = dec.match(/\((?:\\.|[^\\)])*\)\s*(?:Tj|'|")|\[(?:[^\]]*)\]\s*TJ/g) ?? [];
+    // Strings literais "(…)" e, desde a v1.46.0, também hexadecimais "<…>" (PDFs gerados por várias ferramentas usam só hex).
+    const strs = dec.match(/\((?:\\.|[^\\)])*\)\s*(?:Tj|'|")|<[0-9A-Fa-f\s]+>\s*Tj|\[(?:[^\]]*)\]\s*TJ/g) ?? [];
     for (const t of strs) {
-      const partes = t.match(/\((?:\\.|[^\\)])*\)/g) ?? [];
-      out.push(partes.map((p) => p.slice(1, -1).replace(/\\([nrtbf()\\])/g, (_x, c) => ({ n: '\n', r: '', t: ' ', b: '', f: '' } as Record<string, string>)[c] ?? c)).join(''));
+      const partes = t.match(/\((?:\\.|[^\\)])*\)|<[0-9A-Fa-f\s]+>/g) ?? [];
+      out.push(partes.map((p) => p.startsWith('<')
+        ? Buffer.from(p.slice(1, -1).replace(/\s/g, '').padEnd(Math.ceil(p.replace(/[<>\s]/g, '').length / 2) * 2, '0'), 'hex').toString('latin1').replace(/[\u0000-\u0008\u000e-\u001f]/g, '')
+        : p.slice(1, -1).replace(/\\([nrtbf()\\])/g, (_x, c) => ({ n: '\n', r: '', t: ' ', b: '', f: '' } as Record<string, string>)[c] ?? c)).join(''));
     }
     re.lastIndex = fim;
   }
