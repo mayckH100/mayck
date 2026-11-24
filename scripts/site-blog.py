@@ -49,12 +49,12 @@ LIGACOES = {
     'whatsapp-para-corretora-de-seguros.html': ['funil-de-vendas-no-whatsapp', 'ia-para-responder-clientes-no-whatsapp', 'como-evitar-banimento-no-whatsapp'],
     'whatsapp-para-salao-de-beleza-e-barbearia.html': ['agendamento-pelo-whatsapp', 'mensagem-automatica-whatsapp-business-exemplos', 'ia-para-responder-clientes-no-whatsapp'],
     'whatsapp-para-clinicas-e-consultorios.html': ['agendamento-pelo-whatsapp', 'ia-para-responder-clientes-no-whatsapp', 'mensagem-automatica-whatsapp-business-exemplos'],
-    'whatsapp-para-lojas-e-comercio.html': ['erp-para-pequenas-empresas', 'funil-de-vendas-no-whatsapp', 'chatbot-para-whatsapp'],
+    'whatsapp-para-lojas-e-comercio.html': ['crm-para-whatsapp', 'erp-para-pequenas-empresas', 'funil-de-vendas-no-whatsapp'],
     'whatsapp-para-restaurantes-e-delivery.html': ['chatbot-para-whatsapp', 'mensagem-automatica-whatsapp-business-exemplos', 'erp-para-pequenas-empresas'],
     'whatsapp-para-prestadores-de-servico.html': ['agendamento-pelo-whatsapp', 'funil-de-vendas-no-whatsapp', 'como-automatizar-whatsapp-business'],
     'mckbot.html': ['chatbot-para-whatsapp', 'ia-para-responder-clientes-no-whatsapp', 'como-automatizar-whatsapp-business'],
     'mck-mensagens.html': ['como-evitar-banimento-no-whatsapp', 'funil-de-vendas-no-whatsapp', 'ia-para-responder-clientes-no-whatsapp'],
-    'planos.html': ['erp-para-pequenas-empresas', 'chatbot-para-whatsapp', 'funil-de-vendas-no-whatsapp'],
+    'planos.html': ['erp-para-pequenas-empresas', 'crm-para-whatsapp', 'funil-de-vendas-no-whatsapp'],
 }
 HOME_DESTAQUES = ['chatbot-para-whatsapp', 'como-evitar-banimento-no-whatsapp', 'erp-para-pequenas-empresas']
 

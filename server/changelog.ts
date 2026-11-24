@@ -21,6 +21,14 @@ export type EntradaChangelog = {
 
 export const CHANGELOG: EntradaChangelog[] = [
   {
+    versao: '1.50.1',
+    data: '24/11/2026',
+    titulo: 'Novo artigo no blog: CRM para WhatsApp',
+    itens: [
+      'Novo artigo no blog da MCK: "CRM para WhatsApp: como organizar clientes e vendas sem perder nenhuma conversa", com passo a passo para organizar contatos, etiquetas e funil.',
+    ],
+  },
+  {
     versao: '1.50.0',
     data: '24/11/2026',
     titulo: 'MCK ERP volta ao layout das primeiras versões e a entrada de notas por XML ficou mais fácil',
