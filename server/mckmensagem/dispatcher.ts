@@ -7,6 +7,7 @@ import type { Campaign, Lead } from '@prisma/client';
 import { verificarEnvioEmMassa, saudeDoNumero } from '../whatsapp/protecao/service.js';
 import type { NivelSaude } from '../whatsapp/protecao/core.js';
 import { canalConectado, tipoErroEnvio } from '../whatsapp/conexao.js';
+import { versoesDaCampanha, escolherVersao, textoParaContato, textosPossiveis, saudacaoDe, diaPermitido, resultadoPorVersao, escolherVencedora } from './variacoes.js';
 
 type Sender = typeof sendOutbound;
 let sender: Sender = sendOutbound;
@@ -45,7 +46,7 @@ export function personalize(message: string, lead: Pick<Lead, 'name'>): string {
   return message.replace(/\{\s*nome\s*\}/gi, first).replace(/[ \t]+([,.!?])/g, '$1').replace(/[ \t]{2,}/g, ' ').trim();
 }
 
-export type TickResult = { campaignId: string; action: 'sent' | 'failed' | 'skipped' | 'outside_window' | 'daily_limit' | 'waiting_interval' | 'completed' | 'subscription_inactive' | 'number_protection' | 'number_risk' | 'channel_offline' | 'retry_later' }[];
+export type TickResult = { campaignId: string; action: 'sent' | 'failed' | 'skipped' | 'outside_window' | 'daily_limit' | 'waiting_interval' | 'completed' | 'subscription_inactive' | 'number_protection' | 'number_risk' | 'channel_offline' | 'retry_later' | 'outside_day' | 'scheduled' }[];
 
 // ---------------- v1.44.0: pausa automática com o número em Risco ----------------
 export const PAUSA_RISCO_AUTO = 'Campanha pausada automaticamente: o número está em nível Risco na Saúde do número (Canais). Ela volta sozinha quando o nível melhorar.';
@@ -119,6 +120,12 @@ async function travaRisco(c: Campaign, now: Date): Promise<'number_risk' | null>
 /** Um passo do disparador: no máximo um envio por campanha EM_ANDAMENTO por chamada. */
 export async function tick(now = new Date()): Promise<TickResult> {
   const out: TickResult = [];
+  // v1.48.0: início agendado chegou → EM_ANDAMENTO (updateMany com status = trava contra corrida).
+  const agendadas = await prisma.campaign.findMany({ where: { status: 'AGENDADA', iniciarEm: { lte: now } }, select: { id: true } });
+  for (const a of agendadas) {
+    const u = await prisma.campaign.updateMany({ where: { id: a.id, status: 'AGENDADA' }, data: { status: 'EM_ANDAMENTO' } });
+    if (u.count) console.warn('[mckmensagem] campanha', { campaignId: a.id, aviso: 'Início agendado: campanha começou' });
+  }
   const campaigns = await prisma.campaign.findMany({ where: { status: 'EM_ANDAMENTO' }, orderBy: { createdAt: 'asc' } });
   for (const c of campaigns) {
     try {
@@ -134,6 +141,8 @@ async function stepCampaign(c: Campaign, now: Date): Promise<TickResult[number][
   // Assinatura do MCKMENSAGEM inativa: pausa sem consumir destinatários (retoma ao renovar).
   if (!(await isProductActive(c.orgId, 'MCKMENSAGEM'))) return 'subscription_inactive';
   if (!inWindow(c, now)) return 'outside_window';
+  // v1.48.0: dias da semana da campanha (padrão: todos).
+  if (!diaPermitido(c.diasSemana, now)) return 'outside_day';
   const { dayStart } = localClock(now);
   const sentToday = await prisma.campaignRecipient.count({ where: { campaignId: c.id, status: 'ENVIADA', sentAt: { gte: dayStart } } });
   if (sentToday >= c.dailyLimit) return 'daily_limit';
@@ -148,6 +157,9 @@ async function stepCampaign(c: Campaign, now: Date): Promise<TickResult[number][
   if (await prisma.campaignRecipient.count({ where: { campaignId: c.id, status: 'PENDENTE' } }) > 0 && await travaOffline(c, now)) return 'channel_offline';
   // v1.44.0: número em nível Risco na Saúde do número → pausa (volta sozinha ou espera o Retomar, conforme a campanha).
   if (await travaRisco(c, now)) return 'number_risk';
+
+  // v1.48.0: teste A/B com vencedora automática (desligado por padrão).
+  await talvezEscolherVencedora(c, now);
 
   // Pula (IGNORADA) quem não pode receber até achar alguém elegível.
   for (;;) {
@@ -190,7 +202,7 @@ const NAO_FALHOU = { not: 'FAILED' } as const;
  * contato: a guardada no destinatário (qualquer status menos FAILED) ou uma mensagem em massa com o mesmo texto,
  * em qualquer conversa do contato, depois da criação da campanha. Devolve o id dela (ou null).
  */
-export async function jaRecebeu(c: Pick<Campaign, 'id' | 'orgId' | 'createdAt'>, r: { messageId: string | null }, contactId: string | null, texto: string): Promise<string | null> {
+export async function jaRecebeu(c: Pick<Campaign, 'id' | 'orgId' | 'createdAt'>, r: { messageId: string | null }, contactId: string | null, texto: string | string[]): Promise<string | null> {
   if (r.messageId) {
     const m = await prisma.message.findFirst({ where: { id: r.messageId, orgId: c.orgId, status: NAO_FALHOU }, select: { id: true } });
     if (m) return m.id;
@@ -199,7 +211,7 @@ export async function jaRecebeu(c: Pick<Campaign, 'id' | 'orgId' | 'createdAt'>,
   const convIds = (await prisma.conversation.findMany({ where: { orgId: c.orgId, contactId }, select: { id: true } })).map((x) => x.id);
   if (!convIds.length) return null;
   const m = await prisma.message.findFirst({
-    where: { orgId: c.orgId, conversationId: { in: convIds }, direction: 'OUT', bulk: true, body: texto, status: NAO_FALHOU, createdAt: { gte: c.createdAt } },
+    where: { orgId: c.orgId, conversationId: { in: convIds }, direction: 'OUT', bulk: true, body: Array.isArray(texto) ? { in: texto } : texto, status: NAO_FALHOU, createdAt: { gte: c.createdAt } },
     orderBy: { createdAt: 'asc' }, select: { id: true },
   });
   return m?.id ?? null;
@@ -207,7 +219,36 @@ export async function jaRecebeu(c: Pick<Campaign, 'id' | 'orgId' | 'createdAt'>,
 
 type ResultadoEnvio = 'sent' | 'failed' | 'retry' | 'duplicate';
 
-async function sendToLead(c: Campaign, lead: Lead, rec: { id: string; messageId: string | null; tentativas: number }, now: Date): Promise<ResultadoEnvio> {
+/**
+ * v1.48.0: versão e texto do contato. Sem variações, {saudacao} nem {a|b}, é igual ao personalize antigo.
+ * `possiveis` = o mesmo texto com as 3 saudações (trava de duplicidade não depende do horário).
+ */
+export function textoDaCampanha(c: Pick<Campaign, 'id' | 'message' | 'variacoes' | 'abVencedora'>, lead: Pick<Lead, 'id' | 'name'>, gravada: number | null | undefined, now: Date) {
+  const versoes = versoesDaCampanha(c);
+  const versao = escolherVersao({ campaignId: c.id, leadId: lead.id, total: versoes.length, gravada, vencedora: c.abVencedora });
+  const base = { campaignId: c.id, leadId: lead.id, nome: lead.name };
+  return { versao, texto: textoParaContato(versoes[versao], { ...base, saudacao: saudacaoDe(now) }), possiveis: textosPossiveis(versoes[versao], base) };
+}
+
+/** Resultado do A/B por versão (enviadas, respostas, taxa). */
+export async function resultadoAb(c: Pick<Campaign, 'id' | 'message' | 'variacoes'>, now = new Date()) {
+  const total = versoesDaCampanha(c).length;
+  const envios = await prisma.campaignRecipient.findMany({ where: { campaignId: c.id, status: 'ENVIADA' }, select: { variante: true, sentAt: true, respondeuAt: true } });
+  return resultadoPorVersao(total, envios, now);
+}
+
+async function talvezEscolherVencedora(c: Campaign, now: Date) {
+  if (!c.abAutoVencedora || c.abVencedora != null || versoesDaCampanha(c).length < 2) return;
+  const v = escolherVencedora(await resultadoAb(c, now), c.abMinimo);
+  if (v == null) return;
+  const u = await prisma.campaign.updateMany({ where: { id: c.id, abVencedora: null }, data: { abVencedora: v, abVencedoraEm: now } });
+  if (u.count) {
+    c.abVencedora = v; c.abVencedoraEm = now;
+    await notaCampanha(c, `Teste A/B: versão ${String.fromCharCode(65 + v)} venceu; o resto da fila recebe essa versão.`);
+  }
+}
+
+async function sendToLead(c: Campaign, lead: Lead, rec: { id: string; messageId: string | null; tentativas: number; variante?: number | null }, now: Date): Promise<ResultadoEnvio> {
   const recipientId = rec.id;
   const waId = lead.phone.replace(/\D/g, '');
   let contact = lead.contactId ? await prisma.contact.findFirst({ where: { id: lead.contactId, orgId: c.orgId } }) : null;
@@ -220,9 +261,10 @@ async function sendToLead(c: Campaign, lead: Lead, rec: { id: string; messageId:
     await prisma.campaignRecipient.update({ where: { id: recipientId }, data: { status: 'IGNORADA', error: 'Contato com opt-out no MCKBOT' } });
     return 'failed';
   }
-  const texto = personalize(c.message, lead);
+  const { versao, texto, possiveis } = textoDaCampanha(c, lead, rec.variante, now);
+  if (rec.variante !== versao) await prisma.campaignRecipient.update({ where: { id: recipientId }, data: { variante: versao } });
   // Proteção contra duplicidade: já recebeu esta campanha → marca ENVIADA (com a mensagem que saiu) e não reenvia.
-  const anterior = await jaRecebeu(c, rec, contact.id, texto);
+  const anterior = await jaRecebeu(c, rec, contact.id, [...new Set([texto, ...possiveis])]);
   if (anterior) {
     const m = await prisma.message.findUnique({ where: { id: anterior }, select: { createdAt: true } });
     await prisma.campaignRecipient.update({ where: { id: recipientId }, data: { status: 'ENVIADA', sentAt: m?.createdAt ?? now, error: null, messageId: anterior } });
@@ -289,7 +331,8 @@ export async function reenviarFalhasDeConexao(c: Campaign): Promise<{ devolvidos
     const waId = lead.phone.replace(/\D/g, '');
     const contact = (lead.contactId ? await prisma.contact.findFirst({ where: { id: lead.contactId, orgId: c.orgId } }) : null)
       ?? await prisma.contact.findUnique({ where: { orgId_waId: { orgId: c.orgId, waId } } });
-    const anterior = await jaRecebeu(c, r, contact?.id ?? null, personalize(c.message, lead));
+    const t = textoDaCampanha(c, lead, r.variante, new Date());
+    const anterior = await jaRecebeu(c, r, contact?.id ?? null, [...new Set([t.texto, ...t.possiveis, personalize(c.message, lead)])]);
     if (anterior) {
       const m = await prisma.message.findUnique({ where: { id: anterior }, select: { createdAt: true } });
       const u = await prisma.campaignRecipient.updateMany({ where: { id: r.id, status: 'FALHOU' }, data: { status: 'ENVIADA', sentAt: m?.createdAt ?? new Date(), error: null, messageId: anterior } });

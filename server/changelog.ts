@@ -21,6 +21,19 @@ export type EntradaChangelog = {
 
 export const CHANGELOG: EntradaChangelog[] = [
   {
+    versao: '1.48.0',
+    data: '23/11/2026',
+    titulo: 'MCK Mensagens: versões da mensagem com teste A/B, início agendado, dias da semana, envio de teste e duplicar campanha',
+    itens: [
+      'Campanhas com até 4 versões da mensagem (A, B, C e D): cada contato recebe sempre uma delas, e a tela da campanha mostra quantas respostas cada versão teve.',
+      'Se quiser, o app escolhe a versão vencedora sozinho depois de um número de envios que você define, e o resto da lista passa a receber a que teve mais respostas.',
+      'Novas palavras automáticas na mensagem: {saudacao} vira Bom dia, Boa tarde ou Boa noite, {nome_completo} traz o nome inteiro e {Olá|Oi|E aí} troca a palavra para cada contato, deixando os textos menos repetidos.',
+      'Agende o início da campanha para o dia e a hora que quiser (até 60 dias à frente) e escolha em quais dias da semana ela envia, por exemplo só de segunda a sexta.',
+      'Botão "Enviar teste" na tela da campanha: manda a mensagem para o seu WhatsApp para você ver como chega antes de disparar.',
+      'Botão "Duplicar" para reaproveitar uma campanha pronta como rascunho, com o mesmo texto e as mesmas configurações.',
+    ],
+  },
+  {
     versao: '1.47.0',
     data: '23/11/2026',
     titulo: 'Voz do vendedor: áudios gravados que a IA escolhe e voz clonada',

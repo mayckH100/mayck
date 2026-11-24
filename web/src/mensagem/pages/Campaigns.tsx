@@ -6,9 +6,10 @@ import { MetricsView } from './Dashboard';
 import { AddContactsModal } from './LeadBulk';
 import { CampaignGroups, RepescagemFields, type RepescagemForm } from './CampaignGroups';
 import {
-  CampaignBadge, LEAD_STATUS_LABEL, SAFE_DEFAULTS, campaignProgress, downloadCsv, fetchAllLeads, fmtPhone, personalize, slug,
+  CampaignBadge, LEAD_STATUS_LABEL, SAFE_DEFAULTS, campaignProgress, downloadCsv, fetchAllLeads, fmtPhone, slug,
   type Campaign, type ChannelLite, type Metrics,
 } from '../common';
+import { MAX_VARIACOES, AB_MINIMO_PADRAO, AB_LIMITES, DIAS_ROTULO, DIAS_TODOS, LETRAS, textoParaContato, saudacaoDe, variaveisDesconhecidas, normalizarDias } from '../../../../server/mckmensagem/variacoes';
 
 const MCKBOT_CHANNELS = '/canais';
 
@@ -23,7 +24,65 @@ function ChannelSelect({ value, onChange, channels }: { value: string; onChange:
   );
 }
 
-type Form = { name: string; message: string; channelId: string; dailyLimit: number; minIntervalSec: number; maxIntervalSec: number; windowStart: string; windowEnd: string; riscoRetomada: 'auto' | 'manual' } & RepescagemForm;
+type Form = {
+  name: string; message: string; channelId: string; dailyLimit: number; minIntervalSec: number; maxIntervalSec: number; windowStart: string; windowEnd: string; riscoRetomada: 'auto' | 'manual';
+  /** v1.48.0 */ variacoes: string[]; abAutoVencedora: boolean; abMinimo: number; diasSemana: string;
+} & RepescagemForm;
+
+/** Data/hora digitada (horário de Brasília, sem horário de verão) → ISO. */
+function brtParaIso(v: string): string { return new Date(`${v}:00-03:00`).toISOString(); }
+function fmtBrt(iso: string): string {
+  return new Intl.DateTimeFormat('pt-BR', { timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }).format(new Date(iso));
+}
+function diasTexto(d?: string): string {
+  const n = normalizarDias(d);
+  if (n === DIAS_TODOS) return 'todos os dias';
+  if (n === '12345') return 'de segunda a sexta';
+  if (n === '123456') return 'de segunda a sábado';
+  return n.split('').map((x) => DIAS_ROTULO[Number(x)]).join(', ');
+}
+
+/** v1.48.0: versões B/C/D (teste A/B), vencedora automática e dias da semana. */
+function VersoesFields({ f, set }: { f: Form; set: <K extends keyof Form>(k: K, v: Form[K]) => void }) {
+  const muda = (i: number, v: string) => set('variacoes', f.variacoes.map((x, j) => (j === i ? v : x)));
+  return (
+    <div className="card stack" style={{ padding: 12, background: '#fafbff' }}>
+      <div className="row between"><strong>Versões da mensagem (teste A/B)</strong><span className="small muted">opcional</span></div>
+      <p className="small muted" style={{ margin: 0 }}>Escreva outras versões do texto: cada contato recebe sempre uma delas (sorteio). Ajuda a não mandar o mesmo texto para todos e mostra qual versão tem mais respostas.</p>
+      {f.variacoes.map((v, i) => (
+        <Field key={i} label={`Versão ${LETRAS[i + 1]}`}>
+          <div className="stack" style={{ gap: 4 }}>
+            <textarea rows={3} maxLength={4000} value={v} onChange={(e) => muda(i, e.target.value)} placeholder="Outra forma de dizer a mesma coisa. Use {nome}, {saudacao} e {Olá|Oi}." />
+            <div className="row"><button type="button" className="btn sm ghost" onClick={() => set('variacoes', f.variacoes.filter((_, j) => j !== i))}>Remover versão {LETRAS[i + 1]}</button></div>
+          </div>
+        </Field>
+      ))}
+      {f.variacoes.length < MAX_VARIACOES && <div><button type="button" className="btn sm" onClick={() => set('variacoes', [...f.variacoes, ''])}>+ Adicionar versão {LETRAS[f.variacoes.length + 1]}</button></div>}
+      {f.variacoes.some((v) => v.trim()) && (
+        <label className="row small" style={{ gap: 8, flexWrap: 'wrap' }}>
+          <input type="checkbox" checked={f.abAutoVencedora} onChange={(e) => set('abAutoVencedora', e.target.checked)} />
+          Escolher a vencedora sozinho depois de
+          <input type="number" min={AB_LIMITES.min} max={AB_LIMITES.max} style={{ width: 80, padding: '4px 8px' }} value={f.abMinimo} onChange={(e) => set('abMinimo', Number(e.target.value))} />
+          envios de cada versão (o resto da fila recebe a que teve mais respostas)
+        </label>
+      )}
+      <div>
+        <div className="small" style={{ marginBottom: 4 }}><strong>Dias em que a campanha envia</strong></div>
+        <div className="row" style={{ flexWrap: 'wrap', gap: 6 }}>
+          {DIAS_ROTULO.map((d, i) => {
+            const on = f.diasSemana.includes(String(i));
+            return <button key={d} type="button" className={`btn sm ${on ? 'primary' : ''}`} aria-pressed={on} onClick={() => {
+              const novo = on ? f.diasSemana.replace(String(i), '') : f.diasSemana + i;
+              set('diasSemana', novo ? normalizarDias(novo) : f.diasSemana);
+            }}>{d}</button>;
+          })}
+          <button type="button" className="btn sm ghost" onClick={() => set('diasSemana', '12345')}>Só dias úteis</button>
+          <button type="button" className="btn sm ghost" onClick={() => set('diasSemana', DIAS_TODOS)}>Todos</button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function CampaignForm({ initial, onClose, onSaved }: { initial?: Campaign; onClose: () => void; onSaved: (c: Campaign) => void }) {
   const channels = useApi<ChannelLite[]>('/channels');
@@ -32,9 +91,16 @@ function CampaignForm({ initial, onClose, onSaved }: { initial?: Campaign; onClo
     ? {
       name: initial.name, message: initial.message, channelId: initial.channelId, dailyLimit: initial.dailyLimit, minIntervalSec: initial.minIntervalSec, maxIntervalSec: initial.maxIntervalSec, windowStart: initial.windowStart, windowEnd: initial.windowEnd,
       repescagemAtiva: !!initial.repescagemAtiva, repescagemDias: initial.repescagemDias ?? 2, repescagemMax: initial.repescagemMax ?? 2, repescagemModelo: initial.repescagemModelo ?? '', riscoRetomada: initial.riscoRetomada ?? 'auto',
+      variacoes: initial.variacoes ?? [], abAutoVencedora: !!initial.abAutoVencedora, abMinimo: initial.abMinimo ?? AB_MINIMO_PADRAO, diasSemana: normalizarDias(initial.diasSemana),
     }
-    : { name: '', message: 'Olá {nome}! ', channelId: '', ...SAFE_DEFAULTS, repescagemAtiva: true, repescagemDias: 2, repescagemMax: 2, repescagemModelo: '', riscoRetomada: 'auto' });
+    : { name: '', message: 'Olá {nome}! ', channelId: '', ...SAFE_DEFAULTS, repescagemAtiva: true, repescagemDias: 2, repescagemMax: 2, repescagemModelo: '', riscoRetomada: 'auto', variacoes: [], abAutoVencedora: false, abMinimo: AB_MINIMO_PADRAO, diasSemana: DIAS_TODOS });
   const [previewName, setPreviewName] = useState('Ana Souza');
+  const [previewVersao, setPreviewVersao] = useState(0);
+  const [sorteio, setSorteio] = useState(1);
+  const versoes = [f.message, ...f.variacoes.filter((v) => v.trim())];
+  const versaoVista = Math.min(previewVersao, versoes.length - 1);
+  const previa = textoParaContato(versoes[versaoVista] ?? '', { campaignId: 'previa', leadId: String(sorteio), nome: previewName, saudacao: saudacaoDe(new Date()) });
+  const desconhecidas = [...new Set(versoes.flatMap((v) => variaveisDesconhecidas(v)))];
   const { busy, run } = useAction();
   // Um único número conectado: já vem selecionado.
   useEffect(() => { if (!initial && connected.length === 1) setF((x) => (x.channelId ? x : { ...x, channelId: connected[0].id })); }, [channels.data]);
@@ -44,7 +110,7 @@ function CampaignForm({ initial, onClose, onSaved }: { initial?: Campaign; onClo
   const intervalErr = f.minIntervalSec > f.maxIntervalSec;
   const submit = async (e: FormEvent) => {
     e.preventDefault();
-    const body = { ...f, dailyLimit: Number(f.dailyLimit), minIntervalSec: Number(f.minIntervalSec), maxIntervalSec: Number(f.maxIntervalSec), repescagemDias: Number(f.repescagemDias), repescagemMax: Number(f.repescagemMax) };
+    const body = { ...f, dailyLimit: Number(f.dailyLimit), minIntervalSec: Number(f.minIntervalSec), maxIntervalSec: Number(f.maxIntervalSec), repescagemDias: Number(f.repescagemDias), repescagemMax: Number(f.repescagemMax), variacoes: f.variacoes.map((v) => v.trim()).filter(Boolean), abMinimo: Math.min(AB_LIMITES.max, Math.max(AB_LIMITES.min, Number(f.abMinimo) || AB_MINIMO_PADRAO)) };
     const r = await run(() => (initial ? patch<Campaign>(`/mckmensagem/campaigns/${initial.id}`, body) : post<Campaign>('/mckmensagem/campaigns', body)), initial ? 'Campanha atualizada' : 'Campanha criada');
     if (r) onSaved(r);
   };
@@ -58,17 +124,25 @@ function CampaignForm({ initial, onClose, onSaved }: { initial?: Campaign; onClo
             : <ChannelSelect value={f.channelId} onChange={(v) => set('channelId', v)} channels={channels.data ?? []} />}
         </Field>
         {sel && sel.status !== 'CONNECTED' && <div className="alert warn">Este número está desconectado: nada será enviado até reconectá-lo em <a href={MCKBOT_CHANNELS}>Canais do MCKBOT ↗</a>.</div>}
-        <Field label="Mensagem" hint="Use {nome} para inserir o primeiro nome do contato. Inclua como sair, ex.: “Responda SAIR para não receber mais”.">
+        <Field label={f.variacoes.length ? 'Mensagem (versão A)' : 'Mensagem'} hint="Use {nome} (primeiro nome), {nome_completo}, {saudacao} (Bom dia/Boa tarde/Boa noite) e {Olá|Oi|E aí} para variar palavras. Inclua como sair, ex.: “Responda SAIR para não receber mais”.">
           <textarea required rows={5} maxLength={4000} value={f.message} onChange={(e) => set('message', e.target.value)} />
         </Field>
-        <div className="row small"><button type="button" className="btn sm" onClick={() => set('message', f.message + '{nome}')}>+ Inserir {'{nome}'}</button><button type="button" className="btn sm" onClick={() => set('message', f.message.trimEnd() + '\n\nResponda SAIR para não receber mais mensagens.')}>+ Texto de saída</button><span className="muted">{f.message.length}/4000</span></div>
+        <div className="row small"><button type="button" className="btn sm" onClick={() => set('message', f.message + '{nome}')}>+ Inserir {'{nome}'}</button><button type="button" className="btn sm" onClick={() => set('message', f.message + '{saudacao}')}>+ {'{saudacao}'}</button><button type="button" className="btn sm" onClick={() => set('message', f.message + '{Olá|Oi|E aí}')} title="Cada contato recebe uma das palavras">+ Variação {'{Olá|Oi}'}</button><button type="button" className="btn sm" onClick={() => set('message', f.message.trimEnd() + '\n\nResponda SAIR para não receber mais mensagens.')}>+ Texto de saída</button><span className="muted">{f.message.length}/4000</span></div>
         <div>
           <div className="row between small" style={{ marginBottom: 6 }}>
             <strong>Prévia</strong>
             <label className="row small">Nome de teste: <input style={{ width: 140, padding: '4px 8px' }} value={previewName} onChange={(e) => setPreviewName(e.target.value)} placeholder="(sem nome)" /></label>
           </div>
-          <div className="mm-preview"><div className="b">{personalize(f.message, previewName) || <span className="muted">Sua mensagem aparece aqui</span>}<div className="t">{f.windowStart} ✓✓</div></div></div>
+          {versoes.length > 1 && (
+            <div className="row small" style={{ gap: 6, marginBottom: 6, flexWrap: 'wrap' }}>
+              {versoes.map((_, i) => <button key={i} type="button" className={`btn sm ${i === versaoVista ? 'primary' : ''}`} onClick={() => setPreviewVersao(i)}>Versão {LETRAS[i]}</button>)}
+            </div>
+          )}
+          <div className="mm-preview"><div className="b">{previa || <span className="muted">Sua mensagem aparece aqui</span>}<div className="t">{f.windowStart} ✓✓</div></div></div>
+          <div className="row small" style={{ marginTop: 6 }}><button type="button" className="btn sm ghost" onClick={() => setSorteio((x) => x + 1)}>🎲 Ver outra variação</button><span className="muted">Cada contato recebe sempre o mesmo texto.</span></div>
+          {desconhecidas.length > 0 && <div className="alert warn small" style={{ marginTop: 6 }}>Não reconheço {desconhecidas.join(', ')}: vai sair escrito assim. Use {'{nome}'}, {'{nome_completo}'} ou {'{saudacao}'}.</div>}
         </div>
+        <VersoesFields f={f} set={set} />
         <h3 style={{ margin: '4px 0 0' }}>Limites de envio</h3>
         <div className="grid g3" style={{ gap: 10 }}>
           <Field label="Limite por dia"><input type="number" min={1} max={1000} required value={f.dailyLimit} onChange={(e) => set('dailyLimit', Number(e.target.value))} /></Field>
@@ -106,11 +180,15 @@ function CampaignForm({ initial, onClose, onSaved }: { initial?: Campaign; onClo
 function StartModal({ c, onClose, onDone }: { c: Campaign; onClose: () => void; onDone: (c: Campaign) => void }) {
   const [mode, setMode] = useState<'linked' | 'tag'>('linked');
   const [tag, setTag] = useState('');
+  const [quando, setQuando] = useState<'agora' | 'agendar'>('agora');
+  const [data, setData] = useState('');
   const { busy, run } = useAction();
   const p = campaignProgress(c);
   const submit = async (e: FormEvent) => {
     e.preventDefault();
-    const r = await run(() => post<Campaign & { added: number; pending: number }>(`/mckmensagem/campaigns/${c.id}/start`, mode === 'tag' ? { tag: tag.trim() } : {}));
+    const body: Record<string, unknown> = mode === 'tag' ? { tag: tag.trim() } : {};
+    if (quando === 'agendar' && data) body.agendarPara = brtParaIso(data);
+    const r = await run(() => post<Campaign & { added: number; pending: number }>(`/mckmensagem/campaigns/${c.id}/start`, body), quando === 'agendar' && data ? `Campanha agendada para ${fmtBrt(brtParaIso(data))}` : undefined);
     if (r) onDone(r);
   };
   return (
@@ -120,10 +198,17 @@ function StartModal({ c, onClose, onDone }: { c: Campaign; onClose: () => void; 
         <label className="mm-check" style={{ background: mode === 'linked' ? undefined : '#fff' }}><input type="radio" checked={mode === 'linked'} onChange={() => setMode('linked')} /><span>Contatos vinculados a esta campanha{p.pending ? <span className="small muted" style={{ fontWeight: 400 }}><br />{fmtNum(p.pending)} já na fila</span> : null}</span></label>
         <label className="mm-check" style={{ background: mode === 'tag' ? undefined : '#fff' }}><input type="radio" checked={mode === 'tag'} onChange={() => setMode('tag')} /><span>Contatos com a etiqueta…</span></label>
         {mode === 'tag' && <Field label="Etiqueta"><input required value={tag} onChange={(e) => setTag(e.target.value)} placeholder="Ex.: vip" /></Field>}
-        <div className="alert info small">Os envios respeitam o limite de {fmtNum(c.dailyLimit)}/dia, intervalos de {c.minIntervalSec}–{c.maxIntervalSec}s e a janela das {c.windowStart} às {c.windowEnd}. Você pode pausar a qualquer momento.</div>
+        <Field label="Quando começar">
+          <select value={quando} onChange={(e) => setQuando(e.target.value as 'agora' | 'agendar')}>
+            <option value="agora">Agora</option>
+            <option value="agendar">Agendar data e hora</option>
+          </select>
+        </Field>
+        {quando === 'agendar' && <Field label="Começar em (horário de Brasília)" hint="Até 60 dias à frente. Você pode pausar antes de começar."><input type="datetime-local" required value={data} onChange={(e) => setData(e.target.value)} /></Field>}
+        <div className="alert info small">Os envios respeitam o limite de {fmtNum(c.dailyLimit)}/dia, {diasTexto(c.diasSemana)}, intervalos de {c.minIntervalSec}–{c.maxIntervalSec}s e a janela das {c.windowStart} às {c.windowEnd}. Você pode pausar a qualquer momento.</div>
         <div className="row" style={{ justifyContent: 'flex-end' }}>
           <button type="button" className="btn" onClick={onClose}>Cancelar</button>
-          <button className="btn primary" disabled={busy}>{busy ? 'Iniciando…' : c.status === 'PAUSADA' ? 'Retomar envios' : 'Iniciar envios'}</button>
+          <button className="btn primary" disabled={busy}>{busy ? 'Iniciando…' : quando === 'agendar' ? 'Agendar início' : c.status === 'PAUSADA' ? 'Retomar envios' : 'Iniciar envios'}</button>
         </div>
       </form>
     </Modal>
@@ -164,10 +249,16 @@ function useCampaignActions(reload: () => void) {
       reload();
     } catch (e) { toast((e as Error).message, 'err'); } finally { setReenviando(false); }
   };
-  return { starting, setStarting, pause, remove, exportReport, reenviarFalhas, reenviando };
+  // v1.48.0: duplicar como rascunho e enviar teste.
+  const [testando, setTestando] = useState<Campaign | null>(null);
+  const duplicar = async (c: Campaign, after?: (nova: Campaign) => void) => {
+    const r = await run(() => post<Campaign>(`/mckmensagem/campaigns/${c.id}/duplicar`), 'Campanha duplicada como rascunho');
+    if (r) { reload(); after?.(r); }
+  };
+  return { starting, setStarting, pause, remove, exportReport, reenviarFalhas, reenviando, testando, setTestando, duplicar };
 }
 
-function Actions({ c, a, onEdit, compact }: { c: Campaign; a: ReturnType<typeof useCampaignActions>; onEdit: () => void; compact?: boolean }) {
+function Actions({ c, a, onEdit, compact, onDuplicated }: { c: Campaign; a: ReturnType<typeof useCampaignActions>; onEdit: () => void; compact?: boolean; onDuplicated?: (nova: Campaign) => void }) {
   const running = c.status === 'EM_ANDAMENTO' || c.status === 'AGENDADA';
   return (
     <div className="row">
@@ -175,6 +266,8 @@ function Actions({ c, a, onEdit, compact }: { c: Campaign; a: ReturnType<typeof 
         ? <button className="btn sm" onClick={() => a.pause(c)}>❚❚ Pausar</button>
         : <button className="btn sm primary" onClick={() => a.setStarting(c)}>▶ {c.status === 'PAUSADA' ? 'Retomar' : c.status === 'CONCLUIDA' ? 'Reenviar' : 'Iniciar'}</button>}
       <button className="btn sm" onClick={onEdit}>Editar</button>
+      {!compact && <button className="btn sm" onClick={() => a.setTestando(c)}>📱 Enviar teste</button>}
+      {!compact && <button className="btn sm" onClick={() => a.duplicar(c, onDuplicated)}>Duplicar</button>}
       {!compact && <button className="btn sm" onClick={() => a.exportReport(c)}>Exportar</button>}
     </div>
   );
@@ -188,6 +281,63 @@ function Progress({ c }: { c: Campaign }) {
       <div className="small muted" style={{ marginTop: 4 }}>
         {p.total ? <>{fmtNum(p.sent)} enviadas · {fmtNum(p.pending)} na fila{p.failed ? ` · ${fmtNum(p.failed)} falhas` : ''}{p.skipped ? ` · ${fmtNum(p.skipped)} ignoradas` : ''} · {p.pct}%</> : 'Ainda sem destinatários'}
       </div>
+    </div>
+  );
+}
+
+/** v1.48.0: manda uma versão para um número (ex.: o seu) para ver como chega. Não entra na fila. */
+function TesteModal({ c, onClose }: { c: Campaign; onClose: () => void }) {
+  const [phone, setPhone] = useState('');
+  const [nome, setNome] = useState('');
+  const [versao, setVersao] = useState(0);
+  const { busy, run } = useAction();
+  const total = 1 + (c.variacoes?.length ?? 0);
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    const r = await run(() => post(`/mckmensagem/campaigns/${c.id}/teste`, { phone, versao, nome: nome.trim() || undefined }), 'Teste enviado. Confira no WhatsApp.');
+    if (r) onClose();
+  };
+  return (
+    <Modal title="Enviar teste" onClose={onClose}>
+      <form className="stack" onSubmit={submit}>
+        <p className="muted small" style={{ margin: 0 }}>Manda a mensagem para um número seu, do jeito que o contato vai receber. Não entra na fila nem nos resultados. Até 10 testes por hora.</p>
+        <Field label="Seu WhatsApp (com DDD)"><input required inputMode="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="(11) 91234-5678" /></Field>
+        <Field label="Nome usado no {nome} (opcional)"><input maxLength={80} value={nome} onChange={(e) => setNome(e.target.value)} placeholder="Ana Souza" /></Field>
+        {total > 1 && (
+          <Field label="Versão">
+            <select value={versao} onChange={(e) => setVersao(Number(e.target.value))}>{Array.from({ length: total }, (_, i) => <option key={i} value={i}>Versão {LETRAS[i]}</option>)}</select>
+          </Field>
+        )}
+        <div className="row" style={{ justifyContent: 'flex-end' }}>
+          <button type="button" className="btn" onClick={onClose}>Cancelar</button>
+          <button className="btn primary" disabled={busy}>{busy ? 'Enviando…' : 'Enviar teste'}</button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+/** v1.48.0: resultado do teste A/B por versão. */
+function AbCard({ c }: { c: Campaign }) {
+  const versoes = [c.message, ...(c.variacoes ?? [])];
+  if (versoes.length < 2) return null;
+  const ab = c.ab ?? versoes.map((_, versao) => ({ versao, enviadas: 0, respostas: 0, taxa: 0 }));
+  const lider = ab.reduce((m, r) => (r.enviadas && r.taxa > (m?.taxa ?? -1) ? r : m), null as null | (typeof ab)[number]);
+  return (
+    <div className="card stack">
+      <div className="row between"><h2 style={{ margin: 0 }}>Teste A/B</h2>
+        <span className="small muted">{c.abVencedora != null ? `Versão ${LETRAS[c.abVencedora]} venceu${c.abVencedoraEm ? ` em ${fmtDate(c.abVencedoraEm)}` : ''}: o resto da fila recebe ela.` : c.abAutoVencedora ? `Escolhe a vencedora sozinho depois de ${fmtNum(c.abMinimo ?? AB_MINIMO_PADRAO)} envios de cada versão.` : 'Cada contato recebe uma versão.'}</span>
+      </div>
+      <table><thead><tr><th>Versão</th><th style={{ textAlign: 'right' }}>Enviadas</th><th style={{ textAlign: 'right' }}>Respostas</th><th style={{ textAlign: 'right' }}>Taxa de resposta</th></tr></thead><tbody>
+        {ab.map((r) => (
+          <tr key={r.versao}>
+            <td><strong>{LETRAS[r.versao]}</strong> {c.abVencedora === r.versao ? <span className="badge green">vencedora</span> : c.abVencedora == null && lider?.versao === r.versao && r.respostas > 0 ? <span className="badge">na frente</span> : null}
+              <div className="small muted" style={{ maxWidth: 420, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{versoes[r.versao]}</div></td>
+            <td style={{ textAlign: 'right' }}>{fmtNum(r.enviadas)}</td><td style={{ textAlign: 'right' }}>{fmtNum(r.respostas)}</td><td style={{ textAlign: 'right' }}>{String(r.taxa).replace('.', ',')}%</td>
+          </tr>
+        ))}
+      </tbody></table>
+      <p className="small muted" style={{ margin: 0 }}>Com poucos envios a diferença pode ser sorte: espere pelo menos umas 30 mensagens por versão antes de decidir.</p>
     </div>
   );
 }
@@ -212,13 +362,14 @@ function CampaignDetail({ id, list, reload }: { id: string; list: Campaign[]; re
           <p className="muted small">Criada em {fmtDate(c.createdAt)} · {ch ? <>{ch.label ?? ch.name}{ch.status !== 'CONNECTED' && <span className="badge red" style={{ marginLeft: 6 }}>desconectado</span>}</> : 'canal —'}</p>
         </div>
         <div className="row">
-          <Actions c={c} a={a} onEdit={() => setEditing(true)} />
+          <Actions c={c} a={a} onEdit={() => setEditing(true)} onDuplicated={(n) => nav(`/campanhas/${n.id}`)} />
           <button className="btn sm danger" onClick={() => a.remove(c, () => nav('/campanhas'))}>Excluir</button>
         </div>
       </div>
       <div className="stack">
         {c.riscoPausa && <div className="alert warn">⚠ {c.riscoPausa} <a href="/canais">Ver Saúde do número ↗</a></div>}
         {c.offlinePausa && <div className="alert warn">⏸ {c.offlinePausa} <a href="/canais">Conectar o WhatsApp ↗</a></div>}
+        {c.status === 'AGENDADA' && c.iniciarEm && <div className="alert info">🗓 Começa sozinha em {fmtBrt(c.iniciarEm)} (horário de Brasília). Para cancelar, clique em Pausar.</div>}
         <div className="card stack">
           <h2 style={{ margin: 0 }}>Progresso</h2><Progress c={c} />
           {!!c.falhasConexao && (
@@ -229,12 +380,13 @@ function CampaignDetail({ id, list, reload }: { id: string; list: Campaign[]; re
           )}
         </div>
         <Async state={metrics}>{(m) => <MetricsView m={m} />}</Async>
+        <AbCard c={c} />
         <CampaignGroups c={c} />
         <div className="grid g2">
           <div className="card">
             <h2>Mensagem</h2>
-            <div className="mm-preview"><div className="b">{personalize(c.message, 'Ana')}</div></div>
-            <p className="small muted" style={{ marginTop: 8, marginBottom: 0 }}>Limite {fmtNum(c.dailyLimit)}/dia · intervalo {c.minIntervalSec}–{c.maxIntervalSec}s · das {c.windowStart} às {c.windowEnd} (Brasília) · repescagem {c.repescagemAtiva ? `ligada (${c.repescagemDias ?? 2} dias, até ${c.repescagemMax ?? 2}x)` : 'desligada'}</p>
+            <div className="mm-preview"><div className="b">{textoParaContato(c.message, { campaignId: c.id, leadId: 'previa', nome: 'Ana', saudacao: saudacaoDe(new Date()) })}</div></div>
+            <p className="small muted" style={{ marginTop: 8, marginBottom: 0 }}>Limite {fmtNum(c.dailyLimit)}/dia · intervalo {c.minIntervalSec}–{c.maxIntervalSec}s · das {c.windowStart} às {c.windowEnd} (Brasília), {diasTexto(c.diasSemana)}{c.variacoes?.length ? ` · ${c.variacoes.length + 1} versões` : ''} · repescagem {c.repescagemAtiva ? `ligada (${c.repescagemDias ?? 2} dias, até ${c.repescagemMax ?? 2}x)` : 'desligada'}</p>
           </div>
           <div className="card">
             <div className="row between"><h2 style={{ margin: 0 }}>Contatos vinculados{leads.data ? ` (${fmtNum(leads.data.total)})` : ''}</h2><span className="row"><button className="btn sm primary" onClick={() => setAdding(true)}>+ Adicionar contatos</button><NavLink to={`/contatos?campaignId=${c.id}`} className="small">Ver todos / remover →</NavLink></span></div>
@@ -250,6 +402,7 @@ function CampaignDetail({ id, list, reload }: { id: string; list: Campaign[]; re
       </div>
       {editing && <CampaignForm initial={c} onClose={() => setEditing(false)} onSaved={() => { setEditing(false); reload(); }} />}
       {a.starting && <StartModal c={a.starting} onClose={() => a.setStarting(null)} onDone={() => { a.setStarting(null); reload(); }} />}
+      {a.testando && <TesteModal c={a.testando} onClose={() => a.setTestando(null)} />}
       {adding && <AddContactsModal c={c} onClose={() => setAdding(false)} onDone={() => { setAdding(false); leads.reload(); metrics.reload(); reload(); }} />}
     </>
   );
@@ -288,6 +441,8 @@ export default function MmCampaigns() {
               {c.riscoPausa && <div className="small" style={{ color: '#b7791f' }} title={c.riscoPausa}>⚠ Pausada: número em nível Risco{c.status === 'PAUSADA' ? ' — clique em Retomar quando quiser' : ' — volta sozinha quando melhorar'}</div>}
               {c.repescagemPausa && <div className="small" style={{ color: '#b7791f' }}>⚠ Repescagem pausada — veja os detalhes</div>}
               {c.offlinePausa && <div className="small" style={{ color: '#b7791f' }} title={c.offlinePausa}>⏸ Aguardando: o WhatsApp desconectou — continua sozinha quando reconectar</div>}
+              {c.status === 'AGENDADA' && c.iniciarEm && <div className="small" style={{ color: '#2f6fde' }}>🗓 Começa em {fmtBrt(c.iniciarEm)}</div>}
+              {!!c.variacoes?.length && <div className="small muted">🔀 {c.variacoes.length + 1} versões{c.abVencedora != null ? ` · vencedora: ${LETRAS[c.abVencedora]}` : ''}</div>}
               <div className="row between">
                 <Actions c={c} a={a} onEdit={() => setEditing(c)} compact />
                 <div className="row">

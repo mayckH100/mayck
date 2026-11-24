@@ -31,6 +31,10 @@ export interface Campaign {
   riscoRetomada?: 'auto' | 'manual'; riscoPausa?: string | null; riscoPausaEm?: string | null;
   /** v1.46.1: aguardando o WhatsApp reconectar; e quantos falharam por desconexão (dá para devolver à fila). */
   offlinePausa?: string | null; offlinePausaEm?: string | null; falhasConexao?: number;
+  /** v1.48.0: versões extras (teste A/B), vencedora, início agendado e dias da semana. */
+  variacoes?: string[]; abAutoVencedora?: boolean; abMinimo?: number; abVencedora?: number | null; abVencedoraEm?: string | null;
+  iniciarEm?: string | null; diasSemana?: string;
+  ab?: { versao: number; enviadas: number; respostas: number; taxa: number }[] | null;
 }
 export interface Metrics {
   totalLeads: number; byStatus: Record<LeadStatus, number>; sent: number; failed: number; optOuts: number;

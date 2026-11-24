@@ -15,7 +15,11 @@ import { mckIaReady } from '../ai/mckIa.js';
 import { qualiView, saveQualiFromRequest, testQuali } from '../sdr/qualificacaoRoutes.js';
 import { gruposDaCampanha, contarGrupos, gerarTextoRepescagem } from './repescagem.js';
 import { GRUPOS, GRUPO_ROTULO, REPESCAGEM_LIMITES, textoModelo } from './repescagemCore.js';
-import { reenviarFalhasDeConexao, contarFalhasDeConexao } from './dispatcher.js';
+import { reenviarFalhasDeConexao, contarFalhasDeConexao, resultadoAb, textoDaCampanha } from './dispatcher.js';
+import { MAX_VARIACOES, AB_LIMITES, lerVariacoes, normalizarDias, validarAgendamento, versoesDaCampanha } from './variacoes.js';
+import { sendOutbound } from '../whatsapp/messaging.js';
+import { openConversationFor } from '../whatsapp/multiCanal.js';
+import { canalConectado } from '../whatsapp/conexao.js';
 
 export const mckmensagemRouter = Router();
 
@@ -443,7 +447,20 @@ const campaignBase = z.object({
   repescagemModelo: z.string().max(2000).optional(),
   // v1.44.0: número em nível Risco → pausa automática; auto = volta sozinha, manual = espera o Retomar.
   riscoRetomada: z.enum(['auto', 'manual']).optional(),
+  // v1.48.0: versões extras da mensagem (teste A/B), vencedora automática e dias da semana.
+  variacoes: z.array(z.string().max(4000)).max(MAX_VARIACOES).optional(),
+  abAutoVencedora: z.boolean().optional(),
+  abMinimo: z.number().int().min(AB_LIMITES.min).max(AB_LIMITES.max).optional(),
+  diasSemana: z.union([z.string().max(20), z.array(z.number().int().min(0).max(6)).max(7)]).optional(),
 });
+
+/** Converte os campos da v1.48.0 para o formato do banco. */
+function dadosV148(body: { variacoes?: string[]; diasSemana?: string | number[] }) {
+  const out: Record<string, unknown> = {};
+  if (body.variacoes) out.variacoes = JSON.stringify(body.variacoes.map((t) => t.trim()).filter(Boolean).slice(0, MAX_VARIACOES));
+  if (body.diasSemana !== undefined) out.diasSemana = normalizarDias(body.diasSemana);
+  return out;
+}
 
 async function checkChannel(orgId: string, channelId?: string) {
   if (!channelId) return;
@@ -462,7 +479,10 @@ async function campaignView(c: Campaign) {
   const recipients = Object.fromEntries(groups.map((g) => [g.status, g._count._all]));
   // v1.46.1: quantos falharam por desconexão (botão "Reenviar os que falharam por desconexão").
   const falhasConexao = recipients.FALHOU ? await contarFalhasDeConexao(c.id) : 0;
-  return { ...c, recipients, falhasConexao };
+  // v1.48.0: versões e resultado do teste A/B (só quando há mais de uma versão).
+  const variacoes = lerVariacoes(c.variacoes);
+  const ab = variacoes.length && recipients.ENVIADA ? await resultadoAb(c) : null;
+  return { ...c, variacoes, recipients, falhasConexao, ab };
 }
 
 mckmensagemRouter.get('/campaigns', ah(async (req, res) => {
@@ -476,7 +496,8 @@ mckmensagemRouter.post('/campaigns', ah(async (req, res) => {
   await checkChannel(orgId, body.channelId);
   checkIntervals(body.minIntervalSec ?? 45, body.maxIntervalSec ?? 120);
   // v1.43.0: campanha nova nasce com a repescagem ligada (padrão 2 dias, até 2 repescagens).
-  const c = await prisma.campaign.create({ data: { orgId, repescagemAtiva: true, ...body } });
+  const { variacoes: _v, diasSemana: _d, ...resto } = body;
+  const c = await prisma.campaign.create({ data: { orgId, repescagemAtiva: true, ...resto, ...dadosV148(body) } });
   await audit(req, 'mckmensagem.campaign.create', { entity: 'Campaign', entityId: c.id });
   res.status(201).json(await campaignView(c));
 }));
@@ -494,7 +515,10 @@ mckmensagemRouter.patch('/campaigns/:id', ah(async (req, res) => {
   // Mexeu na repescagem: tira o aviso de pausa (o agendador recoloca se o motivo continuar).
   const repescagemMudou = ['repescagemAtiva', 'repescagemDias', 'repescagemMax'].some((k) => k in body);
   const riscoMudou = 'riscoRetomada' in body && body.riscoRetomada !== c.riscoRetomada;
-  const updated = await prisma.campaign.update({ where: { id: c.id }, data: { ...body, ...(repescagemMudou ? { repescagemPausa: null, repescagemPausaEm: null } : {}), ...(riscoMudou ? { riscoPausa: null, riscoPausaEm: null } : {}) } });
+  const { variacoes: _v, diasSemana: _d, ...resto } = body;
+  // Mudou as versões: o teste A/B recomeça (a vencedora antiga pode não existir mais).
+  const versoesMudaram = body.variacoes !== undefined && JSON.stringify(lerVariacoes(String(dadosV148(body).variacoes))) !== JSON.stringify(lerVariacoes(c.variacoes));
+  const updated = await prisma.campaign.update({ where: { id: c.id }, data: { ...resto, ...dadosV148(body), ...(versoesMudaram ? { abVencedora: null, abVencedoraEm: null } : {}), ...(repescagemMudou ? { repescagemPausa: null, repescagemPausaEm: null } : {}), ...(riscoMudou ? { riscoPausa: null, riscoPausaEm: null } : {}) } });
   await audit(req, 'mckmensagem.campaign.update', { entity: 'Campaign', entityId: c.id, meta: Object.keys(body) });
   res.json(await campaignView(updated));
 }));
@@ -514,7 +538,10 @@ mckmensagemRouter.delete('/campaigns/:id', ah(async (req, res) => {
  * ou, por padrão, os leads vinculados à campanha (campaignId). Só entram leads com consentimento e sem opt-out.
  */
 mckmensagemRouter.post('/campaigns/:id/start', ah(async (req, res) => {
-  const body = z.object({ leadIds: z.array(z.string()).max(10000).optional(), tag: z.string().max(40).optional() }).parse(req.body ?? {});
+  const body = z.object({ leadIds: z.array(z.string()).max(10000).optional(), tag: z.string().max(40).optional(), agendarPara: z.string().max(40).optional() }).parse(req.body ?? {});
+  // v1.48.0: início agendado (data/hora). Sem agendarPara: começa agora, como antes.
+  const agendarPara = body.agendarPara ? new Date(body.agendarPara) : null;
+  if (agendarPara) { const erro = validarAgendamento(agendarPara, new Date()); if (erro) throw new HttpError(400, erro); }
   const orgId = orgOf(req);
   const c = await getCampaign(orgId, req.params.id);
   if (c.status === 'CONCLUIDA' && !body.leadIds && !body.tag) throw new HttpError(400, 'Campanha já concluída. Informe novos leads para reabrir.');
@@ -538,8 +565,9 @@ mckmensagemRouter.post('/campaigns/:id/start', ah(async (req, res) => {
     ? `Nenhum lead elegível: ${semConsentimento} contato(s) ainda estão com consentimento pendente. Registre o consentimento em Contatos para enviar.`
     : 'Nenhum lead elegível (com consentimento e sem opt-out) para esta campanha');
   // v1.44.0: Retomar tira o aviso de pausa por Risco (o agendador pausa de novo se o número continuar em Risco).
-  const updated = await prisma.campaign.update({ where: { id: c.id }, data: { status: 'EM_ANDAMENTO', riscoPausa: null, riscoPausaEm: null } });
-  await audit(req, 'mckmensagem.campaign.start', { entity: 'Campaign', entityId: c.id, meta: { added, pending } });
+  const agendada = !!agendarPara && agendarPara.getTime() > Date.now();
+  const updated = await prisma.campaign.update({ where: { id: c.id }, data: { status: agendada ? 'AGENDADA' : 'EM_ANDAMENTO', iniciarEm: agendada ? agendarPara : null, riscoPausa: null, riscoPausaEm: null } });
+  await audit(req, 'mckmensagem.campaign.start', { entity: 'Campaign', entityId: c.id, meta: { added, pending, agendadaPara: agendada ? agendarPara!.toISOString() : null } });
   res.json({ ...(await campaignView(updated)), added, pending, semConsentimento });
 }));
 
@@ -554,6 +582,58 @@ mckmensagemRouter.post('/campaigns/:id/reenviar-falhas-conexao', ah(async (req, 
   await audit(req, 'mckmensagem.campaign.reenviar_falhas_conexao', { entity: 'Campaign', entityId: c.id, meta: r });
   const updated = await getCampaign(orgId, c.id);
   res.json({ ...(await campaignView(updated)), ...r });
+}));
+
+// ---------------- v1.48.0: duplicar e enviar teste ----------------
+
+/** Cópia da campanha como rascunho (mesmo texto, versões e limites; sem fila, sem resultado do A/B). */
+mckmensagemRouter.post('/campaigns/:id/duplicar', ah(async (req, res) => {
+  const orgId = orgOf(req);
+  const c = await getCampaign(orgId, req.params.id);
+  const nome = `Cópia de ${c.name}`.slice(0, 120);
+  const copia = await prisma.campaign.create({ data: {
+    orgId, name: nome, message: c.message, channelId: c.channelId, status: 'RASCUNHO', dailyLimit: c.dailyLimit, minIntervalSec: c.minIntervalSec, maxIntervalSec: c.maxIntervalSec,
+    windowStart: c.windowStart, windowEnd: c.windowEnd, repescagemAtiva: c.repescagemAtiva, repescagemDias: c.repescagemDias, repescagemMax: c.repescagemMax, repescagemModelo: c.repescagemModelo,
+    riscoRetomada: c.riscoRetomada, variacoes: c.variacoes, abAutoVencedora: c.abAutoVencedora, abMinimo: c.abMinimo, diasSemana: c.diasSemana,
+  } });
+  await audit(req, 'mckmensagem.campaign.duplicate', { entity: 'Campaign', entityId: copia.id, meta: { de: c.id } });
+  res.status(201).json(await campaignView(copia));
+}));
+
+/** Envios de teste por empresa (memória): no máximo 10 por hora. */
+const testesPorOrg = new Map<string, number[]>();
+export const TESTE_LIMITE_HORA = 10;
+export function resetTestesCampanha() { testesPorOrg.clear(); }
+
+/**
+ * Envia UMA versão da mensagem para um número escolhido (ex.: o celular do dono) para ver como chega.
+ * Não entra na fila, não conta como envio da campanha nem no A/B. Só Proprietário/Admin.
+ */
+mckmensagemRouter.post('/campaigns/:id/teste', requireRole('OWNER', 'ADMIN'), ah(async (req, res) => {
+  const body = z.object({ phone: z.string().min(8).max(30), versao: z.number().int().min(0).max(MAX_VARIACOES).optional(), nome: z.string().max(80).optional() }).parse(req.body ?? {});
+  const orgId = orgOf(req);
+  const c = await getCampaign(orgId, req.params.id);
+  const phone = toE164(body.phone);
+  if (!phone) throw new HttpError(400, 'Telefone inválido. Use DDD + número, ex.: (11) 91234-5678');
+  const agora = Date.now();
+  const recentes = (testesPorOrg.get(orgId) ?? []).filter((t) => agora - t < 3_600_000);
+  if (recentes.length >= TESTE_LIMITE_HORA) throw new HttpError(429, `Limite de ${TESTE_LIMITE_HORA} envios de teste por hora atingido. Tente mais tarde.`);
+  const channel = await prisma.channel.findFirst({ where: { id: c.channelId, orgId, provider: { not: 'site' } } });
+  if (!channel || !canalConectado(channel)) throw new HttpError(400, 'O WhatsApp desta campanha está desconectado. Conecte em Canais para enviar o teste.');
+  const versoes = versoesDaCampanha(c);
+  const versao = Math.min(body.versao ?? 0, versoes.length - 1);
+  const waId = phone.replace(/\D/g, '');
+  let contact = await prisma.contact.findUnique({ where: { orgId_waId: { orgId, waId } } });
+  if (contact?.optOut) throw new HttpError(400, 'Este número pediu para não receber mensagens (SAIR). Use outro número para o teste.');
+  contact ??= await prisma.contact.create({ data: { orgId, waId, phone, name: body.nome?.trim() || null } });
+  const nome = body.nome?.trim() || contact.name || 'Ana Souza';
+  const { texto } = textoDaCampanha({ ...c, abVencedora: null }, { id: `teste:${waId}`, name: nome }, versao, new Date());
+  recentes.push(agora); testesPorOrg.set(orgId, recentes);
+  const conv = await openConversationFor(orgId, contact.id, c.channelId);
+  const msg = await sendOutbound({ conversation: conv, contact, payload: { type: 'text', text: texto }, sender: 'bot', product: 'MCKMENSAGEM' });
+  await audit(req, 'mckmensagem.campaign.teste', { entity: 'Campaign', entityId: c.id, meta: { versao, final: waId.slice(-4), status: msg.status } });
+  if (msg.status === 'FAILED') throw new HttpError(400, `O teste não foi enviado: ${msg.error ?? 'falha no envio'}`);
+  res.json({ ok: true, versao, texto });
 }));
 
 mckmensagemRouter.post('/campaigns/:id/pause', ah(async (req, res) => {

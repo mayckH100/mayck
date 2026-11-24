@@ -818,6 +818,17 @@ model Campaign {
   /// v1.46.1: campanha aguardando porque o WhatsApp do canal desconectou (nulo = conectado). Volta sozinha ao reconectar.
   offlinePausa   String?
   offlinePausaEm DateTime?
+  /// v1.48.0: até 3 versões extras da mensagem (JSON de textos). Cada contato recebe sempre a mesma versão.
+  variacoes       String    @default("[]")
+  /// v1.48.0: teste A/B — escolher a versão vencedora sozinha (desligado por padrão) depois de N envios por versão.
+  abAutoVencedora Boolean   @default(false)
+  abMinimo        Int       @default(30)
+  /// Índice da versão vencedora (0 = principal). Nulo = ainda testando.
+  abVencedora     Int?
+  abVencedoraEm   DateTime?
+  /// v1.48.0: início agendado (status AGENDADA até esta hora) e dias da semana em que envia (0 = domingo; padrão todos).
+  iniciarEm       DateTime?
+  diasSemana      String    @default("0123456")
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
@@ -846,6 +857,8 @@ model CampaignRecipient {
   repescagemAposAt   DateTime?
   /// v1.46.1: tentativas do envio original que falharam por conexão (máx. 3; depois vira FALHOU).
   tentativas         Int       @default(0)
+  /// v1.48.0: versão da mensagem que este contato recebe (0 = principal). Nulo = ainda não escolhida.
+  variante           Int?
 
   @@unique([campaignId, leadId])
   @@index([campaignId, status])
