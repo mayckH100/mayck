@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { NavLink, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { post, patch, del, get } from '../../api';
+import { post, patch, del, get, upload } from '../../api';
 import { useApi, Async, Empty, Field, Modal, useAction, useToast, fmtDate, fmtNum } from '../../ui';
 import { MetricsView } from './Dashboard';
 import { AddContactsModal } from './LeadBulk';
@@ -10,6 +10,7 @@ import {
   type Campaign, type ChannelLite, type Metrics,
 } from '../common';
 import { MAX_VARIACOES, AB_MINIMO_PADRAO, AB_LIMITES, DIAS_ROTULO, DIAS_TODOS, LETRAS, textoParaContato, saudacaoDe, variaveisDesconhecidas, normalizarDias } from '../../../../server/mckmensagem/variacoes';
+import { LEGENDA_MAX, MIDIA_MAX_MB, RECORRENCIA_ROTULO, MAX_CANAIS_RODIZIO, descreverFiltroErp, erroFiltroErp, type FiltroErp, type Recorrencia } from '../../../../server/mckmensagem/campanhaCore';
 
 const MCKBOT_CHANNELS = '/canais';
 
@@ -27,7 +28,91 @@ function ChannelSelect({ value, onChange, channels }: { value: string; onChange:
 type Form = {
   name: string; message: string; channelId: string; dailyLimit: number; minIntervalSec: number; maxIntervalSec: number; windowStart: string; windowEnd: string; riscoRetomada: 'auto' | 'manual';
   /** v1.48.0 */ variacoes: string[]; abAutoVencedora: boolean; abMinimo: number; diasSemana: string;
+  /** v1.49.0 */ recorrencia: '' | Recorrencia; recorrenciaFim: string; rodizio: boolean; canaisRodizio: string[];
 } & RepescagemForm;
+
+/** v1.49.0: arquivo de cada versão no formulário (o já anexado, um novo escolhido, ou nenhum). */
+type MidiaSlot = { id: string; nome: string; mime: string } | { file: File } | null;
+const ehImagem = (m: MidiaSlot) => !!m && ('file' in m ? /^image\//.test(m.file.type) : /^image\//.test(m.mime));
+const nomeSlot = (m: MidiaSlot) => (!m ? '' : 'file' in m ? m.file.name : m.nome);
+const TIPOS_ACEITOS = 'image/jpeg,image/png,image/webp,application/pdf';
+
+/** Prévia da imagem (ou do PDF) no balão do WhatsApp. */
+function MidiaPrevia({ m, campaignId, versao }: { m: MidiaSlot; campaignId?: string; versao: number }) {
+  const [url, setUrl] = useState<string | null>(null);
+  useEffect(() => {
+    if (!m || !ehImagem(m)) { setUrl(null); return; }
+    if ('file' in m) { const u = URL.createObjectURL(m.file); setUrl(u); return () => URL.revokeObjectURL(u); }
+    setUrl(campaignId ? `/api/mckmensagem/campaigns/${campaignId}/midia/${m.id}` : null);
+  }, [m, campaignId, versao]);
+  if (!m) return null;
+  if (url) return <img src={url} alt="" style={{ display: 'block', maxWidth: '100%', maxHeight: 220, borderRadius: 6, marginBottom: 6, objectFit: 'cover' }} />;
+  return <div className="small" style={{ background: '#f1f3f7', borderRadius: 6, padding: '8px 10px', marginBottom: 6 }}>📄 {nomeSlot(m)}</div>;
+}
+
+/** Escolher/trocar/tirar o arquivo de uma versão. */
+function MidiaCampo({ rotulo, m, onChange, herdado }: { rotulo: string; m: MidiaSlot; onChange: (m: MidiaSlot) => void; herdado?: boolean }) {
+  const toast = useToast();
+  const escolher = (f?: File | null) => {
+    if (!f) return;
+    const pdf = f.type === 'application/pdf';
+    if (!TIPOS_ACEITOS.split(',').includes(f.type)) return toast('Use imagem JPG, PNG ou WEBP, ou PDF.', 'err');
+    const max = pdf ? MIDIA_MAX_MB.pdf : MIDIA_MAX_MB.imagem;
+    if (f.size > max * 1024 * 1024) return toast(`Arquivo grande demais: ${pdf ? 'PDF' : 'imagem'} até ${max} MB.`, 'err');
+    onChange({ file: f });
+  };
+  return (
+    <div className="row small" style={{ gap: 8, flexWrap: 'wrap' }}>
+      <span>{rotulo}:</span>
+      {m ? <><span className="badge">{ehImagem(m) ? '🖼' : '📄'} {nomeSlot(m)}</span><button type="button" className="btn sm ghost" onClick={() => onChange(null)}>Tirar</button></>
+        : <span className="muted">{herdado ? 'usa o da versão A' : 'nenhum'}</span>}
+      <label className="btn sm" style={{ cursor: 'pointer' }}>{m ? 'Trocar' : '📎 Anexar imagem ou PDF'}<input type="file" accept={TIPOS_ACEITOS} hidden onChange={(e) => { escolher(e.target.files?.[0]); e.target.value = ''; }} /></label>
+    </div>
+  );
+}
+
+/** v1.49.0: repetir a campanha e rodízio entre números. */
+function RepeticaoRodizioFields({ f, set, initial, channels }: { f: Form; set: <K extends keyof Form>(k: K, v: Form[K]) => void; initial?: Campaign; channels: ChannelLite[] }) {
+  const outros = channels.filter((c) => c.id !== f.channelId);
+  return (
+    <div className="card stack" style={{ padding: 12, background: '#fafbff' }}>
+      <strong>Repetir a campanha</strong>
+      {initial?.recorrenciaOrigemId
+        ? <p className="small muted" style={{ margin: 0 }}>Esta campanha é uma repetição de “{initial.origem?.name ?? 'outra campanha'}”. Para mudar a repetição, edite a original.</p>
+        : <>
+          <div className="grid g2" style={{ gap: 10 }}>
+            <Field label="Repetir" hint="Cada repetição vira uma campanha nova, para o público atual (quem entrou depois também recebe; quem saiu, não).">
+              <select value={f.recorrencia} onChange={(e) => set('recorrencia', e.target.value as Form['recorrencia'])}>
+                <option value="">Não repetir</option>
+                {(Object.keys(RECORRENCIA_ROTULO) as Recorrencia[]).map((r) => <option key={r} value={r}>{RECORRENCIA_ROTULO[r][0].toUpperCase() + RECORRENCIA_ROTULO[r].slice(1)}</option>)}
+              </select>
+            </Field>
+            {f.recorrencia && <Field label="Até (opcional)" hint="Vazio = repete até você pausar a campanha."><input type="date" value={f.recorrenciaFim} onChange={(e) => set('recorrenciaFim', e.target.value)} /></Field>}
+          </div>
+          {f.recorrencia && <p className="small muted" style={{ margin: 0 }}>Começa a contar quando você inicia a campanha, na mesma hora. Se a repetição anterior ainda estiver enviando, aquela vez é pulada. Pausar a campanha também pausa as repetições.</p>}
+        </>}
+      <label className="row small" style={{ gap: 8 }}>
+        <input type="checkbox" checked={f.rodizio} disabled={!outros.length} onChange={(e) => set('rodizio', e.target.checked)} />
+        <strong>Rodízio entre números</strong> <span className="muted">{outros.length ? 'divide os envios entre vários WhatsApp da empresa' : '(precisa de mais de um número conectado em Canais)'}</span>
+      </label>
+      {f.rodizio && (
+        <div className="stack" style={{ gap: 4 }}>
+          <span className="small muted">Além do número principal, enviar também por (até {MAX_CANAIS_RODIZIO - 1}):</span>
+          {outros.map((c) => {
+            const on = f.canaisRodizio.includes(c.id);
+            return (
+              <label key={c.id} className="row small" style={{ gap: 8 }}>
+                <input type="checkbox" checked={on} disabled={!on && f.canaisRodizio.length >= MAX_CANAIS_RODIZIO - 1} onChange={() => set('canaisRodizio', on ? f.canaisRodizio.filter((x) => x !== c.id) : [...f.canaisRodizio, c.id])} />
+                {c.label ?? c.name}{c.displayPhone ? ` (${c.displayPhone})` : ''} {c.status === 'CONNECTED' ? <span className="badge green">conectado</span> : <span className="badge red">desconectado</span>}
+              </label>
+            );
+          })}
+          <p className="small muted" style={{ margin: 0 }}>Cada número respeita o próprio limite por dia (o desta campanha), os intervalos e a Saúde do número; número desconectado ou em Risco fica de fora. O mesmo contato recebe sempre pelo mesmo número.</p>
+        </div>
+      )}
+    </div>
+  );
+}
 
 /** Data/hora digitada (horário de Brasília, sem horário de verão) → ISO. */
 function brtParaIso(v: string): string { return new Date(`${v}:00-03:00`).toISOString(); }
@@ -43,7 +128,7 @@ function diasTexto(d?: string): string {
 }
 
 /** v1.48.0: versões B/C/D (teste A/B), vencedora automática e dias da semana. */
-function VersoesFields({ f, set }: { f: Form; set: <K extends keyof Form>(k: K, v: Form[K]) => void }) {
+function VersoesFields({ f, set, midias, setMidia, onRemove }: { f: Form; set: <K extends keyof Form>(k: K, v: Form[K]) => void; midias: MidiaSlot[]; setMidia: (i: number, m: MidiaSlot) => void; onRemove: (i: number) => void }) {
   const muda = (i: number, v: string) => set('variacoes', f.variacoes.map((x, j) => (j === i ? v : x)));
   return (
     <div className="card stack" style={{ padding: 12, background: '#fafbff' }}>
@@ -53,7 +138,8 @@ function VersoesFields({ f, set }: { f: Form; set: <K extends keyof Form>(k: K, 
         <Field key={i} label={`Versão ${LETRAS[i + 1]}`}>
           <div className="stack" style={{ gap: 4 }}>
             <textarea rows={3} maxLength={4000} value={v} onChange={(e) => muda(i, e.target.value)} placeholder="Outra forma de dizer a mesma coisa. Use {nome}, {saudacao} e {Olá|Oi}." />
-            <div className="row"><button type="button" className="btn sm ghost" onClick={() => set('variacoes', f.variacoes.filter((_, j) => j !== i))}>Remover versão {LETRAS[i + 1]}</button></div>
+            <MidiaCampo rotulo={`Imagem ou PDF da versão ${LETRAS[i + 1]}`} m={midias[i + 1] ?? null} herdado={!!midias[0]} onChange={(m) => setMidia(i + 1, m)} />
+            <div className="row"><button type="button" className="btn sm ghost" onClick={() => onRemove(i)}>Remover versão {LETRAS[i + 1]}</button></div>
           </div>
         </Field>
       ))}
@@ -92,14 +178,22 @@ function CampaignForm({ initial, onClose, onSaved }: { initial?: Campaign; onClo
       name: initial.name, message: initial.message, channelId: initial.channelId, dailyLimit: initial.dailyLimit, minIntervalSec: initial.minIntervalSec, maxIntervalSec: initial.maxIntervalSec, windowStart: initial.windowStart, windowEnd: initial.windowEnd,
       repescagemAtiva: !!initial.repescagemAtiva, repescagemDias: initial.repescagemDias ?? 2, repescagemMax: initial.repescagemMax ?? 2, repescagemModelo: initial.repescagemModelo ?? '', riscoRetomada: initial.riscoRetomada ?? 'auto',
       variacoes: initial.variacoes ?? [], abAutoVencedora: !!initial.abAutoVencedora, abMinimo: initial.abMinimo ?? AB_MINIMO_PADRAO, diasSemana: normalizarDias(initial.diasSemana),
+      recorrencia: initial.recorrencia ?? '', recorrenciaFim: initial.recorrenciaFim ? initial.recorrenciaFim.slice(0, 10) : '', rodizio: !!initial.rodizio, canaisRodizio: initial.canaisRodizio ?? [],
     }
-    : { name: '', message: 'Olá {nome}! ', channelId: '', ...SAFE_DEFAULTS, repescagemAtiva: true, repescagemDias: 2, repescagemMax: 2, repescagemModelo: '', riscoRetomada: 'auto', variacoes: [], abAutoVencedora: false, abMinimo: AB_MINIMO_PADRAO, diasSemana: DIAS_TODOS });
+    : { name: '', message: 'Olá {nome}! ', channelId: '', ...SAFE_DEFAULTS, repescagemAtiva: true, repescagemDias: 2, repescagemMax: 2, repescagemModelo: '', riscoRetomada: 'auto', variacoes: [], abAutoVencedora: false, abMinimo: AB_MINIMO_PADRAO, diasSemana: DIAS_TODOS, recorrencia: '', recorrenciaFim: '', rodizio: false, canaisRodizio: [] });
+  // v1.49.0: arquivo por versão (posição 0 = versão A).
+  const [midias, setMidias] = useState<MidiaSlot[]>(() => (initial?.midias ?? []).map((m) => (m ? { id: m.id, nome: m.nome, mime: m.mime } : null)));
+  const setMidia = (i: number, m: MidiaSlot) => setMidias((xs) => { const out = [...xs]; while (out.length <= i) out.push(null); out[i] = m; return out; });
+  const temMidia = midias.some(Boolean);
   const [previewName, setPreviewName] = useState('Ana Souza');
   const [previewVersao, setPreviewVersao] = useState(0);
   const [sorteio, setSorteio] = useState(1);
   const versoes = [f.message, ...f.variacoes.filter((v) => v.trim())];
   const versaoVista = Math.min(previewVersao, versoes.length - 1);
   const previa = textoParaContato(versoes[versaoVista] ?? '', { campaignId: 'previa', leadId: String(sorteio), nome: previewName, saudacao: saudacaoDe(new Date()) });
+  const midiaVista = midias[versaoVista] ?? midias[0] ?? null;
+  const midiaVistaIdx = midias[versaoVista] ? versaoVista : 0;
+  const legendaLonga = temMidia && versoes.some((v) => v.length > LEGENDA_MAX);
   const desconhecidas = [...new Set(versoes.flatMap((v) => variaveisDesconhecidas(v)))];
   const { busy, run } = useAction();
   // Um único número conectado: já vem selecionado.
@@ -110,8 +204,24 @@ function CampaignForm({ initial, onClose, onSaved }: { initial?: Campaign; onClo
   const intervalErr = f.minIntervalSec > f.maxIntervalSec;
   const submit = async (e: FormEvent) => {
     e.preventDefault();
-    const body = { ...f, dailyLimit: Number(f.dailyLimit), minIntervalSec: Number(f.minIntervalSec), maxIntervalSec: Number(f.maxIntervalSec), repescagemDias: Number(f.repescagemDias), repescagemMax: Number(f.repescagemMax), variacoes: f.variacoes.map((v) => v.trim()).filter(Boolean), abMinimo: Math.min(AB_LIMITES.max, Math.max(AB_LIMITES.min, Number(f.abMinimo) || AB_MINIMO_PADRAO)) };
-    const r = await run(() => (initial ? patch<Campaign>(`/mckmensagem/campaigns/${initial.id}`, body) : post<Campaign>('/mckmensagem/campaigns', body)), initial ? 'Campanha atualizada' : 'Campanha criada');
+    // Versões vazias saem; os arquivos acompanham as versões que ficaram.
+    const ficam = f.variacoes.map((v, i) => ({ v: v.trim(), m: midias[i + 1] ?? null })).filter((x) => x.v);
+    const slots: MidiaSlot[] = [midias[0] ?? null, ...ficam.map((x) => x.m)];
+    const recorrencia = initial?.recorrenciaOrigemId ? {} : { recorrencia: f.recorrencia, recorrenciaFim: f.recorrencia && f.recorrenciaFim ? new Date(`${f.recorrenciaFim}T23:59:00-03:00`).toISOString() : null };
+    const body = {
+      ...f, ...recorrencia, dailyLimit: Number(f.dailyLimit), minIntervalSec: Number(f.minIntervalSec), maxIntervalSec: Number(f.maxIntervalSec), repescagemDias: Number(f.repescagemDias), repescagemMax: Number(f.repescagemMax), variacoes: ficam.map((x) => x.v), abMinimo: Math.min(AB_LIMITES.max, Math.max(AB_LIMITES.min, Number(f.abMinimo) || AB_MINIMO_PADRAO)),
+      canaisRodizio: f.rodizio ? f.canaisRodizio.filter((id) => id !== f.channelId) : f.canaisRodizio,
+      ...(initial ? { midias: slots.map((m) => (m && 'id' in m ? m.id : null)) } : {}),
+    };
+    if (initial?.recorrenciaOrigemId) { delete (body as Partial<typeof body>).recorrencia; delete (body as Partial<typeof body>).recorrenciaFim; }
+    const r = await run(async () => {
+      let c = initial ? await patch<Campaign>(`/mckmensagem/campaigns/${initial.id}`, body) : await post<Campaign>('/mckmensagem/campaigns', body);
+      for (let i = 0; i < slots.length; i++) {
+        const m = slots[i];
+        if (m && 'file' in m) c = await upload<Campaign>(`/mckmensagem/campaigns/${c.id}/midia?versao=${i}`, m.file);
+      }
+      return c;
+    }, initial ? 'Campanha atualizada' : 'Campanha criada');
     if (r) onSaved(r);
   };
   return (
@@ -127,6 +237,8 @@ function CampaignForm({ initial, onClose, onSaved }: { initial?: Campaign; onClo
         <Field label={f.variacoes.length ? 'Mensagem (versão A)' : 'Mensagem'} hint="Use {nome} (primeiro nome), {nome_completo}, {saudacao} (Bom dia/Boa tarde/Boa noite) e {Olá|Oi|E aí} para variar palavras. Inclua como sair, ex.: “Responda SAIR para não receber mais”.">
           <textarea required rows={5} maxLength={4000} value={f.message} onChange={(e) => set('message', e.target.value)} />
         </Field>
+        <MidiaCampo rotulo={f.variacoes.length ? 'Imagem ou PDF (versão A)' : 'Imagem ou PDF (opcional)'} m={midias[0] ?? null} onChange={(m) => setMidia(0, m)} />
+        {temMidia && <div className={`small ${legendaLonga ? '' : 'muted'}`} style={legendaLonga ? { color: '#d64545' } : undefined}>Com arquivo, o texto vai como legenda da imagem/PDF (até {LEGENDA_MAX.toLocaleString('pt-BR')} caracteres). Imagem JPG/PNG/WEBP até {MIDIA_MAX_MB.imagem} MB; PDF até {MIDIA_MAX_MB.pdf} MB.</div>}
         <div className="row small"><button type="button" className="btn sm" onClick={() => set('message', f.message + '{nome}')}>+ Inserir {'{nome}'}</button><button type="button" className="btn sm" onClick={() => set('message', f.message + '{saudacao}')}>+ {'{saudacao}'}</button><button type="button" className="btn sm" onClick={() => set('message', f.message + '{Olá|Oi|E aí}')} title="Cada contato recebe uma das palavras">+ Variação {'{Olá|Oi}'}</button><button type="button" className="btn sm" onClick={() => set('message', f.message.trimEnd() + '\n\nResponda SAIR para não receber mais mensagens.')}>+ Texto de saída</button><span className="muted">{f.message.length}/4000</span></div>
         <div>
           <div className="row between small" style={{ marginBottom: 6 }}>
@@ -138,11 +250,12 @@ function CampaignForm({ initial, onClose, onSaved }: { initial?: Campaign; onClo
               {versoes.map((_, i) => <button key={i} type="button" className={`btn sm ${i === versaoVista ? 'primary' : ''}`} onClick={() => setPreviewVersao(i)}>Versão {LETRAS[i]}</button>)}
             </div>
           )}
-          <div className="mm-preview"><div className="b">{previa || <span className="muted">Sua mensagem aparece aqui</span>}<div className="t">{f.windowStart} ✓✓</div></div></div>
+          <div className="mm-preview"><div className="b"><MidiaPrevia m={midiaVista} campaignId={initial?.id} versao={midiaVistaIdx} />{previa || <span className="muted">Sua mensagem aparece aqui</span>}<div className="t">{f.windowStart} ✓✓</div></div></div>
           <div className="row small" style={{ marginTop: 6 }}><button type="button" className="btn sm ghost" onClick={() => setSorteio((x) => x + 1)}>🎲 Ver outra variação</button><span className="muted">Cada contato recebe sempre o mesmo texto.</span></div>
           {desconhecidas.length > 0 && <div className="alert warn small" style={{ marginTop: 6 }}>Não reconheço {desconhecidas.join(', ')}: vai sair escrito assim. Use {'{nome}'}, {'{nome_completo}'} ou {'{saudacao}'}.</div>}
         </div>
-        <VersoesFields f={f} set={set} />
+        <VersoesFields f={f} set={set} midias={midias} setMidia={setMidia} onRemove={(i) => { set('variacoes', f.variacoes.filter((_, j) => j !== i)); setMidias((xs) => xs.filter((_, j) => j !== i + 1)); }} />
+        <RepeticaoRodizioFields f={f} set={set} initial={initial} channels={channels.data ?? []} />
         <h3 style={{ margin: '4px 0 0' }}>Limites de envio</h3>
         <div className="grid g3" style={{ gap: 10 }}>
           <Field label="Limite por dia"><input type="number" min={1} max={1000} required value={f.dailyLimit} onChange={(e) => set('dailyLimit', Number(e.target.value))} /></Field>
@@ -170,23 +283,63 @@ function CampaignForm({ initial, onClose, onSaved }: { initial?: Campaign; onClo
         </div>
         <div className="row" style={{ justifyContent: 'flex-end' }}>
           <button type="button" className="btn" onClick={onClose}>Cancelar</button>
-          <button className="btn primary" disabled={busy || intervalErr || !f.channelId}>{busy ? 'Salvando…' : initial ? 'Salvar alterações' : 'Criar campanha'}</button>
+          <button className="btn primary" disabled={busy || intervalErr || !f.channelId || legendaLonga}>{busy ? 'Salvando…' : initial ? 'Salvar alterações' : 'Criar campanha'}</button>
         </div>
       </form>
     </Modal>
   );
 }
 
+/** v1.49.0: filtro do público pelas compras do MCK ERP (valor gasto, número de compras, última compra). */
+type ErpForm = Record<keyof FiltroErp, string>;
+const ERP_VAZIO: ErpForm = { gastoMin: '', gastoMax: '', comprasMin: '', comprasMax: '', ultimaCompraMaxDias: '', ultimaCompraMinDias: '' };
+function erpDoForm(e: ErpForm): FiltroErp {
+  const out: FiltroErp = {};
+  for (const k of Object.keys(e) as (keyof FiltroErp)[]) { const v = e[k].trim().replace(',', '.'); if (v !== '' && Number.isFinite(Number(v))) out[k] = Number(v); }
+  return out;
+}
+function ErpFiltroFields({ e, set }: { e: ErpForm; set: (e: ErpForm) => void }) {
+  const [previa, setPrevia] = useState<{ disponivel: boolean; vinculados: number; atendem: number; contatos: number; motivo: string | null } | null>(null);
+  const [erro, setErro] = useState<string | null>(null);
+  const filtro = erpDoForm(e);
+  const chave = JSON.stringify(filtro);
+  useEffect(() => {
+    const err = erroFiltroErp(filtro);
+    if (err) { setErro(err); return; }
+    setErro(null);
+    const t = setTimeout(() => { post<typeof previa>('/mckmensagem/segmento-erp/previa', filtro).then(setPrevia).catch((x) => setErro((x as Error).message)); }, 350);
+    return () => clearTimeout(t);
+  }, [chave]);
+  const campo = (k: keyof FiltroErp, label: string, ph: string) => <Field label={label}><input inputMode="decimal" value={e[k]} placeholder={ph} onChange={(x) => set({ ...e, [k]: x.target.value })} /></Field>;
+  return (
+    <div className="card stack" style={{ padding: 12, background: '#fafbff' }}>
+      {previa && !previa.disponivel
+        ? <div className="alert warn small">{previa.motivo}</div>
+        : <>
+          <div className="grid g2" style={{ gap: 8 }}>
+            {campo('gastoMin', 'Gastou no total, a partir de (R$)', 'ex.: 500')}{campo('gastoMax', 'até (R$)', '')}
+            {campo('comprasMin', 'Número de compras, a partir de', 'ex.: 2')}{campo('comprasMax', 'até', '')}
+            {campo('ultimaCompraMaxDias', 'Comprou nos últimos (dias)', 'ex.: 30')}{campo('ultimaCompraMinDias', 'Sem comprar há pelo menos (dias)', 'ex.: 90')}
+          </div>
+          <div className="small muted">Público: {descreverFiltroErp(filtro)}. Só contatos do MCK Mensagens com consentimento, ligados a um cliente do ERP (mesmo WhatsApp).</div>
+        </>}
+      {erro && <div className="alert err small">{erro}</div>}
+      {previa?.disponivel && !erro && <div className="small"><strong>{fmtNum(previa.atendem)}</strong> contato(s) atendem ao filtro · {fmtNum(previa.vinculados)} de {fmtNum(previa.contatos)} estão ligados ao ERP</div>}
+    </div>
+  );
+}
+
 function StartModal({ c, onClose, onDone }: { c: Campaign; onClose: () => void; onDone: (c: Campaign) => void }) {
-  const [mode, setMode] = useState<'linked' | 'tag'>('linked');
-  const [tag, setTag] = useState('');
+  const [mode, setMode] = useState<'linked' | 'tag' | 'erp'>(c.publico?.modo === 'erp' ? 'erp' : c.publico?.modo === 'etiqueta' ? 'tag' : 'linked');
+  const [erp, setErp] = useState<ErpForm>(() => (c.publico?.modo === 'erp' ? { ...ERP_VAZIO, ...Object.fromEntries(Object.entries(c.publico.erp).map(([k, v]) => [k, v == null ? '' : String(v)])) } : ERP_VAZIO));
+  const [tag, setTag] = useState(c.publico?.modo === 'etiqueta' ? c.publico.tag : '');
   const [quando, setQuando] = useState<'agora' | 'agendar'>('agora');
   const [data, setData] = useState('');
   const { busy, run } = useAction();
   const p = campaignProgress(c);
   const submit = async (e: FormEvent) => {
     e.preventDefault();
-    const body: Record<string, unknown> = mode === 'tag' ? { tag: tag.trim() } : {};
+    const body: Record<string, unknown> = mode === 'tag' ? { tag: tag.trim() } : mode === 'erp' ? { erp: erpDoForm(erp) } : {};
     if (quando === 'agendar' && data) body.agendarPara = brtParaIso(data);
     const r = await run(() => post<Campaign & { added: number; pending: number }>(`/mckmensagem/campaigns/${c.id}/start`, body), quando === 'agendar' && data ? `Campanha agendada para ${fmtBrt(brtParaIso(data))}` : undefined);
     if (r) onDone(r);
@@ -198,6 +351,9 @@ function StartModal({ c, onClose, onDone }: { c: Campaign; onClose: () => void; 
         <label className="mm-check" style={{ background: mode === 'linked' ? undefined : '#fff' }}><input type="radio" checked={mode === 'linked'} onChange={() => setMode('linked')} /><span>Contatos vinculados a esta campanha{p.pending ? <span className="small muted" style={{ fontWeight: 400 }}><br />{fmtNum(p.pending)} já na fila</span> : null}</span></label>
         <label className="mm-check" style={{ background: mode === 'tag' ? undefined : '#fff' }}><input type="radio" checked={mode === 'tag'} onChange={() => setMode('tag')} /><span>Contatos com a etiqueta…</span></label>
         {mode === 'tag' && <Field label="Etiqueta"><input required value={tag} onChange={(e) => setTag(e.target.value)} placeholder="Ex.: vip" /></Field>}
+        <label className="mm-check" style={{ background: mode === 'erp' ? undefined : '#fff' }}><input type="radio" checked={mode === 'erp'} onChange={() => setMode('erp')} /><span>Clientes pelas compras no MCK ERP<span className="small muted" style={{ fontWeight: 400 }}><br />valor gasto, número de compras e última compra</span></span></label>
+        {mode === 'erp' && <ErpFiltroFields e={erp} set={setErp} />}
+        {c.recorrencia && !c.recorrenciaOrigemId && <div className="alert info small">🔁 Repete {RECORRENCIA_ROTULO[c.recorrencia as Recorrencia]}{c.recorrenciaFim ? ` até ${fmtDate(c.recorrenciaFim)}` : ''}, a partir deste início, sempre para o público atual desta escolha.</div>}
         <Field label="Quando começar">
           <select value={quando} onChange={(e) => setQuando(e.target.value as 'agora' | 'agendar')}>
             <option value="agora">Agora</option>
@@ -370,6 +526,14 @@ function CampaignDetail({ id, list, reload }: { id: string; list: Campaign[]; re
         {c.riscoPausa && <div className="alert warn">⚠ {c.riscoPausa} <a href="/canais">Ver Saúde do número ↗</a></div>}
         {c.offlinePausa && <div className="alert warn">⏸ {c.offlinePausa} <a href="/canais">Conectar o WhatsApp ↗</a></div>}
         {c.status === 'AGENDADA' && c.iniciarEm && <div className="alert info">🗓 Começa sozinha em {fmtBrt(c.iniciarEm)} (horário de Brasília). Para cancelar, clique em Pausar.</div>}
+        {c.midiaFaltando && <div className="alert warn">⚠ A imagem/PDF desta campanha foi excluída. Anexe de novo em Editar e clique em Retomar.</div>}
+        {c.origem && <div className="alert info small">🔁 Repetição nº {c.recorrenciaExecucao} de <NavLink to={`/campanhas/${c.origem.id}`}>{c.origem.name}</NavLink>.</div>}
+        {c.recorrencia && !c.recorrenciaOrigemId && (
+          <div className="alert info small">🔁 Repete {RECORRENCIA_ROTULO[c.recorrencia as Recorrencia]}{c.recorrenciaFim ? ` até ${fmtDate(c.recorrenciaFim)}` : ''}.{' '}
+            {c.recorrenciaProxima ? <>Próxima: {fmtBrt(c.recorrenciaProxima)} (Brasília).</> : c.status === 'PAUSADA' || c.status === 'RASCUNHO' ? 'Começa a contar quando a campanha for iniciada.' : 'Sem próximas repetições.'}
+            {!!c.repeticoes && <> · {fmtNum(c.repeticoes)} repetição(ões) criadas (aparecem na lista de campanhas).</>}
+          </div>
+        )}
         <div className="card stack">
           <h2 style={{ margin: 0 }}>Progresso</h2><Progress c={c} />
           {!!c.falhasConexao && (
@@ -385,7 +549,15 @@ function CampaignDetail({ id, list, reload }: { id: string; list: Campaign[]; re
         <div className="grid g2">
           <div className="card">
             <h2>Mensagem</h2>
-            <div className="mm-preview"><div className="b">{textoParaContato(c.message, { campaignId: c.id, leadId: 'previa', nome: 'Ana', saudacao: saudacaoDe(new Date()) })}</div></div>
+            <div className="mm-preview"><div className="b"><MidiaPrevia m={c.midias?.[0] ? { id: c.midias[0].id, nome: c.midias[0].nome, mime: c.midias[0].mime } : null} campaignId={c.id} versao={0} />{textoParaContato(c.message, { campaignId: c.id, leadId: 'previa', nome: 'Ana', saudacao: saudacaoDe(new Date()) })}</div></div>
+            {c.publico && c.publico.modo !== 'vinculados' && <p className="small muted" style={{ margin: '8px 0 0' }}>Público: {c.publico.modo === 'etiqueta' ? `etiqueta “${c.publico.tag}”` : `compras no ERP — ${descreverFiltroErp(c.publico.erp as FiltroErp)}`}</p>}
+            {c.rodizio && !!c.canaisRodizio?.length && (
+              <p className="small muted" style={{ margin: '8px 0 0' }}>Rodízio entre {c.canaisRodizio.length + 1} números: {[c.channelId, ...c.canaisRodizio].map((id) => {
+                const n = channels.data?.find((x) => x.id === id);
+                const env = c.enviadasPorNumero?.find((x) => x.channelId === id)?.enviadas ?? 0;
+                return `${n ? n.label ?? n.name : 'número removido'} (${fmtNum(env)} enviadas)`;
+              }).join(' · ')}</p>
+            )}
             <p className="small muted" style={{ marginTop: 8, marginBottom: 0 }}>Limite {fmtNum(c.dailyLimit)}/dia · intervalo {c.minIntervalSec}–{c.maxIntervalSec}s · das {c.windowStart} às {c.windowEnd} (Brasília), {diasTexto(c.diasSemana)}{c.variacoes?.length ? ` · ${c.variacoes.length + 1} versões` : ''} · repescagem {c.repescagemAtiva ? `ligada (${c.repescagemDias ?? 2} dias, até ${c.repescagemMax ?? 2}x)` : 'desligada'}</p>
           </div>
           <div className="card">
@@ -443,6 +615,9 @@ export default function MmCampaigns() {
               {c.offlinePausa && <div className="small" style={{ color: '#b7791f' }} title={c.offlinePausa}>⏸ Aguardando: o WhatsApp desconectou — continua sozinha quando reconectar</div>}
               {c.status === 'AGENDADA' && c.iniciarEm && <div className="small" style={{ color: '#2f6fde' }}>🗓 Começa em {fmtBrt(c.iniciarEm)}</div>}
               {!!c.variacoes?.length && <div className="small muted">🔀 {c.variacoes.length + 1} versões{c.abVencedora != null ? ` · vencedora: ${LETRAS[c.abVencedora]}` : ''}</div>}
+              {(!!c.midias?.some(Boolean) || !!c.recorrencia || !!c.origem || (c.rodizio && !!c.canaisRodizio?.length)) && (
+                <div className="small muted">{[c.midias?.some(Boolean) && '📎 com imagem/PDF', c.recorrencia && `🔁 repete ${RECORRENCIA_ROTULO[c.recorrencia as Recorrencia]}`, c.origem && `🔁 repetição nº ${c.recorrenciaExecucao}`, c.rodizio && c.canaisRodizio?.length && `🔄 ${c.canaisRodizio.length + 1} números`].filter(Boolean).join(' · ')}</div>
+              )}
               <div className="row between">
                 <Actions c={c} a={a} onEdit={() => setEditing(c)} compact />
                 <div className="row">

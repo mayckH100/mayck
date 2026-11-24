@@ -1,4 +1,4 @@
-import { Router } from 'express';
+import express, { Router, type RequestHandler } from 'express';
 import { z } from 'zod';
 import { prisma } from '../db.js';
 import { ah, notFound, HttpError } from '../lib/http.js';
@@ -20,6 +20,13 @@ import { MAX_VARIACOES, AB_LIMITES, lerVariacoes, normalizarDias, validarAgendam
 import { sendOutbound } from '../whatsapp/messaging.js';
 import { openConversationFor } from '../whatsapp/multiCanal.js';
 import { canalConectado } from '../whatsapp/conexao.js';
+import { payloadDaCampanha } from './dispatcher.js';
+import {
+  MIDIA_TIPOS, maxMbDoTipo, lerMidias, definirMidia, erroLegenda, RECORRENCIAS, ehRecorrencia, proximaDepoisDe, proximaExecucao, diaDoMesBrt, erroFimRecorrencia,
+  lerCanais, MAX_CANAIS_RODIZIO, lerPublico, erroFiltroErp, filtroErpVazio, type Publico, type FiltroErp,
+} from './campanhaCore.js';
+import { midiasView, leadsDoPublico, previaSegmentoErp } from './campanhaExtras.js';
+import { salvarArquivo, detectarTipo, getArquivo, lerConteudo } from './automacoes/arquivos.js';
 
 export const mckmensagemRouter = Router();
 
@@ -452,6 +459,19 @@ const campaignBase = z.object({
   abAutoVencedora: z.boolean().optional(),
   abMinimo: z.number().int().min(AB_LIMITES.min).max(AB_LIMITES.max).optional(),
   diasSemana: z.union([z.string().max(20), z.array(z.number().int().min(0).max(6)).max(7)]).optional(),
+  // v1.49.0: repetição (vazio = não repete) com fim opcional; rodízio entre números (desligado por padrão).
+  recorrencia: z.enum(['', ...RECORRENCIAS]).optional(),
+  recorrenciaFim: z.string().max(40).nullable().optional(),
+  rodizio: z.boolean().optional(),
+  canaisRodizio: z.array(z.string().min(1).max(40)).max(MAX_CANAIS_RODIZIO - 1).optional(),
+  /** Só na edição: reordena/tira os arquivos já anexados (quando uma versão é removida). Arquivo novo entra por /midia. */
+  midias: z.array(z.string().max(40).nullable()).max(MAX_VARIACOES + 1).optional(),
+});
+
+const filtroErpSchema = z.object({
+  gastoMin: z.number().min(0).max(100_000_000).nullable().optional(), gastoMax: z.number().min(0).max(100_000_000).nullable().optional(),
+  comprasMin: z.number().int().min(0).max(100_000).nullable().optional(), comprasMax: z.number().int().min(0).max(100_000).nullable().optional(),
+  ultimaCompraMaxDias: z.number().int().min(0).max(3650).nullable().optional(), ultimaCompraMinDias: z.number().int().min(0).max(3650).nullable().optional(),
 });
 
 /** Converte os campos da v1.48.0 para o formato do banco. */
@@ -460,6 +480,48 @@ function dadosV148(body: { variacoes?: string[]; diasSemana?: string | number[] 
   if (body.variacoes) out.variacoes = JSON.stringify(body.variacoes.map((t) => t.trim()).filter(Boolean).slice(0, MAX_VARIACOES));
   if (body.diasSemana !== undefined) out.diasSemana = normalizarDias(body.diasSemana);
   return out;
+}
+
+/** v1.49.0: campos novos → formato do banco, com as validações (números do rodízio, fim da repetição, legenda). */
+async function dadosV149(orgId: string, body: { channelId?: string; recorrencia?: string; recorrenciaFim?: string | null; rodizio?: boolean; canaisRodizio?: string[] }, atual?: Campaign) {
+  const out: Record<string, unknown> = {};
+  if (body.recorrencia !== undefined) {
+    if (atual?.recorrenciaOrigemId && body.recorrencia) throw new HttpError(400, 'Esta campanha é uma repetição. Mude a repetição na campanha original.');
+    out.recorrencia = body.recorrencia;
+  }
+  if (body.recorrenciaFim !== undefined) {
+    const fim = body.recorrenciaFim ? new Date(body.recorrenciaFim) : null;
+    const erro = erroFimRecorrencia(fim, new Date());
+    if (erro && !(fim && atual?.recorrenciaFim && fim.getTime() === atual.recorrenciaFim.getTime())) throw new HttpError(400, erro);
+    out.recorrenciaFim = fim;
+  }
+  if (body.rodizio !== undefined) out.rodizio = body.rodizio;
+  if (body.canaisRodizio !== undefined) {
+    const principal = body.channelId ?? atual?.channelId;
+    const ids = [...new Set(body.canaisRodizio)].filter((id) => id !== principal);
+    if (ids.length) {
+      const ok = await prisma.channel.count({ where: { orgId, id: { in: ids }, provider: { not: 'site' } } });
+      if (ok !== ids.length) throw new HttpError(400, 'Número do rodízio inválido');
+    }
+    out.canaisRodizio = JSON.stringify(ids);
+  }
+  return out;
+}
+
+/** Com imagem/PDF anexado, todas as versões do texto precisam caber na legenda. */
+function checkLegenda(c: { message: string; variacoes: string; midias: string }) {
+  if (!lerMidias(c.midias).some(Boolean)) return;
+  const erro = erroLegenda([c.message, ...lerVariacoes(c.variacoes)]);
+  if (erro) throw new HttpError(400, erro);
+}
+
+/** Próxima repetição ao iniciar/editar (só com a campanha rodando ou concluída; pausada/rascunho calcula ao iniciar). */
+function proximaRepeticao(c: Pick<Campaign, 'recorrencia' | 'recorrenciaOrigemId' | 'iniciarEm' | 'status'>, now = new Date()): Date | null {
+  if (c.recorrenciaOrigemId || !ehRecorrencia(c.recorrencia)) return null;
+  if (!['EM_ANDAMENTO', 'AGENDADA', 'CONCLUIDA'].includes(c.status)) return null;
+  const base = c.iniciarEm ?? now;
+  const dia = c.recorrencia === 'MENSAL' ? diaDoMesBrt(base) : undefined;
+  return base.getTime() > now.getTime() ? proximaExecucao(base, c.recorrencia, dia) : proximaDepoisDe(base, c.recorrencia, now, dia);
 }
 
 async function checkChannel(orgId: string, channelId?: string) {
@@ -482,7 +544,16 @@ async function campaignView(c: Campaign) {
   // v1.48.0: versões e resultado do teste A/B (só quando há mais de uma versão).
   const variacoes = lerVariacoes(c.variacoes);
   const ab = variacoes.length && recipients.ENVIADA ? await resultadoAb(c) : null;
-  return { ...c, variacoes, recipients, falhasConexao, ab };
+  // v1.49.0: arquivos, rodízio, público e repetições.
+  const midias = await midiasView(c);
+  const midiaFaltando = lerMidias(c.midias).some((id, i) => id && !midias[i]);
+  const origem = c.recorrenciaOrigemId ? await prisma.campaign.findFirst({ where: { id: c.recorrenciaOrigemId, orgId: c.orgId }, select: { id: true, name: true } }) : null;
+  const repeticoes = !c.recorrenciaOrigemId && c.recorrencia ? await prisma.campaign.count({ where: { orgId: c.orgId, recorrenciaOrigemId: c.id } }) : 0;
+  const porNumero = c.rodizio ? await prisma.campaignRecipient.groupBy({ by: ['channelId'], where: { campaignId: c.id, status: 'ENVIADA' }, _count: { _all: true } }) : [];
+  return {
+    ...c, variacoes, recipients, falhasConexao, ab, midias, midiaFaltando, canaisRodizio: lerCanais(c.canaisRodizio), publico: lerPublico(c.publico), origem, repeticoes,
+    enviadasPorNumero: porNumero.map((g) => ({ channelId: g.channelId ?? c.channelId, enviadas: g._count._all })),
+  };
 }
 
 mckmensagemRouter.get('/campaigns', ah(async (req, res) => {
@@ -496,8 +567,8 @@ mckmensagemRouter.post('/campaigns', ah(async (req, res) => {
   await checkChannel(orgId, body.channelId);
   checkIntervals(body.minIntervalSec ?? 45, body.maxIntervalSec ?? 120);
   // v1.43.0: campanha nova nasce com a repescagem ligada (padrão 2 dias, até 2 repescagens).
-  const { variacoes: _v, diasSemana: _d, ...resto } = body;
-  const c = await prisma.campaign.create({ data: { orgId, repescagemAtiva: true, ...resto, ...dadosV148(body) } });
+  const { variacoes: _v, diasSemana: _d, recorrencia: _r, recorrenciaFim: _f, rodizio: _z, canaisRodizio: _k, midias: _m, ...resto } = body;
+  const c = await prisma.campaign.create({ data: { orgId, repescagemAtiva: true, ...resto, ...dadosV148(body), ...(await dadosV149(orgId, body)) } });
   await audit(req, 'mckmensagem.campaign.create', { entity: 'Campaign', entityId: c.id });
   res.status(201).json(await campaignView(c));
 }));
@@ -515,10 +586,22 @@ mckmensagemRouter.patch('/campaigns/:id', ah(async (req, res) => {
   // Mexeu na repescagem: tira o aviso de pausa (o agendador recoloca se o motivo continuar).
   const repescagemMudou = ['repescagemAtiva', 'repescagemDias', 'repescagemMax'].some((k) => k in body);
   const riscoMudou = 'riscoRetomada' in body && body.riscoRetomada !== c.riscoRetomada;
-  const { variacoes: _v, diasSemana: _d, ...resto } = body;
+  const { variacoes: _v, diasSemana: _d, recorrencia: _r, recorrenciaFim: _f, rodizio: _z, canaisRodizio: _k, midias: novasMidias, ...resto } = body;
+  let midias = c.midias;
+  if (novasMidias) {
+    const atuais = new Set(lerMidias(c.midias).filter(Boolean));
+    if (novasMidias.some((id) => id && !atuais.has(id))) throw new HttpError(400, 'Arquivo inválido para esta campanha');
+    midias = JSON.stringify(lerMidias(JSON.stringify(novasMidias)));
+  }
   // Mudou as versões: o teste A/B recomeça (a vencedora antiga pode não existir mais).
   const versoesMudaram = body.variacoes !== undefined && JSON.stringify(lerVariacoes(String(dadosV148(body).variacoes))) !== JSON.stringify(lerVariacoes(c.variacoes));
-  const updated = await prisma.campaign.update({ where: { id: c.id }, data: { ...resto, ...dadosV148(body), ...(versoesMudaram ? { abVencedora: null, abVencedoraEm: null } : {}), ...(repescagemMudou ? { repescagemPausa: null, repescagemPausaEm: null } : {}), ...(riscoMudou ? { riscoPausa: null, riscoPausaEm: null } : {}) } });
+  const v149 = await dadosV149(orgId, body, c);
+  const v148 = dadosV148(body);
+  checkLegenda({ message: body.message ?? c.message, variacoes: (v148.variacoes as string | undefined) ?? c.variacoes, midias });
+  // Repetição mudou: recalcula a próxima (ou desliga).
+  const recMudou = ('recorrencia' in v149 && v149.recorrencia !== c.recorrencia) || ('recorrenciaFim' in v149);
+  const prox = recMudou ? { recorrenciaProxima: proximaRepeticao({ ...c, recorrencia: (v149.recorrencia as string | undefined) ?? c.recorrencia }) } : {};
+  const updated = await prisma.campaign.update({ where: { id: c.id }, data: { ...resto, ...v148, ...v149, ...prox, ...(novasMidias ? { midias } : {}), ...(versoesMudaram ? { abVencedora: null, abVencedoraEm: null } : {}), ...(repescagemMudou ? { repescagemPausa: null, repescagemPausaEm: null } : {}), ...(riscoMudou ? { riscoPausa: null, riscoPausaEm: null } : {}) } });
   await audit(req, 'mckmensagem.campaign.update', { entity: 'Campaign', entityId: c.id, meta: Object.keys(body) });
   res.json(await campaignView(updated));
 }));
@@ -538,19 +621,24 @@ mckmensagemRouter.delete('/campaigns/:id', ah(async (req, res) => {
  * ou, por padrão, os leads vinculados à campanha (campaignId). Só entram leads com consentimento e sem opt-out.
  */
 mckmensagemRouter.post('/campaigns/:id/start', ah(async (req, res) => {
-  const body = z.object({ leadIds: z.array(z.string()).max(10000).optional(), tag: z.string().max(40).optional(), agendarPara: z.string().max(40).optional() }).parse(req.body ?? {});
+  const body = z.object({ leadIds: z.array(z.string()).max(10000).optional(), tag: z.string().max(40).optional(), agendarPara: z.string().max(40).optional(), erp: filtroErpSchema.optional() }).parse(req.body ?? {});
+  if (body.erp) { const erro = erroFiltroErp(body.erp); if (erro) throw new HttpError(400, erro); }
   // v1.48.0: início agendado (data/hora). Sem agendarPara: começa agora, como antes.
   const agendarPara = body.agendarPara ? new Date(body.agendarPara) : null;
   if (agendarPara) { const erro = validarAgendamento(agendarPara, new Date()); if (erro) throw new HttpError(400, erro); }
   const orgId = orgOf(req);
   const c = await getCampaign(orgId, req.params.id);
-  if (c.status === 'CONCLUIDA' && !body.leadIds && !body.tag) throw new HttpError(400, 'Campanha já concluída. Informe novos leads para reabrir.');
+  if (c.status === 'CONCLUIDA' && !body.leadIds && !body.tag && !body.erp) throw new HttpError(400, 'Campanha já concluída. Informe novos leads para reabrir.');
   await checkChannel(orgId, c.channelId);
-  const where: any = { orgId, optOutAt: null, status: { not: 'DESCARTADO' } };
-  if (body.leadIds) where.id = { in: body.leadIds };
-  else if (body.tag) where.tags = { contains: JSON.stringify(body.tag) };
-  else where.campaignId = c.id;
-  const leads = await prisma.lead.findMany({ where, select: { id: true, consentAt: true } });
+  // v1.49.0: público gravado (as repetições usam o público atual com a mesma regra).
+  const publico: Publico | null = body.leadIds ? null : body.erp ? { modo: 'erp', erp: body.erp as FiltroErp } : body.tag ? { modo: 'etiqueta', tag: body.tag } : { modo: 'vinculados' };
+  let leads: { id: string; consentAt: Date | null }[];
+  if (body.leadIds) leads = await prisma.lead.findMany({ where: { orgId, optOutAt: null, status: { not: 'DESCARTADO' }, id: { in: body.leadIds } }, select: { id: true, consentAt: true } });
+  else leads = await leadsDoPublico(orgId, c.id, publico!);
+  if (body.erp && !leads.length) {
+    const p = await previaSegmentoErp(orgId, body.erp as FiltroErp);
+    if (!p.disponivel) throw new HttpError(400, p.motivo!);
+  }
   let added = 0;
   const semConsentimento = leads.filter((l) => !l.consentAt).length;
   for (const l of leads) {
@@ -566,7 +654,14 @@ mckmensagemRouter.post('/campaigns/:id/start', ah(async (req, res) => {
     : 'Nenhum lead elegível (com consentimento e sem opt-out) para esta campanha');
   // v1.44.0: Retomar tira o aviso de pausa por Risco (o agendador pausa de novo se o número continuar em Risco).
   const agendada = !!agendarPara && agendarPara.getTime() > Date.now();
-  const updated = await prisma.campaign.update({ where: { id: c.id }, data: { status: agendada ? 'AGENDADA' : 'EM_ANDAMENTO', iniciarEm: agendada ? agendarPara : null, riscoPausa: null, riscoPausaEm: null } });
+  const repete = !c.recorrenciaOrigemId && ehRecorrencia(c.recorrencia);
+  const inicio = agendada ? agendarPara! : repete ? new Date() : null;
+  const status = agendada ? 'AGENDADA' : 'EM_ANDAMENTO';
+  const updated = await prisma.campaign.update({ where: { id: c.id }, data: {
+    status, iniciarEm: inicio, riscoPausa: null, riscoPausaEm: null,
+    ...(publico ? { publico: JSON.stringify(publico) } : {}),
+    ...(repete ? { recorrenciaProxima: proximaRepeticao({ ...c, status, iniciarEm: inicio }), recorrenciaExecucao: Math.max(1, c.recorrenciaExecucao) } : {}),
+  } });
   await audit(req, 'mckmensagem.campaign.start', { entity: 'Campaign', entityId: c.id, meta: { added, pending, agendadaPara: agendada ? agendarPara!.toISOString() : null } });
   res.json({ ...(await campaignView(updated)), added, pending, semConsentimento });
 }));
@@ -595,15 +690,20 @@ mckmensagemRouter.post('/campaigns/:id/duplicar', ah(async (req, res) => {
     orgId, name: nome, message: c.message, channelId: c.channelId, status: 'RASCUNHO', dailyLimit: c.dailyLimit, minIntervalSec: c.minIntervalSec, maxIntervalSec: c.maxIntervalSec,
     windowStart: c.windowStart, windowEnd: c.windowEnd, repescagemAtiva: c.repescagemAtiva, repescagemDias: c.repescagemDias, repescagemMax: c.repescagemMax, repescagemModelo: c.repescagemModelo,
     riscoRetomada: c.riscoRetomada, variacoes: c.variacoes, abAutoVencedora: c.abAutoVencedora, abMinimo: c.abMinimo, diasSemana: c.diasSemana,
+    midias: c.midias, rodizio: c.rodizio, canaisRodizio: c.canaisRodizio, publico: c.publico, recorrencia: c.recorrenciaOrigemId ? '' : c.recorrencia, recorrenciaFim: c.recorrenciaFim,
   } });
   await audit(req, 'mckmensagem.campaign.duplicate', { entity: 'Campaign', entityId: copia.id, meta: { de: c.id } });
   res.status(201).json(await campaignView(copia));
 }));
 
-/** Envios de teste por empresa (memória): no máximo 10 por hora. */
-const testesPorOrg = new Map<string, number[]>();
+/**
+ * Envios de teste por empresa: no máximo 10 por hora. v1.49.0: contados no banco (registro de auditoria
+ * "mckmensagem.campaign.teste"), então o limite não zera quando o servidor reinicia.
+ */
 export const TESTE_LIMITE_HORA = 10;
-export function resetTestesCampanha() { testesPorOrg.clear(); }
+let testesDesde = 0;
+/** Só para os testes automáticos: ignora os envios de teste anteriores a agora. */
+export function resetTestesCampanha() { testesDesde = Date.now(); }
 
 /**
  * Envia UMA versão da mensagem para um número escolhido (ex.: o celular do dono) para ver como chega.
@@ -615,9 +715,9 @@ mckmensagemRouter.post('/campaigns/:id/teste', requireRole('OWNER', 'ADMIN'), ah
   const c = await getCampaign(orgId, req.params.id);
   const phone = toE164(body.phone);
   if (!phone) throw new HttpError(400, 'Telefone inválido. Use DDD + número, ex.: (11) 91234-5678');
-  const agora = Date.now();
-  const recentes = (testesPorOrg.get(orgId) ?? []).filter((t) => agora - t < 3_600_000);
-  if (recentes.length >= TESTE_LIMITE_HORA) throw new HttpError(429, `Limite de ${TESTE_LIMITE_HORA} envios de teste por hora atingido. Tente mais tarde.`);
+  const desde = new Date(Math.max(Date.now() - 3_600_000, testesDesde));
+  const recentes = await prisma.auditLog.count({ where: { orgId, action: 'mckmensagem.campaign.teste', createdAt: { gte: desde } } });
+  if (recentes >= TESTE_LIMITE_HORA) throw new HttpError(429, `Limite de ${TESTE_LIMITE_HORA} envios de teste por hora atingido. Tente mais tarde.`);
   const channel = await prisma.channel.findFirst({ where: { id: c.channelId, orgId, provider: { not: 'site' } } });
   if (!channel || !canalConectado(channel)) throw new HttpError(400, 'O WhatsApp desta campanha está desconectado. Conecte em Canais para enviar o teste.');
   const versoes = versoesDaCampanha(c);
@@ -628,12 +728,83 @@ mckmensagemRouter.post('/campaigns/:id/teste', requireRole('OWNER', 'ADMIN'), ah
   contact ??= await prisma.contact.create({ data: { orgId, waId, phone, name: body.nome?.trim() || null } });
   const nome = body.nome?.trim() || contact.name || 'Ana Souza';
   const { texto } = textoDaCampanha({ ...c, abVencedora: null }, { id: `teste:${waId}`, name: nome }, versao, new Date());
-  recentes.push(agora); testesPorOrg.set(orgId, recentes);
+  // Conta o teste antes de enviar (dois cliques ao mesmo tempo não passam do limite).
+  await audit(req, 'mckmensagem.campaign.teste', { entity: 'Campaign', entityId: c.id, meta: { versao, final: waId.slice(-4) } });
   const conv = await openConversationFor(orgId, contact.id, c.channelId);
-  const msg = await sendOutbound({ conversation: conv, contact, payload: { type: 'text', text: texto }, sender: 'bot', product: 'MCKMENSAGEM' });
-  await audit(req, 'mckmensagem.campaign.teste', { entity: 'Campaign', entityId: c.id, meta: { versao, final: waId.slice(-4), status: msg.status } });
+  // v1.49.0: o teste sai igual ao envio de verdade (com a imagem/PDF da versão, se houver).
+  const payload = await payloadDaCampanha(c, versao, texto).catch((e) => { throw new HttpError(400, (e as Error).message); });
+  const msg = await sendOutbound({ conversation: conv, contact, payload, sender: 'bot', product: 'MCKMENSAGEM' });
   if (msg.status === 'FAILED') throw new HttpError(400, `O teste não foi enviado: ${msg.error ?? 'falha no envio'}`);
   res.json({ ok: true, versao, texto });
+}));
+
+// ---------------- v1.49.0: imagem ou PDF por versão ----------------
+
+/** Corpo binário com limite (o maior dos tipos aceitos) e erro 413 amigável. Nome em x-file-name (URI-encoded). */
+const corpoMidia: RequestHandler = (req, res, next) => {
+  express.raw({ type: () => true, limit: `${maxMbDoTipo('pdf') + 1}mb` })(req, res, (err?: any) => {
+    if (err) return next(err.type === 'entity.too.large' ? new HttpError(413, `Arquivo maior que o limite (imagem até ${maxMbDoTipo('jpg')} MB, PDF até ${maxMbDoTipo('pdf')} MB)`) : new HttpError(400, 'Falha ao ler o arquivo enviado'));
+    next();
+  });
+};
+const versaoQuery = z.object({ versao: z.coerce.number().int().min(0).max(MAX_VARIACOES).default(0) });
+
+/** Anexa (ou troca) a imagem/PDF de uma versão. Guardado no mesmo armazenamento de arquivos (Postgres), sem link público. */
+mckmensagemRouter.post('/campaigns/:id/midia', corpoMidia, ah(async (req, res) => {
+  const { versao } = versaoQuery.parse(req.query);
+  const orgId = orgOf(req);
+  const c = await getCampaign(orgId, req.params.id);
+  if (versao > lerVariacoes(c.variacoes).length) throw new HttpError(400, 'Essa versão não existe. Salve a versão antes de anexar o arquivo.');
+  const dados = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
+  const raw = String(req.header('x-file-name') ?? '');
+  let nome = raw; try { nome = decodeURIComponent(raw); } catch { /* nome cru */ }
+  const tipo = dados.length ? detectarTipo(dados, nome) : null;
+  if (dados.length && (!tipo || !(MIDIA_TIPOS as readonly string[]).includes(tipo))) throw new HttpError(400, 'Tipo de arquivo não aceito. Use imagem JPG, PNG ou WEBP, ou PDF.');
+  checkLegenda({ message: c.message, variacoes: c.variacoes, midias: '["x"]' });
+  const arq = await salvarArquivo({ orgId, nome: nome.slice(0, 200) || `campanha.${tipo ?? 'jpg'}`, dados, descricao: `Campanha: ${c.name}`.slice(0, 200), criadoPorId: req.auth!.userId }, { tiposArquivo: MIDIA_TIPOS.join(','), tamanhoMaxMb: maxMbDoTipo(tipo ?? 'jpg') });
+  const updated = await prisma.campaign.update({ where: { id: c.id }, data: { midias: definirMidia(lerMidias(c.midias), versao, arq.id) } });
+  await audit(req, 'mckmensagem.campaign.midia', { entity: 'Campaign', entityId: c.id, meta: { versao, arquivoId: arq.id, mime: arq.mime, tamanho: arq.tamanho } });
+  res.status(201).json(await campaignView(updated));
+}));
+
+/** Tira o arquivo da versão (o arquivo continua guardado em Automações › Arquivos; nada é apagado). */
+mckmensagemRouter.delete('/campaigns/:id/midia', ah(async (req, res) => {
+  const { versao } = versaoQuery.parse(req.query);
+  const orgId = orgOf(req);
+  const c = await getCampaign(orgId, req.params.id);
+  const updated = await prisma.campaign.update({ where: { id: c.id }, data: { midias: definirMidia(lerMidias(c.midias), versao, null) } });
+  await audit(req, 'mckmensagem.campaign.midia_remover', { entity: 'Campaign', entityId: c.id, meta: { versao } });
+  res.json(await campaignView(updated));
+}));
+
+/** Prévia do arquivo de uma versão (sessão + organização; sem link público). */
+mckmensagemRouter.get('/campaigns/:id/midia/:ref', ah(async (req, res) => {
+  const orgId = orgOf(req);
+  const c = await getCampaign(orgId, req.params.id);
+  // ref = número da versão (0 = A) ou o id de um arquivo desta campanha.
+  const lista = lerMidias(c.midias);
+  const ref = String(req.params.ref);
+  const id = /^\d$/.test(ref) ? lista[Number(ref)] ?? null : lista.includes(ref) ? ref : null;
+  if (!id) throw notFound('Arquivo');
+  const a = await getArquivo(orgId, id);
+  const dados = await lerConteudo(a.id);
+  res.setHeader('content-type', a.mime);
+  res.setHeader('content-length', String(dados.length));
+  res.setHeader('content-disposition', `inline; filename*=UTF-8''${encodeURIComponent(a.nome)}`);
+  res.setHeader('cache-control', 'private, no-store');
+  res.setHeader('x-content-type-options', 'nosniff');
+  res.setHeader('content-security-policy', "default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; sandbox");
+  res.end(dados);
+}));
+
+// ---------------- v1.49.0: público pelas compras do ERP ----------------
+
+/** Quantos contatos estão ligados ao ERP e quantos atendem ao filtro (nada é enviado). */
+mckmensagemRouter.post('/segmento-erp/previa', ah(async (req, res) => {
+  const f = filtroErpSchema.parse(req.body ?? {});
+  const erro = erroFiltroErp(f);
+  if (erro) throw new HttpError(400, erro);
+  res.json({ ...(await previaSegmentoErp(orgOf(req), f)), vazio: filtroErpVazio(f) });
 }));
 
 mckmensagemRouter.post('/campaigns/:id/pause', ah(async (req, res) => {

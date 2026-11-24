@@ -8,6 +8,9 @@ import { verificarEnvioEmMassa, saudeDoNumero } from '../whatsapp/protecao/servi
 import type { NivelSaude } from '../whatsapp/protecao/core.js';
 import { canalConectado, tipoErroEnvio } from '../whatsapp/conexao.js';
 import { versoesDaCampanha, escolherVersao, textoParaContato, textosPossiveis, saudacaoDe, diaPermitido, resultadoPorVersao, escolherVencedora } from './variacoes.js';
+import { canaisDaCampanha, escolherCanal, LEGENDA_MAX } from './campanhaCore.js';
+import { midiaParaEnvio, tickRecorrencia } from './campanhaExtras.js';
+import type { OutboundPayload } from '../whatsapp/cloudClient.js';
 
 type Sender = typeof sendOutbound;
 let sender: Sender = sendOutbound;
@@ -77,7 +80,12 @@ export const MAX_TENTATIVAS_CONEXAO = 3;
  */
 async function travaOffline(c: Campaign, now: Date): Promise<'channel_offline' | null> {
   const channel = await prisma.channel.findFirst({ where: { id: c.channelId, orgId: c.orgId } });
-  if (!canalConectado(channel)) {
+  return aplicarOffline(c, canalConectado(channel), now);
+}
+
+/** Grava/tira o aviso "aguardando o WhatsApp" conforme a conexão (um número ou, no rodízio, todos). */
+async function aplicarOffline(c: Campaign, conectado: boolean, now: Date): Promise<'channel_offline' | null> {
+  if (!conectado) {
     if (c.offlinePausa !== PAUSA_OFFLINE) {
       await prisma.campaign.update({ where: { id: c.id }, data: { offlinePausa: PAUSA_OFFLINE, offlinePausaEm: now } });
       await notaCampanha(c, PAUSA_OFFLINE);
@@ -98,6 +106,11 @@ async function travaRisco(c: Campaign, now: Date): Promise<'number_risk' | null>
   const channel = await prisma.channel.findFirst({ where: { id: c.channelId, orgId: c.orgId } });
   const qr = channel?.provider === 'whatsapp_qr';
   const nivel = qr ? ((await saudeDoNumero(channel!, now).catch(() => null))?.nivel ?? null) : 'BOM';
+  return aplicarRisco(c, nivel, now);
+}
+
+/** Pausa/retoma pela Saúde do número (no rodízio: RISCO só quando nenhum número conectado está saudável). */
+async function aplicarRisco(c: Campaign, nivel: NivelSaude | null, now: Date): Promise<'number_risk' | null> {
   const d = decisaoRisco({ nivel, retomada: c.riscoRetomada, pausada: !!c.riscoPausa });
   if (d === 'pausar' || d === 'pausar_manual') {
     const motivo = d === 'pausar' ? PAUSA_RISCO_AUTO : PAUSA_RISCO_MANUAL;
@@ -120,6 +133,8 @@ async function travaRisco(c: Campaign, now: Date): Promise<'number_risk' | null>
 /** Um passo do disparador: no máximo um envio por campanha EM_ANDAMENTO por chamada. */
 export async function tick(now = new Date()): Promise<TickResult> {
   const out: TickResult = [];
+  // v1.49.0: campanhas que se repetem criam a execução nova (para o público atual) quando chega a hora.
+  await tickRecorrencia(now).catch((e) => console.error('[mckmensagem] repetição', e));
   // v1.48.0: início agendado chegou → EM_ANDAMENTO (updateMany com status = trava contra corrida).
   const agendadas = await prisma.campaign.findMany({ where: { status: 'AGENDADA', iniciarEm: { lte: now } }, select: { id: true } });
   for (const a of agendadas) {
@@ -143,6 +158,8 @@ async function stepCampaign(c: Campaign, now: Date): Promise<TickResult[number][
   if (!inWindow(c, now)) return 'outside_window';
   // v1.48.0: dias da semana da campanha (padrão: todos).
   if (!diaPermitido(c.diasSemana, now)) return 'outside_day';
+  // v1.49.0: rodízio entre vários números (desligado por padrão; sem ele o caminho abaixo é o de sempre).
+  if (canaisDaCampanha(c).length > 1) return stepRodizio(c, now);
   const { dayStart } = localClock(now);
   const sentToday = await prisma.campaignRecipient.count({ where: { campaignId: c.id, status: 'ENVIADA', sentAt: { gte: dayStart } } });
   if (sentToday >= c.dailyLimit) return 'daily_limit';
@@ -248,7 +265,7 @@ async function talvezEscolherVencedora(c: Campaign, now: Date) {
   }
 }
 
-async function sendToLead(c: Campaign, lead: Lead, rec: { id: string; messageId: string | null; tentativas: number; variante?: number | null }, now: Date): Promise<ResultadoEnvio> {
+async function sendToLead(c: Campaign, lead: Lead, rec: { id: string; messageId: string | null; tentativas: number; variante?: number | null }, now: Date, canalId: string = c.channelId): Promise<ResultadoEnvio> {
   const recipientId = rec.id;
   const waId = lead.phone.replace(/\D/g, '');
   let contact = lead.contactId ? await prisma.contact.findFirst({ where: { id: lead.contactId, orgId: c.orgId } }) : null;
@@ -272,11 +289,21 @@ async function sendToLead(c: Campaign, lead: Lead, rec: { id: string; messageId:
     return 'duplicate';
   }
   // Conversa do contato no WhatsApp da campanha (não "puxa" a conversa de outro número da organização).
-  const conv = await openConversationFor(c.orgId, contact.id, c.channelId);
+  const conv = await openConversationFor(c.orgId, contact.id, canalId);
 
+  // v1.49.0: com imagem/PDF, o texto vai como legenda (uma mensagem só). Arquivo sumiu: pausa a campanha sem
+  // gastar o contato (ele continua na fila) em vez de mandar só o texto.
+  let payload: OutboundPayload;
+  try {
+    payload = await payloadDaCampanha(c, versao, texto);
+  } catch (e) {
+    await prisma.campaign.updateMany({ where: { id: c.id, status: 'EM_ANDAMENTO' }, data: { status: 'PAUSADA' } });
+    await notaCampanha(c, `Campanha pausada: ${(e as Error).message}`);
+    return 'retry';
+  }
   let msg;
   try {
-    msg = await sender({ conversation: conv, contact, payload: { type: 'text', text: texto }, sender: 'bot', product: 'MCKMENSAGEM', bulk: true });
+    msg = await sender({ conversation: conv, contact, payload, sender: 'bot', product: 'MCKMENSAGEM', bulk: true });
   } catch (e) {
     return falhaDeEnvio(rec, (e as Error).message?.slice(0, 500) || 'Erro no envio', null);
   }
@@ -290,6 +317,113 @@ async function sendToLead(c: Campaign, lead: Lead, rec: { id: string; messageId:
     data: { contactId: contact.id, campaignId: lead.campaignId ?? c.id, ...(lead.status === 'NOVO' || lead.status === 'SEM_RESPOSTA' ? { status: 'CONTATADO' } : {}) },
   });
   return 'sent';
+}
+
+/** v1.49.0: texto puro ou arquivo (imagem/PDF) com o texto como legenda. */
+export async function payloadDaCampanha(c: Pick<Campaign, 'orgId' | 'midias'>, versao: number, texto: string): Promise<OutboundPayload> {
+  const m = await midiaParaEnvio(c, versao);
+  if (!m) return { type: 'text', text: texto };
+  return { type: 'file', data: m.dados, filename: m.nome, mime: m.mime, caption: texto.slice(0, LEGENDA_MAX) };
+}
+
+// ---------------- v1.49.0: rodízio entre vários números ----------------
+
+const chaveIntervalo = (c: Campaign, canal: string) => `${c.id}:${canal}`;
+/** Destinatários deste número na campanha (sem número gravado = número principal). */
+export function filtroDoCanal(c: Pick<Campaign, 'channelId'>, canal: string) {
+  return canal === c.channelId ? { OR: [{ channelId: null }, { channelId: canal }] } : { channelId: canal };
+}
+
+/**
+ * Um passo da campanha com rodízio: cada número tem o próprio limite por dia (o da campanha), o próprio intervalo,
+ * a proteção do número (verificarEnvioEmMassa) e a Saúde; número desconectado ou em Risco fica de fora.
+ * O mesmo contato fica sempre no mesmo número (CampaignRecipient.channelId gravado no primeiro envio).
+ * Um envio por passo, como no caminho de um número só.
+ */
+async function stepRodizio(c: Campaign, now: Date): Promise<TickResult[number]['action']> {
+  const todos = canaisDaCampanha(c);
+  const pendentes = await prisma.campaignRecipient.count({ where: { campaignId: c.id, status: 'PENDENTE' } });
+  if (!pendentes) {
+    await prisma.campaign.update({ where: { id: c.id }, data: { status: 'CONCLUIDA' } });
+    for (const k of todos) nextAt.delete(chaveIntervalo(c, k));
+    return 'completed';
+  }
+  const chans = await prisma.channel.findMany({ where: { id: { in: todos }, orgId: c.orgId, provider: { not: 'site' } } });
+  const validos = todos.filter((id) => chans.some((x) => x.id === id));
+  const { dayStart } = localClock(now);
+  const saudaveis: string[] = [];
+  const livres: string[] = [];
+  let algumConectado = false, algumNoLimite = false;
+  for (const ch of chans) {
+    if (!canalConectado(ch)) continue;
+    algumConectado = true;
+    const nivel = ch.provider === 'whatsapp_qr' ? ((await saudeDoNumero(ch, now).catch(() => null))?.nivel ?? null) : 'BOM';
+    if (nivel === 'RISCO') continue;
+    saudaveis.push(ch.id);
+    const hoje = await prisma.campaignRecipient.count({ where: { campaignId: c.id, status: 'ENVIADA', sentAt: { gte: dayStart }, ...filtroDoCanal(c, ch.id) } });
+    if (hoje >= c.dailyLimit) { algumNoLimite = true; continue; }
+    const k = chaveIntervalo(c, ch.id);
+    let next = nextAt.get(k);
+    if (next === undefined) {
+      const last = await prisma.campaignRecipient.findFirst({ where: { campaignId: c.id, sentAt: { not: null }, ...filtroDoCanal(c, ch.id) }, orderBy: { sentAt: 'desc' } });
+      next = last?.sentAt ? last.sentAt.getTime() + c.minIntervalSec * 1000 : 0;
+      nextAt.set(k, next);
+    }
+    if (now.getTime() >= next) livres.push(ch.id);
+  }
+  // Nenhum número conectado: espera sem tocar na fila. Conectados, mas todos em Risco: pausa como a campanha de um número.
+  if (await aplicarOffline(c, algumConectado, now)) return 'channel_offline';
+  if (await aplicarRisco(c, saudaveis.length ? 'BOM' : 'RISCO', now)) return 'number_risk';
+  if (!livres.length) return algumNoLimite ? 'daily_limit' : 'waiting_interval';
+
+  await talvezEscolherVencedora(c, now);
+  let protegido = false;
+  let cursor: string | undefined;
+  for (let lidos = 0; lidos < 500 && livres.length;) {
+    const lote = await prisma.campaignRecipient.findMany({ where: { campaignId: c.id, status: 'PENDENTE', ...(cursor ? { id: { gt: cursor } } : {}) }, orderBy: { id: 'asc' }, take: 100 });
+    if (!lote.length) break;
+    for (const r of lote) {
+      cursor = r.id; lidos++;
+      if (!livres.length) break;
+      const lead = await prisma.lead.findFirst({ where: { id: r.leadId, orgId: c.orgId } });
+      const reason = !lead ? 'Lead não encontrado'
+        : !lead.consentAt ? 'Lead sem consentimento registrado'
+        : lead.optOutAt ? 'Lead pediu para não receber mensagens (opt-out)'
+        : lead.status === 'DESCARTADO' ? 'Lead descartado'
+        : null;
+      if (reason || !lead) {
+        await prisma.campaignRecipient.update({ where: { id: r.id }, data: { status: 'IGNORADA', error: reason } });
+        continue;
+      }
+      // Número em que o contato já conversa (entre os da campanha): mantém a conversa no mesmo número.
+      let preferido: string | null = null;
+      if (!r.channelId) {
+        const waId = lead.phone.replace(/\D/g, '');
+        const contato = lead.contactId ? { id: lead.contactId } : await prisma.contact.findUnique({ where: { orgId_waId: { orgId: c.orgId, waId } }, select: { id: true } });
+        if (contato) preferido = (await prisma.conversation.findFirst({ where: { orgId: c.orgId, contactId: contato.id, channelId: { in: validos } }, orderBy: { lastMessageAt: 'desc' }, select: { channelId: true } }))?.channelId ?? null;
+      }
+      const canal = escolherCanal({ chave: lead.id, atribuido: r.channelId, preferido, todos: validos, saudaveis });
+      if (!canal || !livres.includes(canal)) continue; // o número dele está fora agora: espera, sem trocar de número
+      const prot = await verificarEnvioEmMassa(canal, now);
+      if (!prot.ok) {
+        nextAt.set(chaveIntervalo(c, canal), now.getTime() + Math.min(prot.tentarEmMs, 10 * 60_000));
+        livres.splice(livres.indexOf(canal), 1);
+        protegido = true;
+        continue;
+      }
+      if (r.channelId !== canal) await prisma.campaignRecipient.updateMany({ where: { id: r.id, status: 'PENDENTE' }, data: { channelId: canal } });
+      const res = await sendToLead(c, lead, r, now, canal);
+      if (res === 'duplicate') continue;
+      const gap = c.minIntervalSec + random() * Math.max(0, c.maxIntervalSec - c.minIntervalSec);
+      nextAt.set(chaveIntervalo(c, canal), now.getTime() + (res === 'retry' ? Math.max(gap, 120) : gap) * 1000);
+      return res === 'sent' ? 'sent' : res === 'retry' ? 'retry_later' : 'failed';
+    }
+  }
+  if (!(await prisma.campaignRecipient.count({ where: { campaignId: c.id, status: 'PENDENTE' } }))) {
+    await prisma.campaign.update({ where: { id: c.id }, data: { status: 'CONCLUIDA' } });
+    return 'completed';
+  }
+  return protegido ? 'number_protection' : 'waiting_interval';
 }
 
 /**

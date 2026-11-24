@@ -21,6 +21,18 @@ export type EntradaChangelog = {
 
 export const CHANGELOG: EntradaChangelog[] = [
   {
+    versao: '1.49.0',
+    data: '23/11/2026',
+    titulo: 'MCK Mensagens: imagem ou PDF na campanha, campanha que se repete, rodízio entre números e público pelas compras do ERP',
+    itens: [
+      'Agora dá para anexar uma imagem (JPG, PNG ou WEBP) ou um PDF na campanha, com o texto como legenda, e cada versão (A, B, C e D) pode ter o próprio arquivo. A prévia mostra como chega, e o envio de teste também vai com o arquivo.',
+      'Campanha que se repete todo dia, toda semana ou todo mês, com data de fim opcional: cada repetição é uma campanha nova para o público atual, sem mandar duas vezes para a mesma pessoa na mesma repetição.',
+      'Rodízio entre números: a campanha pode dividir os envios entre vários WhatsApp da empresa. Cada número respeita o próprio limite e a própria saúde, e o mesmo contato recebe sempre pelo mesmo número.',
+      'Novo público ao iniciar a campanha: clientes pelas compras no MCK ERP (quanto gastaram, quantas compras fizeram e quando foi a última). A tela mostra quantos contatos atendem antes de começar.',
+      'O limite de envios de teste por hora continua valendo mesmo depois de uma atualização do sistema.',
+    ],
+  },
+  {
     versao: '1.48.0',
     data: '23/11/2026',
     titulo: 'MCK Mensagens: versões da mensagem com teste A/B, início agendado, dias da semana, envio de teste e duplicar campanha',

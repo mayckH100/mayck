@@ -35,6 +35,12 @@ export interface Campaign {
   variacoes?: string[]; abAutoVencedora?: boolean; abMinimo?: number; abVencedora?: number | null; abVencedoraEm?: string | null;
   iniciarEm?: string | null; diasSemana?: string;
   ab?: { versao: number; enviadas: number; respostas: number; taxa: number }[] | null;
+  /** v1.49.0: imagem/PDF por versão, repetição, rodízio e público. */
+  midias?: ({ id: string; nome: string; mime: string; tamanho: number } | null)[]; midiaFaltando?: boolean;
+  recorrencia?: '' | 'DIARIA' | 'SEMANAL' | 'MENSAL'; recorrenciaFim?: string | null; recorrenciaProxima?: string | null;
+  recorrenciaOrigemId?: string | null; recorrenciaExecucao?: number; origem?: { id: string; name: string } | null; repeticoes?: number;
+  rodizio?: boolean; canaisRodizio?: string[]; enviadasPorNumero?: { channelId: string; enviadas: number }[];
+  publico?: { modo: 'vinculados' } | { modo: 'etiqueta'; tag: string } | { modo: 'erp'; erp: Record<string, number | null | undefined> };
 }
 export interface Metrics {
   totalLeads: number; byStatus: Record<LeadStatus, number>; sent: number; failed: number; optOuts: number;

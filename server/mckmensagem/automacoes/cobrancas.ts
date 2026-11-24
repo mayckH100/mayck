@@ -102,7 +102,7 @@ cobrancasRouter.delete('/arquivos/:id', ah(async (req, res) => {
   const orgId = orgOf(req);
   const a = await getArquivo(orgId, req.params.id);
   const u = await usosDoArquivo(orgId, a.id);
-  if (u.total) throw new HttpError(409, `Arquivo em uso (${u.boletos} boleto(s), ${u.anexos} automação(ões), ${u.comprovantes} comprovante(s)). Remova o vínculo antes — documentos financeiros não são apagados silenciosamente.`);
+  if (u.total) throw new HttpError(409, `Arquivo em uso (${u.boletos} boleto(s), ${u.anexos} automação(ões), ${u.comprovantes} comprovante(s)${u.campanhas ? `, ${u.campanhas} campanha(s)` : ''}). Remova o vínculo antes — documentos financeiros não são apagados silenciosamente.`);
   await prisma.arquivoConteudo.deleteMany({ where: { arquivoId: a.id } });
   await prisma.arquivo.delete({ where: { id: a.id } });
   await audit(req, 'automacoes.arquivo.delete', { entity: 'Arquivo', entityId: a.id, meta: { nome: a.nome } });

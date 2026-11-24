@@ -121,10 +121,12 @@ export async function lerConteudo(arquivoId: string): Promise<Buffer> {
 
 /** Onde o arquivo está em uso (impede excluir documento financeiro vinculado). */
 export async function usosDoArquivo(orgId: string, id: string) {
-  const [boletos, anexos, comprovantes] = await Promise.all([
+  const [boletos, anexos, comprovantes, campanhas] = await Promise.all([
     prisma.boleto.count({ where: { orgId, arquivoId: id } }),
     prisma.automacaoAnexo.count({ where: { orgId, arquivoId: id } }),
     prisma.comprovante.count({ where: { orgId, arquivoId: id } }),
+    // v1.49.0: imagem/PDF de campanha do MCK Mensagens.
+    prisma.campaign.count({ where: { orgId, midias: { contains: JSON.stringify(id) } } }),
   ]);
-  return { boletos, anexos, comprovantes, total: boletos + anexos + comprovantes };
+  return { boletos, anexos, comprovantes, campanhas, total: boletos + anexos + comprovantes + campanhas };
 }

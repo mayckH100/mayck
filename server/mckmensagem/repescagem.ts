@@ -20,7 +20,7 @@ import { verificarEnvioEmMassa, saudeDoNumero } from '../whatsapp/protecao/servi
 import { erroIndicaBloqueio } from '../whatsapp/protecao/core.js';
 import { aiChat } from '../ai/core.js';
 import { mckQuotaStatus, MCK_QUOTA_REASON } from '../ai/mckQuota.js';
-import { inWindow, localClock } from './dispatcher.js';
+import { inWindow, localClock, filtroDoCanal } from './dispatcher.js';
 import {
   GRUPOS, GRUPO_ROTULO, classificarDestinatario, decidirRepescagem, melhorStatus, proximaAcaoEm, textoModelo, validarTextoIa,
   type GrupoCampanha,
@@ -246,7 +246,7 @@ async function contexto(c: Campaign, r: CampaignRecipient): Promise<Contexto> {
     orderBy: { createdAt: 'asc' }, select: { createdAt: true },
   }) : null;
   const atendente = convIds.length ? await prisma.message.findFirst({ where: { conversationId: { in: convIds }, direction: 'OUT', sender: 'agent', createdAt: { gt: depois } }, select: { id: true } }) : null;
-  const conv = contact ? await prisma.conversation.findFirst({ where: { orgId: c.orgId, contactId: contact.id, status: { not: 'CLOSED' }, OR: [{ channelId: c.channelId }, { channelId: null }] }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }] }) : null;
+  const conv = contact ? await prisma.conversation.findFirst({ where: { orgId: c.orgId, contactId: contact.id, status: { not: 'CLOSED' }, OR: [{ channelId: r.channelId ?? c.channelId }, { channelId: null }] }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }] }) : null;
   const respondeuEm = r.respondeuAt ?? resposta?.createdAt ?? null;
   const saiu = !!(lead?.optOutAt || contact?.optOut || lead?.lastIntent === 'SAIR');
   const grupo = classificarDestinatario({ recipientStatus: r.status, msgStatus: melhorStatus(msgs.map((m) => m.status)), respondeu: !!respondeuEm, saiu });
@@ -273,23 +273,26 @@ async function despausar(c: Campaign) {
 }
 
 /** Travas do envio (só calculadas quando há alguém para repescar agora). Devolve null = pode enviar. */
-async function travaDeEnvio(c: Campaign, now: Date): Promise<RepescagemAcao | null> {
+async function travaDeEnvio(c: Campaign, now: Date, canal: string = c.channelId): Promise<RepescagemAcao | null> {
   if (!inWindow(c, now)) return 'outside_window';
-  const channel = await prisma.channel.findFirst({ where: { id: c.channelId, orgId: c.orgId } });
+  // v1.49.0: no rodízio, cada contato é repescado pelo número dele; só o número principal mexe no aviso de pausa.
+  const principal = canal === c.channelId;
+  const channel = await prisma.channel.findFirst({ where: { id: canal, orgId: c.orgId } });
   // v1.46.1: QR confere a sessão viva (não só o status gravado); desconectado = espera, sem gastar tentativa.
   if (!channel || channel.status !== 'CONNECTED' || !canalConectado(channel)) return 'channel_disconnected';
-  if (channel.provider !== 'whatsapp_qr') { await pausar(c, PAUSA_API_OFICIAL, now); return 'cloud_channel'; }
+  if (channel.provider !== 'whatsapp_qr') { if (principal) await pausar(c, PAUSA_API_OFICIAL, now); return 'cloud_channel'; }
   const saude = await saudeDoNumero(channel, now).catch(() => null);
-  if (saude?.nivel === 'RISCO') { await pausar(c, PAUSA_RISCO, now); return 'number_risk'; }
-  await despausar(c);
+  if (saude?.nivel === 'RISCO') { if (principal) await pausar(c, PAUSA_RISCO, now); return 'number_risk'; }
+  if (principal) await despausar(c);
   const { dayStart } = localClock(now);
+  const doCanal = c.rodizio ? filtroDoCanal(c, canal) : {};
   const [originaisHoje, repescagensHoje] = await Promise.all([
-    prisma.campaignRecipient.count({ where: { campaignId: c.id, status: 'ENVIADA', sentAt: { gte: dayStart } } }),
-    prisma.campaignRecipient.count({ where: { campaignId: c.id, ultimaRepescagemAt: { gte: dayStart } } }),
+    prisma.campaignRecipient.count({ where: { campaignId: c.id, status: 'ENVIADA', sentAt: { gte: dayStart }, ...doCanal } }),
+    prisma.campaignRecipient.count({ where: { campaignId: c.id, ultimaRepescagemAt: { gte: dayStart }, ...doCanal } }),
   ]);
   if (originaisHoje + repescagensHoje >= c.dailyLimit) return 'daily_limit';
   if (now.getTime() < (nextAt.get(c.id) ?? 0)) return 'waiting_interval';
-  const prot = await verificarEnvioEmMassa(c.channelId, now);
+  const prot = await verificarEnvioEmMassa(canal, now);
   if (!prot.ok) { nextAt.set(c.id, now.getTime() + Math.min(prot.tentarEmMs, 10 * 60_000)); return 'number_protection'; }
   return null;
 }
@@ -308,7 +311,7 @@ async function passoCampanha(c: Campaign, now: Date): Promise<{ action: Repescag
     orderBy: [{ sentAt: 'asc' }, { id: 'asc' }], take: 30,
   });
   let stopped = 0;
-  let trava: RepescagemAcao | null | undefined; // undefined = ainda não calculada
+  const travas = new Map<string, RepescagemAcao | null>(); // por número (v1.49.0: rodízio)
   let action: RepescagemAcao = 'nothing';
   for (const r of candidatos) {
     const ctx = await contexto(c, r);
@@ -337,7 +340,9 @@ async function passoCampanha(c: Campaign, now: Date): Promise<{ action: Repescag
     }
     // ENVIAR: só uma por passo por campanha.
     if (action === 'sent' || action === 'failed') continue;
-    if (trava === undefined) trava = await travaDeEnvio(c, now);
+    const canal = r.channelId ?? c.channelId;
+    if (!travas.has(canal)) travas.set(canal, await travaDeEnvio(c, now, canal));
+    const trava = travas.get(canal);
     if (trava) { if (action === 'nothing' || action === 'finalized') action = trava; continue; }
     const res = await enviar(c, r, ctx, d.tentativa, now);
     action = res;
@@ -354,7 +359,7 @@ async function enviar(c: Campaign, r: CampaignRecipient, ctx: Contexto, tentativ
   // Claim atômico: só um processo/passo pega este destinatário nesta tentativa.
   const claim = await prisma.campaignRecipient.updateMany({ where: { id: r.id, repescagemStatus: null, repescagens: r.repescagens }, data: { repescagemStatus: 'ENVIANDO' } });
   if (claim.count !== 1) return 'nothing';
-  const conv = await openConversationFor(c.orgId, ctx.contact.id, c.channelId);
+  const conv = await openConversationFor(c.orgId, ctx.contact.id, r.channelId ?? c.channelId);
   const t = await gerarTextoRepescagem({
     orgId: c.orgId, campanha: c, nome: ctx.lead.name, grupo: ctx.grupo, tentativa, max: c.repescagemMax, anteriores: ctx.textosAnteriores, conversationId: conv.id,
   });

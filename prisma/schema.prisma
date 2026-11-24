@@ -829,10 +829,26 @@ model Campaign {
   /// v1.48.0: início agendado (status AGENDADA até esta hora) e dias da semana em que envia (0 = domingo; padrão todos).
   iniciarEm       DateTime?
   diasSemana      String    @default("0123456")
+  /// v1.49.0: imagem ou PDF da campanha por versão (JSON: índice = versão, valor = Arquivo.id ou null). Versão sem arquivo próprio usa o da versão A.
+  midias          String    @default("[]")
+  /// v1.49.0: campanha que se repete ('' = não repete | DIARIA | SEMANAL | MENSAL). Cada repetição é uma campanha nova (execução).
+  recorrencia         String    @default("")
+  recorrenciaFim      DateTime?
+  recorrenciaProxima  DateTime?
+  /// Na execução: campanha original que a criou. Na original: nulo.
+  recorrenciaOrigemId String?
+  /// Na original: quantas execuções já foram criadas. Na execução: o número dela.
+  recorrenciaExecucao Int       @default(0)
+  /// v1.49.0: quem recebe (JSON {modo: vinculados|etiqueta|erp, tag?, erp?}), gravado ao iniciar; as repetições usam o público atual.
+  publico         String?
+  /// v1.49.0: rodízio entre números da organização (desligado por padrão). canaisRodizio = números extras (JSON de Channel.id).
+  rodizio         Boolean   @default(false)
+  canaisRodizio   String    @default("[]")
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
   @@index([orgId, status])
+  @@index([recorrenciaOrigemId])
 }
 
 model CampaignRecipient {
@@ -859,6 +875,8 @@ model CampaignRecipient {
   tentativas         Int       @default(0)
   /// v1.48.0: versão da mensagem que este contato recebe (0 = principal). Nulo = ainda não escolhida.
   variante           Int?
+  /// v1.49.0: número (canal) que envia para este contato no rodízio; fixo depois do primeiro envio. Nulo = número da campanha.
+  channelId          String?
 
   @@unique([campaignId, leadId])
   @@index([campaignId, status])

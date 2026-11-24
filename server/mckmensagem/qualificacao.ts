@@ -337,8 +337,10 @@ export async function tickLeadRetries(now = new Date()): Promise<number> {
       continue;
     }
     // Nova tentativa sai pelo WhatsApp da campanha, na conversa do contato naquele número.
-    let conv = camp?.channelId
-      ? await openConversationFor(lead.orgId, contact.id, camp.channelId)
+    // v1.49.0: no rodízio, o número que já fala com este contato.
+    const canalCamp = camp?.rodizio ? ((await prisma.campaignRecipient.findUnique({ where: { campaignId_leadId: { campaignId: camp.id, leadId: lead.id } }, select: { channelId: true } }))?.channelId ?? camp.channelId) : camp?.channelId;
+    let conv = canalCamp
+      ? await openConversationFor(lead.orgId, contact.id, canalCamp)
       : await prisma.conversation.findFirst({ where: { orgId: lead.orgId, contactId: contact.id, status: { not: 'CLOSED' } }, orderBy: { createdAt: 'desc' } });
     if (!conv?.channelId) continue;
     if (conv.mode === 'HUMAN') { // um atendente está cuidando: não reaborda

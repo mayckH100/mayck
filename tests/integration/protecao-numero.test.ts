@@ -69,7 +69,7 @@ describe('v1.42.0 — proteção contra bloqueio e saúde do número (WhatsApp p
   it('aquecimento: número novo tem teto de 20 por dia e 5 por hora; desligar a proteção libera', async () => {
     await prisma.message.deleteMany({ where: { channelId, bulk: true } });
     const conv = await prisma.conversation.findFirstOrThrow({ where: { channelId } });
-    for (let i = 0; i < 5; i++) await prisma.message.create({ data: { orgId: owner.me.org.id, conversationId: conv.id, channelId, direction: 'OUT', sender: 'bot', type: 'text', body: 'x', status: 'SENT', bulk: true, createdAt: new Date(Date.now() - 30 * 60_000) } });
+    for (let i = 0; i < 5; i++) await prisma.message.create({ data: { orgId: owner.me.org.id, conversationId: conv.id, channelId, direction: 'OUT', sender: 'bot', type: 'text', body: 'x', status: 'SENT', bulk: true, createdAt: new Date(Date.now() - 60_000) } });
     resetProtecaoState();
     const r = await verificarEnvioEmMassa(channelId);
     expect(r).toMatchObject({ ok: false, motivo: 'hora' });

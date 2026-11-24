@@ -87,7 +87,9 @@ describe('nada que o WhatsApp sublinhe como telefone', () => {
     });
     const t = formatarAlerta(d, { codigo: 'K7P2', limite: 100_000 }).join('\n');
     expect(trechosParecemTelefone(t)).toEqual([]);
-    expect(t).toContain('Dinheiro parado no estoque (preço de custo)');
+    // v1.37.2: com um produto parado só, o total não se repete (o valor já está na linha do produto).
+    expect(t).not.toContain('Dinheiro parado no estoque (preço de custo)');
+    expect(t).toMatch(/parado: \*R\$\s?96,00\*/);
     expect(t).toContain('Tem 12 unidades');
     const c = textoConfirmacao('K7P2', [{ tipo: 'pedido', numero: 12, fornecedor: 'Papelaria Boa', totalCents: 7500, itens: [1] } as any], [{ n: 1, produtoId: 'p1', sku: 'MCK0001', nome: 'Canetack', unidade: 'UN', qtdMil: 15_000, fornecedorId: null, fornecedorNome: null, custoUnitCents: 500 } as any], 'https://app.test/erp/compras');
     expect(c).toContain('🛒 Quantidade: 15 unidades');
