@@ -292,7 +292,7 @@ export function blocosAlerta(d0: DadosAlerta, opts: { codigo?: string | null; pr
   const blocos = [cab, ...secoes.map((s, i) => [`*${i + 1}. ${s.titulo}*`, ...s.linhas].join('\n'))];
   const acoes = acoesSugeridas(d, opts.codigo || (opts.previa ? 'previa' : null));
   if (acoes.length) blocos.push(['*✅ O que fazer hoje*', ...acoes.map((a) => `• ${a}`)].join('\n'));
-  blocos.push('_MCK ERP · para mudar o que chega aqui: ERP › Configurações › Alertas por WhatsApp_');
+  blocos.push('_MCK ERP · para mudar o que chega aqui: ERP › Alertas_');
   return blocos;
 }
 

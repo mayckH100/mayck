@@ -21,6 +21,19 @@ export type EntradaChangelog = {
 
 export const CHANGELOG: EntradaChangelog[] = [
   {
+    versao: '1.50.0',
+    data: '24/11/2026',
+    titulo: 'MCK ERP volta ao layout das primeiras versões e a entrada de notas por XML ficou mais fácil',
+    itens: [
+      'O MCK ERP voltou à organização das primeiras versões: as abas no topo (Painel CRM, Venda balcão, Pedidos, Produtos, Estoque, Compras, Financeiro, Fiscal, BI e as demais) e as abas internas dentro de cada tela, como antes.',
+      'Tudo o que entrou depois continua lá: o resumo do dia com os indicadores e o "Precisa de atenção" virou a aba Resumo; O que comprar, Avisos de compras e Prazos ficam dentro de Compras; Rastreio de lote, Maquininhas e Alertas têm aba própria; Funcionários e Relatórios seguem no menu lateral. Links salvos continuam abrindo a tela certa.',
+      'Entrada por XML: no celular Android o arquivo XML baixado do e-mail ou do WhatsApp agora pode ser escolhido (antes ele aparecia apagado e não dava para tocar).',
+      'A importação aceita XML com acentos em qualquer formato (inclusive ISO-8859-1 e UTF-16), arquivo .zip com as notas dentro, NFC-e (cupom de loja) e XML colado direto na tela, com o resultado de cada arquivo à vista.',
+      'Quando o arquivo não é a nota completa (PDF do DANFE, resumo da nota, evento de cancelamento, CT-e ou NFS-e), a tela explica o que é e o que enviar.',
+      'Ao lançar a nota, o endereço do estoque já vem escolhido quando só existe um, dá para criar o depósito ali mesmo se ainda não houver, e a tela avisa quais itens faltam vincular.',
+    ],
+  },
+  {
     versao: '1.49.0',
     data: '23/11/2026',
     titulo: 'MCK Mensagens: imagem ou PDF na campanha, campanha que se repete, rodízio entre números e público pelas compras do ERP',

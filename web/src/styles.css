@@ -430,3 +430,14 @@ a.kpi:hover { text-decoration: none; border-color: #c9c9cf; }
   .page-head > .row { width: 100%; flex-wrap: wrap; }
   .page-head > .row > .btn { flex: 1 1 auto; justify-content: center; }
 }
+
+/* v1.50.0: abas do MCK ERP como nas primeiras versões (uma linha só; no celular rola na horizontal). */
+.erp-abas { display: flex; gap: 2px; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none; border-bottom: 1px solid var(--line); margin: -8px 0 16px; -webkit-overflow-scrolling: touch; }
+.erp-abas::-webkit-scrollbar { display: none; }
+.erp-abas a { flex: none; padding: 10px 12px; color: var(--muted); font-weight: 600; font-size: 13px; white-space: nowrap; border-bottom: 2px solid transparent; margin-bottom: -1px; }
+.erp-abas a:hover { color: var(--ink); text-decoration: none; }
+.erp-abas a.active { color: var(--brand); border-bottom-color: var(--brand); }
+.erp-subabas { margin-top: -12px; border-bottom-style: dashed; }
+.erp-subabas a { padding: 8px 10px; font-size: 12.5px; }
+.erp-abas a:focus-visible { outline: 2px solid var(--brand); outline-offset: -2px; border-radius: 6px; }
+@media (max-width: 820px) { .erp-abas { margin: -4px -14px 12px; padding: 0 8px; } }

@@ -4,17 +4,20 @@
  * Lógica pura (sem React) para poder ser testada em tests/unit/modulos.test.ts.
  */
 import type { Role } from './auth';
-import { ERP_ITENS, grupoAtivo, podeArea, rotuloDaRota, type ErpAreaPerm } from './erp/ErpNav';
+import { ERP_ITENS } from './erp/ErpNav';
 
-export type NavItem = { to: string; label: string; icon?: string; roles?: Role[]; superAdmin?: boolean; module?: string; sub?: string; href?: string; end?: boolean; /** v1.35.0: subitem (aparece recuado abaixo do item pai). */ pai?: string; /** v1.37.0: área do MCK ERP (permissão por área). */ area?: ErpAreaPerm };
+export type NavItem = { to: string; label: string; icon?: string; roles?: Role[]; superAdmin?: boolean; module?: string; sub?: string; href?: string; end?: boolean; /** v1.35.0: subitem (aparece recuado abaixo do item pai). */ pai?: string };
 export type ModuloId = 'erp' | 'bot' | 'msg' | 'master';
 export interface Modulo { id: ModuloId; label: string; icon: string; home: string; href?: string; items: NavItem[] }
 export interface Grupo { id: string; label: string; icon: string; items: NavItem[] }
 
 /** Os produtos, na ordem do menu. MCK Mensagens é outro app (/mensagem/): aqui é só o atalho. */
 export const MODULOS: Modulo[] = [
-  // v1.37.0: áreas do ERP (Início, Vendas, Compras…) com subcategorias (`pai`); a lista vem de erp/ErpNav.
-  { id: 'erp', label: 'MCK ERP', icon: '◆', home: '/erp', items: ERP_ITENS.map((i) => ({ ...i, module: i.module ?? 'erp_crm' })) },
+  { id: 'erp', label: 'MCK ERP', icon: '◆', home: '/erp', items: [
+    ...ERP_ITENS.map((i) => ({ module: 'erp_crm', ...i })),
+    { to: '/erp/relatorios', label: 'Relatórios', module: 'erp_relatorios' },
+    { to: '/erp/funcionarios', label: 'Funcionários', module: 'equipe', roles: ['OWNER', 'ADMIN'] },
+  ] },
   { id: 'bot', label: 'MCKBOT', icon: '✉', home: '/', items: [
     { to: '/', label: 'Visão geral', icon: '◧', end: true },
     { to: '/inbox', module: 'inbox', label: 'Inbox', icon: '✉', sub: 'Atendimento' },
@@ -56,18 +59,7 @@ const EXTRAS: Record<string, string> = { '/versoes': 'Versões', '/assinatura': 
 export interface Acesso { can: (...r: Role[]) => boolean; hasModule: (m: string) => boolean; superAdmin: boolean }
 
 export const itemVisivel = (n: NavItem, a: Acesso) =>
-  (!n.roles || a.can(...n.roles)) && (!n.module || n.module.split('|').some((m) => a.hasModule(m))) && (!n.superAdmin || a.superAdmin) && podeArea(n.area, a.hasModule);
-
-/**
- * Itens do menu lateral na rota atual. No ERP (v1.37.0) aparecem as áreas e, só da área aberta, as subcategorias;
- * nos outros módulos, todos os itens. Área sem nenhuma subcategoria liberada e sem tela própria útil continua (resumo).
- */
-export function itensDoMenu(m: Modulo, path: string): NavItem[] {
-  if (m.id !== 'erp') return m.items;
-  const g = grupoAtivo(path);
-  // v1.37.1: as subcategorias do Início (Indicadores (BI), Relatório do dia) ficam sempre à vista: o dono não achava o BI.
-  return m.items.filter((i) => !i.pai || i.pai === g || i.pai === '/erp');
-}
+  (!n.roles || a.can(...n.roles)) && (!n.module || n.module.split('|').some((m) => a.hasModule(m))) && (!n.superAdmin || a.superAdmin);
 
 /** Módulos que a pessoa enxerga (com pelo menos um item liberado), já com os itens filtrados. */
 export function modulosVisiveis(a: Acesso): Modulo[] {
@@ -91,12 +83,12 @@ export function moduloDaRota(path: string, ultimo: ModuloId | null = null): { id
 
 /** Nome da seção atual para o subtítulo do topo (ex.: "Venda balcão (PDV)"). O item mais específico ganha. */
 export function secaoDaRota(path: string): string | null {
-  if (path === '/erp' || path.startsWith('/erp/')) return rotuloDaRota(path);
   let melhor: NavItem | null = null;
   for (const n of [...MODULOS.flatMap((m) => m.items), ...GRUPOS_COMUNS.flatMap((g) => g.items)]) {
     if (n.href || !rotaAtiva(n.to, n.end, path)) continue;
     if (!melhor || n.to.length > melhor.to.length) melhor = n;
   }
+  if (!melhor && path.startsWith('/erp/caixa/')) return 'Caixa';
   return melhor?.label ?? EXTRAS[path] ?? null;
 }
 

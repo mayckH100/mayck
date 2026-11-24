@@ -8,8 +8,6 @@ import { brl } from '../format';
 import { badgeStatus } from './Pedidos';
 import { CampoLeitura } from '../leitura/Leitor';
 import { imprimirDocumento } from './documento';
-import { Ajuda } from '../pagina';
-import { Voltar } from '../Voltar';
 
 export default function Localizar() {
   const [sp, setSp] = useSearchParams();
@@ -18,7 +16,7 @@ export default function Localizar() {
   const nav = useNavigate(); const toast = useToast();
   return (
     <>
-      <div className="page-head erp-cab"><div className="erp-titulo"><Voltar /><h1>Localizar pedido</h1><Ajuda>Leia o código do pedido/recibo/romaneio, da etiqueta do lote, do produto ou da nota (DANFE) — ou digite nº do pedido, nota, cliente, lote ou produto.</Ajuda></div></div>
+      <div className="page-head"><div><h1>Localizar pedido</h1><p className="muted">Leia o código do pedido/recibo/romaneio, da etiqueta do lote, do produto ou da nota (DANFE) — ou digite nº do pedido, nota, cliente, lote ou produto.</p></div></div>
       <div className="card" style={{ marginBottom: 12 }}>
         <CampoLeitura continuo={false} placeholder="Ex.: PV-15, 15, chave da NF-e, Padaria, L2611-0001, 789…" rotuloOk="Procurar" dicaCamera="Aponte para o QR/código do pedido, da etiqueta ou do DANFE."
           onCodigo={(c) => { setSp({ q: c.trim() }); }} />

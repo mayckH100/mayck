@@ -1,12 +1,9 @@
 /**
- * Peças de tela do MCK ERP (v1.37.0): cabeçalho padrão (título + "?" de ajuda + um botão principal + menu "⋯"),
+ * Peças de tela do MCK ERP (v1.37.0; desde a v1.50.0 usadas só pela aba Resumo): cabeçalho padrão (título + "?" de ajuda + um botão principal + menu "⋯"),
  * indicadores, pendências e lista de subcategorias. Objetivo do dono: menos texto, mais organização.
  */
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { Link, NavLink } from 'react-router-dom';
-import { useAuth } from '../auth';
-import { podeItem, type Area } from './ErpNav';
-import { Voltar } from './Voltar';
+import { Link } from 'react-router-dom';
 
 /** Botão "?" com a explicação da tela (some o texto longo do cabeçalho). Abre ao tocar; fecha ao tocar fora ou Esc. */
 export function Ajuda({ children, rotulo = 'Ajuda' }: { children: ReactNode; rotulo?: string }) {
@@ -68,7 +65,7 @@ export function Cabecalho({ titulo, ajuda, acao, mais, children }: { titulo: Rea
     : (acao as ReactNode);
   return (
     <div className="page-head erp-cab">
-      <div className="erp-titulo"><Voltar /><h1>{titulo}</h1>{ajuda && <Ajuda>{ajuda}</Ajuda>}</div>
+      <div className="erp-titulo"><h1>{titulo}</h1>{ajuda && <Ajuda>{ajuda}</Ajuda>}</div>
       {(children || botao || mais?.length) && (
         <div className="erp-cab-acoes">
           {children}
@@ -108,17 +105,5 @@ export function Pendencias({ itens, carregando, titulo = 'Precisa de atenção' 
             </Link></li>
           ))}</ul>}
     </section>
-  );
-}
-
-/** Subcategorias da área em lista (tela-resumo no celular; em Configurações aparece sempre). */
-export function ListaSubcategorias({ area, sempre = false }: { area: Area; sempre?: boolean }) {
-  const { hasModule, can } = useAuth();
-  const subs = area.subs.map((s) => ({ ...s, area: s.area ?? area.area })).filter((s) => podeItem(s, hasModule, can));
-  if (!subs.length) return null;
-  return (
-    <nav className={`card erp-sublista${sempre ? '' : ' so-celular'}`} aria-label={`Seções de ${area.label}`} data-testid="erp-sublista">
-      {subs.map((s) => <NavLink key={s.to} to={s.to}><span>{s.label}</span><span aria-hidden>›</span></NavLink>)}
-    </nav>
   );
 }

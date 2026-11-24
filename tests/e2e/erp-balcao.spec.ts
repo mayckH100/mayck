@@ -6,10 +6,8 @@ test.afterAll(async () => { await db.$disconnect(); });
 // Relato do dono (04/11): "no ERP não está aparecendo venda no balcão" — a venda balcão não tinha item no menu.
 test('menu do MCK ERP tem "Venda balcão (PDV)" e abre a tela de venda', async ({ page, request }) => {
   await signup(page, request);
-  // v1.37.0: menu do ERP em áreas; Venda balcão é a 1ª subcategoria de Vendas.
   const item = page.locator('.sidebar').getByRole('link', { name: 'Venda balcão (PDV)' });
   if (!(await item.isVisible())) await page.locator('.sidebar').getByText('MCK ERP', { exact: true }).first().click();
-  if (!(await item.isVisible())) await page.locator('.sidebar').getByRole('link', { name: /Vendas$/ }).click();
   await expect(item).toBeVisible();
   await item.click();
   await expect(page).toHaveURL(/\/erp\/balcao$/);

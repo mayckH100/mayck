@@ -2,8 +2,6 @@
 import { useState } from 'react';
 import { useApi, Async } from '../../ui';
 import { brl, qtd } from '../format';
-import { Ajuda } from '../pagina';
-import { Voltar } from '../Voltar';
 
 const pct = (bp: number) => `${(bp / 100).toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%`;
 const iso = (d: Date) => new Date(d.getTime() - 3 * 3_600_000).toISOString().slice(0, 10);
@@ -18,7 +16,7 @@ export default function Bi() {
   const baixar = async (tipo: string) => { const r = await fetch(`/api/erp/bi/exportar?tipo=${tipo}&de=${p.de}&ate=${p.ate}`, { credentials: 'same-origin' }); const a = document.createElement('a'); a.href = URL.createObjectURL(await r.blob()); a.download = `bi-${tipo}-${p.de}-${p.ate}.csv`; a.click(); };
   return (
     <div className="page">
-      <div className="page-head erp-cab"><div className="erp-titulo"><Voltar /><h1>Indicadores (BI)</h1><Ajuda>Vendas pela data do faturamento. Margem pelo custo médio da baixa de estoque.</Ajuda></div>
+      <div className="page-head"><div><h1>BI</h1><p className="muted">Vendas pela data do faturamento. Margem pelo custo médio da baixa de estoque.</p></div>
         <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
           <input type="date" value={p.de} onChange={(e) => setP({ ...p, de: e.target.value })} aria-label="De" />
           <input type="date" value={p.ate} onChange={(e) => setP({ ...p, ate: e.target.value })} aria-label="Até" />

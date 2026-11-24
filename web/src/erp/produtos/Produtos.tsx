@@ -4,13 +4,10 @@ import { post, put, del } from '../../api';
 import { useAuth } from '../../auth';
 import { useApi, Async, Empty, Modal, Field, useAction } from '../../ui';
 import ImportarExportar from '../ImportarExportar';
-import { MenuMais } from '../pagina';
 import { brl, qtd, toCents, fromCents, toMil } from '../format';
 import { UNIDADES_CADASTRO, unidadeValida, unidadeLegivel, qtdUn, nomeUnidade, numeroQtd } from '../../../../server/erp/shared/unidade';
 import { descricaoEmbalagem } from '../../../../server/erp/shared/embalagem';
 import { LotesProduto } from '../estoque/lotes';
-import { Ajuda } from '../pagina';
-import { Voltar } from '../Voltar';
 
 export default function Produtos() {
   const [q, setQ] = useState(''); const [query, setQuery] = useState('');
@@ -23,28 +20,29 @@ export default function Produtos() {
   const admin = can('OWNER', 'ADMIN');
   return (
     <>
-      <div className="page-head erp-cab">
-        <div className="erp-titulo"><Voltar /><h1>Produtos</h1><Ajuda>Cadastro com dados fiscais, controle de lote e validade, e alertas de estoque mínimo.</Ajuda></div>
-        <div className="erp-cab-acoes">
-          <form className="busca-cab" onSubmit={(e) => { e.preventDefault(); setQuery(q); }}><input type="search" placeholder="Nome, código ou código de barras" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Pesquisar" /></form>
+      <div className="page-head">
+        <div><h1>Produtos</h1><p className="muted">Cadastro com dados fiscais, controle de lote e validade, e alertas de estoque mínimo.</p></div>
+        <div className="row">
+          <form onSubmit={(e) => { e.preventDefault(); setQuery(q); }}><input placeholder="Nome, código ou código de barras" value={q} onChange={(e) => setQ(e.target.value)} style={{ width: 230 }} aria-label="Pesquisar" /></form>
+          {can('OWNER', 'ADMIN') && <button className="btn" onClick={() => setRegras(true)}>Regras comerciais</button>}
+          <ImportarExportar entidade="produtos" podeImportar={can('OWNER', 'ADMIN')} onImportado={state.reload} />
           <button className="btn primary" onClick={() => setEdit({})}>+ Produto</button>
-          <ImportarExportar entidade="produtos" podeImportar={can('OWNER', 'ADMIN')} onImportado={state.reload} extras={[{ label: 'Regras comerciais', onClick: () => setRegras(true), oculto: !can('OWNER', 'ADMIN') }]} />
         </div>
       </div>
       <Async state={state}>{(d) => d.items.length === 0 ? <div className="card"><Empty title="Nenhum produto ainda">Cadastre o primeiro produto para começar a vender e controlar estoque.</Empty></div> : (
         <div className="card table-wrap"><table>
-          <thead><tr><th className="col-sec">Código</th><th>Produto</th><th className="col-sec">Preço</th><th>Disponível</th><th className="col-sec">Reservado</th><th className="col-sec">Custo total</th><th></th></tr></thead>
+          <thead><tr><th>Código</th><th>Produto</th><th>Preço</th><th>Disponível</th><th>Reservado</th><th>Custo total</th><th></th></tr></thead>
           <tbody>{d.items.map((p: any) => (
             <tr key={p.id} style={{ opacity: p.ativo ? 1 : 0.5 }}>
-              <td className="col-sec"><code>{p.sku}</code></td>
+              <td><code>{p.sku}</code></td>
               <td><strong>{p.nome}</strong>{!p.ativo && <span className="badge" style={{ marginLeft: 6 }}>arquivado</span>}<div className="small muted">{unidadeLegivel(p.unidade)}{descricaoEmbalagem(p) ? ` · compra: ${descricaoEmbalagem(p)}` : ''}{p.ncm ? ` · NCM ${p.ncm}` : ''}{p.controlaValidade ? ' · ⏳ perecível (sai o que vence primeiro)' : ''}</div>{p.tipo !== 'SERVICO' && <button type="button" className="btn sm ghost" style={{ padding: '2px 6px', marginTop: 2 }} onClick={() => setLotes(p)} aria-label={`Ver lotes de ${p.nome}`}>📦 {p.lotes?.total ?? 0} lote{(p.lotes?.total ?? 0) === 1 ? '' : 's'}{p.lotes?.total ? ` · ${p.lotes.comSaldo} com saldo` : ''}</button>}</td>
-              <td className="col-sec">{brl(p.precoBaseCents)}</td>
+              <td>{brl(p.precoBaseCents)}</td>
               <td>{p.tipo === 'SERVICO' ? '—' : <>{qtd(p.saldo.disponivelMil)} {p.abaixoMinimo && <span className="badge red">abaixo do mínimo</span>}{!p.abaixoMinimo && p.noPontoPedido && <span className="badge">repor</span>}</>}</td>
-              <td className="col-sec">{p.tipo === 'SERVICO' ? '—' : qtd(p.saldo.reservadoMil)}</td>
-              <td className="col-sec">{brl(custoTotal(p))}{custoTotal(p) !== p.custoMedioCents ? <div className="small muted">produto {brl(p.custoMedioCents)}</div> : null}</td>
-              <td className="acoes-linha"><span className="row" style={{ gap: 4, flexWrap: 'nowrap', justifyContent: 'flex-end' }}>
-                <button className="btn sm" onClick={() => setEdit(p)} aria-label={`Editar ${p.nome}`}>Editar</button>
-                {admin && <MenuMais rotulo={`Mais ações de ${p.nome}`} acoes={[{ label: `Excluir ${p.nome}`, onClick: () => setExcluir(p) }]} />}</span>
+              <td>{p.tipo === 'SERVICO' ? '—' : qtd(p.saldo.reservadoMil)}</td>
+              <td>{brl(custoTotal(p))}{custoTotal(p) !== p.custoMedioCents ? <div className="small muted">produto {brl(p.custoMedioCents)}</div> : null}</td>
+              <td className="row" style={{ gap: 4, flexWrap: 'nowrap' }}>
+                <button className="btn sm" onClick={() => setEdit(p)} aria-label={`Editar ${p.nome}`}>✏️ Editar</button>
+                {admin && <button className="btn sm ghost" style={{ color: '#dc2626' }} onClick={() => setExcluir(p)} aria-label={`Excluir ${p.nome}`}>🗑️ Excluir</button>}
               </td>
             </tr>
           ))}</tbody>

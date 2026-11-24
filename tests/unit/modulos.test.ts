@@ -20,18 +20,15 @@ describe('Topo mostra o módulo em uso', () => {
   });
 
   it('seção atual pelo item mais específico', () => {
-    // v1.37.0: no ERP o topo mostra "Área › Subcategoria" (na tela-resumo, só a área).
-    expect(secaoDaRota('/erp/balcao')).toBe('Vendas › Venda balcão (PDV)');
-    expect(secaoDaRota('/erp')).toBe('Início');
-    expect(secaoDaRota('/erp/crm')).toBe('Vendas › Painel CRM');
-    expect(secaoDaRota('/erp/pedidos/123')).toBe('Vendas › Pedidos');
-    expect(secaoDaRota('/erp/produtos')).toBe('Estoque › Produtos');
-    expect(secaoDaRota('/erp/compras')).toBe('Compras');
+    expect(secaoDaRota('/erp/balcao')).toBe('Venda balcão (PDV)');
+    expect(secaoDaRota('/erp')).toBe('Painel CRM');
+    expect(secaoDaRota('/erp/pedidos/123')).toBe('Pedidos');
+    expect(secaoDaRota('/erp/produtos')).toBe('Produtos');
     expect(secaoDaRota('/inbox/xyz')).toBe('Inbox');
     expect(secaoDaRota('/')).toBe('Visão geral');
     expect(secaoDaRota('/fluxos/1')).toBe('Fluxos');
     expect(secaoDaRota('/versoes')).toBe('Versões');
-    expect(secaoDaRota('/erp/caixa/abc')).toBe('Vendas › Caixa');
+    expect(secaoDaRota('/erp/caixa/abc')).toBe('Caixa');
   });
 
   it('"+ Criar fluxo" só nas telas de fluxos e só para quem pode', () => {
@@ -63,7 +60,6 @@ describe('Abas do MCK ERP', () => {
     expect(abaAtiva('/erp')).toBe('/erp');
     expect(abaAtiva('/erp/pedidos/9')).toBe('/erp/pedidos');
     expect(abaAtiva('/erp/fornecedores/1')).toBe('/erp/fornecedores');
-    expect(abaAtiva('/erp/funcionarios')).toBe('/erp/funcionarios'); // v1.37.0: Configurações › Funcionários
-    expect(abaAtiva('/inbox')).toBeNull();
+    expect(abaAtiva('/erp/funcionarios')).toBeNull();
   });
 });

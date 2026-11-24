@@ -10,7 +10,7 @@ import { orgOf } from '../../auth/session.js';
 import { auditar } from '../shared/auditoria.js';
 import { emitir, despacharEmBreve } from '../shared/events.js';
 import { vincular } from '../shared/trace.js';
-import { lerNfe, NfeXmlErro, repartirLotes, type LoteXml } from './nfe-xml.js';
+import { lerNfe, limparNfe, NfeXmlErro, repartirLotes, type LoteXml } from './nfe-xml.js';
 import { entrada } from './servico.js';
 import { etiquetasSugeridas } from './codigoLote.js';
 import { proximoSku } from '../produtos/codigo.js';
@@ -49,7 +49,10 @@ nfeRouter.get('/:id', ah(async (req, res) => {
 
 nfeRouter.post('/importar', ah(async (req, res) => {
   const orgId = orgOf(req);
-  const { xml } = z.object({ xml: z.string().min(100).max(900_000) }).parse(req.body);
+  const corpo = z.object({ xml: z.string().max(950_000) }).safeParse(req.body);
+  if (!corpo.success) throw badRequest('Envie o conteúdo do arquivo XML da NF-e');
+  const xml = limparNfe(corpo.data.xml);
+  if (xml.length < 100) throw badRequest('Arquivo vazio ou incompleto: envie o arquivo .xml da NF-e');
   let nfe;
   try { nfe = lerNfe(xml); } catch (e) { if (e instanceof NfeXmlErro) throw badRequest(e.message); throw e; }
   const dup = await prisma.erpNfeEntrada.findUnique({ where: { orgId_chave: { orgId, chave: nfe.chave } } });
@@ -75,7 +78,10 @@ nfeRouter.post('/importar', ah(async (req, res) => {
     });
   });
   await auditar(req, 'nfe_entrada.importar', 'erp_nfe_entrada', criada.id, null, { chave: nfe.chave, numero: nfe.numero });
-  res.status(201).json({ id: criada.id, autorizada: nfe.autorizada, avisos: nfe.autorizada ? [] : ['XML sem protocolo de autorização (protNFe 100). Confira a nota na SEFAZ antes de lançar.'] });
+  const avisos: string[] = [];
+  if (!nfe.autorizada) avisos.push('XML sem protocolo de autorização (protNFe 100). Confira a nota na SEFAZ antes de lançar.');
+  if (nfe.modelo === '65') avisos.push('Este XML é uma NFC-e (cupom fiscal de loja): a entrada no estoque funciona normalmente, mas ela não dá crédito de impostos.');
+  res.status(201).json({ id: criada.id, numero: nfe.numero, emitente: nfe.emitente.nome, modelo: nfe.modelo, itens: nfe.itens.length, autorizada: nfe.autorizada, avisos });
 }));
 
 /** Vincula o item a um produto interno (e lembra para as próximas notas desse fornecedor). Pode criar o produto pelo item. */
@@ -162,7 +168,8 @@ nfeRouter.post('/:id/lancar', ah(async (req, res) => {
   const b = z.object({
     enderecoId: z.string(), quarentena: z.boolean().default(false), usarLoteFornecedor: z.boolean().default(false),
     aceitarDivergencias: z.boolean().default(false),
-    lotesManuais: z.record(z.string(), z.array(z.object({ numero: z.string().trim().max(40), qtdMil: z.number().int().min(1), validade: z.string().nullish(), fabricacao: z.string().nullish() }))).default({}),
+    // v1.50.0: qtdMil opcional (no recebimento cego a tela não sabe a quantidade): vazio = quantidade do item na nota.
+    lotesManuais: z.record(z.string(), z.array(z.object({ numero: z.string().trim().max(40), qtdMil: z.number().int().min(1).nullish(), validade: z.string().nullish(), fabricacao: z.string().nullish() }))).default({}),
   }).parse(req.body);
   const n = await prisma.erpNfeEntrada.findFirst({ where: { id: req.params.id, orgId }, include: { itens: true } });
   if (!n) throw notFound('NF-e');
@@ -191,7 +198,7 @@ nfeRouter.post('/:id/lancar', ah(async (req, res) => {
       const qtdTotal = Math.round((item.qtdMil * item.fatorMil) / 1000);
       const custoUnit = qtdTotal > 0 ? Math.round((item.custoTotalCents * 1000) / qtdTotal) : 0;
       const rastro = js<LoteXml[]>(item.lotes, []).map((l) => ({ ...l, qtdMil: Math.round((l.qtdMil * item.fatorMil) / 1000) }));
-      const manuais = (b.lotesManuais[item.id] ?? []).map((l) => ({ numero: l.numero.toUpperCase(), qtdMil: l.qtdMil, validade: l.validade ?? null, fabricacao: l.fabricacao ?? null }));
+      const manuais = (b.lotesManuais[item.id] ?? []).map((l) => ({ numero: l.numero.toUpperCase(), qtdMil: l.qtdMil ?? qtdTotal, validade: l.validade || null, fabricacao: l.fabricacao || null }));
       // v1.31.0: todo produto ganha lote interno automático; o lote do fabricante (rastro/nLote do XML ou digitado) vai junto.
       const partes = repartirLotes(qtdTotal, rastro.length ? rastro : manuais);
       const idsItem: string[] = [];

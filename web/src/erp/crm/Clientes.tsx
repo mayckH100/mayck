@@ -6,8 +6,6 @@ import { useApi, Async, Empty, Modal, Field, useAction } from '../../ui';
 import ImportarExportar from '../ImportarExportar';
 import { useAuth } from '../../auth';
 import { fmtDoc, toCents, fromCents } from '../format';
-import { Ajuda } from '../pagina';
-import { Voltar } from '../Voltar';
 
 export default function Clientes({ papel = 'cliente' }: { papel?: 'cliente' | 'fornecedor' }) {
   const [q, setQ] = useState('');
@@ -20,12 +18,12 @@ export default function Clientes({ papel = 'cliente' }: { papel?: 'cliente' | 'f
   const nav = useNavigate();
   return (
     <>
-      <div className="page-head erp-cab">
-        <div className="erp-titulo"><Voltar /><h1>{forn ? 'Fornecedores' : 'Clientes'}</h1><Ajuda>Digite o CNPJ e o resto vem da Receita.</Ajuda></div>
-        <div className="erp-cab-acoes">
-          <form className="busca-cab" onSubmit={(e) => { e.preventDefault(); setQuery(q); }}><input type="search" placeholder="Nome, CPF/CNPJ ou e-mail" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Pesquisar" /></form>
-          <button className="btn primary" onClick={() => setNovo(true)}>{forn ? '+ Novo fornecedor' : '+ Novo cliente'}</button>
+      <div className="page-head">
+        <div><h1>{forn ? 'Fornecedores' : 'Clientes'}</h1><p className="muted">Digite o CNPJ e o resto vem da Receita.</p></div>
+        <div className="row">
+          <form onSubmit={(e) => { e.preventDefault(); setQuery(q); }}><input placeholder="Nome, CPF/CNPJ ou e-mail" value={q} onChange={(e) => setQ(e.target.value)} style={{ width: 230 }} aria-label="Pesquisar" /></form>
           <ImportarExportar entidade={forn ? 'fornecedores' : 'clientes'} podeImportar={can('OWNER', 'ADMIN')} onImportado={state.reload} />
+          <button className="btn primary" onClick={() => setNovo(true)}>{forn ? '+ Novo fornecedor' : '+ Novo cliente'}</button>
         </div>
       </div>
       <Async state={state}>{(d) => d.items.length === 0 ? (
@@ -33,13 +31,13 @@ export default function Clientes({ papel = 'cliente' }: { papel?: 'cliente' | 'f
       ) : (
         <div className="card table-wrap">
           <table>
-            <thead><tr><th>Nome</th><th className="col-sec">CPF/CNPJ</th><th className="col-sec">Cidade</th><th className="col-sec">Situação</th><th>Status</th><th></th></tr></thead>
+            <thead><tr><th>Nome</th><th>CPF/CNPJ</th><th>Cidade</th><th>Situação</th><th>Status</th><th></th></tr></thead>
             <tbody>{d.items.map((p: any) => (
               <tr key={p.id}>
                 <td><strong>{p.fantasia || p.nome}</strong>{p.fantasia && <div className="small muted">{p.nome}</div>}</td>
-                <td className="col-sec">{fmtDoc(p.documento)}</td>
-                <td className="col-sec">{p.municipio ? `${p.municipio}/${p.uf}` : '—'}</td>
-                <td className="col-sec">{p.situacaoCadastral ?? '—'}</td>
+                <td>{fmtDoc(p.documento)}</td>
+                <td>{p.municipio ? `${p.municipio}/${p.uf}` : '—'}</td>
+                <td>{p.situacaoCadastral ?? '—'}</td>
                 <td><span className={`badge ${p.status === 'ATIVO' ? 'green' : p.status === 'BLOQUEADO' ? 'red' : ''}`}>{p.status}</span></td>
                 <td><button className="btn sm" onClick={() => nav(`/erp/${forn ? 'fornecedores' : 'clientes'}/${p.id}`)}>Abrir</button></td>
               </tr>

@@ -2,20 +2,15 @@
 import { useRef, useState } from 'react';
 import { upload } from '../api';
 import { Modal, useAction } from '../ui';
-import { MenuMais, type AcaoMais } from './pagina';
 
 const NOME: Record<string, string> = { clientes: 'clientes', fornecedores: 'fornecedores', produtos: 'produtos' };
 
-/** v1.37.0: as ações de planilha ficam no menu "⋯" do cabeçalho (junto com `extras`), não mais como botões soltos. */
-export default function ImportarExportar({ entidade, onImportado, podeImportar = true, extras = [] }: { entidade: 'clientes' | 'fornecedores' | 'produtos'; onImportado?: () => void; podeImportar?: boolean; extras?: AcaoMais[] }) {
+export default function ImportarExportar({ entidade, onImportado, podeImportar = true }: { entidade: 'clientes' | 'fornecedores' | 'produtos'; onImportado?: () => void; podeImportar?: boolean }) {
   const [aberto, setAberto] = useState(false);
   return (
     <>
-      <MenuMais acoes={[
-        ...extras,
-        { label: 'Exportar planilha', href: `/api/erp/io/${entidade}/exportar`, download: true },
-        { label: 'Importar planilha', onClick: () => setAberto(true), oculto: !podeImportar },
-      ]} />
+      <a className="btn" href={`/api/erp/io/${entidade}/exportar`} download>Exportar</a>
+      {podeImportar && <button className="btn" onClick={() => setAberto(true)}>Importar</button>}
       {aberto && <Importar entidade={entidade} onClose={() => setAberto(false)} onDone={() => { setAberto(false); onImportado?.(); }} />}
     </>
   );

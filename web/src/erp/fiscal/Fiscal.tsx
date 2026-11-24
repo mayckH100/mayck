@@ -6,24 +6,18 @@ import { useAuth } from '../../auth';
 import { useApi, Async, Empty, Modal, Field, useAction, useToast, fmtDate } from '../../ui';
 import { brl } from '../format';
 import { BuscaProduto } from '../comum';
-import { Cabecalho } from '../pagina';
 
 const ST: Record<string, string> = { ASSINADA: 'Assinada (não transmitida)', AUTORIZADA: 'Autorizada', REJEITADA: 'Rejeitada', CANCELADA: 'Cancelada' };
 const chaveFmt = (c: string) => c.replace(/(\d{4})/g, '$1 ').trim();
 
-/** Subcategorias do Fiscal com rota própria (v1.37.0). */
+/** v1.50.0: aba inicial pela rota (ex.: /erp/fiscal/…); as abas internas continuam como nas primeiras versões. */
 export type AbaFiscal = 'nfe' | 'cfg' | 'regras';
-const TELAS: Record<AbaFiscal, { titulo: string; ajuda: string }> = {
-  nfe: { titulo: 'NF-e emitidas', ajuda: 'Notas emitidas a partir dos pedidos: transmitir, refazer, cancelar, baixar XML e imprimir o DANFE. Em homologação a nota não tem valor fiscal.' },
-  cfg: { titulo: 'Emitente e certificado', ajuda: 'Dados da empresa na nota e o certificado A1 (fica cifrado e só assina as notas desta empresa). Comece em homologação.' },
-  regras: { titulo: 'Regras de tributação', ajuda: 'CFOP, CST/CSOSN e alíquotas por produto, NCM ou operação.' },
-};
-
-export default function Fiscal({ aba = 'nfe' }: { aba?: AbaFiscal }) {
-  const t = TELAS[aba];
+export default function Fiscal({ aba: inicial }: { aba?: AbaFiscal } = {}) {
+  const [aba, setAba] = useState<AbaFiscal>(inicial ?? 'nfe');
   return (
     <div className="page">
-      <Cabecalho titulo={t.titulo} ajuda={t.ajuda} />
+      <div className="page-head"><div><h1>Fiscal</h1><p className="muted">NF-e emitida com o certificado A1 da própria empresa, direto na SEFAZ. Comece em homologação.</p></div></div>
+      <div className="row" style={{ marginBottom: 10 }}>{([['nfe', 'NF-e emitidas'], ['cfg', 'Emitente e certificado'], ['regras', 'Regras de tributação']] as const).map(([a, l]) => <button key={a} className={`btn sm ${aba === a ? 'primary' : ''}`} onClick={() => setAba(a)}>{l}</button>)}</div>
       {aba === 'nfe' && <ListaNfe />}
       {aba === 'cfg' && <Config />}
       {aba === 'regras' && <Regras />}

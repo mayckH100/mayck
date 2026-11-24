@@ -1,7 +1,5 @@
 /** Estoque/WMS: saldos por lote e endereço, entradas, ajustes, transferências, quarentena, razão e etiquetas QR. */
-import { useEffect, useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Cabecalho, MenuMais } from '../pagina';
+import { useState } from 'react';
 import { get, post, patch } from '../../api';
 import { useAuth } from '../../auth';
 import { useApi, Async, Empty, Modal, Field, useAction, fmtDate, useToast } from '../../ui';
@@ -15,21 +13,10 @@ import { LoteCard, ImprimirEtiquetas, CampoLeitura } from './lotes';
 import { get as apiGet } from '../../api';
 import { brl } from '../format';
 
-/** Subcategorias de Estoque com rota própria (v1.37.0). */
+/** v1.50.0: aba inicial pela rota (ex.: /erp/estoque/…); as abas internas continuam como nas primeiras versões. */
 export type AbaEstoque = 'saldos' | 'lotes' | 'xml' | 'etiquetas' | 'inventarios' | 'movimentos' | 'depositos';
-const TELAS: Record<AbaEstoque, { titulo: string; ajuda: string }> = {
-  saldos: { titulo: 'Saldos', ajuda: 'Saldo por produto, lote e endereço. Disponível = físico − reservado − quarentena. Leia o código de barras ou a etiqueta do lote para achar o saldo e mover, dar baixa ou corrigir. Toda movimentação fica registrada.' },
-  lotes: { titulo: 'Saldo por lote', ajuda: 'Cada lote com saldo: origem, fornecedor, validade e onde está guardado.' },
-  xml: { titulo: 'Entrada por XML', ajuda: 'Envie o XML da NF-e do fornecedor: o sistema confere com a ordem de compra, cria os lotes e gera as etiquetas.' },
-  etiquetas: { titulo: 'Etiquetas', ajuda: 'Etiquetas com código de barras e QR (produto, lote, validade) em PDF, impressora comum ou Zebra.' },
-  inventarios: { titulo: 'Inventário', ajuda: 'Contagem por leitura ou digitação, relatório Físico x Sistema; o estoque só muda depois da aprovação com a senha do proprietário.' },
-  movimentos: { titulo: 'Movimentações', ajuda: 'Razão do estoque: toda entrada, saída, ajuste e transferência, com quem e por quê.' },
-  depositos: { titulo: 'Depósitos e endereços', ajuda: 'Locais de guarda (depósitos) e endereços (rua, prateleira, posição) com etiqueta QR.' },
-};
-
-export default function Estoque({ aba = 'saldos' }: { aba?: AbaEstoque }) {
-  const [sp, setSp] = useSearchParams();
-  const nav = useNavigate();
+export default function Estoque({ aba: inicial }: { aba?: AbaEstoque } = {}) {
+  const [aba, setAba] = useState<AbaEstoque>(inicial ?? 'saldos');
   const [filtro, setFiltro] = useState<any>(null); // v1.33.0: leitura de código filtra os saldos (produto/lote)
   const [etiquetas, setEtiquetas] = useState<any[] | null>(null);
   const toastE = useToast();
@@ -37,7 +24,7 @@ export default function Estoque({ aba = 'saldos' }: { aba?: AbaEstoque }) {
   const deps = useApi<any[]>('/erp/estoque/depositos');
   const lotesSaldo = useApi<any[]>(aba === 'lotes' ? `/erp/estoque/lotes-saldo${depositoId ? `?depositoId=${depositoId}` : ''}` : null, [aba, depositoId]);
 
-  const saldos = useApi<any[]>(aba === 'saldos' ? `/erp/estoque/saldos${depositoId ? `?depositoId=${depositoId}` : ''}` : null, [aba, depositoId]);
+  const saldos = useApi<any[]>(`/erp/estoque/saldos${depositoId ? `?depositoId=${depositoId}` : ''}`, [depositoId]);
   const movs = useApi<any[]>(aba === 'movimentos' ? '/erp/estoque/movimentos' : null, [aba]);
   const [modal, setModal] = useState<any>(null);
   const [etiqueta, setEtiqueta] = useState<any>(null);
@@ -45,61 +32,62 @@ export default function Estoque({ aba = 'saldos' }: { aba?: AbaEstoque }) {
   const { can } = useAuth();
   const recarregar = () => { saldos.reload(); deps.reload(); movs.reload(); };
   const abrirEtiqueta = async (tipo: string, id: string) => setEtiqueta(await get(`/erp/estoque/etiqueta/${tipo}/${id}`));
-  // Atalho do resumo: /erp/estoque/saldos?entrada=1 abre a entrada direto (quando há depósito).
-  useEffect(() => { if (sp.get('entrada') === '1' && deps.data?.length) { setModal({ tipo: 'entrada' }); sp.delete('entrada'); setSp(sp, { replace: true }); } }, [deps.data]); // eslint-disable-line react-hooks/exhaustive-deps
-  const t = TELAS[aba];
-  const comDeposito = aba === 'saldos' || aba === 'lotes';
   return (
     <>
-      <Cabecalho titulo={t.titulo} ajuda={t.ajuda}
-        acao={aba === 'saldos' ? { label: '+ Entrada', onClick: () => setModal({ tipo: 'entrada' }), disabled: !deps.data?.length } : aba === 'depositos' && can('OWNER', 'ADMIN') ? { label: '+ Depósito', onClick: () => setModal({ tipo: 'deposito' }) } : undefined}>
-        {comDeposito && (deps.data?.length ?? 0) > 1 && <select value={depositoId} onChange={(e) => setDepositoId(e.target.value)} aria-label="Depósito"><option value="">Todos os depósitos</option>{(deps.data ?? []).map((d) => <option key={d.id} value={d.id}>{d.nome}</option>)}</select>}
-      </Cabecalho>
-      {can('OWNER', 'ADMIN') && aba !== 'inventarios' && <AvisoInventarios onAbrir={() => nav('/erp/estoque/inventario')} />}
+      <div className="page-head">
+        <div><h1>Estoque</h1><p className="muted">Disponível = físico − reservado − quarentena. Toda movimentação fica registrada.</p></div>
+        <div className="row">
+          <select value={depositoId} onChange={(e) => setDepositoId(e.target.value)} aria-label="Depósito"><option value="">Todos os depósitos</option>{(deps.data ?? []).map((d) => <option key={d.id} value={d.id}>{d.nome}</option>)}</select>
+          <button className="btn primary" disabled={!deps.data?.length} onClick={() => setModal({ tipo: 'entrada' })}>+ Entrada</button>
+        </div>
+      </div>
+      <div className="row" style={{ marginBottom: 10, flexWrap: 'wrap' }}>
+        {(['saldos', 'lotes', 'xml', 'etiquetas', 'inventarios', 'movimentos', 'depositos'] as const).map((a) => <button key={a} className={`btn sm ${aba === a ? 'primary' : ''}`} onClick={() => setAba(a)}>{{ saldos: 'Saldos', lotes: 'Saldo por lote', xml: 'Entrada por XML', etiquetas: 'Etiquetas', inventarios: 'Inventário', movimentos: 'Movimentações', depositos: 'Depósitos e endereços' }[a]}</button>)}
+      </div>
+      <AvisoInventarios onAbrir={() => setAba('inventarios')} />
 
       {aba === 'saldos' && <div className="card" style={{ marginBottom: 10 }}>
+        <div className="small muted" style={{ marginBottom: 4 }}>Leia o código de barras ou a etiqueta do lote para achar o saldo e mover, dar baixa ou corrigir.</div>
         <CampoLeitura continuo={false} autoFocus={false} onCodigo={async (c) => { try { const r = await apiGet<any>(`/erp/estoque/ler?codigo=${encodeURIComponent(c)}`); setFiltro({ produtoId: r.produto.id, loteId: r.lote?.id ?? null, texto: `${r.produto.sku} · ${r.produto.nome}${r.lote ? ` · lote ${r.lote.numero}` : ''}` }); return true; } catch (e) { toastE((e as Error).message, 'err'); return false; } }} />
         {filtro && <div className="row small" style={{ marginTop: 6, gap: 6 }}>Mostrando: <b>{filtro.texto}</b><button className="btn sm ghost" onClick={() => setFiltro(null)}>Mostrar tudo</button></div>}
       </div>}
       {aba === 'lotes' && <Async state={lotesSaldo}>{(d) => d.length === 0 ? <div className="card"><Empty title="Nenhum lote com saldo">Os lotes aparecem aqui assim que entram no estoque.</Empty></div> : <>{d.map((l) => <LoteCard key={l.id} l={l} />)}</>}</Async>}
 
-      {aba === 'saldos' && <Async state={saldos}>{(d0) => { const d = filtro ? d0.filter((x) => x.produtoId === filtro.produtoId && (!filtro.loteId || x.loteId === filtro.loteId)) : d0; return d.length === 0 ? <div className="card"><Empty title={deps.data?.length ? 'Sem saldo em estoque' : 'Crie um depósito primeiro'}>{deps.data?.length ? 'Lance o saldo inicial pelo botão Entrada.' : 'Em Estoque › Depósitos e endereços.'}</Empty></div> : (
+      {aba === 'saldos' && <Async state={saldos}>{(d0) => { const d = filtro ? d0.filter((x) => x.produtoId === filtro.produtoId && (!filtro.loteId || x.loteId === filtro.loteId)) : d0; return d.length === 0 ? <div className="card"><Empty title={deps.data?.length ? 'Sem saldo em estoque' : 'Crie um depósito primeiro'}>{deps.data?.length ? 'Lance o saldo inicial pelo botão Entrada.' : 'Na aba Depósitos e endereços.'}</Empty></div> : (
         <div className="card table-wrap"><table>
-          <thead><tr><th>Produto</th><th>Lote</th><th className="col-sec">Validade</th><th className="col-sec">Endereço</th><th className="col-sec">Físico</th><th className="col-sec">Reservado</th><th>Disponível</th><th></th></tr></thead>
+          <thead><tr><th>Produto</th><th>Lote interno / fabricante</th><th>Validade</th><th>Endereço</th><th>Físico</th><th>Reservado</th><th>Disponível</th><th></th></tr></thead>
           <tbody>{d.map((s) => (
             <tr key={s.id}>
               <td><strong>{s.produto?.nome}</strong><div className="small muted">{s.produto?.sku}</div></td>
               <td>{s.lote?.numero === 'UNICO' ? '—' : s.lote?.numero}{s.lote?.loteFornecedor && s.lote.loteFornecedor !== s.lote.numero ? <div className="small muted">fab. {s.lote.loteFornecedor}</div> : null} {s.lote?.status !== 'LIBERADO' && <span className="badge red">{s.lote?.status}</span>}</td>
-              <td className="col-sec">{s.lote?.validade ? new Date(s.lote.validade).toLocaleDateString('pt-BR', { timeZone: 'UTC' }) : '—'}</td>
-              <td className="col-sec">{s.endereco.deposito} · {s.endereco.codigo}</td>
-              <td className="col-sec">{qtd(s.fisicoMil)}</td><td className="col-sec">{qtd(s.reservadoMil)}</td><td><strong>{qtd(s.disponivelMil)}</strong></td>
-              <td className="acoes-linha">
-                {/* v1.37.0: ações da linha no menu ⋯ (antes 5 botões por linha). */}
-                <MenuMais rotulo={`Ações de ${s.produto?.nome ?? 'saldo'}`} acoes={[
-                  { label: 'Mover de endereço', onClick: () => setModal({ tipo: 'transferencia', saldo: s }) },
-                  { label: 'Dar baixa', onClick: () => setModal({ tipo: 'ajuste', saldo: s }) },
-                  { label: 'Corrigir saldo', onClick: () => setModal({ tipo: 'corrigir', saldo: s }) },
-                  { label: s.lote?.status === 'LIBERADO' ? 'Colocar em quarentena' : 'Liberar lote', oculto: !(can('OWNER', 'ADMIN') && s.lote?.numero !== 'UNICO'), onClick: async () => { await run(() => patch(`/erp/estoque/lotes/${s.loteId}`, { status: s.lote.status === 'LIBERADO' ? 'QUARENTENA' : 'LIBERADO' }), 'Lote atualizado'); recarregar(); } },
-                  { label: 'Etiqueta do lote 🏷️', onClick: () => setEtiquetas([{ loteId: s.loteId, numero: s.lote?.numero, produto: `${s.produto?.sku} · ${s.produto?.nome}`, sugeridas: 1 }]) },
-                ]} />
+              <td>{s.lote?.validade ? new Date(s.lote.validade).toLocaleDateString('pt-BR', { timeZone: 'UTC' }) : '—'}</td>
+              <td>{s.endereco.deposito} · {s.endereco.codigo}</td>
+              <td>{qtd(s.fisicoMil)}</td><td>{qtd(s.reservadoMil)}</td><td><strong>{qtd(s.disponivelMil)}</strong></td>
+              <td className="row" style={{ gap: 4 }}>
+                <button className="btn ghost sm" onClick={() => setModal({ tipo: 'transferencia', saldo: s })}>Mover</button>
+                <button className="btn ghost sm" onClick={() => setModal({ tipo: 'ajuste', saldo: s })}>Baixa</button>
+                {can('OWNER', 'ADMIN') && s.lote?.numero !== 'UNICO' && <button className="btn ghost sm" onClick={async () => { await run(() => patch(`/erp/estoque/lotes/${s.loteId}`, { status: s.lote.status === 'LIBERADO' ? 'QUARENTENA' : 'LIBERADO' }), 'Lote atualizado'); recarregar(); }}>{s.lote?.status === 'LIBERADO' ? 'Quarentena' : 'Liberar'}</button>}
+                <button className="btn ghost sm" onClick={() => setModal({ tipo: 'corrigir', saldo: s })}>Corrigir</button>
+                <button className="btn ghost sm" title="Etiqueta do lote (código de barras e QR)" onClick={() => setEtiquetas([{ loteId: s.loteId, numero: s.lote?.numero, produto: `${s.produto?.sku} · ${s.produto?.nome}`, sugeridas: 1 }])}>🏷️</button>
               </td>
             </tr>
           ))}</tbody>
         </table></div>
       ); }}</Async>}
 
-      {aba === 'xml' && <EntradaXml depositos={deps.data ?? []} onLancada={(r?: any) => { recarregar(); if (r?.etiquetas?.length) setEtiquetas(r.etiquetas); }} />}
+      {aba === 'xml' && <EntradaXml depositos={deps.data ?? []} onDepositos={() => deps.reload()} onLancada={(r?: any) => { recarregar(); if (r?.etiquetas?.length) setEtiquetas(r.etiquetas); }} />}
       {aba === 'etiquetas' && <Etiquetas />}
       {aba === 'inventarios' && <Inventarios depositos={deps.data ?? []} onAjustado={recarregar} />}
       {aba === 'movimentos' && <Async state={movs}>{(d) => (
         <div className="card table-wrap"><table>
-          <thead><tr><th>Quando</th><th>Produto</th><th>Tipo</th><th>Qtd</th><th className="col-sec">Saldo após</th><th className="col-sec">Lote · Endereço</th><th className="col-sec">Motivo</th></tr></thead>
-          <tbody>{d.map((m) => <tr key={m.id}><td>{fmtDate(m.createdAt)}</td><td>{m.produto?.sku}</td><td>{m.tipo}</td><td style={{ color: m.qtdMil < 0 ? '#dc2626' : undefined }}>{m.qtdMil > 0 ? '+' : ''}{qtd(m.qtdMil)}</td><td className="col-sec">{qtd(m.saldoAposMil)}</td><td className="col-sec">{m.lote === 'UNICO' ? '—' : m.lote} · {m.endereco}</td><td className="small col-sec">{m.motivo ?? '—'}</td></tr>)}</tbody>
+          <thead><tr><th>Quando</th><th>Produto</th><th>Tipo</th><th>Qtd</th><th>Saldo após</th><th>Lote · Endereço</th><th>Motivo</th></tr></thead>
+          <tbody>{d.map((m) => <tr key={m.id}><td>{fmtDate(m.createdAt)}</td><td>{m.produto?.sku}</td><td>{m.tipo}</td><td style={{ color: m.qtdMil < 0 ? '#dc2626' : undefined }}>{m.qtdMil > 0 ? '+' : ''}{qtd(m.qtdMil)}</td><td>{qtd(m.saldoAposMil)}</td><td>{m.lote === 'UNICO' ? '—' : m.lote} · {m.endereco}</td><td className="small">{m.motivo ?? '—'}</td></tr>)}</tbody>
         </table></div>
       )}</Async>}
 
       {aba === 'depositos' && <Async state={deps}>{(d) => (
         <>
+          {can('OWNER', 'ADMIN') && <button className="btn" style={{ marginBottom: 10 }} onClick={() => setModal({ tipo: 'deposito' })}>+ Depósito</button>}
           {d.map((dep) => (
             <div key={dep.id} className="card" style={{ marginBottom: 10 }}>
               <div className="row between"><h3>{dep.nome}</h3>{can('OWNER', 'ADMIN') && <button className="btn sm" onClick={() => setModal({ tipo: 'enderecos', deposito: dep })}>+ Endereços</button>}</div>

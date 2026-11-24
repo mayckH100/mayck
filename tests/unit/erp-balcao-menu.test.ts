@@ -10,10 +10,8 @@ describe('ERP · venda balcão visível no menu', () => {
     expect(item).toBeTruthy();
     expect(item!.label).toMatch(/Venda balcão/);
     expect(item!.module).toBe('erp_vendas');
-    // v1.37.0 (menu em áreas): primeira subcategoria de Vendas, e Vendas logo depois do Início, para o cliente achar
-    expect(item!.pai).toBe('/erp/vendas');
-    expect(ERP_ITENS.filter((i) => i.pai === '/erp/vendas')[0].to).toBe('/erp/balcao');
-    expect(ERP_ITENS.filter((i) => !i.pai).map((i) => i.to).indexOf('/erp/vendas')).toBe(1);
+    // logo no começo do menu (depois do Painel), para o cliente achar
+    expect(ERP_ITENS.findIndex((i) => i.to === '/erp/balcao')).toBeLessThanOrEqual(1);
   });
 });
 
