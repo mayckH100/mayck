@@ -8,7 +8,7 @@ import { verificarEnvioEmMassa, saudeDoNumero } from '../whatsapp/protecao/servi
 import type { NivelSaude } from '../whatsapp/protecao/core.js';
 import { canalConectado, tipoErroEnvio } from '../whatsapp/conexao.js';
 import { versoesDaCampanha, escolherVersao, textoParaContato, textosPossiveis, saudacaoDe, diaPermitido, resultadoPorVersao, escolherVencedora } from './variacoes.js';
-import { canaisDaCampanha, escolherCanal, LEGENDA_MAX } from './campanhaCore.js';
+import { canaisDaCampanha, escolherCanal, LEGENDA_MAX, riscoLiberado } from './campanhaCore.js';
 import { midiaParaEnvio, tickRecorrencia } from './campanhaExtras.js';
 import type { OutboundPayload } from '../whatsapp/cloudClient.js';
 
@@ -70,6 +70,10 @@ async function notaCampanha(c: Campaign, texto: string) {
 // ---------------- v1.46.1: WhatsApp desconectado não queima a lista ----------------
 export const PAUSA_OFFLINE = 'Campanha aguardando: o WhatsApp desconectou. Ela continua sozinha quando reconectar.';
 export const RETOMADA_OFFLINE = 'Campanha retomada: WhatsApp reconectado';
+/** v1.51.0: número escolhido pela responsável desconectado — não envia e não troca de número. */
+export const PAUSA_OFFLINE_FIXO = 'Campanha aguardando: o número escolhido para o envio está desconectado. Nada é enviado e a campanha não troca de número; ela continua sozinha quando esse número reconectar (Canais).';
+/** v1.51.0: aviso gravado quando a campanha volta a enviar pelo número em Risco por escolha da responsável. */
+export const AVISO_RISCO_LIBERADO = 'Enviando pelo número escolhido mesmo em nível Risco (confirmado em “Enviar mesmo assim”).';
 /** Tentativas do envio original que podem falhar por conexão antes de virar FALHOU. */
 export const MAX_TENTATIVAS_CONEXAO = 3;
 
@@ -80,16 +84,16 @@ export const MAX_TENTATIVAS_CONEXAO = 3;
  */
 async function travaOffline(c: Campaign, now: Date): Promise<'channel_offline' | null> {
   const channel = await prisma.channel.findFirst({ where: { id: c.channelId, orgId: c.orgId } });
-  return aplicarOffline(c, canalConectado(channel), now);
+  return aplicarOffline(c, canalConectado(channel), now, c.envioFixo ? PAUSA_OFFLINE_FIXO : PAUSA_OFFLINE);
 }
 
 /** Grava/tira o aviso "aguardando o WhatsApp" conforme a conexão (um número ou, no rodízio, todos). */
-async function aplicarOffline(c: Campaign, conectado: boolean, now: Date): Promise<'channel_offline' | null> {
+async function aplicarOffline(c: Campaign, conectado: boolean, now: Date, motivo: string = PAUSA_OFFLINE): Promise<'channel_offline' | null> {
   if (!conectado) {
-    if (c.offlinePausa !== PAUSA_OFFLINE) {
-      await prisma.campaign.update({ where: { id: c.id }, data: { offlinePausa: PAUSA_OFFLINE, offlinePausaEm: now } });
-      await notaCampanha(c, PAUSA_OFFLINE);
-      c.offlinePausa = PAUSA_OFFLINE;
+    if (c.offlinePausa !== motivo) {
+      await prisma.campaign.update({ where: { id: c.id }, data: { offlinePausa: motivo, offlinePausaEm: now } });
+      await notaCampanha(c, motivo);
+      c.offlinePausa = motivo;
     }
     return 'channel_offline';
   }
@@ -128,6 +132,14 @@ async function aplicarRisco(c: Campaign, nivel: NivelSaude | null, now: Date): P
     c.riscoPausa = null;
   }
   return null;
+}
+
+/** v1.51.0: com o Risco liberado, tira o aviso de pausa por Risco que tenha ficado de antes. */
+async function limparPausaRisco(c: Campaign) {
+  if (!c.riscoPausa) return;
+  await prisma.campaign.update({ where: { id: c.id }, data: { riscoPausa: null, riscoPausaEm: null } });
+  await notaCampanha(c, AVISO_RISCO_LIBERADO);
+  c.riscoPausa = null;
 }
 
 /** Um passo do disparador: no máximo um envio por campanha EM_ANDAMENTO por chamada. */
@@ -173,7 +185,10 @@ async function stepCampaign(c: Campaign, now: Date): Promise<TickResult[number][
   // v1.46.1: WhatsApp do canal desconectado → espera sem tocar nos destinatários (só se ainda há fila).
   if (await prisma.campaignRecipient.count({ where: { campaignId: c.id, status: 'PENDENTE' } }) > 0 && await travaOffline(c, now)) return 'channel_offline';
   // v1.44.0: número em nível Risco na Saúde do número → pausa (volta sozinha ou espera o Retomar, conforme a campanha).
-  if (await travaRisco(c, now)) return 'number_risk';
+  // v1.51.0: número escolhido pela responsável com "Enviar mesmo assim" → usa esse número mesmo em Risco (só esta trava
+  // sai; limites por hora/dia, intervalo, aquecimento, horário e dias continuam valendo).
+  if (riscoLiberado(c)) await limparPausaRisco(c);
+  else if (await travaRisco(c, now)) return 'number_risk';
 
   // v1.48.0: teste A/B com vencedora automática (desligado por padrão).
   await talvezEscolherVencedora(c, now);

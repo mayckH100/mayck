@@ -21,6 +21,7 @@ import { erroIndicaBloqueio } from '../whatsapp/protecao/core.js';
 import { aiChat } from '../ai/core.js';
 import { mckQuotaStatus, MCK_QUOTA_REASON } from '../ai/mckQuota.js';
 import { inWindow, localClock, filtroDoCanal } from './dispatcher.js';
+import { riscoLiberado } from './campanhaCore.js';
 import {
   GRUPOS, GRUPO_ROTULO, classificarDestinatario, decidirRepescagem, melhorStatus, proximaAcaoEm, textoModelo, validarTextoIa,
   type GrupoCampanha,
@@ -282,7 +283,8 @@ async function travaDeEnvio(c: Campaign, now: Date, canal: string = c.channelId)
   if (!channel || channel.status !== 'CONNECTED' || !canalConectado(channel)) return 'channel_disconnected';
   if (channel.provider !== 'whatsapp_qr') { if (principal) await pausar(c, PAUSA_API_OFICIAL, now); return 'cloud_channel'; }
   const saude = await saudeDoNumero(channel, now).catch(() => null);
-  if (saude?.nivel === 'RISCO') { if (principal) await pausar(c, PAUSA_RISCO, now); return 'number_risk'; }
+  // v1.51.0: número escolhido com "Enviar mesmo assim" vale também para a repescagem desse número.
+  if (saude?.nivel === 'RISCO' && !(principal && riscoLiberado(c))) { if (principal) await pausar(c, PAUSA_RISCO, now); return 'number_risk'; }
   if (principal) await despausar(c);
   const { dayStart } = localClock(now);
   const doCanal = c.rodizio ? filtroDoCanal(c, canal) : {};

@@ -21,6 +21,18 @@ export type EntradaChangelog = {
 
 export const CHANGELOG: EntradaChangelog[] = [
   {
+    versao: '1.51.0',
+    data: '24/11/2026',
+    titulo: 'MCK Mensagens: escolha por qual número a campanha é enviada',
+    itens: [
+      'Novo botão "Escolher número de envio" na campanha: você escolhe por qual WhatsApp da empresa ela sai, vendo se cada número está conectado e como está a saúde dele.',
+      'Números em risco também aparecem na lista. Ao escolher um deles, o app mostra o aviso e só usa esse número depois de você clicar em "Enviar mesmo assim"; fica registrado quem confirmou e quando.',
+      'Com o número escolhido, a campanha não troca de número nem para por causa do risco, mas os limites por hora e por dia, os intervalos e o horário de envio continuam protegendo o número.',
+      'Se o número escolhido estiver desconectado, nada é enviado e a campanha mostra o motivo; ela continua sozinha quando ele reconectar.',
+      'O modo automático continua sendo o padrão e funciona como antes.',
+    ],
+  },
+  {
     versao: '1.50.1',
     data: '24/11/2026',
     titulo: 'Novo artigo no blog: CRM para WhatsApp',

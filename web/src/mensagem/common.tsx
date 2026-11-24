@@ -40,12 +40,16 @@ export interface Campaign {
   recorrencia?: '' | 'DIARIA' | 'SEMANAL' | 'MENSAL'; recorrenciaFim?: string | null; recorrenciaProxima?: string | null;
   recorrenciaOrigemId?: string | null; recorrenciaExecucao?: number; origem?: { id: string; name: string } | null; repeticoes?: number;
   rodizio?: boolean; canaisRodizio?: string[]; enviadasPorNumero?: { channelId: string; enviadas: number }[];
+  /** v1.51.0 */ envioFixo?: boolean; riscoLiberado?: boolean; riscoLiberadoCanalId?: string | null; riscoLiberadoPorNome?: string | null; riscoLiberadoEm?: string | null;
   publico?: { modo: 'vinculados' } | { modo: 'etiqueta'; tag: string } | { modo: 'erp'; erp: Record<string, number | null | undefined> };
 }
 export interface Metrics {
   totalLeads: number; byStatus: Record<LeadStatus, number>; sent: number; failed: number; optOuts: number;
   replies: number; responseRate: number; conversionRate: number;
 }
+/** v1.51.0: número para "Escolher número de envio" (com conexão e Saúde do número). */
+export interface NumeroEnvio { id: string; label: string; displayPhone?: string | null; provider: string; conectado: boolean; nivel: 'BOM' | 'ATENCAO' | 'RISCO' | null; motivos: string[] }
+
 export interface ChannelLite { id: string; name: string; label?: string; status: string; provider?: string; displayPhone?: string | null }
 
 export const LEAD_STATUS: LeadStatus[] = ['NOVO', 'CONTATADO', 'RESPONDEU', 'QUALIFICADO', 'AGUARDANDO', 'CONVERTIDO', 'DESCARTADO', 'SEM_RESPOSTA'];

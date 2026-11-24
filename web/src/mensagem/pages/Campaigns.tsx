@@ -7,9 +7,10 @@ import { AddContactsModal } from './LeadBulk';
 import { CampaignGroups, RepescagemFields, type RepescagemForm } from './CampaignGroups';
 import {
   CampaignBadge, LEAD_STATUS_LABEL, SAFE_DEFAULTS, campaignProgress, downloadCsv, fetchAllLeads, fmtPhone, slug,
-  type Campaign, type ChannelLite, type Metrics,
+  type Campaign, type ChannelLite, type Metrics, type NumeroEnvio,
 } from '../common';
 import { MAX_VARIACOES, AB_MINIMO_PADRAO, AB_LIMITES, DIAS_ROTULO, DIAS_TODOS, LETRAS, textoParaContato, saudacaoDe, variaveisDesconhecidas, normalizarDias } from '../../../../server/mckmensagem/variacoes';
+import { AVISO_RISCO_FIXO } from '../../../../server/mckmensagem/campanhaCore';
 import { LEGENDA_MAX, MIDIA_MAX_MB, RECORRENCIA_ROTULO, MAX_CANAIS_RODIZIO, descreverFiltroErp, erroFiltroErp, type FiltroErp, type Recorrencia } from '../../../../server/mckmensagem/campanhaCore';
 
 const MCKBOT_CHANNELS = '/canais';
@@ -29,7 +30,80 @@ type Form = {
   name: string; message: string; channelId: string; dailyLimit: number; minIntervalSec: number; maxIntervalSec: number; windowStart: string; windowEnd: string; riscoRetomada: 'auto' | 'manual';
   /** v1.48.0 */ variacoes: string[]; abAutoVencedora: boolean; abMinimo: number; diasSemana: string;
   /** v1.49.0 */ recorrencia: '' | Recorrencia; recorrenciaFim: string; rodizio: boolean; canaisRodizio: string[];
+  /** v1.51.0 */ envioFixo: boolean; confirmarRisco: boolean;
 } & RepescagemForm;
+
+const NIVEL_BADGE: Record<'BOM' | 'ATENCAO' | 'RISCO', { cls: string; txt: string }> = { BOM: { cls: 'green', txt: 'Saúde boa' }, ATENCAO: { cls: 'amber', txt: 'Atenção' }, RISCO: { cls: 'red', txt: 'Em risco' } };
+
+/**
+ * v1.51.0: "Escolher número de envio". Automático (padrão) = como antes (número principal + rodízio; número em Risco
+ * pausa). Escolhido = a campanha sai só por esse número; em Risco, só depois de "Enviar mesmo assim".
+ */
+/** Número escolhido em Risco ainda sem "Enviar mesmo assim" (bloqueia o Salvar). */
+function faltaConfirmarRisco(f: Form, lista: NumeroEnvio[], initial?: Campaign): boolean {
+  const sel = lista.find((n) => n.id === f.channelId);
+  const jaLiberado = !!initial?.riscoLiberado && initial.riscoLiberadoCanalId === f.channelId && !!initial.envioFixo;
+  return f.envioFixo && sel?.nivel === 'RISCO' && !jaLiberado && !f.confirmarRisco;
+}
+
+function NumeroEnvioFields({ f, setF, initial, channels, numeros }: { f: Form; setF: (fn: (x: Form) => Form) => void; initial?: Campaign; channels: ChannelLite[]; numeros: ReturnType<typeof useApi<NumeroEnvio[]>> }) {
+  const lista = numeros.data ?? [];
+  const sel = lista.find((n) => n.id === f.channelId);
+  const jaLiberado = !!initial?.riscoLiberado && initial.riscoLiberadoCanalId === f.channelId && !!initial.envioFixo;
+  const precisaConfirmar = faltaConfirmarRisco(f, lista, initial);
+  const escolher = (id: string) => setF((x) => ({ ...x, channelId: id, confirmarRisco: false }));
+  return (
+    <div className="card stack" style={{ padding: 12, background: '#fafbff' }}>
+      <div className="row between" style={{ flexWrap: 'wrap', gap: 8 }}>
+        <strong>Número de envio</strong>
+        {f.envioFixo
+          ? <button type="button" className="btn sm ghost" onClick={() => setF((x) => ({ ...x, envioFixo: false, confirmarRisco: false }))}>↺ Voltar ao automático</button>
+          : <button type="button" className="btn sm primary" onClick={() => setF((x) => ({ ...x, envioFixo: true, confirmarRisco: false }))}>📱 Escolher número de envio</button>}
+      </div>
+      {!f.envioFixo ? (
+        <>
+          <p className="small muted" style={{ margin: 0 }}><strong>Automático (padrão):</strong> envia pelo número principal abaixo (e pelo rodízio, se ligado). Número em nível Risco pausa a campanha para proteger contra bloqueio.</p>
+          <Field label="Número principal">
+            {channels.length === 0
+              ? <div className="alert warn">Nenhum número de WhatsApp cadastrado. <a href={MCKBOT_CHANNELS}>Conecte um número no MCKBOT ↗</a></div>
+              : <ChannelSelect value={f.channelId} onChange={(v) => setF((x) => ({ ...x, channelId: v }))} channels={channels} />}
+          </Field>
+        </>
+      ) : (
+        <>
+          <p className="small muted" style={{ margin: 0 }}>A campanha sai <strong>só pelo número que você escolher</strong> (sem rodízio), inclusive se ele estiver em risco. Limites por hora/dia, intervalos, aquecimento e horário continuam valendo.</p>
+          <Async state={numeros}>{() => lista.length === 0
+            ? <div className="alert warn">Nenhum número de WhatsApp cadastrado. <a href={MCKBOT_CHANNELS}>Conecte um número no MCKBOT ↗</a></div>
+            : (
+              <div className="stack" style={{ gap: 6 }} role="radiogroup" aria-label="Escolher número de envio">
+                {lista.map((n) => (
+                  <label key={n.id} className="row small" style={{ gap: 8, padding: '6px 8px', borderRadius: 6, border: `1px solid ${n.id === f.channelId ? '#2f6fde' : '#e3e7ef'}`, cursor: 'pointer', flexWrap: 'wrap' }}>
+                    <input type="radio" name="numero-envio" checked={n.id === f.channelId} onChange={() => escolher(n.id)} />
+                    <strong>{n.label}</strong>{n.displayPhone ? <span className="muted">{n.displayPhone}</span> : null}
+                    {n.conectado ? <span className="badge green">conectado</span> : <span className="badge red">desconectado</span>}
+                    {n.nivel ? <span className={`badge ${NIVEL_BADGE[n.nivel].cls}`}>{n.nivel === 'RISCO' ? '⚠ ' : ''}{NIVEL_BADGE[n.nivel].txt}</span> : n.provider !== 'whatsapp_qr' ? <span className="badge">API oficial</span> : null}
+                  </label>
+                ))}
+              </div>
+            )}</Async>
+          {sel && !sel.conectado && <div className="alert warn small">⏸ Este número está desconectado: nada será enviado por ele (e a campanha não troca de número) até reconectá-lo em <a href={MCKBOT_CHANNELS}>Canais ↗</a>.</div>}
+          {f.envioFixo && sel?.nivel === 'RISCO' && (
+            <div className="alert warn small stack" style={{ gap: 6 }}>
+              <div>⚠ <strong>Número em risco.</strong> {AVISO_RISCO_FIXO}</div>
+              {!!sel.motivos.length && <div className="muted">Motivos: {sel.motivos.join(' · ')}</div>}
+              {jaLiberado && !f.confirmarRisco
+                ? <div>✓ Confirmado{initial?.riscoLiberadoPorNome ? ` por ${initial.riscoLiberadoPorNome}` : ''}{initial?.riscoLiberadoEm ? ` em ${fmtBrt(initial.riscoLiberadoEm)}` : ''}.</div>
+                : f.confirmarRisco
+                  ? <div className="row" style={{ gap: 8 }}>✓ Você confirmou: enviar mesmo assim. <button type="button" className="btn sm ghost" onClick={() => setF((x) => ({ ...x, confirmarRisco: false }))}>Desfazer</button></div>
+                  : <div><button type="button" className="btn sm danger" onClick={() => setF((x) => ({ ...x, confirmarRisco: true }))}>Enviar mesmo assim</button> <span className="muted">fica registrado quem confirmou e quando.</span></div>}
+            </div>
+          )}
+          {precisaConfirmar && <div className="small" style={{ color: '#d64545' }}>Para salvar com este número, clique em “Enviar mesmo assim” ou escolha outro número.</div>}
+        </>
+      )}
+    </div>
+  );
+}
 
 /** v1.49.0: arquivo de cada versão no formulário (o já anexado, um novo escolhido, ou nenhum). */
 type MidiaSlot = { id: string; nome: string; mime: string } | { file: File } | null;
@@ -91,6 +165,7 @@ function RepeticaoRodizioFields({ f, set, initial, channels }: { f: Form; set: <
           </div>
           {f.recorrencia && <p className="small muted" style={{ margin: 0 }}>Começa a contar quando você inicia a campanha, na mesma hora. Se a repetição anterior ainda estiver enviando, aquela vez é pulada. Pausar a campanha também pausa as repetições.</p>}
         </>}
+      {f.envioFixo ? <p className="small muted" style={{ margin: 0 }}>Rodízio entre números: desligado enquanto houver número de envio escolhido.</p> : <>
       <label className="row small" style={{ gap: 8 }}>
         <input type="checkbox" checked={f.rodizio} disabled={!outros.length} onChange={(e) => set('rodizio', e.target.checked)} />
         <strong>Rodízio entre números</strong> <span className="muted">{outros.length ? 'divide os envios entre vários WhatsApp da empresa' : '(precisa de mais de um número conectado em Canais)'}</span>
@@ -110,6 +185,7 @@ function RepeticaoRodizioFields({ f, set, initial, channels }: { f: Form; set: <
           <p className="small muted" style={{ margin: 0 }}>Cada número respeita o próprio limite por dia (o desta campanha), os intervalos e a Saúde do número; número desconectado ou em Risco fica de fora. O mesmo contato recebe sempre pelo mesmo número.</p>
         </div>
       )}
+      </>}
     </div>
   );
 }
@@ -172,6 +248,7 @@ function VersoesFields({ f, set, midias, setMidia, onRemove }: { f: Form; set: <
 
 function CampaignForm({ initial, onClose, onSaved }: { initial?: Campaign; onClose: () => void; onSaved: (c: Campaign) => void }) {
   const channels = useApi<ChannelLite[]>('/channels');
+  const numeros = useApi<NumeroEnvio[]>('/mckmensagem/numeros-envio');
   const connected = (channels.data ?? []).filter((c) => c.status === 'CONNECTED');
   const [f, setF] = useState<Form>(() => initial
     ? {
@@ -179,8 +256,9 @@ function CampaignForm({ initial, onClose, onSaved }: { initial?: Campaign; onClo
       repescagemAtiva: !!initial.repescagemAtiva, repescagemDias: initial.repescagemDias ?? 2, repescagemMax: initial.repescagemMax ?? 2, repescagemModelo: initial.repescagemModelo ?? '', riscoRetomada: initial.riscoRetomada ?? 'auto',
       variacoes: initial.variacoes ?? [], abAutoVencedora: !!initial.abAutoVencedora, abMinimo: initial.abMinimo ?? AB_MINIMO_PADRAO, diasSemana: normalizarDias(initial.diasSemana),
       recorrencia: initial.recorrencia ?? '', recorrenciaFim: initial.recorrenciaFim ? initial.recorrenciaFim.slice(0, 10) : '', rodizio: !!initial.rodizio, canaisRodizio: initial.canaisRodizio ?? [],
+      envioFixo: !!initial.envioFixo, confirmarRisco: false,
     }
-    : { name: '', message: 'Olá {nome}! ', channelId: '', ...SAFE_DEFAULTS, repescagemAtiva: true, repescagemDias: 2, repescagemMax: 2, repescagemModelo: '', riscoRetomada: 'auto', variacoes: [], abAutoVencedora: false, abMinimo: AB_MINIMO_PADRAO, diasSemana: DIAS_TODOS, recorrencia: '', recorrenciaFim: '', rodizio: false, canaisRodizio: [] });
+    : { name: '', message: 'Olá {nome}! ', channelId: '', ...SAFE_DEFAULTS, repescagemAtiva: true, repescagemDias: 2, repescagemMax: 2, repescagemModelo: '', riscoRetomada: 'auto', variacoes: [], abAutoVencedora: false, abMinimo: AB_MINIMO_PADRAO, diasSemana: DIAS_TODOS, recorrencia: '', recorrenciaFim: '', rodizio: false, canaisRodizio: [], envioFixo: false, confirmarRisco: false });
   // v1.49.0: arquivo por versão (posição 0 = versão A).
   const [midias, setMidias] = useState<MidiaSlot[]>(() => (initial?.midias ?? []).map((m) => (m ? { id: m.id, nome: m.nome, mime: m.mime } : null)));
   const setMidia = (i: number, m: MidiaSlot) => setMidias((xs) => { const out = [...xs]; while (out.length <= i) out.push(null); out[i] = m; return out; });
@@ -228,12 +306,8 @@ function CampaignForm({ initial, onClose, onSaved }: { initial?: Campaign; onClo
     <Modal title={initial ? 'Editar campanha' : 'Nova campanha'} onClose={onClose}>
       <form className="stack" onSubmit={submit}>
         <Field label="Nome da campanha"><input required maxLength={120} value={f.name} onChange={(e) => set('name', e.target.value)} placeholder="Ex.: Black Friday clientes VIP" /></Field>
-        <Field label="Número de WhatsApp (canal)">
-          {channels.data && channels.data.length === 0
-            ? <div className="alert warn">Nenhum número de WhatsApp cadastrado. <a href={MCKBOT_CHANNELS}>Conecte um número no MCKBOT ↗</a></div>
-            : <ChannelSelect value={f.channelId} onChange={(v) => set('channelId', v)} channels={channels.data ?? []} />}
-        </Field>
-        {sel && sel.status !== 'CONNECTED' && <div className="alert warn">Este número está desconectado: nada será enviado até reconectá-lo em <a href={MCKBOT_CHANNELS}>Canais do MCKBOT ↗</a>.</div>}
+        <NumeroEnvioFields f={f} setF={setF} initial={initial} channels={channels.data ?? []} numeros={numeros} />
+        {!f.envioFixo && sel && sel.status !== 'CONNECTED' && <div className="alert warn">Este número está desconectado: nada será enviado até reconectá-lo em <a href={MCKBOT_CHANNELS}>Canais do MCKBOT ↗</a>.</div>}
         <Field label={f.variacoes.length ? 'Mensagem (versão A)' : 'Mensagem'} hint="Use {nome} (primeiro nome), {nome_completo}, {saudacao} (Bom dia/Boa tarde/Boa noite) e {Olá|Oi|E aí} para variar palavras. Inclua como sair, ex.: “Responda SAIR para não receber mais”.">
           <textarea required rows={5} maxLength={4000} value={f.message} onChange={(e) => set('message', e.target.value)} />
         </Field>
@@ -283,7 +357,7 @@ function CampaignForm({ initial, onClose, onSaved }: { initial?: Campaign; onClo
         </div>
         <div className="row" style={{ justifyContent: 'flex-end' }}>
           <button type="button" className="btn" onClick={onClose}>Cancelar</button>
-          <button className="btn primary" disabled={busy || intervalErr || !f.channelId || legendaLonga}>{busy ? 'Salvando…' : initial ? 'Salvar alterações' : 'Criar campanha'}</button>
+          <button className="btn primary" disabled={busy || intervalErr || !f.channelId || legendaLonga || faltaConfirmarRisco(f, numeros.data ?? [], initial)}>{busy ? 'Salvando…' : initial ? 'Salvar alterações' : 'Criar campanha'}</button>
         </div>
       </form>
     </Modal>
@@ -523,8 +597,9 @@ function CampaignDetail({ id, list, reload }: { id: string; list: Campaign[]; re
         </div>
       </div>
       <div className="stack">
-        {c.riscoPausa && <div className="alert warn">⚠ {c.riscoPausa} <a href="/canais">Ver Saúde do número ↗</a></div>}
+        {c.riscoPausa && <div className="alert warn">⚠ {c.riscoPausa} <a href="/canais">Ver Saúde do número ↗</a>{' '}<span className="small">Para enviar por ele mesmo assim: Editar › Número de envio › Escolher número de envio.</span></div>}
         {c.offlinePausa && <div className="alert warn">⏸ {c.offlinePausa} <a href="/canais">Conectar o WhatsApp ↗</a></div>}
+        {c.envioFixo && <div className={`alert ${c.riscoLiberado ? 'warn' : 'info'} small`}>📱 Número de envio escolhido: {ch ? ch.label ?? ch.name : '—'} (sem rodízio).{c.riscoLiberado && <> Envio liberado mesmo em risco{c.riscoLiberadoPorNome ? ` por ${c.riscoLiberadoPorNome}` : ''}{c.riscoLiberadoEm ? ` em ${fmtBrt(c.riscoLiberadoEm)}` : ''}.</>}</div>}
         {c.status === 'AGENDADA' && c.iniciarEm && <div className="alert info">🗓 Começa sozinha em {fmtBrt(c.iniciarEm)} (horário de Brasília). Para cancelar, clique em Pausar.</div>}
         {c.midiaFaltando && <div className="alert warn">⚠ A imagem/PDF desta campanha foi excluída. Anexe de novo em Editar e clique em Retomar.</div>}
         {c.origem && <div className="alert info small">🔁 Repetição nº {c.recorrenciaExecucao} de <NavLink to={`/campanhas/${c.origem.id}`}>{c.origem.name}</NavLink>.</div>}
@@ -615,8 +690,8 @@ export default function MmCampaigns() {
               {c.offlinePausa && <div className="small" style={{ color: '#b7791f' }} title={c.offlinePausa}>⏸ Aguardando: o WhatsApp desconectou — continua sozinha quando reconectar</div>}
               {c.status === 'AGENDADA' && c.iniciarEm && <div className="small" style={{ color: '#2f6fde' }}>🗓 Começa em {fmtBrt(c.iniciarEm)}</div>}
               {!!c.variacoes?.length && <div className="small muted">🔀 {c.variacoes.length + 1} versões{c.abVencedora != null ? ` · vencedora: ${LETRAS[c.abVencedora]}` : ''}</div>}
-              {(!!c.midias?.some(Boolean) || !!c.recorrencia || !!c.origem || (c.rodizio && !!c.canaisRodizio?.length)) && (
-                <div className="small muted">{[c.midias?.some(Boolean) && '📎 com imagem/PDF', c.recorrencia && `🔁 repete ${RECORRENCIA_ROTULO[c.recorrencia as Recorrencia]}`, c.origem && `🔁 repetição nº ${c.recorrenciaExecucao}`, c.rodizio && c.canaisRodizio?.length && `🔄 ${c.canaisRodizio.length + 1} números`].filter(Boolean).join(' · ')}</div>
+              {(!!c.midias?.some(Boolean) || !!c.recorrencia || !!c.origem || (c.rodizio && !!c.canaisRodizio?.length) || !!c.envioFixo) && (
+                <div className="small muted">{[c.midias?.some(Boolean) && '📎 com imagem/PDF', c.recorrencia && `🔁 repete ${RECORRENCIA_ROTULO[c.recorrencia as Recorrencia]}`, c.origem && `🔁 repetição nº ${c.recorrenciaExecucao}`, !c.envioFixo && c.rodizio && c.canaisRodizio?.length && `🔄 ${c.canaisRodizio.length + 1} números`, c.envioFixo && (c.riscoLiberado ? '📱 número escolhido (liberado em risco)' : '📱 número escolhido')].filter(Boolean).join(' · ')}</div>
               )}
               <div className="row between">
                 <Actions c={c} a={a} onEdit={() => setEditing(c)} compact />

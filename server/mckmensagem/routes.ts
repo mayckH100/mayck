@@ -27,6 +27,11 @@ import {
 } from './campanhaCore.js';
 import { midiasView, leadsDoPublico, previaSegmentoErp } from './campanhaExtras.js';
 import { salvarArquivo, detectarTipo, getArquivo, lerConteudo } from './automacoes/arquivos.js';
+import { riscoLiberado, CONFIRMAR_RISCO, AVISO_RISCO_FIXO } from './campanhaCore.js';
+import { allowedChannels } from '../lib/permissions.js';
+import { saudeDoNumero } from '../whatsapp/protecao/service.js';
+import { channelLabels } from '../whatsapp/channelLabel.js';
+import type { Request } from 'express';
 
 export const mckmensagemRouter = Router();
 
@@ -464,6 +469,9 @@ const campaignBase = z.object({
   recorrenciaFim: z.string().max(40).nullable().optional(),
   rodizio: z.boolean().optional(),
   canaisRodizio: z.array(z.string().min(1).max(40)).max(MAX_CANAIS_RODIZIO - 1).optional(),
+  // v1.51.0: número de envio escolhido (false = automático, como antes) e confirmação "Enviar mesmo assim" (número em Risco).
+  envioFixo: z.boolean().optional(),
+  confirmarRisco: z.boolean().optional(),
   /** Só na edição: reordena/tira os arquivos já anexados (quando uma versão é removida). Arquivo novo entra por /midia. */
   midias: z.array(z.string().max(40).nullable()).max(MAX_VARIACOES + 1).optional(),
 });
@@ -528,6 +536,41 @@ async function checkChannel(orgId: string, channelId?: string) {
   if (!channelId) return;
   if (!(await prisma.channel.findFirst({ where: { id: channelId, orgId, provider: { not: 'site' } } }))) throw new HttpError(400, 'Canal WhatsApp inválido');
 }
+/** v1.51.0: nível da Saúde do número (só QR; API oficial e erro na avaliação = null, não bloqueia). */
+async function nivelDoCanal(orgId: string, channelId: string): Promise<string | null> {
+  const ch = await prisma.channel.findFirst({ where: { id: channelId, orgId } });
+  if (!ch || ch.provider !== 'whatsapp_qr') return null;
+  return (await saudeDoNumero(ch).catch(() => null))?.nivel ?? null;
+}
+
+/**
+ * v1.51.0: número de envio escolhido pela responsável. Confere que o número é da empresa e que o usuário pode usar esse
+ * número (permissão de canais do membro). Número em Risco só é aceito com confirmarRisco (registra quem e quando);
+ * sem ela responde 409 com o aviso. Trocar de número ou voltar ao automático apaga a confirmação.
+ */
+async function dadosNumeroEnvio(req: Request, orgId: string, body: { channelId?: string; envioFixo?: boolean; confirmarRisco?: boolean }, atual?: Campaign) {
+  const fixo = body.envioFixo ?? atual?.envioFixo ?? false;
+  const canal = body.channelId ?? atual?.channelId;
+  const out: Record<string, unknown> = {};
+  if (body.envioFixo !== undefined) out.envioFixo = body.envioFixo;
+  const limpar = { riscoLiberadoCanalId: null, riscoLiberadoPor: null, riscoLiberadoPorNome: null, riscoLiberadoEm: null };
+  if (!fixo || !canal) return atual?.riscoLiberadoEm ? { ...out, ...limpar } : out;
+  const allowed = allowedChannels(req);
+  if (allowed && !allowed.includes(canal)) throw new HttpError(403, 'Você não tem permissão para usar este número de WhatsApp');
+  const jaLiberado = !!atual && riscoLiberado({ envioFixo: true, channelId: canal, riscoLiberadoCanalId: atual.riscoLiberadoCanalId, riscoLiberadoEm: atual.riscoLiberadoEm });
+  const trocou = !!atual?.riscoLiberadoEm && atual.riscoLiberadoCanalId !== canal;
+  if (body.confirmarRisco) {
+    const u = req.auth?.userId ? await prisma.user.findUnique({ where: { id: req.auth.userId }, select: { name: true } }) : null;
+    return { ...out, riscoLiberadoCanalId: canal, riscoLiberadoPor: req.auth?.userId ?? null, riscoLiberadoPorNome: u?.name?.slice(0, 120) ?? null, riscoLiberadoEm: new Date() };
+  }
+  if (jaLiberado) return out;
+  // Só confere o Risco quando o número (ou o modo) muda: editar o nome/texto não esbarra no aviso.
+  const mexeu = !atual || (body.envioFixo !== undefined && body.envioFixo !== atual.envioFixo) || (body.channelId !== undefined && body.channelId !== atual.channelId);
+  if (!mexeu) return out;
+  if ((await nivelDoCanal(orgId, canal)) === 'RISCO') throw new HttpError(409, AVISO_RISCO_FIXO, { codigo: CONFIRMAR_RISCO, channelId: canal });
+  return trocou ? { ...out, ...limpar } : out;
+}
+
 function checkIntervals(min: number, max: number) {
   if (min > max) throw new HttpError(400, 'O intervalo mínimo não pode ser maior que o máximo');
 }
@@ -551,10 +594,28 @@ async function campaignView(c: Campaign) {
   const repeticoes = !c.recorrenciaOrigemId && c.recorrencia ? await prisma.campaign.count({ where: { orgId: c.orgId, recorrenciaOrigemId: c.id } }) : 0;
   const porNumero = c.rodizio ? await prisma.campaignRecipient.groupBy({ by: ['channelId'], where: { campaignId: c.id, status: 'ENVIADA' }, _count: { _all: true } }) : [];
   return {
-    ...c, variacoes, recipients, falhasConexao, ab, midias, midiaFaltando, canaisRodizio: lerCanais(c.canaisRodizio), publico: lerPublico(c.publico), origem, repeticoes,
+    ...c, riscoLiberado: riscoLiberado(c), variacoes, recipients, falhasConexao, ab, midias, midiaFaltando, canaisRodizio: lerCanais(c.canaisRodizio), publico: lerPublico(c.publico), origem, repeticoes,
     enviadasPorNumero: porNumero.map((g) => ({ channelId: g.channelId ?? c.channelId, enviadas: g._count._all })),
   };
 }
+
+/**
+ * v1.51.0: números para "Escolher número de envio": todos os WhatsApp da empresa (menos o chat do site) que o usuário
+ * pode usar, com conexão e nível da Saúde do número (Bom/Atenção/Risco + motivos). Inclui os em Risco e desconectados.
+ */
+mckmensagemRouter.get('/numeros-envio', ah(async (req, res) => {
+  const orgId = orgOf(req);
+  const allowed = allowedChannels(req);
+  const list = await prisma.channel.findMany({ where: { orgId, provider: { not: 'site' }, ...(allowed ? { id: { in: allowed } } : {}) }, orderBy: { createdAt: 'asc' } });
+  const labels = await channelLabels(orgId);
+  res.json(await Promise.all(list.map(async (c) => {
+    const s = c.provider === 'whatsapp_qr' ? await saudeDoNumero(c).catch(() => null) : null;
+    return {
+      id: c.id, label: labels.get(c.id)?.label ?? c.name, displayPhone: c.displayPhone, provider: c.provider,
+      conectado: canalConectado(c), nivel: s?.nivel ?? null, motivos: s?.motivos ?? [],
+    };
+  })));
+}));
 
 mckmensagemRouter.get('/campaigns', ah(async (req, res) => {
   const items = await prisma.campaign.findMany({ where: { orgId: orgOf(req) }, orderBy: { createdAt: 'desc' } });
@@ -567,9 +628,11 @@ mckmensagemRouter.post('/campaigns', ah(async (req, res) => {
   await checkChannel(orgId, body.channelId);
   checkIntervals(body.minIntervalSec ?? 45, body.maxIntervalSec ?? 120);
   // v1.43.0: campanha nova nasce com a repescagem ligada (padrão 2 dias, até 2 repescagens).
-  const { variacoes: _v, diasSemana: _d, recorrencia: _r, recorrenciaFim: _f, rodizio: _z, canaisRodizio: _k, midias: _m, ...resto } = body;
-  const c = await prisma.campaign.create({ data: { orgId, repescagemAtiva: true, ...resto, ...dadosV148(body), ...(await dadosV149(orgId, body)) } });
+  const { variacoes: _v, diasSemana: _d, recorrencia: _r, recorrenciaFim: _f, rodizio: _z, canaisRodizio: _k, midias: _m, envioFixo: _e, confirmarRisco: _cr, ...resto } = body;
+  const numero = await dadosNumeroEnvio(req, orgId, body);
+  const c = await prisma.campaign.create({ data: { orgId, repescagemAtiva: true, ...resto, ...dadosV148(body), ...(await dadosV149(orgId, body)), ...numero } });
   await audit(req, 'mckmensagem.campaign.create', { entity: 'Campaign', entityId: c.id });
+  if (numero.riscoLiberadoEm) await audit(req, 'mckmensagem.campaign.risco_liberado', { entity: 'Campaign', entityId: c.id, meta: { channelId: c.channelId } });
   res.status(201).json(await campaignView(c));
 }));
 
@@ -586,7 +649,8 @@ mckmensagemRouter.patch('/campaigns/:id', ah(async (req, res) => {
   // Mexeu na repescagem: tira o aviso de pausa (o agendador recoloca se o motivo continuar).
   const repescagemMudou = ['repescagemAtiva', 'repescagemDias', 'repescagemMax'].some((k) => k in body);
   const riscoMudou = 'riscoRetomada' in body && body.riscoRetomada !== c.riscoRetomada;
-  const { variacoes: _v, diasSemana: _d, recorrencia: _r, recorrenciaFim: _f, rodizio: _z, canaisRodizio: _k, midias: novasMidias, ...resto } = body;
+  const { variacoes: _v, diasSemana: _d, recorrencia: _r, recorrenciaFim: _f, rodizio: _z, canaisRodizio: _k, midias: novasMidias, envioFixo: _e, confirmarRisco: _cr, ...resto } = body;
+  const numero = await dadosNumeroEnvio(req, orgId, body, c);
   let midias = c.midias;
   if (novasMidias) {
     const atuais = new Set(lerMidias(c.midias).filter(Boolean));
@@ -601,8 +665,9 @@ mckmensagemRouter.patch('/campaigns/:id', ah(async (req, res) => {
   // Repetição mudou: recalcula a próxima (ou desliga).
   const recMudou = ('recorrencia' in v149 && v149.recorrencia !== c.recorrencia) || ('recorrenciaFim' in v149);
   const prox = recMudou ? { recorrenciaProxima: proximaRepeticao({ ...c, recorrencia: (v149.recorrencia as string | undefined) ?? c.recorrencia }) } : {};
-  const updated = await prisma.campaign.update({ where: { id: c.id }, data: { ...resto, ...v148, ...v149, ...prox, ...(novasMidias ? { midias } : {}), ...(versoesMudaram ? { abVencedora: null, abVencedoraEm: null } : {}), ...(repescagemMudou ? { repescagemPausa: null, repescagemPausaEm: null } : {}), ...(riscoMudou ? { riscoPausa: null, riscoPausaEm: null } : {}) } });
+  const updated = await prisma.campaign.update({ where: { id: c.id }, data: { ...resto, ...v148, ...v149, ...prox, ...numero, ...(novasMidias ? { midias } : {}), ...(versoesMudaram ? { abVencedora: null, abVencedoraEm: null } : {}), ...(repescagemMudou ? { repescagemPausa: null, repescagemPausaEm: null } : {}), ...(riscoMudou ? { riscoPausa: null, riscoPausaEm: null } : {}) } });
   await audit(req, 'mckmensagem.campaign.update', { entity: 'Campaign', entityId: c.id, meta: Object.keys(body) });
+  if (numero.riscoLiberadoEm) await audit(req, 'mckmensagem.campaign.risco_liberado', { entity: 'Campaign', entityId: c.id, meta: { channelId: updated.channelId } });
   res.json(await campaignView(updated));
 }));
 
@@ -691,6 +756,7 @@ mckmensagemRouter.post('/campaigns/:id/duplicar', ah(async (req, res) => {
     windowStart: c.windowStart, windowEnd: c.windowEnd, repescagemAtiva: c.repescagemAtiva, repescagemDias: c.repescagemDias, repescagemMax: c.repescagemMax, repescagemModelo: c.repescagemModelo,
     riscoRetomada: c.riscoRetomada, variacoes: c.variacoes, abAutoVencedora: c.abAutoVencedora, abMinimo: c.abMinimo, diasSemana: c.diasSemana,
     midias: c.midias, rodizio: c.rodizio, canaisRodizio: c.canaisRodizio, publico: c.publico, recorrencia: c.recorrenciaOrigemId ? '' : c.recorrencia, recorrenciaFim: c.recorrenciaFim,
+    envioFixo: c.envioFixo, // v1.51.0: a confirmação "Enviar mesmo assim" não vai para a cópia (precisa confirmar de novo)
   } });
   await audit(req, 'mckmensagem.campaign.duplicate', { entity: 'Campaign', entityId: copia.id, meta: { de: c.id } });
   res.status(201).json(await campaignView(copia));

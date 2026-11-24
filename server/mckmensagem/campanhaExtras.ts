@@ -145,6 +145,8 @@ export async function tickRecorrencia(now = new Date()): Promise<{ origemId: str
       repescagemAtiva: o.repescagemAtiva, repescagemDias: o.repescagemDias, repescagemMax: o.repescagemMax, repescagemModelo: o.repescagemModelo, riscoRetomada: o.riscoRetomada,
       variacoes: o.variacoes, abAutoVencedora: o.abAutoVencedora, abMinimo: o.abMinimo, diasSemana: o.diasSemana, midias: o.midias,
       publico: o.publico, rodizio: o.rodizio, canaisRodizio: o.canaisRodizio, recorrenciaOrigemId: o.id, recorrenciaExecucao: execucao,
+      // v1.51.0: a repetição segue o número escolhido na original (e a confirmação de Risco dada nela).
+      envioFixo: o.envioFixo, riscoLiberadoCanalId: o.riscoLiberadoCanalId, riscoLiberadoPor: o.riscoLiberadoPor, riscoLiberadoPorNome: o.riscoLiberadoPorNome, riscoLiberadoEm: o.riscoLiberadoEm,
     } });
     for (let i = 0; i < leads.length; i += 500) {
       await prisma.campaignRecipient.createMany({ data: leads.slice(i, i + 500).map((l) => ({ campaignId: nova.id, leadId: l.id })) });

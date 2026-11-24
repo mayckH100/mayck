@@ -112,10 +112,25 @@ export function lerCanais(json: string | null | undefined): string[] {
   } catch { return []; }
 }
 
-/** Números da campanha: o principal e, com o rodízio ligado, os extras (sem repetir). */
-export function canaisDaCampanha(c: { channelId: string; rodizio: boolean; canaisRodizio: string }): string[] {
+/** Números da campanha: o principal e, com o rodízio ligado, os extras (sem repetir). v1.51.0: número escolhido = só ele. */
+export function canaisDaCampanha(c: { channelId: string; rodizio: boolean; canaisRodizio: string; envioFixo?: boolean | null }): string[] {
+  if (c.envioFixo) return [c.channelId];
   return c.rodizio ? [...new Set([c.channelId, ...lerCanais(c.canaisRodizio)])] : [c.channelId];
 }
+
+// ---------------- v1.51.0: número de envio escolhido pela responsável ----------------
+
+/**
+ * O bloqueio por nível Risco está liberado ("Enviar mesmo assim")? Só com número escolhido (envioFixo) e só para o
+ * número que foi confirmado: trocar de número exige nova confirmação. Os outros limites (hora/dia, intervalo,
+ * aquecimento, horário, dias da semana) continuam valendo.
+ */
+export function riscoLiberado(c: { envioFixo?: boolean | null; channelId: string; riscoLiberadoCanalId?: string | null; riscoLiberadoEm?: Date | string | null }): boolean {
+  return !!c.envioFixo && !!c.riscoLiberadoEm && !!c.riscoLiberadoCanalId && c.riscoLiberadoCanalId === c.channelId;
+}
+
+export const CONFIRMAR_RISCO = 'confirmar_risco';
+export const AVISO_RISCO_FIXO = 'Este número está em nível Risco na Saúde do número: enviar por ele aumenta a chance de bloqueio pelo WhatsApp. Os limites por hora/dia, intervalos e horário continuam valendo. Para usar este número, confirme “Enviar mesmo assim”.';
 
 function hash32(s: string): number {
   let h = 0x811c9dc5;

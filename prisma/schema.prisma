@@ -844,6 +844,13 @@ model Campaign {
   /// v1.49.0: rodízio entre números da organização (desligado por padrão). canaisRodizio = números extras (JSON de Channel.id).
   rodizio         Boolean   @default(false)
   canaisRodizio   String    @default("[]")
+  /// v1.51.0: número de envio escolhido pela responsável (true = só channelId, sem rodízio). false = automático (como antes).
+  envioFixo            Boolean   @default(false)
+  /// v1.51.0: "Enviar mesmo assim" com o número em Risco: vale só para este número (channelId igual) e com envioFixo.
+  riscoLiberadoCanalId String?
+  riscoLiberadoPor     String?
+  riscoLiberadoPorNome String?
+  riscoLiberadoEm      DateTime?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
