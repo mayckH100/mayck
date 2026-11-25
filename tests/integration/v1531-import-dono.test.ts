@@ -24,3 +24,18 @@ describe('Importação CSV com dono/empresa/cnpj (v1.53.1)', () => {
     expect(c.dono).toBeNull();
   });
 });
+
+describe('v1.53.2: reimportar corrige dono/empresa; variável vazia sem vírgula dupla', () => {
+  let owner: Client;
+  beforeAll(async () => { owner = await registerClient(); });
+  it('valor da planilha substitui o salvo; célula vazia mantém', async () => {
+    await owner.post('/api/mckmensagem/leads/import', { text: 'telefone,nome,dono,empresa\n5511977770011,A,Ana,Ana Maria Silva\n' });
+    await owner.post('/api/mckmensagem/leads/import', { text: 'telefone,nome,dono,empresa\n5511977770011,A,,sua oficina\n' });
+    const l = await prisma.lead.findFirstOrThrow({ where: { orgId: owner.me.org.id, phone: '+5511977770011' } });
+    expect(l).toMatchObject({ dono: 'Ana', empresa: 'sua oficina' });
+  });
+  it('limpa vírgula dupla', async () => {
+    const { aplicarVariaveis } = await import('../../server/mckmensagem/variacoes.js');
+    expect(aplicarVariaveis('Olá, {dono}, tudo bem? Na {empresa}?', { saudacao: 'Oi' })).toBe('Olá, tudo bem? Na?');
+  });
+});

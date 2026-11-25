@@ -397,6 +397,7 @@ mckmensagemRouter.post('/leads/import', ah(async (req, res) => {
   let header: HeaderCol[] | null = (table[0] ?? []).map(mapHeaderCell);
   if (!header.some((h) => typeof h === 'object' && h)) header = null; // sem cabeçalho reconhecido: formato antigo
   // v1.53.1: colunas extras dono / empresa / cnpj (listas de prospecção) alimentam {dono} e {empresa} da campanha.
+  // v1.53.2: valor preenchido na planilha substitui o salvo (permite corrigir nome/empresa reimportando); célula vazia mantém.
   const head0 = (table[0] ?? []).map((c) => c.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]/g, ''));
   const colDono = header ? head0.indexOf('dono') : -1;
   const colEmpresa = header ? head0.indexOf('empresa') : -1;
@@ -440,7 +441,7 @@ mckmensagemRouter.post('/leads/import', ah(async (req, res) => {
         // Contato vindo do MCKBOT com consentimento pendente: a declaração desta importação registra o consentimento.
         const consent = (!existing.consentAt && !existing.optOutAt) ? { consentAt: now, consentSource: body.consentSource } : {};
         const link = !existing.contactId ? { contactId: await contactIdForPhone(orgId, phone) } : {};
-        await prisma.lead.update({ where: { id: existing.id }, data: { name: existing.name ?? (rawName || null), tags: JSON.stringify(merged), dono: existing.dono ?? extra.dono, empresa: existing.empresa ?? extra.empresa, cnpj: existing.cnpj ?? extra.cnpj, ...consent, ...link, ...(body.campaignId ? { campaignId: body.campaignId } : {}) } });
+        await prisma.lead.update({ where: { id: existing.id }, data: { name: existing.name ?? (rawName || null), tags: JSON.stringify(merged), dono: extra.dono ?? existing.dono, empresa: extra.empresa ?? existing.empresa, cnpj: extra.cnpj ?? existing.cnpj, ...consent, ...link, ...(body.campaignId ? { campaignId: body.campaignId } : {}) } });
         updated++;
       } else {
         const contactId = await contactIdForPhone(orgId, phone);

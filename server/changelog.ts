@@ -21,6 +21,15 @@ export type EntradaChangelog = {
 
 export const CHANGELOG: EntradaChangelog[] = [
   {
+    versao: '1.53.2',
+    data: '25/11/2026',
+    titulo: 'Corrigir nome e empresa reimportando a planilha',
+    itens: [
+      'Ao reimportar uma planilha com as colunas dono e empresa, os valores novos substituem os antigos. Célula vazia mantém o que já estava salvo.',
+      'Quando falta o nome do contato, a mensagem não fica mais com vírgula dupla.',
+    ],
+  },
+  {
     versao: '1.53.1',
     data: '25/11/2026',
     titulo: 'MCK Mensagens: planilha de contatos com dono e empresa',

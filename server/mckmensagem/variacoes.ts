@@ -84,7 +84,8 @@ export function saudacaoDe(now: Date, tz = 'America/Sao_Paulo'): (typeof SAUDACO
 }
 
 function limpar(t: string): string {
-  return t.replace(/[ \t]+([,.!?])/g, '$1').replace(/[ \t]{2,}/g, ' ').trim();
+  // v1.53.2: variável vazia não deixa "Olá,, tudo bem?" nem ", ?" sobrando.
+  return t.replace(/[ \t]+([,.!?])/g, '$1').replace(/,(\s*,)+/g, ',').replace(/,([.!?])/g, '$1').replace(/[ \t]{2,}/g, ' ').trim();
 }
 
 /** Troca as variáveis. Nome vazio some sem deixar vírgula/espaço sobrando. {dono}/{empresa}: v1.53.0 (Consulta CNPJ). */
