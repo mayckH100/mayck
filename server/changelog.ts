@@ -21,6 +21,15 @@ export type EntradaChangelog = {
 
 export const CHANGELOG: EntradaChangelog[] = [
   {
+    versao: '1.51.1',
+    data: '24/11/2026',
+    titulo: 'MCK Mensagens: “Enviar mesmo assim” direto nas campanhas',
+    itens: [
+      'Cada campanha que já existe ganhou o botão “⚠ Enviar mesmo assim”, na lista e no detalhe: você assume o risco e ela envia mesmo com o número em nível Risco.',
+      'A campanha passa a sair só pelo número principal dela; limites por dia, intervalos e horário continuam valendo, e fica registrado quem confirmou e quando.',
+    ],
+  },
+  {
     versao: '1.51.0',
     data: '24/11/2026',
     titulo: 'MCK Mensagens: escolha por qual número a campanha é enviada',

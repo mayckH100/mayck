@@ -485,7 +485,14 @@ function useCampaignActions(reload: () => void) {
     const r = await run(() => post<Campaign>(`/mckmensagem/campaigns/${c.id}/duplicar`), 'Campanha duplicada como rascunho');
     if (r) { reload(); after?.(r); }
   };
-  return { starting, setStarting, pause, remove, exportReport, reenviarFalhas, reenviando, testando, setTestando, duplicar };
+  // v1.51.1: "Enviar mesmo assim" direto na campanha que já existe (usa o número principal dela, sem rodízio).
+  const assumirRisco = async (c: Campaign) => {
+    if (!confirm(`Enviar a campanha “${c.name}” mesmo com o número em nível Risco?\n\nEla passa a sair só pelo número principal dela (sem rodízio). Isso aumenta a chance de bloqueio do chip pelo WhatsApp. Os limites por dia, intervalos e horário continuam valendo. Fica registrado quem confirmou e quando.`)) return;
+    const r = await run(() => patch<Campaign>(`/mckmensagem/campaigns/${c.id}`, { envioFixo: true, channelId: c.channelId, confirmarRisco: true }),
+      c.status === 'EM_ANDAMENTO' || c.status === 'AGENDADA' ? 'Envio liberado mesmo em risco' : 'Envio liberado mesmo em risco. Agora clique em ' + (c.status === 'CONCLUIDA' ? 'Reenviar' : c.status === 'PAUSADA' ? 'Retomar' : 'Iniciar') + '.');
+    if (r) reload();
+  };
+  return { starting, setStarting, pause, remove, exportReport, reenviarFalhas, reenviando, testando, setTestando, duplicar, assumirRisco };
 }
 
 function Actions({ c, a, onEdit, compact, onDuplicated }: { c: Campaign; a: ReturnType<typeof useCampaignActions>; onEdit: () => void; compact?: boolean; onDuplicated?: (nova: Campaign) => void }) {
@@ -496,6 +503,7 @@ function Actions({ c, a, onEdit, compact, onDuplicated }: { c: Campaign; a: Retu
         ? <button className="btn sm" onClick={() => a.pause(c)}>❚❚ Pausar</button>
         : <button className="btn sm primary" onClick={() => a.setStarting(c)}>▶ {c.status === 'PAUSADA' ? 'Retomar' : c.status === 'CONCLUIDA' ? 'Reenviar' : 'Iniciar'}</button>}
       <button className="btn sm" onClick={onEdit}>Editar</button>
+      {!c.riscoLiberado && <button className="btn sm danger" title="Assumir o risco e enviar mesmo com o número em nível Risco" onClick={() => a.assumirRisco(c)}>⚠ Enviar mesmo assim</button>}
       {!compact && <button className="btn sm" onClick={() => a.setTestando(c)}>📱 Enviar teste</button>}
       {!compact && <button className="btn sm" onClick={() => a.duplicar(c, onDuplicated)}>Duplicar</button>}
       {!compact && <button className="btn sm" onClick={() => a.exportReport(c)}>Exportar</button>}
@@ -597,7 +605,7 @@ function CampaignDetail({ id, list, reload }: { id: string; list: Campaign[]; re
         </div>
       </div>
       <div className="stack">
-        {c.riscoPausa && <div className="alert warn">⚠ {c.riscoPausa} <a href="/canais">Ver Saúde do número ↗</a>{' '}<span className="small">Para enviar por ele mesmo assim: Editar › Número de envio › Escolher número de envio.</span></div>}
+        {c.riscoPausa && <div className="alert warn">⚠ {c.riscoPausa} <a href="/canais">Ver Saúde do número ↗</a>{' '}<span className="small">Para enviar por ele mesmo assim, toque em “⚠ Enviar mesmo assim”.</span></div>}
         {c.offlinePausa && <div className="alert warn">⏸ {c.offlinePausa} <a href="/canais">Conectar o WhatsApp ↗</a></div>}
         {c.envioFixo && <div className={`alert ${c.riscoLiberado ? 'warn' : 'info'} small`}>📱 Número de envio escolhido: {ch ? ch.label ?? ch.name : '—'} (sem rodízio).{c.riscoLiberado && <> Envio liberado mesmo em risco{c.riscoLiberadoPorNome ? ` por ${c.riscoLiberadoPorNome}` : ''}{c.riscoLiberadoEm ? ` em ${fmtBrt(c.riscoLiberadoEm)}` : ''}.</>}</div>}
         {c.status === 'AGENDADA' && c.iniciarEm && <div className="alert info">🗓 Começa sozinha em {fmtBrt(c.iniciarEm)} (horário de Brasília). Para cancelar, clique em Pausar.</div>}
