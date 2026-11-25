@@ -21,6 +21,12 @@ export type EntradaChangelog = {
 
 export const CHANGELOG: EntradaChangelog[] = [
   {
+    versao: '1.51.2',
+    data: '24/11/2026',
+    titulo: 'MCK Mensagens: novo aviso do “Enviar mesmo assim”',
+    itens: ['A confirmação do “Enviar mesmo assim” agora aparece num aviso próprio, com ⚠️ AVISO em destaque no topo e a marca MCK DESENVOLVIMENTO.'],
+  },
+  {
     versao: '1.51.1',
     data: '24/11/2026',
     titulo: 'MCK Mensagens: “Enviar mesmo assim” direto nas campanhas',

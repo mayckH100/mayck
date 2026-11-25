@@ -486,13 +486,41 @@ function useCampaignActions(reload: () => void) {
     if (r) { reload(); after?.(r); }
   };
   // v1.51.1: "Enviar mesmo assim" direto na campanha que já existe (usa o número principal dela, sem rodízio).
-  const assumirRisco = async (c: Campaign) => {
-    if (!confirm(`Enviar a campanha “${c.name}” mesmo com o número em nível Risco?\n\nEla passa a sair só pelo número principal dela (sem rodízio). Isso aumenta a chance de bloqueio do chip pelo WhatsApp. Os limites por dia, intervalos e horário continuam valendo. Fica registrado quem confirmou e quando.`)) return;
+  // v1.51.2: confirmação num aviso próprio (⚠️ AVISO no topo, MCK DESENVOLVIMENTO embaixo), não no confirm() do navegador.
+  const [avisoRisco, setAvisoRisco] = useState<Campaign | null>(null);
+  const assumirRisco = (c: Campaign) => setAvisoRisco(c);
+  const confirmarAvisoRisco = async () => {
+    const c = avisoRisco;
+    if (!c) return;
+    setAvisoRisco(null);
     const r = await run(() => patch<Campaign>(`/mckmensagem/campaigns/${c.id}`, { envioFixo: true, channelId: c.channelId, confirmarRisco: true }),
       c.status === 'EM_ANDAMENTO' || c.status === 'AGENDADA' ? 'Envio liberado mesmo em risco' : 'Envio liberado mesmo em risco. Agora clique em ' + (c.status === 'CONCLUIDA' ? 'Reenviar' : c.status === 'PAUSADA' ? 'Retomar' : 'Iniciar') + '.');
     if (r) reload();
   };
-  return { starting, setStarting, pause, remove, exportReport, reenviarFalhas, reenviando, testando, setTestando, duplicar, assumirRisco };
+  return { starting, setStarting, pause, remove, exportReport, reenviarFalhas, reenviando, testando, setTestando, duplicar, assumirRisco, avisoRisco, setAvisoRisco, confirmarAvisoRisco };
+}
+
+/** v1.51.2: aviso de "Enviar mesmo assim" com a marca da MCK (substitui o confirm() do navegador). */
+function AvisoRiscoModal({ c, onCancel, onConfirm }: { c: Campaign; onCancel: () => void; onConfirm: () => void }) {
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => e.key === 'Escape' && onCancel();
+    window.addEventListener('keydown', h);
+    return () => window.removeEventListener('keydown', h);
+  }, [onCancel]);
+  return (
+    <div className="modal-bg" onMouseDown={(e) => e.target === e.currentTarget && onCancel()}>
+      <div className="modal" role="alertdialog" aria-modal="true" aria-label="Aviso" style={{ maxWidth: 460 }}>
+        <div style={{ textAlign: 'center', fontSize: 30, fontWeight: 800, letterSpacing: 1, color: '#d64545', marginBottom: 12 }}>⚠️ AVISO</div>
+        <p style={{ margin: '0 0 10px', fontWeight: 600 }}>Enviar a campanha “{c.name}” mesmo com o número em nível Risco?</p>
+        <p className="small" style={{ margin: '0 0 16px' }}>Ela passa a sair só pelo número principal dela (sem rodízio). Isso aumenta a chance de bloqueio do chip pelo WhatsApp. Os limites por dia, intervalos e horário continuam valendo. Fica registrado quem confirmou e quando.</p>
+        <div className="row" style={{ justifyContent: 'flex-end', gap: 8 }}>
+          <button className="btn" onClick={onCancel}>Cancelar</button>
+          <button className="btn danger" onClick={onConfirm} autoFocus>Enviar mesmo assim</button>
+        </div>
+        <div style={{ textAlign: 'center', marginTop: 16, fontWeight: 700, letterSpacing: 2, fontSize: 13 }}>MCK DESENVOLVIMENTO</div>
+      </div>
+    </div>
+  );
 }
 
 function Actions({ c, a, onEdit, compact, onDuplicated }: { c: Campaign; a: ReturnType<typeof useCampaignActions>; onEdit: () => void; compact?: boolean; onDuplicated?: (nova: Campaign) => void }) {
@@ -657,6 +685,7 @@ function CampaignDetail({ id, list, reload }: { id: string; list: Campaign[]; re
       </div>
       {editing && <CampaignForm initial={c} onClose={() => setEditing(false)} onSaved={() => { setEditing(false); reload(); }} />}
       {a.starting && <StartModal c={a.starting} onClose={() => a.setStarting(null)} onDone={() => { a.setStarting(null); reload(); }} />}
+      {a.avisoRisco && <AvisoRiscoModal c={a.avisoRisco} onCancel={() => a.setAvisoRisco(null)} onConfirm={a.confirmarAvisoRisco} />}
       {a.testando && <TesteModal c={a.testando} onClose={() => a.setTestando(null)} />}
       {adding && <AddContactsModal c={c} onClose={() => setAdding(false)} onDone={() => { setAdding(false); leads.reload(); metrics.reload(); reload(); }} />}
     </>
@@ -714,6 +743,7 @@ export default function MmCampaigns() {
       )}</Async>
       {editing && <CampaignForm initial={editing === 'new' ? undefined : editing} onClose={closeForm} onSaved={(c) => { closeForm(); state.reload(); if (editing === 'new') nav(`/campanhas/${c.id}`); }} />}
       {a.starting && <StartModal c={a.starting} onClose={() => a.setStarting(null)} onDone={() => { a.setStarting(null); state.reload(); }} />}
+      {a.avisoRisco && <AvisoRiscoModal c={a.avisoRisco} onCancel={() => a.setAvisoRisco(null)} onConfirm={a.confirmarAvisoRisco} />}
     </>
   );
 }
