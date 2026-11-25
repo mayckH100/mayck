@@ -21,6 +21,12 @@ export type EntradaChangelog = {
 
 export const CHANGELOG: EntradaChangelog[] = [
   {
+    versao: '1.52.1',
+    data: '25/11/2026',
+    titulo: 'Site: faixa da Black Friday e preços dos planos mais organizados',
+    itens: ['A faixa da Black Friday no topo do site ficou numa linha só no computador e o preço antigo aparece sempre acima do preço promocional nos cartões de planos.'],
+  },
+  {
     versao: '1.52.0',
     data: '25/11/2026',
     titulo: 'Site renovado e Black Friday MCK',

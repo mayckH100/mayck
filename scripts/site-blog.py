@@ -41,7 +41,7 @@ BLOG = f'{BASE}/empresa/blog/'
 ORG = f'{BASE}/empresa/#organizacao'
 SITE = f'{BASE}/empresa/#site'
 AUTOR = 'Equipe MCK Desenvolvimento'
-V = '2026112501'  # versão do site.css/site.js (cache)
+V = '2026112502'  # versão do site.css/site.js (cache)
 MESES = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro']
 
 # Páginas do site → artigos relacionados ("Leia também no blog").

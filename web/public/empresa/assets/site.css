@@ -196,3 +196,7 @@ a.card.post-card h3{font-size:19px;margin:0}a.card.post-card p{margin:0;color:va
 .offer-pills{display:flex;flex-wrap:wrap;gap:10px;margin:22px 0 0;padding:0;list-style:none}
 .offer-pills li{background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.28);border-radius:999px;padding:7px 14px;font-weight:700;font-size:14px}
 .team-cards .card h3{margin-top:4px}
+/* v1.52.1: faixa numa linha só no desktop (botão junto) e preço "de" sempre acima do "por" nos cartões */
+.bfbar .wrap{flex-wrap:nowrap}.bfbar .bf-ps .bf-p+.bf-p::before{content:"·";margin-right:14px;color:#6b6b75}
+@media (max-width:1100px){.bfbar .wrap{flex-wrap:wrap}}
+.plan .price s{display:block;font-size:.4em!important;line-height:1.2}

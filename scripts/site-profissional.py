@@ -22,7 +22,7 @@ IMG = EMP / 'assets' / 'img'
 BASE = 'https://mckbot.onrender.com'
 from zoneinfo import ZoneInfo
 HOJE = datetime.datetime.now(ZoneInfo('America/Sao_Paulo')).date().isoformat()  # dia de Brasília
-V = '2026112501'  # igual ao de scripts/site-blog.py
+V = '2026112502'  # igual ao de scripts/site-blog.py
 
 SOCIAL = [
     ('ig', 'Instagram', 'https://www.instagram.com/mckdesenvolvimento/'),
