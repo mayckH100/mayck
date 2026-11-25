@@ -21,6 +21,14 @@ export type EntradaChangelog = {
 
 export const CHANGELOG: EntradaChangelog[] = [
   {
+    versao: '1.53.1',
+    data: '25/11/2026',
+    titulo: 'MCK Mensagens: planilha de contatos com dono e empresa',
+    itens: [
+      'A importação de contatos por planilha agora aceita as colunas "dono", "empresa" e "cnpj", que preenchem {dono} e {empresa} na mensagem da campanha.',
+    ],
+  },
+  {
     versao: '1.53.0',
     data: '25/11/2026',
     titulo: 'MCK Mensagens: Consulta CNPJ para prospectar empresas',

@@ -396,6 +396,12 @@ mckmensagemRouter.post('/leads/import', ah(async (req, res) => {
   while (table.length && table[0].every((c) => !c)) table.shift();
   let header: HeaderCol[] | null = (table[0] ?? []).map(mapHeaderCell);
   if (!header.some((h) => typeof h === 'object' && h)) header = null; // sem cabeçalho reconhecido: formato antigo
+  // v1.53.1: colunas extras dono / empresa / cnpj (listas de prospecção) alimentam {dono} e {empresa} da campanha.
+  const head0 = (table[0] ?? []).map((c) => c.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]/g, ''));
+  const colDono = header ? head0.indexOf('dono') : -1;
+  const colEmpresa = header ? head0.indexOf('empresa') : -1;
+  const colCnpj = header ? head0.indexOf('cnpj') : -1;
+  const limpa = (v: string | undefined, max: number) => { const t = (v ?? '').replace(/^"|"$/g, '').trim().replace(/^[=+\-@\t\r]+/, '').slice(0, max); return t || null; };
   const dataRows = table.slice(header ? 1 : 0).map((cells, i) => ({ cells, line: i + (header ? 2 : 1) })).filter((r) => r.cells.some(Boolean));
   if (dataRows.length > 10000) throw new HttpError(400, 'Máximo de 10.000 linhas por importação');
   let created = 0, updated = 0, sameClient = 0;
@@ -412,6 +418,11 @@ mckmensagemRouter.post('/leads/import', ah(async (req, res) => {
       phonesRaw = [strip(cells[0] ?? '')]; rawName = strip(cells[1] ?? ''); rawTags = strip(cells[2] ?? '');
     }
     rawName = rawName.replace(/^[=+\-@\t\r]+/, '').slice(0, 100);
+    const extra = {
+      dono: colDono >= 0 ? limpa(cells[colDono], 120) : null,
+      empresa: colEmpresa >= 0 ? limpa(cells[colEmpresa], 160) : null,
+      cnpj: colCnpj >= 0 ? ((cells[colCnpj] ?? '').replace(/\D/g, '').slice(0, 14) || null) : null,
+    };
     const filled = phonesRaw.map((p, i) => ({ p, n: i + 1 })).filter((x) => x.p);
     if (!filled.length) { errors.push(`Linha ${line}: telefone inválido`); continue; }
     const tags = [...new Set([...(rawTags ? rawTags.split(/[|,]/).map((t) => t.trim().replace(/^[=+\-@]+/, '').slice(0, 40)).filter(Boolean) : []), ...(body.tags ?? [])])].slice(0, 30);
@@ -429,13 +440,13 @@ mckmensagemRouter.post('/leads/import', ah(async (req, res) => {
         // Contato vindo do MCKBOT com consentimento pendente: a declaração desta importação registra o consentimento.
         const consent = (!existing.consentAt && !existing.optOutAt) ? { consentAt: now, consentSource: body.consentSource } : {};
         const link = !existing.contactId ? { contactId: await contactIdForPhone(orgId, phone) } : {};
-        await prisma.lead.update({ where: { id: existing.id }, data: { name: existing.name ?? (rawName || null), tags: JSON.stringify(merged), ...consent, ...link, ...(body.campaignId ? { campaignId: body.campaignId } : {}) } });
+        await prisma.lead.update({ where: { id: existing.id }, data: { name: existing.name ?? (rawName || null), tags: JSON.stringify(merged), dono: existing.dono ?? extra.dono, empresa: existing.empresa ?? extra.empresa, cnpj: existing.cnpj ?? extra.cnpj, ...consent, ...link, ...(body.campaignId ? { campaignId: body.campaignId } : {}) } });
         updated++;
       } else {
         const contactId = await contactIdForPhone(orgId, phone);
         // Contato do MCKBOT que pediu para sair (opt-out): continua fora, sem consentimento.
         const optedOut = contactId ? !!(await prisma.contact.findFirst({ where: { id: contactId, orgId }, select: { optOut: true } }))?.optOut : false;
-        await prisma.lead.create({ data: { orgId, phone, name: rawName || null, tags: JSON.stringify(tags), consentSource: body.consentSource, consentAt: optedOut ? null : now, optOutAt: optedOut ? now : null, campaignId: body.campaignId ?? null, contactId } });
+        await prisma.lead.create({ data: { orgId, phone, name: rawName || null, tags: JSON.stringify(tags), dono: extra.dono, empresa: extra.empresa, cnpj: extra.cnpj, consentSource: body.consentSource, consentAt: optedOut ? null : now, optOutAt: optedOut ? now : null, campaignId: body.campaignId ?? null, contactId } });
         created++;
       }
     }
