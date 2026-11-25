@@ -1,7 +1,9 @@
 /**
  * v1.47.0 — Cliente do servidor de voz (MCK Voz, voice-worker/): clonagem de voz grátis no nosso servidor.
  *
- * Configuração (Render › Environment): VOICE_WORKER_URL (https://…) e VOICE_WORKER_SECRET (o mesmo da VM).
+ * Configuração (Render › Environment): VOICE_WORKER_URL (https://…) e VOICE_WORKER_SECRET (o mesmo do servidor de voz).
+ * v1.51.3: servidor de voz num Hugging Face Space PRIVADO (voice-worker/hf-space/). Space privado só aceita pedidos com
+ * "Authorization: Bearer <token HF>": VOICE_WORKER_HF_TOKEN (token Read do HF, só no Render). Sem ele, nada muda.
  * Cada pedido é assinado com HMAC-SHA256 sobre "<ts>.<nonce>.<MÉTODO>.<caminho>.<sha256(corpo)>" (anti-replay no worker).
  * Sem a configuração, a voz clonada fica "aguardando servidor" e a IA segue com texto/biblioteca.
  */
@@ -31,7 +33,9 @@ export function signRequest(secret: string, method: string, path: string, body: 
 }
 
 export class HttpVoiceWorker implements VoiceWorkerClient {
-  constructor(private base = (process.env.VOICE_WORKER_URL ?? '').replace(/\/+$/, ''), private secret = process.env.VOICE_WORKER_SECRET ?? '') {}
+  constructor(private base = (process.env.VOICE_WORKER_URL ?? '').replace(/\/+$/, ''), private secret = process.env.VOICE_WORKER_SECRET ?? '', private hfToken = (process.env.VOICE_WORKER_HF_TOKEN ?? '').trim()) {}
+  /** Token do Hugging Face (Space privado): vai só para o próprio servidor de voz, nunca em log. */
+  private authHeader(): Record<string, string> { return this.hfToken ? { authorization: `Bearer ${this.hfToken}` } : {}; }
   /** Só HTTPS (ou http no próprio computador, para testes locais). */
   configured() { return (/^https:\/\//.test(this.base) || /^http:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/.test(this.base)) && this.secret.length >= 32; }
 
@@ -43,19 +47,24 @@ export class HttpVoiceWorker implements VoiceWorkerClient {
     try {
       res = await fetch(this.base + path, {
         method, body: raw || undefined, signal: AbortSignal.timeout(timeoutMs), redirect: 'error',
-        headers: { 'content-type': 'application/json', 'x-mck-ts': ts, 'x-mck-nonce': nonce, 'x-mck-sig': sig },
+        headers: { ...this.authHeader(), 'content-type': 'application/json', 'x-mck-ts': ts, 'x-mck-nonce': nonce, 'x-mck-sig': sig },
       });
     } catch (e) {
       throw new WorkerError(`Servidor de voz fora do ar (${(e as Error).name === 'TimeoutError' ? 'tempo esgotado' : 'sem conexão'})`, 0, 'down');
     }
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new WorkerError(String(data?.error ?? `Servidor de voz respondeu ${res.status}`), res.status, String(data?.code ?? ''));
+    if (!res.ok) {
+      // v1.51.3: Space acordando/reiniciando (502/503/504), fila cheia (429), acesso recusado (401/403: token/segredo) e
+      // pedido perdido num reinício (404 em /v1/jobs) contam como "fora do ar": tenta de novo sozinho, sem perder a voz.
+      const passageiro = [401, 403, 429, 500, 502, 503, 504].includes(res.status) || (res.status === 404 && path.startsWith('/v1/jobs/'));
+      throw new WorkerError(String(data?.error ?? `Servidor de voz respondeu ${res.status}`), res.status, String(data?.code || (passageiro ? 'down' : '')));
+    }
     return data;
   }
   async health() {
     if (!this.configured()) return { ok: false, ready: false, queue: 0 };
     try {
-      const r = await fetch(this.base + '/healthz', { signal: AbortSignal.timeout(8000), redirect: 'error' });
+      const r = await fetch(this.base + '/healthz', { signal: AbortSignal.timeout(8000), redirect: 'error', headers: this.authHeader() });
       const j: any = await r.json().catch(() => ({}));
       return { ok: r.ok && !!j.ok, ready: !!j.ready, queue: Number(j.queue ?? 0) };
     } catch { return { ok: false, ready: false, queue: 0 }; }

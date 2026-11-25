@@ -1,7 +1,7 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { createHash, createHmac } from 'node:crypto';
 import { extractClipMarker, toVoiceNote } from '../../server/ai/voice/clips.js';
-import { signRequest } from '../../server/ai/voice/clone/worker.js';
+import { signRequest, HttpVoiceWorker } from '../../server/ai/voice/clone/worker.js';
 import { consentText, readingScript, CONSENT_VERSION, textHash } from '../../server/ai/voice/clone/service.js';
 import { encryptBytes, decryptBytes } from '../../server/lib/crypto.js';
 import { isOggOpus, pcmToOggOpus } from '../../server/ai/voice/ogg.js';
@@ -63,5 +63,35 @@ describe('v1.47.0 voz clonada e biblioteca — funções puras', () => {
     expect(() => buildTts('clone', k)).toThrow(/voz clonada/i);
     expect(buildTts('clone', { ...k, orgId: 'o', cloneProfileId: 'p' }).usageProvider).toBe('clone');
     expect(sttEngineOf('clone', 'gemini')).toBe('gemini');
+  });
+});
+
+
+describe('v1.51.3 servidor de voz no Hugging Face Space privado', () => {
+  afterEach(() => { vi.unstubAllGlobals(); });
+  const secret = 'x'.repeat(40);
+  it('com token HF manda Authorization Bearer na saúde e nos pedidos assinados; sem token, não manda', async () => {
+    const seen: Array<Record<string, string>> = [];
+    vi.stubGlobal('fetch', async (_url: string, init: any) => { seen.push({ ...(init?.headers ?? {}) }); return new Response(JSON.stringify({ ok: true, ready: true, queue: 0, status: 'queued' }), { status: 200 }); });
+    const w = new HttpVoiceWorker('https://mck-voz.hf.space', secret, 'hf_teste123');
+    expect((await w.health()).ready).toBe(true);
+    await w.job('abc');
+    expect(seen[0].authorization).toBe('Bearer hf_teste123');
+    expect(seen[1].authorization).toBe('Bearer hf_teste123');
+    expect(seen[1]['x-mck-sig']).toMatch(/^[0-9a-f]{64}$/);
+    const w2 = new HttpVoiceWorker('https://mck-voz.hf.space', secret, '');
+    await w2.health(); await w2.job('abc');
+    expect(seen[2].authorization).toBeUndefined();
+    expect(seen[3].authorization).toBeUndefined();
+  });
+
+  it('Space acordando (503) ou acesso recusado (401) vira "fora do ar" (tenta de novo); voz ausente segue voice_missing', async () => {
+    const respostas = [new Response('{}', { status: 503 }), new Response(JSON.stringify({ error: 'assinatura inválida' }), { status: 401 }), new Response(JSON.stringify({ error: 'x', code: 'voice_missing' }), { status: 404 }), new Response('{}', { status: 404 })];
+    vi.stubGlobal('fetch', async () => respostas.shift()!);
+    const w = new HttpVoiceWorker('https://mck-voz.hf.space', secret, 'hf_teste123');
+    await expect(w.job('a')).rejects.toMatchObject({ code: 'down', status: 503 });
+    await expect(w.job('b')).rejects.toMatchObject({ code: 'down', status: 401 });
+    expect(await w.tts('vozteste123', 'oi')).toEqual({ missing: true });
+    await expect(w.job('c')).rejects.toMatchObject({ code: 'down', status: 404 });
   });
 });

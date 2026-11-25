@@ -16,7 +16,19 @@ Worker que gera os áudios na voz clonada do vendedor/responsável para a IA do 
 - Áudio gerado fica só na memória até o app buscar (expira em 10 min). Contêiner sem privilégios, só leitura, `no-new-privileges`.
 - No app, a amostra fica cifrada no banco (AES‑256‑GCM com a MASTER_KEY + contexto org/voz) e o aceite LGPD (texto, data, IP, usuário) fica registrado.
 
-## Instalar (uma vez)
+## Onde roda hoje (v1.51.3): Hugging Face Space PRIVADO, grátis, sem cartão
+A Oracle Cloud no Brasil pede CNPJ ativo, então o worker roda num **Space Docker privado** da conta da MCK no Hugging Face
+(CPU básico grátis: 2 vCPU / 16 GB), só no **modo rápido** (OpenVoice v2, `VOICE_QUALITY=0`). Arquivos em `hf-space/`
+(Dockerfile na porta 7860, sem Caddy: o HTTPS vem do Hugging Face; HMAC igual).
+1. `bash voice-worker/hf-space/montar.sh /tmp/mck-voz-space` e subir os 5 arquivos no Space (Files › Upload files).
+2. Space › Settings › *Variables and secrets*: secrets `VOICE_WORKER_SECRET` (`openssl rand -hex 32`) e `VOICE_DATA_KEY` (`openssl rand -base64 32`).
+3. Render: `VOICE_WORKER_URL=https://<dono>-<space>.hf.space`, `VOICE_WORKER_SECRET` (o mesmo) e `VOICE_WORKER_HF_TOKEN`
+   (token **Read** do Hugging Face; o Space privado só responde com `Authorization: Bearer`).
+- Limites do grátis: o Space **dorme após 48 h sem uso** e acorda na próxima chamada (alguns minutos; nesse meio tempo a IA
+  responde por texto e a fila tenta de novo sozinha). O disco é **efêmero**: num reinício as vozes somem do worker e o app
+  reensina pela amostra cifrada. Áudio em CPU leva alguns segundos por frase.
+
+## Instalar numa VM própria (alternativa: Oracle/qualquer Linux com Docker)
 1. Criar a conta Oracle Cloud (Always Free; pede cartão só para verificação — **o Mayck faz e aprova**), região São Paulo.
 2. Criar VCN com assistente; na *Security List* liberar **só TCP 443** de 0.0.0.0/0 (o SSH 22 já vem; de preferência restrinja ao seu IP).
 3. Criar instância **VM.Standard.A1.Flex**, Ubuntu 24.04, 2 OCPU / 12 GB, disco 100 GB, com a sua chave SSH.
