@@ -23,8 +23,8 @@ export const CHANGELOG: EntradaChangelog[] = [
   {
     versao: '1.51.3',
     data: '25/11/2026',
-    titulo: 'Voz do vendedor: servidor da voz clonada ligado',
-    itens: ['O servidor que cria a voz clonada do vendedor foi ligado: as vozes que estavam na fila começam a ser preparadas sozinhas e a prévia aparece quando ficar pronta (pode levar alguns minutos).'],
+    titulo: 'Voz do vendedor: fila da voz clonada mais resistente',
+    itens: ['Quando o servidor da voz clonada estiver ligando ou ocupado, a voz que está na fila espera e tenta de novo sozinha, sem perder a gravação.'],
   },
   {
     versao: '1.51.2',

@@ -43,6 +43,8 @@ Obs.: a Resemble arquivou o Chatterbox em ago/2026 (continua MIT, sem novas vers
 - Em 2 OCPU Ampere dedicados o esperado é igual ou melhor (sem disputa de CPU/disco).
 
 ## 4. Pendências
+- **25/11/2026 — servidor de voz ainda DESLIGADO.** Oracle Cloud no Brasil pede CNPJ (o do Mayck está inativo). Plano B testado: Hugging Face Space privado (arquivos prontos em `voice-worker/hf-space/`, app já manda `VOICE_WORKER_HF_TOKEN`), mas o HF agora só libera Space **Docker/Gradio no plano PRO (US$ 9/mês)**; grátis só Space Static. Nada foi criado nem gasto; Render sem variáveis de voz. A voz do Mayck continua "Na fila" (não perde a amostra; a fila só conta tentativas com o servidor no ar).
+- Próximo host precisa: container Docker ou Python, ~2 GB de RAM, HTTPS público, grátis e sem cartão (ou aprovação do Mayck para cartão/pagamento). Candidatos a verificar: Oracle com CPF (conta pessoal), Modal (US$ 30/mês de crédito; fontes divergem se pede cartão), VM própria/PC do Mayck com túnel grátis (Cloudflare Tunnel).
 - Criar a conta Oracle Always Free (cartão só para verificação; aprovação e cartão do Mayck) e rodar `voice-worker/instalar-oracle.sh`; colar `VOICE_WORKER_URL`/`VOICE_WORKER_SECRET` no Render.
 - Oracle Always Free hoje = 2 OCPU / 12 GB no Ampere (a doc atual diz 1.500 OCPU‑h/mês), não 4/24.
 - Ouvir prévias reais com vozes de verdade e ajustar `tau` (0,3) se o timbre ficar fraco.
