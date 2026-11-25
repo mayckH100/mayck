@@ -22,7 +22,7 @@ IMG = EMP / 'assets' / 'img'
 BASE = 'https://mckbot.onrender.com'
 from zoneinfo import ZoneInfo
 HOJE = datetime.datetime.now(ZoneInfo('America/Sao_Paulo')).date().isoformat()  # dia de Brasília
-V = '2026112102'  # igual ao de scripts/site-blog.py
+V = '2026112501'  # igual ao de scripts/site-blog.py
 
 SOCIAL = [
     ('ig', 'Instagram', 'https://www.instagram.com/mckdesenvolvimento/'),
@@ -122,7 +122,7 @@ def header_footer(h):
         h = h.replace('<a href="mailto:mckdevbr@gmail.com">mckdevbr@gmail.com</a><a href="/privacidade.html">',
                       f'<a href="mailto:mckdevbr@gmail.com">mckdevbr@gmail.com</a><a class="ft-wa" href="{WA}" target="_blank" rel="noopener">WhatsApp (11) 99319-5300</a><a href="/empresa#seguranca">Segurança e LGPD</a><a href="/privacidade.html">', 1)
     if 'Atendimento em todo o Brasil' not in h:
-        h = h.replace('CNPJ 58.460.367/0001-78</span><span>', 'CNPJ 58.460.367/0001-78 · Carapicuíba/SP · Atendimento em todo o Brasil</span><span>', 1)
+        h = h.replace('CNPJ 58.460.367/0001-78</span><span>', 'CNPJ 58.460.367/0001-78 · Atendimento em todo o Brasil</span><span>', 1)
     return h
 
 
@@ -203,7 +203,7 @@ STEPS = ('<section class="alt" id="como-funciona"><div class="wrap"><div class="
 TRUST = ('<!-- confianca:start --><section class="alt" id="seguranca"><div class="wrap"><div class="center"><span class="eyebrow">Segurança e confiança</span>'
          '<h2>Seus dados e os dos seus clientes protegidos</h2><p class="lead">Empresa brasileira identificada pelo CNPJ, com regras claras de privacidade.</p></div>\n'
          '<div class="grid g3 trust" style="margin-top:44px">\n'
-         '<div class="card"><div class="ico">🏢</div><h3>Empresa identificada</h3><p>MCK DESENVOLVIMENTO · CNPJ 58.460.367/0001-78 · Carapicuíba/SP. Fundada por Mayck Alessandro Silva Hilario.</p></div>\n'
+         '<div class="card"><div class="ico">🏢</div><h3>Empresa identificada</h3><p>MCK DESENVOLVIMENTO · CNPJ 58.460.367/0001-78. Fundada por Mayck Alessandro Silva Hilario.</p></div>\n'
          '<div class="card"><div class="ico">🔒</div><h3>Conexão e senhas protegidas</h3><p>Acesso sempre por HTTPS, verificação em duas etapas disponível, senhas e chaves de integração guardadas com criptografia.</p></div>\n'
          '<div class="card"><div class="ico">💾</div><h3>Cópia de segurança diária</h3><p>O banco de dados é copiado todos os dias, de forma automática e cifrada.</p></div>\n'
          '<div class="card"><div class="ico">⚖️</div><h3>LGPD na prática</h3><p>Consentimento registrado, opt-out automático ("SAIR") e quem pede para sair não recebe mais mensagens. Veja a <a href="/privacidade.html">Política de Privacidade</a>.</p></div>\n'

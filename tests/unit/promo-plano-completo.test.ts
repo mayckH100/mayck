@@ -39,10 +39,10 @@ describe('Promoção de entrada do Plano Completo (v1.27.0)', () => {
 
   it('referência do Mercado Pago com a marca da promoção (com e sem cupom)', () => {
     expect(buildReference('o1', 'COMBO', 'MENSAL', null, 5800)).toBe('mckbot|o1|COMBO|MENSAL|i=5800');
-    expect(parseReference('mckbot|o1|COMBO|MENSAL|i=5800')).toEqual({ orgId: 'o1', product: 'COMBO', cycle: 'MENSAL', coupon: null, introCents: 5800 });
+    expect(parseReference('mckbot|o1|COMBO|MENSAL|i=5800')).toEqual({ orgId: 'o1', product: 'COMBO', cycle: 'MENSAL', coupon: null, introCents: 5800, promoCents: null });
     const ref = buildReference('o1', 'COMBO', 'MENSAL', { id: 'cp1', discountCents: 5000 }, 5800);
     expect(ref).toBe('mckbot|o1|COMBO|MENSAL|c=cp1:5000|i=5800');
-    expect(parseReference(ref)).toEqual({ orgId: 'o1', product: 'COMBO', cycle: 'MENSAL', coupon: { id: 'cp1', discountCents: 5000 }, introCents: 5800 });
+    expect(parseReference(ref)).toEqual({ orgId: 'o1', product: 'COMBO', cycle: 'MENSAL', coupon: { id: 'cp1', discountCents: 5000 }, introCents: 5800, promoCents: null });
     expect(parseReference('mckbot|o1|COMBO|MENSAL|i=5800|c=cp1:5000')).toBeNull(); // ordem fixa
     expect(parseReference('mckbot|o1|COMBO|MENSAL|i=5800|i=5800')).toBeNull();
     expect(parseReference('mckbot|o1|COMBO|MENSAL|i=-1')).toBeNull();

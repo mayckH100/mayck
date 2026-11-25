@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import type { AiSettings } from '@prisma/client';
 import { getSettings, PLAN_PRODUCTS } from '../billing/service.js';
 import { INTRO_PLAN, introOfferText } from '../billing/introOffer.js';
+import { promoOferta, promoAtiva, ateTexto } from '../billing/promoPrimeiroMes.js';
 
 /**
  * Conhecimento do site da MCK DESENVOLVIMENTO para a IA (só organizações com useMckSite, que só o superadmin liga)
@@ -62,18 +63,22 @@ const brl = (cents: number) => (cents / 100).toLocaleString('pt-BR', { style: 'c
 /** Preços atuais (mesmos da vitrine /api/public/plans). */
 export async function livePricesText(): Promise<string> {
   // Só os planos à venda (v1.25.0: nome, descrição e "visível" editados no Master).
-  const { prices, trialDays, plans, introOffer } = await getSettings();
+  const { prices, trialDays, plans, introOffer, promo } = await getSettings();
   const lines = PLAN_PRODUCTS.filter((id) => plans[id].visible).map((id) => {
     const p = prices[id];
     const save = Math.max(0, p.MENSAL * 12 - p.ANUAL);
+    // v1.52.0: promoção do 1º mês (Black Friday), só no mensal e só no 1º pagamento; some sozinha após o prazo.
+    const pm = promoOferta(promo, id, p.MENSAL);
     // v1.27.0: promoção de entrada do Plano Completo (só no mensal, só para empresa que nunca pagou nenhum plano).
-    const intro = id === INTRO_PLAN ? introOfferText(introOffer, p.MENSAL) : null;
-    const mensal = intro
+    const intro = !pm && id === INTRO_PLAN ? introOfferText(introOffer, p.MENSAL) : null;
+    const mensal = pm
+      ? `${brl(p.MENSAL)}/mês (PROMOÇÃO ${pm.label.toUpperCase()}: ${brl(pm.priceCents)} no 1º mês, depois ${brl(p.MENSAL)}/mês; vale para quem assinar o plano mensal até ${promo.ate ? ateTexto(promo.ate) : ''} (horário de Brasília) e nunca pagou nenhum plano; aplicada automaticamente no pagamento; não acumula com cupom)`
+      : intro
       ? `${brl(p.MENSAL)}/mês (PROMOÇÃO PARA CLIENTE NOVA: ${intro}; vale só no plano mensal e só para empresa que nunca pagou nenhum plano; não acumula com cupom)`
       : `${brl(p.MENSAL)}/mês`;
     return `- ${plans[id].name}: ${mensal} ou ${brl(p.ANUAL)}/ano${save ? ` (economia de ${brl(save)} no anual, sem promoção)` : ''}. ${plans[id].desc}`;
   });
-  return [`PREÇOS ATUAIS (valem mais que qualquer valor escrito nas páginas): teste grátis de ${trialDays} dias, sem cartão no cadastro; pagamento por Pix, boleto ou cartão (Mercado Pago), sem fidelidade.`, ...lines].join('\n');
+  return [`PREÇOS ATUAIS para novas assinaturas (valem mais que qualquer valor escrito nas páginas): teste grátis de ${trialDays} dias, sem cartão no cadastro; implantação feita pela equipe da MCK; pagamento por Pix, boleto ou cartão (Mercado Pago), sem fidelidade, cancele quando quiser. Quem já é assinante continua pagando o valor da sua assinatura (não informe reajuste a quem já é cliente; em dúvida, peça para falar com a equipe).${promoAtiva(promo) ? '' : ' Não há promoção valendo agora.'}`, ...lines].join('\n');
 }
 
 /** Diferenciais da MCK DESENVOLVIMENTO (verdadeiros, tirados do produto e do site; sem números de concorrentes). */

@@ -6,6 +6,7 @@ import { billingConfigured } from '../billing/mercadopago.js';
 import { getSettings, PLAN_PRODUCTS, type PlanProduct } from '../billing/service.js';
 import { DEFAULT_PLAN_CATALOG, planModules } from '../billing/planCatalog.js';
 import { INTRO_CYCLE, INTRO_PLAN, publicIntroOffer } from '../billing/introOffer.js';
+import { promoOferta, publicPromo } from '../billing/promoPrimeiroMes.js';
 
 /**
  * Planos do MCKBOT. Não há cobrança integrada: a troca de plano depende de
@@ -37,18 +38,21 @@ export const PUBLIC_PLAN_INFO: Record<PlanProduct, { label: string; desc: string
 ) as Record<PlanProduct, { label: string; desc: string; features: string[] }>;
 
 export async function publicPlanList() {
-  const { prices, plans, trialDays, introOffer } = await getSettings();
+  const { prices, plans, trialDays, introOffer, promo } = await getSettings();
+  const now = new Date();
   const intro = plans[INTRO_PLAN].visible ? publicIntroOffer(introOffer, prices[INTRO_PLAN][INTRO_CYCLE]) : null;
   return {
     trialDays,
     currency: 'BRL',
     // v1.27.0: promoção de entrada do Plano Completo ("R$ 58/mês nos 2 primeiros meses, depois R$ 100/mês"), só cliente nova.
     introOffer: intro,
+    // v1.52.0: promoção do 1º mês (Black Friday) para a faixa do site; null fora do prazo (some sozinha).
+    promo: publicPromo(promo, prices, now),
     plans: PLAN_PRODUCTS.filter((id) => plans[id].visible).map((id) => ({
       id, label: plans[id].name, desc: plans[id].desc, features: plans[id].features, modules: planModules(plans[id]),
       prices: { MENSAL: prices[id].MENSAL, ANUAL: prices[id].ANUAL },
       annualSavings: Math.max(0, prices[id].MENSAL * 12 - prices[id].ANUAL),
-      ...(id === INTRO_PLAN && intro ? { introOffer: intro } : {}),
+      ...(promoOferta(promo, id, prices[id].MENSAL, now) ? { introOffer: promoOferta(promo, id, prices[id].MENSAL, now) } : id === INTRO_PLAN && intro ? { introOffer: intro } : {}),
     })),
   };
 }

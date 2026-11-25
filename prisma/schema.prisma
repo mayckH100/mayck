@@ -959,6 +959,13 @@ model PlatformSettings {
   /// Promoção de entrada do Plano Completo (v1.27.0): JSON { enabled, priceCents, months }; '{}' = padrão do código
   /// (ligada, R$ 58,00 nos 2 primeiros meses do COMBO mensal, só para cliente nova).
   introOfferJson     String   @default("{}")
+  /// v1.52.0: reajuste de 25/11/2026. Quem já tinha pagamento confirmado antes de legacyAte mantém estes preços
+  /// (cópia do pricesJson e do introOfferJson de antes do reajuste). null = sem preço antigo garantido.
+  legacyPricesJson   String?
+  legacyIntroJson    String?
+  legacyAte          DateTime?
+  /// v1.52.0: promoção do 1º mês (ex.: Black Friday) e faixa do topo do site. '{}' = desligada.
+  promoJson          String   @default("{}")
   updatedAt          DateTime @updatedAt
 }
 

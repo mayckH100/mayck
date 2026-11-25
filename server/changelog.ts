@@ -21,6 +21,15 @@ export type EntradaChangelog = {
 
 export const CHANGELOG: EntradaChangelog[] = [
   {
+    versao: '1.52.0',
+    data: '25/11/2026',
+    titulo: 'Site renovado e Black Friday MCK',
+    itens: [
+      'O site da MCK ficou mais simples: a oferta principal logo no início, como a nossa equipe trabalha com você e os planos lado a lado.',
+      'Black Friday MCK: quem assina pela primeira vez até 30/11 às 23:59 (horário de Brasília) paga o 1º mês do plano mensal com preço especial. O desconto entra sozinho no pagamento.',
+    ],
+  },
+  {
     versao: '1.51.3',
     data: '25/11/2026',
     titulo: 'Voz do vendedor: fila da voz clonada mais resistente',

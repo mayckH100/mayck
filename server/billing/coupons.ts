@@ -1,5 +1,5 @@
 import { prisma } from '../db.js';
-import { CYCLES, PLAN_PRODUCTS, getSettings, type Cycle, type PlanProduct, type Prices } from './service.js';
+import { CYCLES, PLAN_PRODUCTS, getSettings, pricingFor, type Cycle, type PlanProduct, type Prices } from './service.js';
 
 /**
  * Cupons de desconto (parcerias com influenciadores e empresas).
@@ -104,7 +104,7 @@ export async function loadValidCoupon(code: unknown, orgId?: string) {
 export async function priceWithCoupon(code: unknown, product: PlanProduct, cycle: Cycle, orgId?: string) {
   const c = await loadValidCoupon(code, orgId);
   if (!couponMatches(c, product, cycle)) throw new CouponError('produto');
-  const { prices } = await getSettings();
+  const { prices } = orgId ? await pricingFor(orgId) : await getSettings();
   const q = quote(c, prices[product][cycle]);
   if (!q) throw new CouponError('valor');
   return { coupon: c, quote: q };

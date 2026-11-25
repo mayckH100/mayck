@@ -2,6 +2,7 @@ import { prisma } from '../db.js';
 import { decryptOrNull, encryptOrNull } from '../lib/crypto.js';
 import { applyPlanInput, erpBySubscriptions, parsePlanCatalog, planApps, validatePlanInput, PLAN_CODES, type PlanCatalog, type PlanInput } from './planCatalog.js';
 import { applyIntroOfferInput, introEligibility, introOfferActive, parseIntroOffer, validateIntroOfferInput, INTRO_CYCLE, INTRO_PLAN, type IntroOffer, type IntroOfferInput, type PaidEvent } from './introOffer.js';
+import { applyPromoInput, parsePromo, promoPreco, validatePromoInput, type PromoInput, type PromoPrimeiroMes } from './promoPrimeiroMes.js';
 
 /**
  * Cobrança por produto. Cada organização tem uma assinatura por app
@@ -17,9 +18,11 @@ export type SubStatus = 'TRIAL' | 'ATIVA' | 'VENCIDA' | 'BLOQUEADA';
 export type Prices = Record<PlanProduct, Record<Cycle, number>>;
 
 export const DEFAULT_PRICES: Prices = {
+  // Só o padrão de um banco novo (os testes contam com ele). Os preços de verdade ficam no banco (Painel Master):
+  // desde a v1.52.0 (migração 0076) MCKBOT R$ 47, MCK Mensagens R$ 29 e Plano Completo R$ 97 por mês.
   MCKBOT: { MENSAL: 3990, ANUAL: 39900 },
   MCKMENSAGEM: { MENSAL: 4500, ANUAL: 45000 },
-  COMBO: { MENSAL: 10000, ANUAL: 100000 }, // Plano Completo (ERP + MCKBOT + Mensagens): R$ 100/mês
+  COMBO: { MENSAL: 10000, ANUAL: 100000 },
 };
 
 /** Nomes padrão (fallback). O nome exibido vem do Master: (await getSettings()).plans[code].name (v1.25.0). */
@@ -67,7 +70,40 @@ export async function getSettings() {
   } catch { /* mantém padrão */ }
   const plans: PlanCatalog = parsePlanCatalog((s as { plansJson?: string }).plansJson);
   const introOffer: IntroOffer = parseIntroOffer((s as { introOfferJson?: string }).introOfferJson);
-  return { trialDays: s.trialDays, prices, plans, introOffer, webhookSecretConfigured: !!s.mpWebhookSecretEnc, raw: s };
+  const promo: PromoPrimeiroMes = parsePromo((s as { promoJson?: string }).promoJson);
+  // v1.52.0: preço antigo garantido (reajuste) para quem já tinha pagamento confirmado antes de legacyAte.
+  const la = (s as { legacyAte?: Date | null }).legacyAte ?? null;
+  const legacy = la ? { ate: la, prices: parsePrices((s as { legacyPricesJson?: string | null }).legacyPricesJson ?? null, prices), introOffer: parseIntroOffer((s as { legacyIntroJson?: string | null }).legacyIntroJson ?? null) } : null;
+  return { trialDays: s.trialDays, prices, plans, introOffer, promo, legacy, webhookSecretConfigured: !!s.mpWebhookSecretEnc, raw: s };
+}
+
+function parsePrices(json: string | null, fallback: Prices): Prices {
+  try {
+    const parsed = json ? JSON.parse(json) : null;
+    if (!parsed) return fallback;
+    return Object.fromEntries(PLAN_PRODUCTS.map((p) => [p, { MENSAL: Number(parsed?.[p]?.MENSAL ?? fallback[p].MENSAL), ANUAL: Number(parsed?.[p]?.ANUAL ?? fallback[p].ANUAL) }])) as Prices;
+  } catch { return fallback; }
+}
+
+/** Folga para checkout aberto antes do reajuste e pago depois (o valor antigo é aceito por 72 h). */
+export const LEGACY_GRACE_MS = 72 * 60 * 60 * 1000;
+
+/**
+ * v1.52.0: tabela de preços que ESTA empresa paga. Quem já tinha pagamento confirmado antes do reajuste (legacyAte)
+ * mantém os preços antigos e a promoção de entrada antiga; as demais pagam os preços atuais do Master.
+ */
+export async function pricingFor(orgId: string): Promise<{ prices: Prices; introOffer: IntroOffer; legado: boolean }> {
+  const st = await getSettings();
+  if (st.legacy) {
+    const antes = await prisma.billingEvent.findMany({
+      where: { orgId, createdAt: { lt: st.legacy.ate }, OR: [{ kind: 'MP' }, { kind: 'MANUAL', cycle: { not: null } }, { kind: 'MP_ESTORNO' }] },
+      select: { kind: true, mpPaymentId: true },
+    });
+    const estornados = new Set(antes.filter((e) => e.kind === 'MP_ESTORNO' && e.mpPaymentId).map((e) => e.mpPaymentId!.replace(/-estorno$/, '')));
+    const pagos = antes.filter((e) => e.kind !== 'MP_ESTORNO' && !(e.kind === 'MP' && e.mpPaymentId && estornados.has(e.mpPaymentId)));
+    if (pagos.length > 0) return { prices: st.legacy.prices, introOffer: st.legacy.introOffer, legado: true };
+  }
+  return { prices: st.prices, introOffer: st.introOffer, legado: false };
 }
 
 export async function getWebhookSecret(): Promise<string | null> {
@@ -75,9 +111,15 @@ export async function getWebhookSecret(): Promise<string | null> {
   return decryptOrNull(s?.mpWebhookSecretEnc ?? null);
 }
 
-export async function updateSettings(input: { trialDays?: number; prices?: Partial<Record<PlanProduct, Partial<Record<Cycle, number>>>>; plans?: Partial<Record<PlanProduct, PlanInput>>; introOffer?: IntroOfferInput; mpWebhookSecret?: string | null }) {
+export async function updateSettings(input: { trialDays?: number; prices?: Partial<Record<PlanProduct, Partial<Record<Cycle, number>>>>; plans?: Partial<Record<PlanProduct, PlanInput>>; introOffer?: IntroOfferInput; promo?: PromoInput; mpWebhookSecret?: string | null }) {
   const cur = await getSettings();
-  const data: { trialDays?: number; pricesJson?: string; plansJson?: string; introOfferJson?: string; mpWebhookSecretEnc?: string | null } = {};
+  const data: { trialDays?: number; pricesJson?: string; plansJson?: string; introOfferJson?: string; promoJson?: string; mpWebhookSecretEnc?: string | null } = {};
+  if (input.promo) {
+    const merged = { ...cur.promo, ...input.promo };
+    const err = validatePromoInput(merged);
+    if (err) throw new SettingsError(err);
+    data.promoJson = JSON.stringify(applyPromoInput(cur.promo, input.promo));
+  }
   if (input.introOffer) {
     const err = validateIntroOfferInput(input.introOffer);
     if (err) throw new SettingsError(err);
@@ -130,7 +172,7 @@ export async function confirmedPayments(orgId: string, exceptMpPaymentId?: strin
 
 /** Situação da empresa na promoção: ainda é "cliente nova"? Quantos meses promocionais já pagou? */
 export async function introStatus(orgId: string, exceptMpPaymentId?: string) {
-  const { introOffer } = await getSettings();
+  const { introOffer } = await pricingFor(orgId);
   return { offer: introOffer, ...introEligibility(await confirmedPayments(orgId, exceptMpPaymentId), introOffer.months) };
 }
 
@@ -140,10 +182,25 @@ export async function introStatus(orgId: string, exceptMpPaymentId?: string) {
  */
 export async function introPriceFor(orgId: string, product: PlanProduct, cycle: Cycle): Promise<{ priceCents: number; month: number; months: number } | null> {
   if (product !== INTRO_PLAN || cycle !== INTRO_CYCLE) return null;
-  const { prices } = await getSettings();
+  const { prices } = await pricingFor(orgId);
   const st = await introStatus(orgId);
   if (!introOfferActive(st.offer, prices[product][cycle]) || !st.eligible) return null;
   return { priceCents: st.offer.priceCents, month: st.used + 1, months: st.offer.months };
+}
+
+/**
+ * v1.52.0: preço da promoção do 1º mês (Black Friday) que ESTA empresa paga agora, ou null. Só empresa sem nenhum
+ * pagamento confirmado (`exceptMpPaymentId` tira da conta o pagamento que está sendo conferido), só no mensal,
+ * só com a promoção valendo (`now`) e mais barata que o preço da empresa.
+ */
+export async function promoPriceFor(orgId: string, product: PlanProduct, cycle: Cycle, opts: { exceptMpPaymentId?: string; now?: Date; ignorarPrazo?: boolean } = {}): Promise<{ priceCents: number; codigo: string; nome: string; ate: string | null } | null> {
+  const { promo } = await getSettings();
+  const { prices } = await pricingFor(orgId);
+  const now = opts.ignorarPrazo && promo.ate ? new Date(Math.min(Date.now(), Date.parse(promo.ate))) : (opts.now ?? new Date());
+  const v = promoPreco(promo, product, cycle, prices[product][cycle], now);
+  if (v === null) return null;
+  if ((await confirmedPayments(orgId, opts.exceptMpPaymentId)).length > 0) return null;
+  return { priceCents: v, codigo: promo.codigo, nome: promo.nome, ate: promo.ate };
 }
 
 // ---------- Assinaturas ----------

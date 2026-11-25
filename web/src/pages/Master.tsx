@@ -41,7 +41,15 @@ interface Settings {
   mpCheck?: { ok: boolean; message: string };
   /** v1.27.0: promoção de entrada do Plano Completo (mensal, só cliente nova). */
   introOffer?: { enabled: boolean; priceCents: number; months: number };
+  /** v1.52.0: promoção do 1º mês (ex.: Black Friday) + faixa do topo do site. */
+  promo?: { enabled: boolean; codigo: string; nome: string; ate: string | null; faixa: string; precos: Partial<Record<PlanProduct, number>> };
+  promoValendo?: boolean;
+  /** v1.52.0: preço antigo garantido (reajuste) para quem já pagava antes de `ate`. */
+  legacy?: { ate: string; prices: Record<PlanProduct, Record<Cycle, number>> } | null;
 }
+/** ISO → valor do <input type="datetime-local"> em horário de Brasília (UTC-3, sem horário de verão). */
+const isoToBrt = (iso: string | null | undefined) => (iso ? new Date(Date.parse(iso) - 3 * 3600_000).toISOString().slice(0, 16) : '');
+const brtToIso = (v: string) => (v ? `${v}:59.000-03:00` : null);
 
 const TABS = [
   ['geral', 'Visão geral'], ['clientes', 'Clientes'], ['vencimentos', 'Vencimentos'], ['pagamentos', 'Pagamentos'], ['atividades', 'Atividades'], ['avisos', 'Avisos'], ['novidades', 'Novidades'], ['indicacoes', 'Indicações'], ['mckia', 'MCK IA'], ['sdr', 'SDR com IA'], ['configuracoes', 'Configurações'],
@@ -496,6 +504,7 @@ function PlatformSettingsForm() {
   const [plans, setPlans] = useState<Record<string, PlanDraft>>({});
   const [trial, setTrial] = useState('');
   const [intro, setIntro] = useState<{ enabled: boolean; price: string; months: string }>({ enabled: true, price: '58,00', months: '2' });
+  const [promo, setPromo] = useState<{ enabled: boolean; codigo: string; nome: string; ate: string; faixa: string; precos: Record<PlanProduct, string> }>({ enabled: false, codigo: '', nome: '', ate: '', faixa: '', precos: { MCKBOT: '', MCKMENSAGEM: '', COMBO: '' } });
   const [secret, setSecret] = useState('');
   const [clearSecret, setClearSecret] = useState(false);
   const [error, setError] = useState('');
@@ -516,6 +525,7 @@ function PlatformSettingsForm() {
     }
     setPlans(p);
     setTrial(String(d.trialDays));
+    if (d.promo) setPromo({ enabled: d.promo.enabled, codigo: d.promo.codigo, nome: d.promo.nome, ate: isoToBrt(d.promo.ate), faixa: d.promo.faixa, precos: { MCKBOT: centsToInput(d.promo.precos.MCKBOT), MCKMENSAGEM: centsToInput(d.promo.precos.MCKMENSAGEM), COMBO: centsToInput(d.promo.precos.COMBO) } });
     if (d.introOffer) setIntro({ enabled: d.introOffer.enabled, price: centsToInput(d.introOffer.priceCents), months: String(d.introOffer.months) });
   }, [state.data]);
   const setPlan = (pr: PlanProduct, patch: Partial<PlanDraft>) => setPlans((cur) => ({ ...cur, [pr]: { ...cur[pr], ...patch } }));
@@ -543,7 +553,16 @@ function PlatformSettingsForm() {
     const introMonths = Number(intro.months);
     if (introPrice === null || introPrice < 100) { setError('Preço promocional do Plano Completo: informe um valor de pelo menos R$ 1,00.'); return; }
     if (!Number.isInteger(introMonths) || introMonths < 1 || introMonths > 12) { setError('Meses da promoção: um número inteiro de 1 a 12.'); return; }
-    const body: Record<string, unknown> = { prices, plans: outPlans, trialDays: td, introOffer: { enabled: intro.enabled, priceCents: introPrice, months: introMonths } };
+    const promoPrecos: Partial<Record<PlanProduct, number>> = {};
+    for (const pr of PLAN_PRODUCTS) {
+      if (!promo.precos[pr].trim()) continue;
+      const v = parseBRL(promo.precos[pr]);
+      if (v === null || v < 100) { setError(`Promoção do 1º mês (${pr}): informe um valor de pelo menos R$ 1,00 ou deixe vazio.`); return; }
+      promoPrecos[pr] = v;
+    }
+    if (promo.enabled && !promo.ate) { setError('Promoção do 1º mês: informe até quando ela vale.'); return; }
+    const body: Record<string, unknown> = { prices, plans: outPlans, trialDays: td, introOffer: { enabled: intro.enabled, priceCents: introPrice, months: introMonths },
+      promo: { enabled: promo.enabled, codigo: promo.codigo.trim().toUpperCase(), nome: promo.nome.trim(), ate: brtToIso(promo.ate), faixa: promo.faixa.trim(), precos: promoPrecos } };
     if (clearSecret) body.mpWebhookSecret = null;
     else if (secret.trim()) body.mpWebhookSecret = secret.trim();
     // Tirar o MCK ERP de um plano com assinantes corta o ERP deles: pede confirmação (Modal, sem window.confirm).
@@ -618,6 +637,35 @@ function PlatformSettingsForm() {
           </div>
           <p className="small muted" style={{ margin: 0 }}>Os novos preços valem para os próximos pagamentos; pagamentos já aprovados não mudam. Preço 0 deixa aquele ciclo fora de venda. Os códigos dos planos não mudam, então assinaturas, cupons e pagamentos continuam funcionando.</p>
         </div>
+        <div className="card stack" data-testid="promo-primeiro-mes">
+          <div className="row between" style={{ flexWrap: 'wrap', gap: 6 }}>
+            <h2 style={{ margin: 0 }}>Promoção do 1º mês e faixa do site</h2>
+            {s.promoValendo ? <span className="badge green">● Valendo agora</span> : <span className="badge">Desligada / fora do prazo</span>}
+          </div>
+          <p className="small muted" style={{ margin: 0 }}>Empresa que nunca pagou nenhum plano paga o preço especial no 1º mês do plano mensal (aplicado automaticamente no pagamento, com o código abaixo); do 2º mês em diante, o preço normal. A faixa aparece no topo do site e o preço "de/por" nos cartões de planos enquanto valer, e tudo some sozinho depois do prazo. Não acumula com cupom (vale o menor preço). Só pagamentos aprovados contam.</p>
+          <label className="row small" style={{ gap: 6 }}>
+            <input type="checkbox" checked={promo.enabled} onChange={(e) => setPromo({ ...promo, enabled: e.target.checked })} /> Promoção ligada
+          </label>
+          <div className="grid g3" style={{ gap: 8 }}>
+            <Field label="Nome"><input maxLength={60} value={promo.nome} placeholder="Black Friday MCK" onChange={(e) => setPromo({ ...promo, nome: e.target.value })} /></Field>
+            <Field label="Código (automático)"><input maxLength={30} value={promo.codigo} placeholder="BLACKFRIDAY" onChange={(e) => setPromo({ ...promo, codigo: e.target.value })} /></Field>
+            <Field label="Vale até (horário de Brasília)"><input type="datetime-local" value={promo.ate} onChange={(e) => setPromo({ ...promo, ate: e.target.value })} /></Field>
+          </div>
+          <Field label="Texto da faixa no topo do site" hint="Os preços de/por são acrescentados automaticamente."><input maxLength={200} value={promo.faixa} onChange={(e) => setPromo({ ...promo, faixa: e.target.value })} /></Field>
+          <div className="grid g3" style={{ gap: 8 }}>
+            {PLAN_PRODUCTS.map((pr) => (
+              <Field key={pr} label={`1º mês ${PRODUCT_LABEL[pr].split(':')[0]} (R$)`} hint={`Normal: ${centsToInput(s.prices[pr]?.MENSAL)}. Vazio = sem promoção.`}>
+                <input inputMode="decimal" value={promo.precos[pr]} onChange={(e) => setPromo({ ...promo, precos: { ...promo.precos, [pr]: e.target.value } })} />
+              </Field>
+            ))}
+          </div>
+        </div>
+        {s.legacy && (
+          <div className="card stack" data-testid="preco-antigo">
+            <h2 style={{ margin: 0 }}>Preço antigo garantido</h2>
+            <p className="small muted" style={{ margin: 0 }}>Empresas com pagamento aprovado antes de {fmtDay(s.legacy.ate)} continuam pagando os preços de antes do reajuste: {PLAN_PRODUCTS.map((pr) => `${PRODUCT_LABEL[pr].split(':')[0]} ${centsToInput(s.legacy!.prices[pr]?.MENSAL)}/mês ou ${centsToInput(s.legacy!.prices[pr]?.ANUAL)}/ano`).join(' · ')}. Os preços acima valem para as demais.</p>
+          </div>
+        )}
         <div className="card stack" data-testid="promo-plano-completo">
           <h2 style={{ margin: 0 }}>Promoção de cliente nova: Plano Completo mensal</h2>
           <p className="small muted" style={{ margin: 0 }}>Empresa que nunca pagou nenhum plano paga o preço promocional nos primeiros meses do Plano Completo mensal; depois, o preço normal acima. O anual não tem promoção. Só pagamentos aprovados contam, e o cupom não acumula (vale o menor preço).</p>

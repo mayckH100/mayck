@@ -53,7 +53,7 @@ export function PlansShowcase({ registerTo = '/cadastro', highlight, title = 'Pl
                 ? <><s className="small muted">{fmtBRL(p.prices.MENSAL)}</s> <span style={{ fontSize: 26, fontWeight: 800 }}>{fmtBRL(p.introOffer.priceCents)}</span></>
                 : <span style={{ fontSize: 26, fontWeight: 800 }}>{fmtBRL(p.prices[cycle])}</span>}
               <span className="small muted"> /{cycle === 'MENSAL' ? 'mês' : 'ano'}</span>
-              {cycle === 'MENSAL' && p.introOffer && <div className="small" style={{ color: 'var(--brand)' }}>Cliente nova: {p.introOffer.text}</div>}
+              {cycle === 'MENSAL' && p.introOffer && <div className="small" style={{ color: 'var(--brand)' }}>{p.introOffer.label ? p.introOffer.text : <>Cliente nova: {p.introOffer.text}</>}</div>}
               {cycle === 'ANUAL' && p.annualSavings > 0 && <div className="small" style={{ color: 'var(--brand)' }}>Economize {fmtBRL(p.annualSavings)} por ano</div>}
             </div>
             <ul className="small" style={{ margin: 0, paddingLeft: 18, lineHeight: 1.6 }}>{p.features.map((f) => <li key={f}>{f}</li>)}</ul>

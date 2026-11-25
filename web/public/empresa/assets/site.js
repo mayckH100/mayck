@@ -117,6 +117,28 @@ if (/^\d{12,13}$/.test(MCK_WHATSAPP_NUMERO)) window.MCK_WA_BUTTON('https://wa.me
   }
   if (window.fetch) fetch('/api/public/site').then(function (r) { if (!r.ok) throw 0; return r.json(); }).then(applySite).catch(function () { /* mantém o conteúdo estático */ });
 
+  // v1.52.0: faixa promocional no topo (Painel Master › Configurações › Promoção do 1º mês). Desligada por padrão;
+  // aparece só enquanto a promoção vale e some sozinha depois da data (o servidor e o navegador conferem o prazo).
+  if (window.fetch) {
+    window.MCK_PLANOS = fetch('/api/public/plans').then(function (r) { if (!r.ok) throw 0; return r.json(); });
+    window.MCK_PLANOS.then(function (j) {
+      var pr = j && j.promo;
+      if (!pr || !pr.ate || Date.now() > Date.parse(pr.ate) || !Array.isArray(pr.planos) || !pr.planos.length || document.querySelector('.bfbar')) return;
+      var NOMES = { MCKBOT: 'MCKBOT', MCKMENSAGEM: 'MCK Mensagens', COMBO: 'Completo' };
+      var brl0 = function (c) { return 'R$ ' + (c / 100).toLocaleString('pt-BR', c % 100 ? { minimumFractionDigits: 2 } : {}); };
+      var precos = pr.planos.map(function (x) { return '<span class="bf-p">' + esc(NOMES[x.id] || x.id) + ' <s>' + brl0(x.de) + '</s> <strong>' + brl0(x.por) + '</strong></span>'; }).join('');
+      var bar = document.createElement('div');
+      bar.className = 'bfbar'; bar.setAttribute('role', 'region'); bar.setAttribute('aria-label', 'Promoção');
+      bar.innerHTML = '<div class="wrap"><strong class="bf-t">' + esc(pr.faixa || pr.nome) + '</strong><span class="bf-ps">' + precos + '</span><a class="bf-go" href="/empresa/planos.html">Ver planos</a></div>';
+      var nb = document.querySelector('.newsbar');
+      if (nb) nb.style.display = 'none';
+      document.body.insertBefore(bar, document.body.firstChild);
+      // Se a página ficar aberta até o fim do prazo, a faixa sai sozinha.
+      var falta = Date.parse(pr.ate) - Date.now();
+      if (falta > 0 && falta < 864e5 * 20) setTimeout(function () { bar.remove(); if (nb) nb.style.display = ''; }, falta + 1000);
+    }).catch(function () { /* sem faixa */ });
+  }
+
   // Planos: preços e dias de teste vêm do próprio app (mesmos valores do painel Master).
   var box = document.getElementById('plans');
   if (!box) return;
@@ -127,18 +149,22 @@ if (/^\d{12,13}$/.test(MCK_WHATSAPP_NUMERO)) window.MCK_WA_BUTTON('https://wa.me
   };
   var brl = function (c) { return (c / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }); };
   var cycle = 'MENSAL', data = null;
+  // v1.52.0: 3 cartões com o Plano Completo no meio, como recomendado.
+  var ORDEM = { MCKBOT: 1, COMBO: 2, MCKMENSAGEM: 3 };
   function render() {
     if (!data) return;
     document.querySelectorAll('[data-trial-days]').forEach(function (el) { el.textContent = data.trialDays; });
-    box.innerHTML = data.plans.map(function (p) {
+    var lista = data.plans.slice().sort(function (a, b) { return (ORDEM[a.id] || 9) - (ORDEM[b.id] || 9); });
+    box.innerHTML = lista.map(function (p) {
       var best = p.id === 'COMBO', price = p.prices[cycle], l = LINKS[p.id] || LINKS.MCKBOT;
       var save = cycle === 'ANUAL' && p.annualSavings > 0 ? 'Economize ' + brl(p.annualSavings) + ' por ano' : (cycle === 'ANUAL' ? '' : 'ou ' + brl(p.prices.ANUAL) + ' no plano anual');
-      // v1.27.0: promoção de cliente nova do Plano Completo (só no mensal): "R$ 58/mês nos 2 primeiros meses, depois R$ 100/mês".
-      var promo = cycle === 'MENSAL' && p.introOffer ? p.introOffer : null;
-      if (promo) save = 'Cliente nova: ' + esc(promo.text) + ' · ou ' + brl(p.prices.ANUAL) + ' no plano anual';
-      return '<div class="plan' + (best ? ' best' : '') + '">' + (best ? '<span class="badge">Mais completo</span>' : '') +
+      // Promoção (só no mensal): v1.52.0 promoção do 1º mês (ex.: Black Friday, some sozinha após a data);
+      // v1.27.0 promoção de cliente nova do Plano Completo.
+      var promo = cycle === 'MENSAL' && p.introOffer && !(p.introOffer.until && Date.now() > Date.parse(p.introOffer.until)) ? p.introOffer : null;
+      if (promo) save = promo.label ? esc(promo.label) + ': ' + brl(promo.priceCents) + ' no 1º mês, depois ' + brl(promo.regularPriceCents) + '/mês' : 'Cliente nova: ' + esc(promo.text) + ' · ou ' + brl(p.prices.ANUAL) + ' no plano anual';
+      return '<div class="plan' + (best ? ' best' : '') + '">' + (best ? '<span class="badge">Recomendado</span>' : '') + (promo && promo.label ? '<span class="plan-promo">' + esc(promo.label) + '</span>' : '') +
         '<h3>' + esc(p.label) + '</h3><p class="muted" style="color:var(--muted);margin:0">' + esc(p.desc) + '</p>' +
-        '<div class="price">' + (promo ? '<s style="font-size:.5em;opacity:.6">' + brl(price) + '</s> ' + brl(promo.priceCents) : brl(price)) + ' <small>/' + (cycle === 'MENSAL' ? 'mês' : 'ano') + '</small></div><div class="save">' + save + '</div>' +
+        '<div class="price">' + (promo ? '<s style="font-size:.5em;opacity:.6">' + brl(price) + '</s> ' + brl(promo.priceCents) : brl(price)) + ' <small>/' + (promo && promo.label ? '1º mês' : cycle === 'MENSAL' ? 'mês' : 'ano') + '</small></div><div class="save">' + save + '</div>' +
         '<ul class="check">' + p.features.map(function (x) { return '<li>' + esc(x) + '</li>'; }).join('') + '</ul>' +
         '<div class="acts"><a class="btn red block" href="' + l.trial + '">Começar teste grátis de ' + data.trialDays + ' dias</a>' +
         '<a class="btn ghost block" href="' + l.trial + '">Assinar ' + esc(p.label.replace('Combo MCKBOT + MCK Mensagens', 'o Combo')) + '</a>' +
@@ -151,7 +177,7 @@ if (/^\d{12,13}$/.test(MCK_WHATSAPP_NUMERO)) window.MCK_WA_BUTTON('https://wa.me
       bt.classList.add('on'); cycle = bt.getAttribute('data-c'); render(); if (window.MCK_TAG_LINKS) window.MCK_TAG_LINKS();
     });
   });
-  fetch('/api/public/plans').then(function (r) { if (!r.ok) throw 0; return r.json(); })
+  (window.MCK_PLANOS || fetch('/api/public/plans').then(function (r) { if (!r.ok) throw 0; return r.json(); }))
     .then(function (j) { data = j; render(); if (window.MCK_TAG_LINKS) window.MCK_TAG_LINKS(); })
     .catch(function () { box.innerHTML = '<div class="card" style="grid-column:1/-1;text-align:center"><h3>Não foi possível carregar os valores agora</h3><p>Os preços aparecem ao criar sua conta, na tela Plano do app. Dúvidas: <a href="mailto:mckdevbr@gmail.com">mckdevbr@gmail.com</a></p><p style="margin-top:16px"><a class="btn red" href="/cadastro">Começar teste grátis</a></p></div>'; });
 })();

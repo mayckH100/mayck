@@ -347,7 +347,10 @@ async function settingsView() {
   const s = await getSettings();
   const secret = await getWebhookSecret();
   const mpCheck = await checkMpCredential();
-  return { prices: s.prices, plans: s.plans, introOffer: s.introOffer, planStats: await planSubscriberStats(s.plans), modules: PLAN_MODULES, trialDays: s.trialDays, mpWebhookSecret: maskSecret(secret), mpWebhookSecretConfigured: !!secret, mpConfigured: !!process.env.MP_ACCESS_TOKEN, mpCheck, products: PLAN_PRODUCTS, cycles: CYCLES };
+  // v1.52.0: promoção do 1º mês (faixa do site) e preço antigo garantido do reajuste (só leitura).
+  const promoAgora = s.promo.enabled && !!s.promo.ate && Date.now() <= Date.parse(s.promo.ate);
+  const legacy = s.legacy ? { ate: s.legacy.ate.toISOString(), prices: s.legacy.prices, introOffer: s.legacy.introOffer } : null;
+  return { prices: s.prices, plans: s.plans, introOffer: s.introOffer, promo: s.promo, promoValendo: promoAgora, legacy, planStats: await planSubscriberStats(s.plans), modules: PLAN_MODULES, trialDays: s.trialDays, mpWebhookSecret: maskSecret(secret), mpWebhookSecretConfigured: !!secret, mpConfigured: !!process.env.MP_ACCESS_TOKEN, mpCheck, products: PLAN_PRODUCTS, cycles: CYCLES };
 }
 
 masterRouter.get('/settings', ah(async (_req, res) => res.json(await settingsView())));
@@ -369,6 +372,12 @@ masterRouter.put('/settings', ah(async (req, res) => {
     plans: z.object({ MCKBOT: planRow.optional(), MCKMENSAGEM: planRow.optional(), COMBO: planRow.optional() }).optional(),
     // v1.27.0: promoção de entrada do Plano Completo (mensal, só cliente nova).
     introOffer: z.object({ enabled: z.boolean().optional(), priceCents: cents.optional(), months: z.number().int().min(1).max(12).optional() }).optional(),
+    // v1.52.0: promoção do 1º mês (ex.: Black Friday) + faixa do topo do site.
+    promo: z.object({
+      enabled: z.boolean().optional(), codigo: z.string().trim().max(30).optional(), nome: z.string().trim().max(60).optional(),
+      ate: z.string().trim().max(40).nullable().optional(), faixa: z.string().trim().max(200).optional(),
+      precos: z.object({ MCKBOT: z.number().int().min(100).max(100_000_000).optional(), MCKMENSAGEM: z.number().int().min(100).max(100_000_000).optional(), COMBO: z.number().int().min(100).max(100_000_000).optional() }).optional(),
+    }).optional(),
     mpWebhookSecret: z.string().trim().max(500).nullable().optional(),
   }).parse(req.body);
   const before = body.plans ? (await getSettings()).plans : null;
@@ -380,7 +389,7 @@ masterRouter.put('/settings', ah(async (req, res) => {
   }
   // Auditoria: o que mudou nos planos (módulos e "visível" de cada um), sem textos longos.
   const plansMeta = before && body.plans ? Object.fromEntries(Object.keys(body.plans).map((k) => [k, { modules: body.plans![k as PlanProduct]?.modules, visible: body.plans![k as PlanProduct]?.visible, name: body.plans![k as PlanProduct]?.name, before: { modules: before[k as PlanProduct].modules, visible: before[k as PlanProduct].visible } }])) : undefined;
-  await audit(req, 'master.settings.update', { orgId: null, entity: 'platform_settings', entityId: 'default', meta: { trialDays: body.trialDays, prices: body.prices, plans: plansMeta, introOffer: body.introOffer, mpWebhookSecretChanged: body.mpWebhookSecret !== undefined } });
+  await audit(req, 'master.settings.update', { orgId: null, entity: 'platform_settings', entityId: 'default', meta: { trialDays: body.trialDays, prices: body.prices, plans: plansMeta, introOffer: body.introOffer, promo: body.promo, mpWebhookSecretChanged: body.mpWebhookSecret !== undefined } });
   res.json(await settingsView());
 }));
 

@@ -155,7 +155,7 @@ export function ProductCard({ product, sub, prices, configured, app, desc, label
             {!forSale(c) ? <div className="small muted">Indisponível</div> : cq ? <div><s className="small muted">{fmtBRL(cq.originalCents)}</s> <span style={{ fontSize: 18, fontWeight: 700 }}>{fmtBRL(cq.finalCents)}</span></div>
               : ci ? <div><s className="small muted">{fmtBRL(prices[c])}</s> <span style={{ fontSize: 18, fontWeight: 700 }}>{fmtBRL(ci.priceCents)}</span></div>
               : <div style={{ fontSize: 18, fontWeight: 700 }}>{fmtBRL(prices[c])}</div>}
-            <div className="small muted">{c === 'MENSAL' ? (ci ? `por mês · promoção de cliente nova: ${ci.text}` : 'por mês') : saving > 0 ? `por ano · economize ${fmtBRL(saving)}` : 'por ano'}</div>
+            <div className="small muted">{c === 'MENSAL' ? (ci ? (ci.label ? `1º mês · ${ci.text}` : `por mês · promoção de cliente nova: ${ci.text}`) : 'por mês') : saving > 0 ? `por ano · economize ${fmtBRL(saving)}` : 'por ano'}</div>
           </label>
           );
         })}
@@ -168,9 +168,9 @@ export function ProductCard({ product, sub, prices, configured, app, desc, label
         </div>
       )}
       {coupon && !q && (io && coupon.quotes[product]?.[cycle]
-        ? <div className="small muted">O cupom {coupon.coupon.code} não acumula com a promoção de cliente nova. Vale o menor preço: o promocional.</div>
+        ? <div className="small muted">O cupom {coupon.coupon.code} não acumula com a promoção {io.label ?? 'de cliente nova'}. Vale o menor preço: o promocional.</div>
         : <div className="small muted">O cupom {coupon.coupon.code} não vale para este plano/ciclo.</div>)}
-      {io && !q && <div className="small" style={{ color: 'var(--green, #15803d)' }}>Promoção de cliente nova: mês {(io.monthsUsed ?? 0) + 1} de {io.months} pelo preço promocional; depois, {fmtBRL(io.regularPriceCents)}/mês.</div>}
+      {io && !q && <div className="small" style={{ color: 'var(--green, #15803d)' }}>{io.label ? <>{io.label}{io.code ? <> (cupom {io.code} aplicado automaticamente)</> : null}: 1º mês por {fmtBRL(io.priceCents)}; depois, {fmtBRL(io.regularPriceCents)}/mês.</> : <>Promoção de cliente nova: mês {(io.monthsUsed ?? 0) + 1} de {io.months} pelo preço promocional; depois, {fmtBRL(io.regularPriceCents)}/mês.</>}</div>}
       <button className="btn primary" disabled={!configured || busy || !forSale(cycle)} onClick={pay}>
         {busy ? 'Abrindo pagamento…' : `Pagar ${fmtBRL(q ? q.finalCents : io ? io.priceCents : prices[cycle])} (Pix ou cartão)`}
       </button>
@@ -268,7 +268,7 @@ export default function Plan() {
                 <div className="grid g3">
                   {plansOf(b).map((pl) => (
                     <ProductCard key={pl.id} product={pl.id} sub={planSub(pl, subs)} prices={b.prices[pl.id]} configured={b.configured} coupon={coupon.applied}
-                      label={pl.name} desc={pl.desc || undefined} features={pl.features} hidden={!pl.visible} intro={b.introOffer} />
+                      label={pl.name} desc={pl.desc || undefined} features={pl.features} hidden={!pl.visible} intro={pl.introOffer ?? b.introOffer} />
                   ))}
                 </div>
                 <p className="small muted">O pagamento é processado pelo Mercado Pago. Ao renovar antes do vencimento, o novo período é somado ao que ainda resta. Novos clientes têm {b.trialDays} dia(s) de teste grátis.</p>
