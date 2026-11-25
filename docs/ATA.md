@@ -557,6 +557,7 @@ Entradas antigas assinadas "Hark" podem ser de qualquer um. Se não souber qual 
 - **Melhorar:** o servidor não registra os 400 da importação (sem log não deu para ver o erro real); considerar um registro leve de falhas de importação no AuditLog.
 
 ## Atualização 2026-11-24 (noite) — Leandro: v1.51.1 "⚠ Enviar mesmo assim" direto na campanha
+- **v1.51.2 (fd0715e, Live 21:54):** confirmação trocada do confirm() do navegador por modal próprio `AvisoRiscoModal` ("⚠️ AVISO" grande no topo, "MCK DESENVOLVIMENTO" embaixo), a pedido do Mayck.
 - **Pedido do Mayck:** não achava o botão e queria nas campanhas que já existem. Conferido: v1.51.0 mostra o botão no modal Nova/Editar (celular dele provavelmente com cache antigo).
 - **Feito:** botão vermelho "⚠ Enviar mesmo assim" no `Actions` (card da lista e detalhe) enquanto `!riscoLiberado`; confirma e faz PATCH `{envioFixo:true, channelId: principal, confirmarRisco:true}` (sem mudança no servidor). Typecheck web ok.
 - **Produção:** commit 9111e33, deploy dep-dc32v6m7bikc73bt63e0 Live 21:47 BRT; /api/versao = 1.51.1.
