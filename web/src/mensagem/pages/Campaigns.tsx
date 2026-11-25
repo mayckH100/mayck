@@ -268,7 +268,7 @@ function CampaignForm({ initial, onClose, onSaved }: { initial?: Campaign; onClo
   const [sorteio, setSorteio] = useState(1);
   const versoes = [f.message, ...f.variacoes.filter((v) => v.trim())];
   const versaoVista = Math.min(previewVersao, versoes.length - 1);
-  const previa = textoParaContato(versoes[versaoVista] ?? '', { campaignId: 'previa', leadId: String(sorteio), nome: previewName, saudacao: saudacaoDe(new Date()) });
+  const previa = textoParaContato(versoes[versaoVista] ?? '', { campaignId: 'previa', leadId: String(sorteio), nome: previewName, dono: 'Carlos Lima', empresa: 'Loja Exemplo', saudacao: saudacaoDe(new Date()) });
   const midiaVista = midias[versaoVista] ?? midias[0] ?? null;
   const midiaVistaIdx = midias[versaoVista] ? versaoVista : 0;
   const legendaLonga = temMidia && versoes.some((v) => v.length > LEGENDA_MAX);
@@ -308,12 +308,12 @@ function CampaignForm({ initial, onClose, onSaved }: { initial?: Campaign; onClo
         <Field label="Nome da campanha"><input required maxLength={120} value={f.name} onChange={(e) => set('name', e.target.value)} placeholder="Ex.: Black Friday clientes VIP" /></Field>
         <NumeroEnvioFields f={f} setF={setF} initial={initial} channels={channels.data ?? []} numeros={numeros} />
         {!f.envioFixo && sel && sel.status !== 'CONNECTED' && <div className="alert warn">Este número está desconectado: nada será enviado até reconectá-lo em <a href={MCKBOT_CHANNELS}>Canais do MCKBOT ↗</a>.</div>}
-        <Field label={f.variacoes.length ? 'Mensagem (versão A)' : 'Mensagem'} hint="Use {nome} (primeiro nome), {nome_completo}, {saudacao} (Bom dia/Boa tarde/Boa noite) e {Olá|Oi|E aí} para variar palavras. Inclua como sair, ex.: “Responda SAIR para não receber mais”.">
+        <Field label={f.variacoes.length ? 'Mensagem (versão A)' : 'Mensagem'} hint="Use {nome} (primeiro nome), {nome_completo}, {saudacao} (Bom dia/Boa tarde/Boa noite), {dono} e {empresa} (contatos da Consulta CNPJ) e {Olá|Oi|E aí} para variar palavras. Inclua como sair, ex.: “Responda SAIR para não receber mais”.">
           <textarea required rows={5} maxLength={4000} value={f.message} onChange={(e) => set('message', e.target.value)} />
         </Field>
         <MidiaCampo rotulo={f.variacoes.length ? 'Imagem ou PDF (versão A)' : 'Imagem ou PDF (opcional)'} m={midias[0] ?? null} onChange={(m) => setMidia(0, m)} />
         {temMidia && <div className={`small ${legendaLonga ? '' : 'muted'}`} style={legendaLonga ? { color: '#d64545' } : undefined}>Com arquivo, o texto vai como legenda da imagem/PDF (até {LEGENDA_MAX.toLocaleString('pt-BR')} caracteres). Imagem JPG/PNG/WEBP até {MIDIA_MAX_MB.imagem} MB; PDF até {MIDIA_MAX_MB.pdf} MB.</div>}
-        <div className="row small"><button type="button" className="btn sm" onClick={() => set('message', f.message + '{nome}')}>+ Inserir {'{nome}'}</button><button type="button" className="btn sm" onClick={() => set('message', f.message + '{saudacao}')}>+ {'{saudacao}'}</button><button type="button" className="btn sm" onClick={() => set('message', f.message + '{Olá|Oi|E aí}')} title="Cada contato recebe uma das palavras">+ Variação {'{Olá|Oi}'}</button><button type="button" className="btn sm" onClick={() => set('message', f.message.trimEnd() + '\n\nResponda SAIR para não receber mais mensagens.')}>+ Texto de saída</button><span className="muted">{f.message.length}/4000</span></div>
+        <div className="row small"><button type="button" className="btn sm" onClick={() => set('message', f.message + '{nome}')}>+ Inserir {'{nome}'}</button><button type="button" className="btn sm" onClick={() => set('message', f.message + '{saudacao}')}>+ {'{saudacao}'}</button><button type="button" className="btn sm" onClick={() => set('message', f.message + '{dono}')} title="Primeiro nome do sócio/dono (contatos da Consulta CNPJ)">+ {'{dono}'}</button><button type="button" className="btn sm" onClick={() => set('message', f.message + '{empresa}')} title="Nome da empresa (contatos da Consulta CNPJ)">+ {'{empresa}'}</button><button type="button" className="btn sm" onClick={() => set('message', f.message + '{Olá|Oi|E aí}')} title="Cada contato recebe uma das palavras">+ Variação {'{Olá|Oi}'}</button><button type="button" className="btn sm" onClick={() => set('message', f.message.trimEnd() + '\n\nResponda SAIR para não receber mais mensagens.')}>+ Texto de saída</button><span className="muted">{f.message.length}/4000</span></div>
         <div>
           <div className="row between small" style={{ marginBottom: 6 }}>
             <strong>Prévia</strong>
@@ -326,7 +326,7 @@ function CampaignForm({ initial, onClose, onSaved }: { initial?: Campaign; onClo
           )}
           <div className="mm-preview"><div className="b"><MidiaPrevia m={midiaVista} campaignId={initial?.id} versao={midiaVistaIdx} />{previa || <span className="muted">Sua mensagem aparece aqui</span>}<div className="t">{f.windowStart} ✓✓</div></div></div>
           <div className="row small" style={{ marginTop: 6 }}><button type="button" className="btn sm ghost" onClick={() => setSorteio((x) => x + 1)}>🎲 Ver outra variação</button><span className="muted">Cada contato recebe sempre o mesmo texto.</span></div>
-          {desconhecidas.length > 0 && <div className="alert warn small" style={{ marginTop: 6 }}>Não reconheço {desconhecidas.join(', ')}: vai sair escrito assim. Use {'{nome}'}, {'{nome_completo}'} ou {'{saudacao}'}.</div>}
+          {desconhecidas.length > 0 && <div className="alert warn small" style={{ marginTop: 6 }}>Não reconheço {desconhecidas.join(', ')}: vai sair escrito assim. Use {'{nome}'}, {'{nome_completo}'}, {'{saudacao}'}, {'{dono}'} ou {'{empresa}'}.</div>}
         </div>
         <VersoesFields f={f} set={set} midias={midias} setMidia={setMidia} onRemove={(i) => { set('variacoes', f.variacoes.filter((_, j) => j !== i)); setMidias((xs) => xs.filter((_, j) => j !== i + 1)); }} />
         <RepeticaoRodizioFields f={f} set={set} initial={initial} channels={channels.data ?? []} />

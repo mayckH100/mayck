@@ -21,6 +21,18 @@ export type EntradaChangelog = {
 
 export const CHANGELOG: EntradaChangelog[] = [
   {
+    versao: '1.53.0',
+    data: '25/11/2026',
+    titulo: 'MCK Mensagens: Consulta CNPJ para prospectar empresas',
+    itens: [
+      'Nova tela "Consulta CNPJ" no menu do MCK Mensagens: digite ou cole o CNPJ e veja na hora a ficha da empresa (situação, abertura, porte, atividade, endereço com mapa, telefone e e-mail do cadastro e quadro de sócios).',
+      'Botão de WhatsApp quando o telefone do cadastro é celular, e "Adicionar aos contatos" ou "Adicionar à campanha" em um clique, com a etiqueta que você escolher.',
+      'Consulta em lote: cole uma lista de CNPJs ou envie uma planilha, veja tudo numa tabela, exporte em planilha ou importe direto como contatos.',
+      'Novas palavras para a mensagem da campanha: {dono} (primeiro nome do sócio) e {empresa} (nome da empresa).',
+      'Cada contato guarda de onde veio o dado, e quem já pediu para sair (SAIR) continua bloqueado.',
+    ],
+  },
+  {
     versao: '1.52.1',
     data: '25/11/2026',
     titulo: 'Site: faixa da Black Friday e preços dos planos mais organizados',

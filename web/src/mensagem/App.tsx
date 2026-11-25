@@ -11,6 +11,7 @@ import { Versoes, VersaoRodape } from '../Versao';
 import MmDashboard from './pages/Dashboard';
 import MmLeads from './pages/Leads';
 import MmCampaigns from './pages/Campaigns';
+import ConsultaCnpj from './pages/ConsultaCnpj';
 import Sdr from '../pages/Sdr';
 import MmSubscription from './pages/Subscription';
 import AutomacoesModulo from './pages/automacoes/Index';
@@ -26,6 +27,8 @@ const NAV: { to: string; label: string; icon: string; module?: string }[] = [
   { to: '/', label: 'Painel', icon: '◔', module: 'mensagens' },
   { to: '/contatos', label: 'Contatos', icon: '☺', module: 'mensagens' },
   { to: '/campanhas', label: 'Campanhas', icon: '➤', module: 'mensagens' },
+  // v1.53.0: Consulta CNPJ / Prospecção.
+  { to: '/consulta-cnpj', label: 'Consulta CNPJ', icon: '🔎', module: 'mensagens' },
   // v1.20.0: a antiga "IA de qualificação" agora é a etapa de qualificação do SDR com IA (mesma tela do MCKBOT).
   { to: '/sdr', label: 'SDR com IA', icon: '🎯', module: 'mensagens' },
   { to: '/automacoes', label: 'Automações e Cobranças', icon: '⏱', module: 'automacoes' },
@@ -188,6 +191,7 @@ export default function MensagemApp() {
             <Route path="/contatos" element={<MmLeads />} />
             <Route path="/campanhas" element={<MmCampaigns />} />
             <Route path="/campanhas/:id" element={<MmCampaigns />} />
+            <Route path="/consulta-cnpj" element={<ConsultaCnpj />} />
             <Route path="/sdr" element={<Sdr app="mensagem" />} />
             <Route path="/ia-leads" element={<Navigate to="/sdr?aba=qualificacao" replace />} />
             <Route path="/automacoes/*" element={<AutomacoesModulo />} />

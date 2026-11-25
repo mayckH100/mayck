@@ -106,3 +106,29 @@ html.mm .tabs a { color: var(--muted); text-decoration: none; }
 @media (max-width: 820px) { .mm-cal-d .ev { display: none; } .mm-cal-d { min-height: 48px !important; } }
 .mm-row-sel td { background: var(--brand-soft); }
 .mm-foot { padding: 0 20px 20px; color: var(--muted, #666); }
+
+/* v1.53.0: Consulta CNPJ / Prospecção */
+.cnpj-busca { display: flex; gap: 8px; align-items: center; }
+.cnpj-busca input { flex: 1; min-width: 0; font-size: 16px; padding: 12px 14px; }
+.cnpj-ficha { display: grid; gap: 12px; }
+.cnpj-head.ok { box-shadow: inset 4px 0 0 #14a37f, var(--shadow); }
+.cnpj-head.baixa { box-shadow: inset 4px 0 0 var(--danger), var(--shadow); }
+.cnpj-situacao { font-weight: 800; font-size: 13px; letter-spacing: .04em; padding: 6px 12px; border-radius: 999px; white-space: nowrap; }
+.cnpj-situacao.ok { background: #e8f7ee; color: #1d6b3a; }
+.cnpj-situacao.baixa { background: var(--danger-soft); color: var(--danger); }
+.cnpj-fatos { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+.cnpj-fatos > div { display: grid; gap: 2px; background: var(--bg, #f6f8f7); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; min-width: 0; }
+.cnpj-fatos span { color: var(--muted); font-size: 12px; font-weight: 600; }
+.cnpj-fatos strong { overflow-wrap: anywhere; font-size: 14px; }
+.cnpj-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.cnpj-card { align-content: start; }
+.cnpj-linha { padding: 6px 0; border-top: 1px solid var(--line); gap: 8px; }
+.cnpj-linha:first-of-type { border-top: 0; }
+.cnpj-barra { height: 8px; background: var(--line); border-radius: 999px; overflow: hidden; }
+.cnpj-barra span { display: block; height: 100%; background: var(--brand); transition: width .3s; }
+.cnpj-tabela td { vertical-align: top; }
+@media (max-width: 760px) {
+  .cnpj-grid { grid-template-columns: 1fr; }
+  .cnpj-busca { flex-direction: column; align-items: stretch; }
+  .cnpj-situacao { font-size: 12px; padding: 4px 10px; }
+}

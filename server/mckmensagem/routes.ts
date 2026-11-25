@@ -32,6 +32,7 @@ import { allowedChannels } from '../lib/permissions.js';
 import { saudeDoNumero } from '../whatsapp/protecao/service.js';
 import { channelLabels } from '../whatsapp/channelLabel.js';
 import type { Request } from 'express';
+import { cnpjRouter } from './cnpjRoutes.js';
 
 export const mckmensagemRouter = Router();
 
@@ -44,6 +45,9 @@ mckmensagemRouter.use(ah(async (req, _res, next) => {
   if (!(await isProductActive(orgOf(req), 'MCKMENSAGEM'))) throw new HttpError(402, 'Assinatura MCK Mensagens inativa');
   next();
 }));
+
+// v1.53.0: Consulta CNPJ / Prospecção.
+mckmensagemRouter.use('/cnpj', cnpjRouter);
 
 /** Excluir contatos é restrito a OWNER/ADMIN (AGENT recebe 403). */
 const canDeleteLeads = requireRole('OWNER', 'ADMIN');
@@ -84,7 +88,7 @@ function leadWhere(orgId: string, q: LeadFilter) {
   if (q.optOut) where.optOutAt = q.optOut === 'sim' ? { not: null } : null;
   if (q.consent) where.consentAt = q.consent === 'sim' ? { not: null } : null;
   if (q.tag) where.tags = { contains: JSON.stringify(q.tag) };
-  if (q.q) where.OR = [{ name: { contains: q.q } }, { phone: { contains: q.q.replace(/[^\d+]/g, '') || q.q } }];
+  if (q.q) where.OR = [{ name: { contains: q.q } }, { phone: { contains: q.q.replace(/[^\d+]/g, '') || q.q } }, { empresa: { contains: q.q } }, ...(q.q.replace(/\D/g, '').length >= 8 ? [{ cnpj: { contains: q.q.replace(/\D/g, '') } }] : [])];
   return where;
 }
 

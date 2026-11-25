@@ -255,10 +255,10 @@ type ResultadoEnvio = 'sent' | 'failed' | 'retry' | 'duplicate';
  * v1.48.0: versão e texto do contato. Sem variações, {saudacao} nem {a|b}, é igual ao personalize antigo.
  * `possiveis` = o mesmo texto com as 3 saudações (trava de duplicidade não depende do horário).
  */
-export function textoDaCampanha(c: Pick<Campaign, 'id' | 'message' | 'variacoes' | 'abVencedora'>, lead: Pick<Lead, 'id' | 'name'>, gravada: number | null | undefined, now: Date) {
+export function textoDaCampanha(c: Pick<Campaign, 'id' | 'message' | 'variacoes' | 'abVencedora'>, lead: Pick<Lead, 'id' | 'name'> & Partial<Pick<Lead, 'dono' | 'empresa'>>, gravada: number | null | undefined, now: Date) {
   const versoes = versoesDaCampanha(c);
   const versao = escolherVersao({ campaignId: c.id, leadId: lead.id, total: versoes.length, gravada, vencedora: c.abVencedora });
-  const base = { campaignId: c.id, leadId: lead.id, nome: lead.name };
+  const base = { campaignId: c.id, leadId: lead.id, nome: lead.name, dono: lead.dono ?? null, empresa: lead.empresa ?? null };
   return { versao, texto: textoParaContato(versoes[versao], { ...base, saudacao: saudacaoDe(now) }), possiveis: textosPossiveis(versoes[versao], base) };
 }
 

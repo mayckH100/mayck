@@ -754,6 +754,11 @@ model Lead {
   lastIntent      String? // POSITIVO | NEGATIVO | DUVIDA | SAIR
   aiSummary       String? // resumo curto da IA sobre o lead
   qualifiedAt     DateTime?
+  // v1.53.0: Consulta CNPJ / Prospecção — dados do cadastro público da empresa (nunca dado pessoal de sócio além do nome).
+  cnpj            String?
+  empresa         String? // nome fantasia ou razão social ({empresa} na mensagem)
+  dono            String? // nome do sócio/administrador como a fonte devolve ({dono} na mensagem)
+  origemDado      String? // ex.: "Cadastro CNPJ – BrasilAPI – 25/11/2026"
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
@@ -3132,4 +3137,22 @@ model VoiceCloneCache {
 
   @@unique([profileId, textHash])
   @@index([orgId, createdAt])
+}
+
+/** v1.53.0: cache da Consulta CNPJ (dados públicos do cadastro da empresa; 30 dias). Compartilhado entre empresas. */
+model CnpjCache {
+  cnpj         String   @id
+  fonte        String
+  dados        String // JSON da ficha (sem CPF de sócio)
+  consultadoEm DateTime @default(now())
+}
+
+/** v1.53.0: uso diário da Consulta CNPJ por empresa (limite de consultas na fonte por dia). */
+model CnpjUso {
+  orgId     String
+  dia       String // AAAA-MM-DD (Brasília)
+  consultas Int    @default(0)
+  fonte     Int    @default(0)
+
+  @@id([orgId, dia])
 }

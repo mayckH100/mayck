@@ -17,6 +17,8 @@ export interface Lead {
   consentPending?: boolean;
   /** Outros números do mesmo cliente (mesmo nome normalizado). */
   otherNumbers?: number;
+  /** v1.53.0: Consulta CNPJ. */
+  cnpj?: string | null; empresa?: string | null; dono?: string | null; origemDado?: string | null;
 }
 export interface LeadPage { items: Lead[]; total: number; page: number; pageSize: number }
 export interface Campaign {

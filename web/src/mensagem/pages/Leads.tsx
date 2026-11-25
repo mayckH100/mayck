@@ -136,6 +136,9 @@ function EditLead({ lead, campaigns, onClose, onDone, onDelete }: { lead: Lead; 
             : <span className="badge amber">consentimento pendente</span>}
           {lead.fromMckbot && <> · <span className="badge blue" title="Mesmo contato do MCKBOT: nome e opt-out ficam sincronizados">MCKBOT</span></>}
         </div>
+        {lead.origemDado && (
+          <div className="alert info small"><strong>{lead.empresa ?? 'Empresa'}</strong>{lead.cnpj ? <> · CNPJ <span className="mono">{lead.cnpj}</span></> : null}{lead.dono ? <> · sócio/dono: {lead.dono}</> : null}<div className="muted">Origem: {lead.origemDado}</div></div>
+        )}
         {(full.data?.sameClient?.length ?? 0) > 0 && (
           <div className="alert info small"><strong>Mesmo cliente · outros números:</strong> {full.data!.sameClient.map((x) => fmtPhone(x.phone)).join(', ')}<div className="muted">Cada número é um contato próprio.</div></div>
         )}

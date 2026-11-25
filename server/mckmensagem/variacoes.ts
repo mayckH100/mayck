@@ -5,7 +5,8 @@
  * - Versões da mensagem: a principal (Campaign.message) + até MAX_VARIACOES extras. Cada contato recebe sempre a
  *   MESMA versão (sorteio fixo por campanha+contato), o que deixa o teste A/B justo e evita reenvio diferente.
  * - Spintax {Olá|Oi|E aí}: resolvido com sorteio fixo por campanha+contato (mesmo texto se precisar tentar de novo).
- * - Variáveis: {nome} (primeiro nome), {nome_completo}, {saudacao} (Bom dia/Boa tarde/Boa noite no horário de Brasília).
+ * - Variáveis: {nome} (primeiro nome), {nome_completo}, {saudacao} (Bom dia/Boa tarde/Boa noite no horário de Brasília),
+ *   {dono} (primeiro nome do sócio/dono vindo da Consulta CNPJ), {dono_completo} e {empresa} (v1.53.0).
  */
 
 export const MAX_VARIACOES = 3;
@@ -86,23 +87,29 @@ function limpar(t: string): string {
   return t.replace(/[ \t]+([,.!?])/g, '$1').replace(/[ \t]{2,}/g, ' ').trim();
 }
 
-/** Troca as variáveis. Nome vazio some sem deixar vírgula/espaço sobrando. */
-export function aplicarVariaveis(texto: string, v: { nome?: string | null; saudacao: string }): string {
+/** Troca as variáveis. Nome vazio some sem deixar vírgula/espaço sobrando. {dono}/{empresa}: v1.53.0 (Consulta CNPJ). */
+export function aplicarVariaveis(texto: string, v: { nome?: string | null; saudacao: string; dono?: string | null; empresa?: string | null }): string {
   const completo = (v.nome ?? '').trim().replace(/\s+/g, ' ');
   const primeiro = completo.split(' ')[0] ?? '';
+  const dono = (v.dono ?? '').trim().replace(/\s+/g, ' ');
   return limpar(texto
     .replace(/\{\s*nome_completo\s*\}/gi, completo)
     .replace(/\{\s*nome\s*\}/gi, primeiro)
+    .replace(/\{\s*dono_completo\s*\}/gi, dono)
+    .replace(/\{\s*dono\s*\}/gi, dono.split(' ')[0] ?? '')
+    .replace(/\{\s*empresa\s*\}/gi, (v.empresa ?? '').trim())
     .replace(/\{\s*sauda[cç][aã]o\s*\}/gi, v.saudacao));
 }
 
+type DadosContato = { nome?: string | null; dono?: string | null; empresa?: string | null };
+
 /** Texto final de uma versão para um contato (variações com sorteio fixo + variáveis). */
-export function textoParaContato(versao: string, a: { campaignId: string; leadId: string; nome?: string | null; saudacao: string }): string {
-  return aplicarVariaveis(resolverVariacoes(versao, randComSemente(`${a.campaignId}:${a.leadId}:txt`)), { nome: a.nome, saudacao: a.saudacao });
+export function textoParaContato(versao: string, a: { campaignId: string; leadId: string; saudacao: string } & DadosContato): string {
+  return aplicarVariaveis(resolverVariacoes(versao, randComSemente(`${a.campaignId}:${a.leadId}:txt`)), { nome: a.nome, saudacao: a.saudacao, dono: a.dono, empresa: a.empresa });
 }
 
 /** Os textos possíveis do contato com cada saudação (para a trava "nunca reenviar para quem já recebeu"). */
-export function textosPossiveis(versao: string, a: { campaignId: string; leadId: string; nome?: string | null }): string[] {
+export function textosPossiveis(versao: string, a: { campaignId: string; leadId: string } & DadosContato): string[] {
   return [...new Set(SAUDACOES.map((s) => textoParaContato(versao, { ...a, saudacao: s })))];
 }
 
@@ -111,7 +118,7 @@ export function variaveisDesconhecidas(texto: string): string[] {
   const out = new Set<string>();
   for (const m of texto.matchAll(/\{([^{}|]*)\}/g)) {
     const k = m[1].trim().toLowerCase();
-    if (!['nome', 'nome_completo', 'saudacao', 'saudação'].includes(k)) out.add(`{${m[1]}}`);
+    if (!['nome', 'nome_completo', 'saudacao', 'saudação', 'dono', 'dono_completo', 'empresa'].includes(k)) out.add(`{${m[1]}}`);
   }
   return [...out];
 }
