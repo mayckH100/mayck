@@ -10,7 +10,11 @@ import { useAuth, type Role } from '../auth';
 import { AtalhoLerCodigo } from './leitura/LerCodigo';
 
 /** Item do menu do ERP. `pai` = subitem do grupo daquela rota (v1.35.0, pedido do dono). */
-export type ErpItem = { to: string; label: string; end?: boolean; module?: string; pai?: string; roles?: Role[] };
+export type ErpItem = { to: string; label: string; end?: boolean; module?: string; pai?: string; roles?: Role[]; areas?: ErpAreaPerm[] };
+
+// v1.56.0: áreas que liberam cada aba (mesma regra de requireErpArea no servidor: principal + alternativas).
+const A_VENDAS: ErpAreaPerm[] = ['erp_vendas', 'erp_estoque', 'erp_financeiro'];
+const A_ESTOQUE: ErpAreaPerm[] = ['erp_estoque', 'erp_vendas', 'erp_compras'];
 
 export const ERP_ITENS: ErpItem[] = [
   { to: '/erp', label: 'Painel CRM', end: true },
@@ -23,20 +27,20 @@ export const ERP_ITENS: ErpItem[] = [
   { to: '/erp/funil', label: 'Funil de vendas' },
   { to: '/erp/clientes', label: 'Clientes' },
   { to: '/erp/fornecedores', label: 'Fornecedores' },
-  { to: '/erp/pedidos', label: 'Pedidos' },
+  { to: '/erp/pedidos', label: 'Pedidos', areas: A_VENDAS },
   // v1.34.0: localizar pedido por leitura (QR/código de barras) ou digitação. v1.35.0: dentro de Pedidos.
-  { to: '/erp/pedidos/localizar', label: 'Localizar pedido', pai: '/erp/pedidos' },
-  { to: '/erp/produtos', label: 'Produtos' },
-  { to: '/erp/estoque', label: 'Estoque' },
+  { to: '/erp/pedidos/localizar', label: 'Localizar pedido', pai: '/erp/pedidos', areas: A_VENDAS },
+  { to: '/erp/produtos', label: 'Produtos', areas: A_ESTOQUE },
+  { to: '/erp/estoque', label: 'Estoque', areas: A_ESTOQUE },
   // v1.33.0: rastreabilidade de lote (busca única: produto, lote, lote do fornecedor, nota, pedido).
-  { to: '/erp/rastreio', label: 'Rastreio de lote' },
-  { to: '/erp/compras', label: 'Compras' },
-  { to: '/erp/producao', label: 'Produção' },
-  { to: '/erp/financeiro', label: 'Financeiro' },
-  { to: '/erp/fiscal', label: 'Fiscal' },
+  { to: '/erp/rastreio', label: 'Rastreio de lote', areas: A_ESTOQUE },
+  { to: '/erp/compras', label: 'Compras', areas: ['erp_compras', 'erp_estoque', 'erp_financeiro'] },
+  { to: '/erp/producao', label: 'Produção', areas: ['erp_compras', 'erp_estoque'] },
+  { to: '/erp/financeiro', label: 'Financeiro', areas: ['erp_financeiro'] },
+  { to: '/erp/fiscal', label: 'Fiscal', areas: ['erp_financeiro'] },
   { to: '/erp/maquininhas', label: 'Maquininhas', module: 'erp_vendas' },
-  { to: '/erp/bi', label: 'BI' },
-  { to: '/erp/alertas', label: 'Alertas' },
+  { to: '/erp/bi', label: 'BI', areas: ['erp_relatorios'] },
+  { to: '/erp/alertas', label: 'Alertas', areas: ['erp_relatorios'] },
   // v1.54.0: logo e dados da empresa nos documentos impressos (só Proprietário/Administrador).
   { to: '/erp/documentos-impressos', label: 'Documentos impressos', roles: ['OWNER', 'ADMIN'] },
 ];
@@ -88,6 +92,12 @@ export function podeItem(i: { area?: ErpAreaPerm; module?: string; roles?: Role[
   return podeArea(i.area, hasModule) && (!i.module || hasModule(i.module)) && (!i.roles || can(...i.roles));
 }
 
+/** Aba visível? módulo/papel do item + pelo menos uma das áreas dele (permissão antiga sem áreas vê tudo). */
+export function podeAba(i: ErpItem, hasModule: (m: string) => boolean, can: (...r: Role[]) => boolean) {
+  const areaOk = !i.areas || !AREAS_PERM.some((m) => hasModule(m)) || i.areas.some((a) => hasModule(a));
+  return areaOk && (!i.module || hasModule(i.module)) && (!i.roles || can(...i.roles));
+}
+
 export function abaAtiva(path: string): string | null {
   let melhor: string | null = null;
   for (const i of ERP_ITENS) {
@@ -119,7 +129,7 @@ export function ErpAbas() {
     const alvo = el.offsetLeft - (b.clientWidth - el.offsetWidth) / 2;
     if (typeof b.scrollTo === 'function') b.scrollTo({ left: Math.max(0, alvo), behavior: 'smooth' }); else b.scrollLeft = Math.max(0, alvo);
   }, [grupo]);
-  const pode = (i: ErpItem) => (!i.module || hasModule(i.module)) && (!i.roles || can(...i.roles));
+  const pode = (i: ErpItem) => podeAba(i, hasModule, can);
   const itens = ERP_ITENS.filter((i) => !i.pai && pode(i));
   const pai = grupo ? ERP_ITENS.find((i) => i.to === grupo) : null;
   const subs = pai ? subitensDe(pai.to).filter(pode) : [];

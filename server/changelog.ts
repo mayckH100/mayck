@@ -21,6 +21,14 @@ export type EntradaChangelog = {
 
 export const CHANGELOG: EntradaChangelog[] = [
   {
+    versao: '1.55.1',
+    data: '26/11/2026',
+    titulo: 'MCK ERP: menu mostra só o que a pessoa pode abrir',
+    itens: [
+      'Quem tem acesso só a algumas áreas do ERP não vê mais abas que não pode usar (por exemplo Financeiro, Fiscal, BI ou Compras), evitando telas com "sem permissão".',
+    ],
+  },
+  {
     versao: '1.55.0',
     data: '26/11/2026',
     titulo: 'MCK ERP: PDF em tudo e cabeçalho mais profissional',
