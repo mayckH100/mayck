@@ -2717,6 +2717,31 @@ model ErpConfigFiscal {
 }
 
 /**
+ * v1.54.0: identidade dos documentos impressos (pedido, orçamento, romaneio, recibo, OC, OP, financeiro, inventário).
+ * Cabeçalho configurado pelo cliente (logo + dados). O rodapé "Gerado pelo MCK ERP · MCK DESENVOLVIMENTO · site"
+ * é fixo no código e NÃO tem coluna aqui: o cliente não consegue alterar nem desligar.
+ */
+model ErpDocumentoConfig {
+  orgId        String   @id
+  nomeExibicao String   @default("")
+  cnpj         String   @default("")
+  ie           String   @default("")
+  logradouro   String   @default("")
+  numero       String   @default("")
+  bairro       String   @default("")
+  cidade       String   @default("")
+  uf           String   @default("")
+  cep          String   @default("")
+  telefone     String   @default("")
+  whatsapp     String   @default("")
+  email        String   @default("")
+  site         String   @default("")
+  textoLivre   String   @default("")
+  logo         String? // data URL (PNG/JPEG/WEBP, ≤ 500 KB), tipo conferido pelos bytes
+  updatedAt    DateTime @updatedAt
+}
+
+/**
  * Regra de tributação: por produto, por prefixo de NCM ou padrão (sem produto e sem NCM).
  */
 model ErpRegraFiscal {

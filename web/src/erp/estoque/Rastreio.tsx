@@ -8,6 +8,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { useApi, Async, Empty } from '../../ui';
 import { qtdUn } from '../../../../server/erp/shared/unidade';
 import { LoteCard, CampoLeitura, dataBr } from './lotes';
+import { CabecalhoImpressao, RodapeImpressao } from '../impressao/MarcaImpressao';
 
 const COR: Record<string, string> = { entrada: '#16a34a', producao: '#16a34a', devolucao: '#16a34a', saida: '#dc2626', consumo: '#b45309', baixa: '#dc2626', inventario: '#7c3aed', transferencia: '#2563eb', reserva: '#64748b', separacao: '#0891b2', qualidade: '#64748b' };
 const hora = (d: string) => new Date(d).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', dateStyle: 'short', timeStyle: 'short' });
@@ -63,6 +64,7 @@ function LoteDetalhe({ id, onVoltar }: { id: string; onVoltar?: () => void }) {
             <a className="btn sm" href={`/api/erp/estoque/rastreio/lote/${id}/csv`}>⬇️ Exportar (planilha CSV)</a>
             <button className="btn sm" onClick={() => window.print()}>🖨️ Imprimir / salvar PDF</button>
           </div>
+          <CabecalhoImpressao />
           <LoteCard l={r.lote} unidade={un} acoes={false} />
 
           {r.reservadoPara.length > 0 && <div className="card" style={{ marginBottom: 8 }}>
@@ -105,6 +107,7 @@ function LoteDetalhe({ id, onVoltar }: { id: string; onVoltar?: () => void }) {
               </div>
             ))}
           </div>
+          <RodapeImpressao />
         </>
       );
     }}</Async>

@@ -4,6 +4,8 @@ import { get, post, put } from '../../api';
 import { useApi, Async, Empty, Modal, Field, useAction, fmtDate } from '../../ui';
 import { brl, qtd, toMil, toCents, fromCents } from '../format';
 import { BuscaProduto } from '../comum';
+import { imprimir } from '../impressao/cabecalho';
+import { diaSP, esc } from '../impressao/modelo';
 
 const ST: Record<string, string> = { PLANEJADA: 'Planejada', LIBERADA: 'Liberada', EM_PRODUCAO: 'Em produção', ENCERRADA: 'Encerrada', CANCELADA: 'Cancelada' };
 const ACAO: Record<string, string> = { LIBERAR: 'Liberar (reserva componentes)', INICIAR: 'Iniciar', ENCERRAR: 'Encerrar', CANCELAR: 'Cancelar', ESTORNAR_LIBERACAO: 'Estornar liberação' };
@@ -78,7 +80,7 @@ function Op({ id, onClose }: { id: string; onClose: () => void }) {
             <div className="row" style={{ justifyContent: 'flex-end' }}><button className="btn primary" disabled={busy || !ap.enderecoId || toMil(ap.boa) + toMil(ap.refugo) <= 0} onClick={async () => { if (await run(() => post(`/erp/producao/ops/${id}/apontar`, { qtdBoaMil: toMil(ap.boa), qtdRefugoMil: toMil(ap.refugo), enderecoId: ap.enderecoId, validade: ap.validade || null, encerrar: ap.encerrar }), 'Produção apontada')) { setAp({ ...ap, boa: '', refugo: '0' }); st.reload(); } }}>Apontar</button></div>
           </div>}
           {o.apontamentos.length > 0 && <table style={{ marginTop: 8 }}><thead><tr><th>Quando</th><th>Boa</th><th>Refugo</th><th>Lote</th><th>Custo un.</th></tr></thead><tbody>{o.apontamentos.map((a: any) => <tr key={a.id}><td>{fmtDate(a.createdAt)}</td><td>{qtd(a.qtdBoaMil)}</td><td>{qtd(a.qtdRefugoMil)}</td><td>{a.lote ?? '—'}</td><td>{brl(a.custoUnitCents)}</td></tr>)}</tbody></table>}
-          <div className="row" style={{ justifyContent: 'flex-end', gap: 6, flexWrap: 'wrap', marginTop: 8 }}>{o.acoes.map((a: string) => <button key={a} className={`btn ${a === 'LIBERAR' ? 'primary' : ''}`} disabled={busy} onClick={() => acao(a)}>{ACAO[a] ?? a}</button>)}</div>
+          <div className="row" style={{ justifyContent: 'flex-end', gap: 6, flexWrap: 'wrap', marginTop: 8 }}><button className="btn ghost" onClick={() => imprimirOp(o)}>🖨️ Imprimir OP</button>{o.acoes.map((a: string) => <button key={a} className={`btn ${a === 'LIBERAR' ? 'primary' : ''}`} disabled={busy} onClick={() => acao(a)}>{ACAO[a] ?? a}</button>)}</div>
         </>
       )}</Async>
     </Modal>
@@ -152,4 +154,18 @@ function Mrp() {
       </>
     )}</Async>
   );
+}
+
+/** v1.54.0: ordem de produção impressa (chão de fábrica), com o cabeçalho da empresa e o rodapé da MCK. */
+function imprimirOp(o: any) {
+  const un = o.produto?.unidade ?? '';
+  imprimir(() => ({
+    titulo: `Ordem de produção nº ${o.numero}`,
+    corpo: `<h2>Ordem de produção nº ${esc(o.numero)}</h2><div class="small">Status: ${esc(ST[o.status] ?? o.status)} · origem ${esc(o.origem)}${o.inicioPrevisto ? ` · início ${esc(diaSP(o.inicioPrevisto))}` : ''}${o.fimPrevisto ? ` · fim previsto ${esc(diaSP(o.fimPrevisto))}` : ''}</div>
+      <p>Produto: <b>${esc(o.produto?.sku)} · ${esc(o.produto?.nome)}</b><br>Quantidade planejada: <b>${esc(qtd(o.qtdPlanejadaMil))} ${esc(un)}</b> · produzido até agora: ${esc(qtd(o.qtdProduzidaMil))} ${esc(un)}</p>
+      <h3>Componentes</h3><table><thead><tr><th>Componente</th><th class="dir">Previsto</th><th class="dir">Reservado</th><th class="dir">Consumido</th><th>Separado ☐</th></tr></thead><tbody>${o.componentes.map((c: any) => `<tr><td>${esc(c.produto?.sku)} · ${esc(c.produto?.nome)}</td><td class="dir">${esc(qtd(c.qtdPrevistaMil))} ${esc(c.produto?.unidade ?? '')}</td><td class="dir">${esc(qtd(c.qtdReservadaMil))}</td><td class="dir">${esc(qtd(c.qtdConsumidaMil))}</td><td>☐</td></tr>`).join('')}</tbody></table>
+      ${o.apontamentos.length ? `<h3>Apontamentos</h3><table><thead><tr><th>Quando</th><th class="dir">Boa</th><th class="dir">Refugo</th><th>Lote</th></tr></thead><tbody>${o.apontamentos.map((a: any) => `<tr><td>${esc(fmtDate(a.createdAt))}</td><td class="dir">${esc(qtd(a.qtdBoaMil))}</td><td class="dir">${esc(qtd(a.qtdRefugoMil))}</td><td>${esc(a.lote ?? '—')}</td></tr>`).join('')}</tbody></table>` : ''}
+      <h3>Apontamento manual</h3><table><thead><tr><th>Data</th><th>Quantidade boa</th><th>Refugo</th><th>Lote</th><th>Responsável</th></tr></thead><tbody>${'<tr><td>&nbsp;</td><td></td><td></td><td></td><td></td></tr>'.repeat(4)}</tbody></table>
+      <p style="margin-top:28px">Liberado por: ____________________ &nbsp; Produzido por: ____________________ &nbsp; Conferido por: ____________________</p>`,
+  })).catch((e) => alert((e as Error).message));
 }

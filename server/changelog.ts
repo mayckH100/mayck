@@ -21,6 +21,18 @@ export type EntradaChangelog = {
 
 export const CHANGELOG: EntradaChangelog[] = [
   {
+    versao: '1.54.0',
+    data: '26/11/2026',
+    titulo: 'MCK ERP: seu logo e seus dados nos documentos impressos',
+    itens: [
+      'Nova tela MCK ERP › Documentos impressos: envie o logo da sua empresa e preencha nome, CNPJ, IE, endereço, telefone, WhatsApp, e-mail, site e um texto curto. Tem prévia na hora.',
+      'Pedido de venda, romaneio de separação, recibo do balcão, ordem de compra e fechamento de caixa saem com o seu cabeçalho.',
+      'Pedido ainda em rascunho sai como Orçamento, com a data de validade. O botão na tela do pedido mostra "Orçamento".',
+      'Novas impressões: recibo ou comprovante de pagamento e lista de contas do período no Financeiro, ordem de produção e folha de contagem do inventário.',
+      'Funciona no celular: o botão de imprimir também salva em PDF.',
+    ],
+  },
+  {
     versao: '1.53.2',
     data: '25/11/2026',
     titulo: 'Corrigir nome e empresa reimportando a planilha',

@@ -441,3 +441,14 @@ a.kpi:hover { text-decoration: none; border-color: #c9c9cf; }
 .erp-subabas a { padding: 8px 10px; font-size: 12.5px; }
 .erp-abas a:focus-visible { outline: 2px solid var(--brand); outline-offset: -2px; border-radius: 6px; }
 @media (max-width: 820px) { .erp-abas { margin: -4px -14px 12px; padding: 0 8px; } }
+
+/* v1.54.0 — cabeçalho/rodapé dos documentos em telas impressas direto (window.print): só no papel/PDF. */
+.so-impressao { display: none; }
+@media print {
+  .so-impressao { display: block; }
+  .so-impressao .mck-cab { display: flex; gap: 10px; align-items: center; border-bottom: 2px solid #111; padding-bottom: 6px; margin-bottom: 8px; color: #000; }
+  .so-impressao .mck-logo { max-width: 45mm; max-height: 22mm; object-fit: contain; }
+  .so-impressao .mck-cab-dados { flex: 1; font-size: 11px; line-height: 1.35; }
+  .so-impressao .mck-cab-nome { font-size: 16px; font-weight: bold; }
+  .so-impressao .mck-rodape { font-size: 9px; color: #555; text-align: center; border-top: 1px solid #bbb; padding-top: 3px; margin-top: 12px; }
+}

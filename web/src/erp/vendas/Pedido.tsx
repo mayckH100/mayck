@@ -40,7 +40,7 @@ export default function Pedido() {
             <div className="row" style={{ flexWrap: 'wrap' }}>
               <Link className="btn" to="/erp/pedidos">Voltar</Link>
               <Link className="btn" to={`/erp/rastreio?pedido=${p.id}`}>🔎 Lotes deste pedido</Link>
-              <Imprimir pedidoId={p.id} balcao={!!p.nfNumero?.startsWith('BALCAO-')} />
+              <Imprimir pedidoId={p.id} balcao={!!p.nfNumero?.startsWith('BALCAO-')} orcamento={p.statusOperacional === 'RASCUNHO'} />
               {p.acoes.filter((a: string) => !OCULTAS.has(a) && (a !== 'APROVAR' || can('OWNER', 'ADMIN'))).map((a: string) => (
                 <button key={a} className={`btn ${a === 'CANCELAR' || a === 'REPROVAR' || a === 'DEVOLVER' ? 'ghost' : 'primary'}`} disabled={busy} onClick={() => (PEDE[a] ? setPedindo(a) : acao(a))}>{ROTULO[a] ?? a}</button>
               ))}
@@ -70,12 +70,13 @@ export default function Pedido() {
 }
 
 /** Imprimir pedido / romaneio / recibo (todos com QR e código de barras do pedido para localizar depois). */
-function Imprimir({ pedidoId, balcao }: { pedidoId: string; balcao: boolean }) {
+function Imprimir({ pedidoId, balcao, orcamento }: { pedidoId: string; balcao: boolean; orcamento?: boolean }) {
   const toast = useToast();
   const ir = (t: TipoDocumento) => imprimirDocumento(t, pedidoId).catch((e) => toast((e as Error).message, 'err'));
   return <>
     {balcao && <button className="btn" onClick={() => ir('recibo')}>🧾 Recibo</button>}
-    <button className="btn" onClick={() => ir('pedido')}>🖨️ Pedido</button>
+    {/* v1.54.0: rascunho imprime como orçamento (com "Válido até"). */}
+    <button className="btn" onClick={() => ir('pedido')}>{orcamento ? '🖨️ Orçamento' : '🖨️ Pedido'}</button>
     <button className="btn" onClick={() => ir('romaneio')}>📦 Romaneio</button>
   </>;
 }

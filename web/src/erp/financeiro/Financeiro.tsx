@@ -3,7 +3,9 @@ import { useState } from 'react';
 import { get, post } from '../../api';
 import { useAuth } from '../../auth';
 import { useApi, Async, Empty, Modal, Field, useAction, useToast } from '../../ui';
-import { brl, toCents, fromCents } from '../format';
+import { brl, toCents, fromCents, fmtDoc } from '../format';
+import { imprimir } from '../impressao/cabecalho';
+import { esc } from '../impressao/modelo';
 import NovoTitulo, { NATUREZA } from './NovoTitulo';
 import Categorias from './Categorias';
 
@@ -51,7 +53,8 @@ function Painel() {
 function Titulos({ tipo }: { tipo: 'RECEBER' | 'PAGAR' }) {
   const [filtro, setFiltro] = useState('ABERTOS');
   const [nat, setNat] = useState(''); // a pagar: '' todas | FORNECEDOR | CONTAS (água, luz, internet...)
-  const l = useApi<any[]>(`/erp/financeiro/titulos?tipo=${tipo}&status=${filtro === 'TODOS' ? '' : filtro}${tipo === 'PAGAR' && nat ? `&natureza=${nat}` : ''}`, [filtro, nat]);
+  const [per, setPer] = useState({ de: '', ate: '' }); // v1.54.0: período (vencimento) para a lista e a impressão
+  const l = useApi<any[]>(`/erp/financeiro/titulos?tipo=${tipo}&status=${filtro === 'TODOS' ? '' : filtro}${tipo === 'PAGAR' && nat ? `&natureza=${nat}` : ''}${per.de ? `&de=${per.de}` : ''}${per.ate ? `&ate=${per.ate}` : ''}`, [filtro, nat, per.de, per.ate]);
   const [novo, setNovo] = useState(false); const [baixar, setBaixar] = useState<string | null>(null); const [cats, setCats] = useState(false);
   return (
     <>
@@ -60,6 +63,11 @@ function Titulos({ tipo }: { tipo: 'RECEBER' | 'PAGAR' }) {
         <select value={filtro} onChange={(e) => setFiltro(e.target.value)} aria-label="Filtro"><option value="ABERTOS">Em aberto</option><option value="PAGO">Pagos</option><option value="CANCELADO">Cancelados</option><option value="TODOS">Todos</option></select>
         <button className="btn" onClick={() => setCats(true)}>Categorias</button>
         {tipo === 'PAGAR' && ([['', 'Todas'], ['FORNECEDOR', 'Fornecedores'], ['CONTAS', 'Contas da empresa']] as const).map(([v, r]) => <button key={v} className={`btn sm ${nat === v ? 'primary' : ''}`} onClick={() => setNat(v)}>{r}</button>)}
+      </div>
+      <div className="row" style={{ marginBottom: 10, gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+        <span className="small muted">Vencimento de</span><input type="date" value={per.de} onChange={(e) => setPer({ ...per, de: e.target.value })} aria-label="Vencimento de" />
+        <span className="small muted">até</span><input type="date" value={per.ate} onChange={(e) => setPer({ ...per, ate: e.target.value })} aria-label="Vencimento até" />
+        <button className="btn sm" disabled={!l.data?.length} onClick={() => imprimirLista(tipo, l.data ?? [], { ...per, filtro })}>🖨️ Imprimir lista</button>
       </div>
       <Async state={l}>{(d) => d.length === 0 ? <div className="card"><Empty title="Nada por aqui">{tipo === 'RECEBER' ? 'Pedidos faturados entram aqui sozinhos.' : 'NF-e de entrada lançadas entram aqui sozinhas.'}</Empty></div> : (
         <div className="card table-wrap"><table><thead><tr><th>Vencimento</th><th>{tipo === 'RECEBER' ? 'Cliente' : 'Fornecedor / conta'}</th><th>Descrição</th><th>Valor</th><th>Saldo</th><th>Status</th><th></th></tr></thead>
@@ -102,6 +110,7 @@ function Titulo({ id, onClose }: { id: string; onClose: () => void }) {
               {pix && <div className="card small" style={{ wordBreak: 'break-all' }}>{pix} <button className="btn sm" onClick={() => { navigator.clipboard.writeText(pix); toast('Copiado'); }}>Copiar</button></div>}
             </div>}
             {t.baixas.length > 0 && <table style={{ marginTop: 8 }}><thead><tr><th>Data</th><th>Principal</th><th>Juros</th><th>Desconto</th><th>Forma</th><th></th></tr></thead><tbody>{t.baixas.map((x: any) => <tr key={x.id} style={{ opacity: x.estornada ? 0.5 : 1 }}><td>{dt(x.data)}</td><td>{brl(x.valorCents)}</td><td>{brl(x.jurosCents)}</td><td>{brl(x.descontoCents)}</td><td>{x.forma}{x.estornada && ' · estornada'}</td><td>{!x.estornada && can('OWNER', 'ADMIN') && <button className="btn sm ghost" onClick={async () => { if (confirm('Estornar esta baixa?') && await run(() => post(`/erp/financeiro/baixas/${x.id}/estornar`, {}), 'Estornada')) st.reload(); }}>Estornar</button>}</td></tr>)}</tbody></table>}
+            {t.baixas.some((x: any) => !x.estornada) && <div className="row" style={{ justifyContent: 'flex-end', marginTop: 8 }}><button className="btn" onClick={() => imprimirComprovante(t)}>🧾 {t.tipo === 'RECEBER' ? 'Recibo' : 'Comprovante'} de pagamento</button></div>}
             {t.pagoCents === 0 && t.status !== 'CANCELADO' && can('OWNER', 'ADMIN') && <div className="row" style={{ justifyContent: 'flex-end', marginTop: 8 }}><button className="btn ghost" onClick={async () => { const motivo = prompt('Motivo do cancelamento'); if (motivo && await run(() => post(`/erp/financeiro/titulos/${id}/cancelar`, { motivo }), 'Cancelado')) st.reload(); }}>Cancelar título</button></div>}
           </>
         );
@@ -184,4 +193,38 @@ function Dre() {
       <Async state={st}>{(d) => <div className="card"><table><tbody>{linhas.map(([k, l, tot]) => <tr key={k} style={{ fontWeight: tot ? 700 : 400 }}><td>{l}</td><td style={{ textAlign: 'right', color: d[k] < 0 ? '#dc2626' : undefined }}>{brl(d[k])}</td></tr>)}</tbody></table><p className="small muted">DRE gerencial pelo plano de contas. Lançamentos sem categoria entram como receita bruta (recebimentos) ou despesa operacional (pagamentos).</p></div>}</Async>
     </>
   );
+}
+
+// v1.54.0: impressões do financeiro com o cabeçalho da empresa e o rodapé da MCK.
+const FORMA_PG: Record<string, string> = { PIX: 'Pix', BOLETO: 'Boleto', TED: 'Transferência', DINHEIRO: 'Dinheiro', CARTAO: 'Cartão', CHEQUE: 'Cheque' };
+const avisar = (e: unknown) => alert((e as Error).message);
+
+/** Recibo (a receber) ou comprovante (a pagar) das baixas não estornadas. */
+function imprimirComprovante(t: any) {
+  const receber = t.tipo === 'RECEBER';
+  const baixas = t.baixas.filter((x: any) => !x.estornada);
+  const totalPago = baixas.reduce((a: number, x: any) => a + x.valorCents + (x.jurosCents ?? 0) - (x.descontoCents ?? 0), 0);
+  const titulo = receber ? 'Recibo de pagamento' : 'Comprovante de pagamento';
+  const quem = t.parceiro?.nome ?? '—';
+  imprimir(() => ({
+    titulo,
+    corpo: `<h2>${titulo}</h2><div class="small">Título: ${esc(t.descricao)}${t.parcelas > 1 ? ` · parcela ${esc(t.parcela)}/${esc(t.parcelas)}` : ''} · vencimento ${esc(dt(t.vencimento))}</div>
+      <p>${receber ? 'Recebemos de' : 'Pago a'} <b>${esc(quem)}</b>${t.parceiro?.documento ? ` (${esc(fmtDoc(t.parceiro.documento))})` : ''} a quantia de <b>${brl(totalPago)}</b>, referente a ${esc(t.descricao)}.</p>
+      <table><thead><tr><th>Data</th><th>Forma</th><th>Conta</th><th class="dir">Principal</th><th class="dir">Juros/multa</th><th class="dir">Desconto</th></tr></thead><tbody>${baixas.map((x: any) => `<tr><td>${esc(dt(x.data))}</td><td>${esc(FORMA_PG[x.forma] ?? x.forma)}</td><td>${esc(x.contaNome ?? '')}</td><td class="dir">${brl(x.valorCents)}</td><td class="dir">${brl(x.jurosCents)}</td><td class="dir">${brl(x.descontoCents)}</td></tr>`).join('')}</tbody></table>
+      <div class="tot">Valor do título ${brl(t.valorCents)} · Pago ${brl(t.pagoCents)} · Saldo ${brl(Math.max(0, t.valorCents - t.pagoCents))}<br><b>${t.status === 'PAGO' ? 'Quitado' : 'Pagamento parcial'}</b></div>
+      <p style="margin-top:40px;text-align:center">______________________________________<br>${receber ? 'Assinatura de quem recebeu' : 'Assinatura'}</p>`,
+  }), 'width=800,height=900').catch(avisar);
+}
+
+/** Lista de contas a receber/pagar do filtro e período da tela. */
+function imprimirLista(tipo: 'RECEBER' | 'PAGAR', d: any[], f: { de: string; ate: string; filtro: string }) {
+  const nomeTipo = tipo === 'RECEBER' ? 'Contas a receber' : 'Contas a pagar';
+  const periodo = f.de || f.ate ? `Vencimento ${f.de ? `de ${f.de.split('-').reverse().join('/')}` : ''} ${f.ate ? `até ${f.ate.split('-').reverse().join('/')}` : ''}` : 'Todos os vencimentos';
+  const filtro = { ABERTOS: 'em aberto', PAGO: 'pagos', CANCELADO: 'cancelados', TODOS: 'todos' }[f.filtro] ?? '';
+  imprimir(() => ({
+    titulo: nomeTipo,
+    corpo: `<h2>${nomeTipo}</h2><div class="small">${esc(periodo)} · ${esc(filtro)} · ${d.length} título(s)</div>
+      <table><thead><tr><th>Vencimento</th><th>${tipo === 'RECEBER' ? 'Cliente' : 'Fornecedor / conta'}</th><th>Descrição</th><th class="dir">Valor</th><th class="dir">Saldo</th><th>Status</th></tr></thead><tbody>${d.map((t) => `<tr><td>${esc(dt(t.vencimento))}${t.vencido ? ' ⚠' : ''}</td><td>${esc(t.natureza && t.natureza !== 'FORNECEDOR' ? (t.tipoConta ?? NATUREZA[t.natureza] ?? 'Conta') : (t.parceiro ?? '—'))}</td><td>${esc(t.descricao)}</td><td class="dir">${brl(t.valorCents)}</td><td class="dir">${brl(t.saldoCents)}</td><td>${esc(ST[t.status] ?? t.status)}</td></tr>`).join('')}</tbody></table>
+      <div class="tot">Total ${brl(d.reduce((a, t) => a + t.valorCents, 0))} · <b>Saldo em aberto ${brl(d.reduce((a, t) => a + t.saldoCents, 0))}</b></div>${d.some((t) => t.vencido) ? '<div class="small">⚠ vencido</div>' : ''}`,
+  })).catch(avisar);
 }

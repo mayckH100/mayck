@@ -12,6 +12,8 @@ import { useApi, Async, Empty, Modal, Field, useAction, useToast, fmtDate } from
 import { qtd, toMil, brl } from '../format';
 import { qtdUn } from '../../../../server/erp/shared/unidade';
 import { CampoLeitura } from './lotes';
+import { imprimir } from '../impressao/cabecalho';
+import { esc } from '../impressao/modelo';
 
 const STATUS: Record<string, string> = { CONTANDO: 'Contando', EM_APROVACAO: 'Aguardando aprovação', CONCLUIDO: 'Concluído', CANCELADO: 'Cancelado' };
 
@@ -100,7 +102,10 @@ function Inventario({ id, depositos, onClose, onAjustado }: { id: string; deposi
             </div>
           </>}
 
-          {inv.status !== 'CONTANDO' && <button className="btn sm primary" style={{ marginBottom: 8 }} onClick={() => setRelatorio(true)}>📊 Relatório Físico x Sistema</button>}
+          <div className="row" style={{ gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
+            {inv.status !== 'CONTANDO' && <button className="btn sm primary" onClick={() => setRelatorio(true)}>📊 Relatório Físico x Sistema</button>}
+            <button className="btn sm" onClick={() => imprimirFolha(inv)}>🖨️ Folha de contagem</button>
+          </div>
           <div style={{ maxHeight: 340, overflow: 'auto' }}>
             {inv.contagens.map((x: any) => (
               <div key={x.id} className="row between" style={{ borderTop: '1px solid #e5e7eb', padding: '6px 0', gap: 6, flexWrap: 'wrap' }}>
@@ -173,4 +178,19 @@ function Relatorio({ id, status, onClose, onAprovado }: { id: string; status: st
       }}</Async>
     </Modal>
   );
+}
+
+/**
+ * v1.54.0: folha de contagem (papel/PDF) por local, com o cabeçalho da empresa e o rodapé da MCK. Em inventário cego o
+ * saldo do sistema não sai (o servidor já não manda). Linhas em branco no fim para itens achados fora da lista.
+ */
+function imprimirFolha(inv: any) {
+  const linhas = [...inv.contagens].sort((a: any, b: any) => String(a.endereco ?? '').localeCompare(String(b.endereco ?? '')) || String(a.produto?.nome ?? '').localeCompare(String(b.produto?.nome ?? '')));
+  const mostraSistema = !inv.cego && linhas.some((x: any) => x.sistemaMil != null);
+  imprimir(() => ({
+    titulo: `Folha de contagem · ${inv.descricao}`,
+    corpo: `<h2>Folha de contagem · ${esc(inv.descricao)}</h2><div class="small">${esc(STATUS[inv.status] ?? inv.status)}${inv.cego ? ' · contagem cega' : ''} · aberto em ${esc(fmtDate(inv.createdAt))} · ${linhas.length} linha(s)</div>
+      <table><thead><tr><th>Local</th><th>Código</th><th>Produto</th><th>Lote</th>${mostraSistema ? '<th class="dir">Sistema</th>' : ''}<th style="width:22%">Contado</th></tr></thead><tbody>${linhas.map((x: any) => `<tr><td><b>${esc(x.endereco ?? '—')}</b></td><td>${esc(x.produto?.sku ?? '')}</td><td>${esc(x.produto?.nome ?? '')}</td><td>${esc(x.lote ?? '—')}</td>${mostraSistema ? `<td class="dir">${x.sistemaMil == null ? '' : esc(qtd(x.sistemaMil))}</td>` : ''}<td style="border-bottom:1px solid #000">&nbsp;</td></tr>`).join('')}${`<tr><td>&nbsp;</td><td></td><td></td><td></td>${mostraSistema ? '<td></td>' : ''}<td style="border-bottom:1px solid #000"></td></tr>`.repeat(6)}</tbody></table>
+      <p style="margin-top:28px">Contado por: ____________________ &nbsp; Data: ___/___/______ &nbsp; Conferido por: ____________________</p>`,
+  })).catch((e) => alert((e as Error).message));
 }

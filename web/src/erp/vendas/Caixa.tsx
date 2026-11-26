@@ -8,6 +8,7 @@ import { post } from '../../api';
 import { useApi, Async, Empty, Modal, Field, useAction } from '../../ui';
 import { useAuth } from '../../auth';
 import { brl, toCents } from '../format';
+import { imprimir } from '../impressao/cabecalho';
 
 export const FORMA_NOME: Record<string, string> = { DINHEIRO: 'Dinheiro', PIX: 'Pix', CARTAO: 'Cartão' };
 
@@ -208,17 +209,18 @@ export default function RelatorioCaixa() {
   const det = useApi<any>(`/erp/vendas/caixa/sessoes/${id}`, [id]);
   // Caixa ainda aberto: atualiza os valores a cada minuto.
   useEffect(() => { if (det.data?.status !== 'ABERTO') return; const t = setInterval(() => det.reload(), 60_000); return () => clearInterval(t); }, [det.data?.status, det.reload]);
-  function imprimir() {
+  // v1.54.0: fechamento com o cabeçalho da empresa e o rodapé da MCK. O conteúdo vem da tela (já escapado pelo React).
+  function imprimirFechamento() {
     const el = document.getElementById('relatorio-caixa'); if (!el) return;
-    const w = window.open('', '_blank', 'width=700,height=800'); if (!w) return;
-    w.document.write(`<html><head><title>Fechamento de caixa</title><style>body{font-family:sans-serif;font-size:13px;padding:16px}table{border-collapse:collapse;width:100%;margin:8px 0}td,th{border-bottom:1px solid #ddd;padding:4px 6px;text-align:left}h2,h3{margin:8px 0}.no-print{display:none}</style></head><body>${el.innerHTML}</body></html>`);
-    w.document.close(); setTimeout(() => { w.focus(); w.print(); }, 400);
+    const html = el.innerHTML;
+    imprimir(() => ({ titulo: 'Fechamento de caixa', corpo: html, css: 'body{font-size:13px}.no-print,button{display:none!important}td,th{border-bottom:1px solid #ddd;padding:4px 6px}h2,h3{margin:8px 0}' }), 'width=700,height=800')
+      .catch((e) => alert((e as Error).message));
   }
   return (
     <>
       <div className="page-head">
         <div><h1>Relatório do caixa</h1><p className="muted">Abertura, vendas por forma de pagamento, sangrias, suprimentos e conferência do dinheiro.</p></div>
-        <div className="row" style={{ gap: 6 }}><Link className="btn" to="/erp/balcao">Voltar ao PDV</Link><button className="btn primary" onClick={imprimir} disabled={!det.data}>Imprimir</button></div>
+        <div className="row" style={{ gap: 6 }}><Link className="btn" to="/erp/balcao">Voltar ao PDV</Link><button className="btn primary" onClick={imprimirFechamento} disabled={!det.data}>🖨️ Imprimir</button></div>
       </div>
       <Async state={det}>{(d) => (
         <div className="card" id="relatorio-caixa">

@@ -3,13 +3,15 @@ import { useState } from 'react';
 import { get, post, put } from '../../api';
 import { useAuth } from '../../auth';
 import { useApi, Async, Empty, Modal, Field, useAction, fmtDate } from '../../ui';
-import { brl, qtd, toMil, toCents, fromCents } from '../format';
+import { brl, qtd, toMil, toCents, fromCents, fmtDoc } from '../format';
 import { BuscaParceiro, EditorItens, type LinhaItem } from '../comum';
 import OQueComprar from './OQueComprar';
 import { useSearchParams } from 'react-router-dom';
 import { linhaCompra, qtdComEmbalagem, temEmbalagem } from '../../../../server/erp/shared/embalagem';
 import { ROTULO_STATUS_COMPRA, ROTULO_EVENTO_COMPRA, ETAPAS_COMPRA } from '../../../../server/erp/compras/compra.machine';
 import { diaBr } from '../../../../server/erp/compras/prazo';
+import { imprimir } from '../impressao/cabecalho';
+import { diaSP, esc } from '../impressao/modelo';
 
 // Solicitação (início do fluxo): aberta → aguardando aprovação do gestor → aprovada → vira OC (atendida).
 const ST: Record<string, string> = { RASCUNHO: 'Solicitação aberta', EM_APROVACAO: 'Aguardando aprovação do gestor', APROVADA: 'Aprovada', REPROVADA: 'Reprovada', ATENDIDA: 'Virou OC', CANCELADA: 'Cancelada', ABERTA: 'Aberta', ENCERRADA: 'Encerrada' };
@@ -225,11 +227,17 @@ function PedidoCompra({ id, onClose }: { id: string; onClose: () => void }) {
     if (evento === 'FINALIZAR' && !confirm('Finalizar a OC? Confirme que a entrada no estoque já foi feita (Estoque › Entrada).')) return;
     if (await run(() => post(`/erp/compras/pedidos/${id}/acao`, { evento, motivo, observacao }), 'Feito')) st.reload();
   };
-  function imprimir(p: any) {
-    const w = window.open('', '_blank', 'width=800,height=900'); if (!w) return;
-    const esc = (s: unknown) => String(s ?? '').replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]!));
-    w.document.write(`<!doctype html><html><head><title>Pedido de compra ${p.numero}</title><style>body{font-family:Arial;margin:24px}table{width:100%;border-collapse:collapse}td,th{border:1px solid #ccc;padding:6px;text-align:left}</style></head><body><h2>Pedido de compra nº ${p.numero}</h2><p>Fornecedor: <b>${esc(p.parceiro?.nome)}</b> · CNPJ ${esc(p.parceiro?.documento)}</p><p>Previsão de entrega: ${p.prazo?.previsaoDia ? diaBr(p.prazo.previsaoDia) : '—'} · Condição: ${esc(p.condicao ?? '—')}</p><table><tr><th>Produto</th><th>Qtd</th><th>Preço un.</th><th>Total</th></tr>${p.itens.map((i: any) => `<tr><td>${esc(i.produto?.sku)} · ${esc(i.descricao)}</td><td>${esc(qtdComEmbalagem(i.qtdMil, i.produto ?? {}))}</td><td>${brl(i.precoUnitCents)}</td><td>${brl(i.totalCents)}</td></tr>`).join('')}</table><p>Frete: ${brl(p.freteCents)} · <b>Total: ${brl(p.totalCents)}</b></p><p>${esc(p.observacoes ?? '')}</p><p>Informe o número deste pedido na nota fiscal.</p></body></html>`);
-    w.document.close(); setTimeout(() => { w.focus(); w.print(); }, 400);
+  // v1.54.0: ordem de compra com o cabeçalho da empresa (logo e dados) e o rodapé da MCK.
+  function imprimirOc(p: any) {
+    imprimir(() => ({
+      titulo: `Ordem de compra nº ${p.numero}`,
+      corpo: `<h2>Ordem de compra nº ${esc(p.numero)}</h2>${p.emitidoEm ? `<div class="small">Emitida em ${esc(diaSP(p.emitidoEm))}</div>` : ''}
+        <p>Fornecedor: <b>${esc(p.parceiro?.nome)}</b>${p.parceiro?.documento ? ` · CNPJ ${esc(fmtDoc(p.parceiro.documento))}` : ''}</p>
+        <p>Previsão de entrega: ${p.prazo?.previsaoDia ? esc(diaBr(p.prazo.previsaoDia)) : '—'} · Condição: ${esc(p.condicao ?? '—')}</p>
+        <table><thead><tr><th>Produto</th><th>Qtd</th><th>Preço un.</th><th>Total</th></tr></thead><tbody>${p.itens.map((i: any) => `<tr><td>${esc(i.produto?.sku)} · ${esc(i.descricao)}</td><td>${esc(qtdComEmbalagem(i.qtdMil, i.produto ?? {}))}</td><td>${brl(i.precoUnitCents)}</td><td>${brl(i.totalCents)}</td></tr>`).join('')}</tbody></table>
+        <div class="tot">Frete: ${brl(p.freteCents)} · <b>Total: ${brl(p.totalCents)}</b></div>
+        ${p.observacoes ? `<p>${esc(p.observacoes).replace(/\n/g, '<br>')}</p>` : ''}<p><b>Informe o número desta ordem de compra na nota fiscal.</b></p>`,
+    })).catch((e) => alert((e as Error).message));
   }
   return (
     <Modal title="Ordem de compra" onClose={onClose}>
@@ -250,7 +258,7 @@ function PedidoCompra({ id, onClose }: { id: string; onClose: () => void }) {
           {['ENVIADO', 'RECEBIDO_PARCIAL', 'AGUARDANDO_NF'].includes(p.status) && <p className="small muted">A NF pode ser registrada pela importação do XML em Estoque › NF-e (vinculando a esta OC) ou pelo botão "NF registrada".</p>}
           {['EM_CONFERENCIA', 'LIBERADA_ESTOQUE'].includes(p.status) && p.nfes.some((n: any) => n.status === 'PENDENTE') && <p className="small muted">A entrada no estoque acontece ao lançar a NF-e em Estoque › NF-e.</p>}
           <div className="row" style={{ justifyContent: 'flex-end', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
-            <button className="btn ghost" onClick={() => imprimir(p)}>Imprimir / PDF</button>
+            <button className="btn ghost" onClick={() => imprimirOc(p)}>🖨️ Imprimir / PDF</button>
             {p.acoes.filter((a: string) => a !== 'APROVAR' || !p.precisaGestor || can('OWNER', 'ADMIN')).map((a: string) => <button key={a} className={`btn ${['APROVAR', 'ENVIAR', 'ENVIAR_FORNECEDOR', 'LIBERAR_QUALIDADE', 'CONCLUIR_CONFERENCIA'].includes(a) ? 'primary' : ''}`} disabled={busy} onClick={() => acao(a)}>{ACAO[a] ?? a}</button>)}
           </div>
           <h3 style={{ marginTop: 14 }}>Linha do tempo</h3>

@@ -10,7 +10,7 @@ import { useAuth, type Role } from '../auth';
 import { AtalhoLerCodigo } from './leitura/LerCodigo';
 
 /** Item do menu do ERP. `pai` = subitem do grupo daquela rota (v1.35.0, pedido do dono). */
-export type ErpItem = { to: string; label: string; end?: boolean; module?: string; pai?: string };
+export type ErpItem = { to: string; label: string; end?: boolean; module?: string; pai?: string; roles?: Role[] };
 
 export const ERP_ITENS: ErpItem[] = [
   { to: '/erp', label: 'Painel CRM', end: true },
@@ -37,6 +37,8 @@ export const ERP_ITENS: ErpItem[] = [
   { to: '/erp/maquininhas', label: 'Maquininhas', module: 'erp_vendas' },
   { to: '/erp/bi', label: 'BI' },
   { to: '/erp/alertas', label: 'Alertas' },
+  // v1.54.0: logo e dados da empresa nos documentos impressos (só Proprietário/Administrador).
+  { to: '/erp/documentos-impressos', label: 'Documentos impressos', roles: ['OWNER', 'ADMIN'] },
 ];
 /** Aba ativa: a rota mais específica que bate (ex.: /erp/pedidos/123 → Pedidos; /erp/pedidos/localizar → Localizar pedido). */
 /**
@@ -104,7 +106,7 @@ export function grupoAtivo(path: string): string | null {
 export const subitensDe = (to: string) => ERP_ITENS.filter((i) => i.pai === to);
 
 export function ErpAbas() {
-  const { hasModule } = useAuth();
+  const { hasModule, can } = useAuth();
   const loc = useLocation();
   const barra = useRef<HTMLDivElement>(null);
   const ativa = abaAtiva(loc.pathname);
@@ -117,7 +119,7 @@ export function ErpAbas() {
     const alvo = el.offsetLeft - (b.clientWidth - el.offsetWidth) / 2;
     if (typeof b.scrollTo === 'function') b.scrollTo({ left: Math.max(0, alvo), behavior: 'smooth' }); else b.scrollLeft = Math.max(0, alvo);
   }, [grupo]);
-  const pode = (i: ErpItem) => !i.module || hasModule(i.module);
+  const pode = (i: ErpItem) => (!i.module || hasModule(i.module)) && (!i.roles || can(...i.roles));
   const itens = ERP_ITENS.filter((i) => !i.pai && pode(i));
   const pai = grupo ? ERP_ITENS.find((i) => i.to === grupo) : null;
   const subs = pai ? subitensDe(pai.to).filter(pode) : [];

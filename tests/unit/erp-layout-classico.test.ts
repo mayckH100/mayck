@@ -11,7 +11,7 @@ const rotasApp = new Set([...app.matchAll(/<Route path="(\/erp[^"]*)"/g)].map((m
 
 describe('MCK ERP · layout clássico (abas da v1.36.0)', () => {
   it('abas de cima na ordem das primeiras versões, com o Resumo logo depois da Venda balcão', () => {
-    expect(ERP_ITENS.filter((i) => !i.pai).map((i) => i.label)).toEqual(['Painel CRM', 'Venda balcão (PDV)', 'Resumo', 'Funil de vendas', 'Clientes', 'Fornecedores', 'Pedidos', 'Produtos', 'Estoque', 'Rastreio de lote', 'Compras', 'Produção', 'Financeiro', 'Fiscal', 'Maquininhas', 'BI', 'Alertas']);
+    expect(ERP_ITENS.filter((i) => !i.pai).map((i) => i.label)).toEqual(['Painel CRM', 'Venda balcão (PDV)', 'Resumo', 'Funil de vendas', 'Clientes', 'Fornecedores', 'Pedidos', 'Produtos', 'Estoque', 'Rastreio de lote', 'Compras', 'Produção', 'Financeiro', 'Fiscal', 'Maquininhas', 'BI', 'Alertas', 'Documentos impressos']);
     expect(app).not.toMatch(/Resumos'.*VendasResumo|itensDoMenu/);
     expect(app).toMatch(/<ErpAbas \/>/);
   });

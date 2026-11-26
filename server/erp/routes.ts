@@ -11,6 +11,7 @@ import { caixaRouter } from './vendas/caixa.routes.js';
 import { cobrancaCartaoRouter, maquininhasRouter } from './maquininhas/maquininhas.routes.js';
 import { importacaoRouter } from './importacao/importacao.routes.js';
 import { Router } from 'express';
+import { documentosRouter } from './documentos/documentos.routes.js';
 import { ah } from '../lib/http.js';
 import { orgOf } from '../auth/session.js';
 import { erpLiberado, erpPlanoMsg, planosComErp } from '../billing/erpAccess.js';
@@ -74,6 +75,8 @@ erpRouter.use('/bi', requireErpArea('erp_relatorios'), biRouter);
 erpRouter.use('/alertas', requireErpArea('erp_relatorios'), alertasRouter);
 erpRouter.use('/relatorios', requireErpArea('erp_relatorios'), relatoriosRouter);
 erpRouter.use('/io', importacaoRouter);
+// v1.54.0: cabeçalho dos documentos impressos (logo e dados da empresa); leitura para todo o ERP, escrita só OWNER/ADMIN.
+erpRouter.use('/documentos', documentosRouter);
 
 /** Chamado na subida do servidor (fora dos testes). */
 export function iniciarErp() { iniciarDespachante(); }

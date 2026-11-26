@@ -200,7 +200,13 @@ financeiroRouter.get('/titulos/:id', ah(async (req, res) => {
   if (!t) throw notFound('Título');
   const cfg = await configDa(orgId);
   const saldo = t.valorCents - t.pagoCents;
-  res.json({ ...t, saldoCents: saldo, encargosHoje: t.tipo === 'RECEBER' && t.status !== 'CANCELADO' ? encargos(saldo, t.vencimento, new Date(), cfg.multaAtrasoBp, cfg.jurosMesBp) : null });
+  // v1.54.0: cliente/fornecedor e conta das baixas para o comprovante impresso.
+  const [parc, contas] = await Promise.all([
+    t.parceiroId ? prisma.erpParceiro.findFirst({ where: { id: t.parceiroId, orgId }, select: { nome: true, fantasia: true, documento: true } }) : null,
+    prisma.erpContaFinanceira.findMany({ where: { orgId, id: { in: [...new Set(t.baixas.map((b) => b.contaId))] } }, select: { id: true, nome: true } }),
+  ]);
+  const C = new Map(contas.map((c) => [c.id, c.nome] as const));
+  res.json({ ...t, baixas: t.baixas.map((b) => ({ ...b, contaNome: b.contaId ? C.get(b.contaId) ?? null : null })), parceiro: parc ? { nome: parc.fantasia || parc.nome, documento: parc.documento } : null, saldoCents: saldo, encargosHoje: t.tipo === 'RECEBER' && t.status !== 'CANCELADO' ? encargos(saldo, t.vencimento, new Date(), cfg.multaAtrasoBp, cfg.jurosMesBp) : null });
 }));
 
 /**

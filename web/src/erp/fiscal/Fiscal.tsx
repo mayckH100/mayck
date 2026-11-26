@@ -6,6 +6,7 @@ import { useAuth } from '../../auth';
 import { useApi, Async, Empty, Modal, Field, useAction, useToast, fmtDate } from '../../ui';
 import { brl } from '../format';
 import { BuscaProduto } from '../comum';
+import { rodapeHtml } from '../impressao/modelo';
 
 const ST: Record<string, string> = { ASSINADA: 'Assinada (não transmitida)', AUTORIZADA: 'Autorizada', REJEITADA: 'Rejeitada', CANCELADA: 'Cancelada' };
 const chaveFmt = (c: string) => c.replace(/(\d{4})/g, '$1 ').trim();
@@ -25,6 +26,10 @@ export default function Fiscal({ aba: inicial }: { aba?: AbaFiscal } = {}) {
   );
 }
 
+/**
+ * DANFE: layout fiscal próprio (emitente vem da NF-e). v1.54.0: só acrescenta o rodapé da MCK no fim, fora dos quadros
+ * fiscais (sem cabeçalho/logo do cliente, para não conflitar com o modelo do DANFE).
+ */
 export async function imprimirDanfe(id: string) {
   const d = await get<any>(`/erp/fiscal/nfe/${id}/danfe`);
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
@@ -35,7 +40,7 @@ export async function imprimirDanfe(id: string) {
   const itens = Array.from(doc.getElementsByTagName('det')).map((det) => `<tr><td>${esc(tx(det, 'cProd'))}</td><td>${esc(tx(det, 'xProd'))}</td><td>${tx(det, 'NCM')}</td><td>${tx(det, 'CFOP')}</td><td>${tx(det, 'uCom')}</td><td>${Number(tx(det, 'qCom')).toLocaleString('pt-BR')}</td><td>${Number(tx(det, 'vUnCom')).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td><td>${Number(tx(det, 'vProd')).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td></tr>`).join('');
   const v = (t: string) => Number(tx(doc.getElementsByTagName('ICMSTot')[0] ?? doc, t) || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
   const w = window.open('', '_blank', 'width=900,height=1000'); if (!w) return;
-  w.document.write(`<!doctype html><html><head><title>DANFE ${d.numero}</title><style>body{font-family:Arial;font-size:11px;margin:16px}table{width:100%;border-collapse:collapse}td,th{border:1px solid #000;padding:3px;vertical-align:top}.h{font-size:9px;color:#333}h2{margin:0}</style></head><body>
+  w.document.write(`<!doctype html><html><head><title>DANFE ${d.numero}</title><style>body{font-family:Arial;font-size:11px;margin:16px}table{width:100%;border-collapse:collapse}td,th{border:1px solid #000;padding:3px;vertical-align:top}.h{font-size:9px;color:#333}h2{margin:0}.mck-rodape{font-size:8px;color:#555;text-align:center;margin-top:6px}</style></head><body>
   ${d.ambiente === 2 ? '<p style="color:#c00;font-weight:bold">AMBIENTE DE HOMOLOGAÇÃO — SEM VALOR FISCAL</p>' : ''}${d.status === 'CANCELADA' ? '<p style="color:#c00;font-weight:bold">NF-e CANCELADA</p>' : ''}
   <table><tr><td style="width:45%"><h2>${esc(d.emitente.razaoSocial)}</h2>${esc(d.emitente.logradouro)}, ${esc(d.emitente.numero)} · ${esc(d.emitente.bairro)}<br>${esc(d.emitente.municipio)}/${d.emitente.uf} · CEP ${d.emitente.cep}</td>
   <td style="text-align:center"><h2>DANFE</h2>Documento Auxiliar da Nota Fiscal Eletrônica<br>1 - SAÍDA<br><b>Nº ${d.numero} · Série ${d.serie}</b></td>
@@ -45,7 +50,7 @@ export async function imprimirDanfe(id: string) {
   <p><b>DESTINATÁRIO</b></p><table><tr><td>${esc(d.destinatario?.nome ?? '')}</td><td>CNPJ/CPF ${d.destinatario?.documento ?? ''}</td><td>IE ${d.destinatario?.inscricaoEstadual ?? ''}</td></tr><tr><td colspan="2">${esc([d.destinatario?.logradouro, d.destinatario?.numero, d.destinatario?.bairro].filter(Boolean).join(', '))}</td><td>${esc(d.destinatario?.municipio ?? '')}/${d.destinatario?.uf ?? ''}</td></tr></table>
   <p><b>CÁLCULO DO IMPOSTO</b></p><table><tr><td><span class="h">BASE ICMS</span><br>${v('vBC')}</td><td><span class="h">VALOR ICMS</span><br>${v('vICMS')}</td><td><span class="h">VALOR PRODUTOS</span><br>${v('vProd')}</td><td><span class="h">FRETE</span><br>${v('vFrete')}</td><td><span class="h">DESCONTO</span><br>${v('vDesc')}</td><td><span class="h">IPI</span><br>${v('vIPI')}</td><td><span class="h">VALOR TOTAL DA NOTA</span><br><b>${v('vNF')}</b></td></tr></table>
   <p><b>DADOS DOS PRODUTOS</b></p><table><tr><th>Código</th><th>Descrição</th><th>NCM</th><th>CFOP</th><th>Un</th><th>Qtd</th><th>V. unit.</th><th>V. total</th></tr>${itens}</table>
-  <p><b>DADOS ADICIONAIS</b></p><table><tr><td>${esc(tx(doc, 'infCpl'))}</td></tr></table></body></html>`);
+  <p><b>DADOS ADICIONAIS</b></p><table><tr><td>${esc(tx(doc, 'infCpl'))}</td></tr></table>${rodapeHtml()}</body></html>`);
   w.document.close(); setTimeout(() => { w.focus(); w.print(); }, 400);
 }
 

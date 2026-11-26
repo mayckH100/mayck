@@ -2,14 +2,16 @@
  * Pedido impresso, romaneio e recibo do balcão (v1.34.0). Cada um sai com o QR e o código de barras do pedido
  * ("PV-123"): depois, é só ler em "Ler código" ou em "Localizar pedido" para abrir o pedido.
  *  - recibo: bobina de 80 mm (impressora térmica comum) ou qualquer impressora; não é documento fiscal;
- *  - pedido: A4 com preços;  - romaneio: A4 sem preços, com endereço, lote, validade e conferência.
+ *  - pedido: A4 com preços (rascunho = "Orçamento nº X" com "Válido até");  - romaneio: A4 sem preços, com endereço, lote, validade e conferência.
+ * v1.54.0: todos com o cabeçalho da empresa (logo e dados) e o rodapé da MCK (ver ../impressao/modelo.ts).
  */
 import JsBarcode from 'jsbarcode';
 import QRCode from 'qrcode';
 import { get } from '../../api';
+import { imprimir } from '../impressao/cabecalho';
+import { diaSP, esc, tituloPedido } from '../impressao/modelo';
 
 export type TipoDocumento = 'recibo' | 'pedido' | 'romaneio';
-const esc = (s: unknown) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
 const brl = (c: number) => (c / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 const q = (m: number) => (m / 1000).toLocaleString('pt-BR', { maximumFractionDigits: 3 });
 const dt = (d: string | null) => (d ? new Date(d).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', dateStyle: 'short', timeStyle: 'short' }) : '');
@@ -26,19 +28,18 @@ function barras(valor: string, altura = 40) {
   } catch { return ''; }
 }
 
-/** Abre a janela já no clique (sem bloqueio de pop-up), monta o documento e chama a impressão. */
+/** Abre a janela já no clique (sem bloqueio de pop-up), monta o documento com cabeçalho/rodapé da empresa e chama a impressão. */
 export async function imprimirDocumento(tipo: TipoDocumento, pedidoId: string) {
-  const w = window.open('', '_blank', 'width=900,height=700');
-  if (!w) throw new Error('O navegador bloqueou a janela de impressão: permita pop-ups para este site');
-  w.document.write('<p style="font-family:Arial">Preparando…</p>');
-  try {
+  return imprimir(async () => {
     const d = await get<any>(`/erp/vendas/localizar/documento/${pedidoId}`);
     const p = d.pedido;
     const qr = await QRCode.toDataURL(p.codigo, { margin: 1, width: 180 });
-    const titulo = tipo === 'recibo' ? 'Recibo de venda' : tipo === 'romaneio' ? 'Romaneio de separação / entrega' : 'Pedido de venda';
+    // v1.54.0: rascunho sai como "Orçamento nº X" com a validade (o romaneio continua romaneio).
+    const titulo = tituloPedido(tipo, p);
+    const orc = tipo !== 'romaneio' && p.orcamento;
     const codigoBloco = `<div class="cod"><img src="${qr}" alt="QR do pedido"><div style="flex:1;min-width:0">${barras(p.codigo)}<div class="c">${esc(p.codigo)}</div><div class="small">Leia este código no MCK ERP (Ler código / Localizar pedido) para abrir o pedido.</div></div></div>`;
-    const cab = `<h1>${esc(d.empresa.nome)}</h1>${d.empresa.cnpj ? `<div class="small">CNPJ ${esc(doc(d.empresa.cnpj))}</div>` : ''}
-      <h2>${titulo} nº ${p.numero}</h2><div class="small">${dt(p.createdAt)}${p.vendedor ? ` · ${esc(p.vendedor)}` : ''}</div>
+    const cab = `<h2>${esc(titulo)}</h2><div class="small">${dt(p.createdAt)}${p.vendedor ? ` · ${esc(p.vendedor)}` : ''}</div>
+      ${orc && p.validoAte ? `<div class="validade"><b>Válido até ${diaSP(p.validoAte)}</b></div>` : ''}
       <div>Cliente: <b>${esc(p.cliente.nome)}</b>${p.cliente.documento ? ` · ${esc(doc(p.cliente.documento))}` : ''}</div>`;
     let corpo = '';
     if (tipo === 'romaneio') {
@@ -50,14 +51,14 @@ export async function imprimirDocumento(tipo: TipoDocumento, pedidoId: string) {
         <div class="tot">Subtotal ${brl(p.subtotalCents)}${p.descontoCents ? ` · Desconto ${brl(p.descontoCents)}` : ''}${p.freteCents ? ` · Frete ${brl(p.freteCents)}` : ''}<br><b style="font-size:1.25em">Total ${brl(p.totalCents)}</b></div>
         ${p.pagamentos.length ? `<div>Pagamento: ${p.pagamentos.map((x: any) => `${FORMA[x.forma] ?? esc(x.forma)} ${brl(x.valorCents)}`).join(' · ')}</div>` : ''}
         ${p.nf ? `<div class="small">NF-e nº ${p.nf.numero}/${p.nf.serie} (${esc(p.nf.status.toLowerCase())})<br>Chave ${esc(p.nf.chave.replace(/(\d{4})/g, '$1 '))}</div>` : p.nfNumero ? `<div class="small">Nota fiscal ${esc(p.nfNumero)}</div>` : ''}
+        ${orc ? '<p class="small">Orçamento sujeito à disponibilidade de estoque até a confirmação do pedido.</p>' : ''}
         ${tipo === 'recibo' ? '<p class="small">Este recibo não é documento fiscal.</p>' : ''}`;
     }
-    const css = tipo === 'recibo'
-      ? '@page{size:80mm auto;margin:3mm}body{width:74mm;font-size:11px}.cod img{width:26mm;height:26mm}table th:nth-child(3),table td:nth-child(3){display:none}'
-      : '@page{size:A4;margin:12mm}body{font-size:12px}.cod img{width:30mm;height:30mm}';
-    w.document.open();
-    w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${titulo} ${esc(p.codigo)}</title><style>${css}*{box-sizing:border-box;font-family:Arial,sans-serif}body{margin:0;color:#000}h1{font-size:1.3em;margin:0}h2{font-size:1.1em;margin:6px 0 2px}.small{font-size:.85em;color:#333}table{width:100%;border-collapse:collapse;margin:8px 0}th,td{text-align:left;padding:3px 4px;border-bottom:1px solid #ccc;vertical-align:top}.tot{text-align:right;margin:6px 0}.cod{display:flex;gap:3mm;align-items:center;margin:8px 0;padding:2mm;border:1px dashed #999}.c{font:bold 1.2em monospace;text-align:center}</style></head><body>${cab}${codigoBloco}${corpo}${tipo !== 'recibo' && p.observacoes ? `<p class="small">Obs.: ${esc(p.observacoes).replace(/\n/g, '<br>')}</p>` : ''}</body></html>`);
-    w.document.close();
-    setTimeout(() => { w.focus(); w.print(); }, 500);
-  } catch (e) { w.document.body.innerHTML = `<p style="font-family:Arial;color:#b91c1c">${esc((e as Error).message)}</p>`; throw e; }
+    const css = (tipo === 'recibo'
+      ? '.cod img{width:26mm;height:26mm}table th:nth-child(3),table td:nth-child(3){display:none}'
+      : '.cod img{width:30mm;height:30mm}')
+      + '.cod{display:flex;gap:3mm;align-items:center;margin:8px 0;padding:2mm;border:1px dashed #999}.c{font:bold 1.2em monospace;text-align:center}.validade{margin:4px 0;padding:3px 6px;border:1px solid #000;display:inline-block}';
+    const obs = tipo !== 'recibo' && p.observacoes ? `<p class="small">Obs.: ${esc(p.observacoes).replace(/\n/g, '<br>')}</p>` : '';
+    return { titulo: `${titulo} ${p.codigo}`, corpo: `${cab}${codigoBloco}${corpo}${obs}`, formato: tipo === 'recibo' ? 'recibo' as const : 'a4' as const, css, nomeReserva: d.empresa?.nome ?? '' };
+  }, 'width=900,height=700');
 }

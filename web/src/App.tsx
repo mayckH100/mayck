@@ -54,6 +54,7 @@ import ErpMaquininhas from './erp/vendas/Maquininhas';
 import ErpBi from './erp/bi/Bi';
 import Sdr from './pages/Sdr';
 import ErpAlertas from './erp/alertas/Alertas';
+import ErpDocumentosImpressos from './erp/documentos/DocumentosImpressos';
 import { ErpAbas, ROTAS_ANTIGAS } from './erp/ErpNav';
 import ErpGate from './erp/ErpGate';
 import Tutorials from './Tutorials';
@@ -331,6 +332,7 @@ export default function App() {
             <Route path="/erp/fornecedores" element={<ErpClientes key="f" papel="fornecedor" />} />
             <Route path="/erp/fornecedores/:id" element={<ErpCliente360 />} />
             <Route path="/erp/alertas" element={<ErpAlertas />} />
+            <Route path="/erp/documentos-impressos" element={<ErpDocumentosImpressos />} />
             <Route path="/erp/produtos" element={<ErpProdutos />} />
             <Route path="/erp/estoque" element={<ErpEstoque key="saldos" />} />
             <Route path="/erp/estoque/saldos" element={<ErpEstoque key="saldos2" aba="saldos" />} />

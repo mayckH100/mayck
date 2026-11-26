@@ -126,7 +126,7 @@ localizarRouter.get('/documento/:id', ah(async (req, res) => {
   const orgId = orgOf(req);
   const p = await prisma.erpPedidoVenda.findFirst({ where: { id: req.params.id, orgId }, include: { itens: { orderBy: { posicao: 'asc' } } } });
   if (!p) throw notFound('Pedido');
-  const [org, fiscal, cli, reservas, movs, titulos, vendedor, nfe] = await Promise.all([
+  const [org, fiscal, cli, reservas, movs, titulos, vendedor, nfe, cfgVendas] = await Promise.all([
     prisma.organization.findUnique({ where: { id: orgId }, select: { name: true } }),
     prisma.erpConfigFiscal.findUnique({ where: { orgId }, select: { razaoSocial: true, fantasia: true, cnpj: true } }),
     prisma.erpParceiro.findUnique({ where: { id: p.parceiroId }, select: { nome: true, fantasia: true, documento: true } }),
@@ -135,7 +135,11 @@ localizarRouter.get('/documento/:id', ah(async (req, res) => {
     prisma.erpTitulo.findMany({ where: { orgId, docTipo: 'pedido_venda', docId: p.id }, select: { id: true } }),
     p.vendedorId ? prisma.user.findUnique({ where: { id: p.vendedorId }, select: { name: true } }) : null,
     prisma.erpNfeSaida.findFirst({ where: { orgId, pedidoId: p.id, status: { not: 'CANCELADA' } }, select: { numero: true, serie: true, chave: true, status: true } }),
+    p.statusOperacional === 'RASCUNHO' && !p.validadeOrcamento ? prisma.erpConfig.findUnique({ where: { orgId }, select: { validadeOrcamentoDias: true } }) : null,
   ]);
+  // v1.54.0: rascunho imprime como "Orçamento nº X" com "Válido até" (gravado na criação = createdAt + validadeOrcamentoDias).
+  const orcamento = p.statusOperacional === 'RASCUNHO';
+  const validoAte = orcamento ? (p.validadeOrcamento ?? new Date(p.createdAt.getTime() + (cfgVendas?.validadeOrcamentoDias ?? 15) * 86_400_000)) : null;
   const [lotes, ends, baixas, produtos] = await Promise.all([
     prisma.erpLote.findMany({ where: { id: { in: [...reservas.map((r) => r.loteId), ...movs.map((m) => m.loteId)] } }, select: { id: true, numero: true, validade: true, loteFornecedor: true } }),
     prisma.erpEnderecoEstoque.findMany({ where: { id: { in: reservas.map((r) => r.enderecoId) } }, select: { id: true, codigo: true } }),
@@ -149,7 +153,7 @@ localizarRouter.get('/documento/:id', ah(async (req, res) => {
   res.json({
     empresa: { nome: fiscal?.fantasia || fiscal?.razaoSocial || org?.name || '', cnpj: fiscal?.cnpj || null },
     pedido: {
-      id: p.id, numero: p.numero, codigo: codigoPedido(p.numero), status: p.statusOperacional, createdAt: p.createdAt, balcao: ehBalcao(p),
+      id: p.id, numero: p.numero, codigo: codigoPedido(p.numero), status: p.statusOperacional, createdAt: p.createdAt, balcao: ehBalcao(p), orcamento, validoAte,
       nf: nfe ? { numero: nfe.numero, serie: nfe.serie, chave: nfe.chave, status: nfe.status } : null, nfNumero: ehBalcao(p) ? null : p.nfNumero,
       observacoes: p.observacoes, transportadora: p.transportadora, rastreio: p.rastreio, vendedor: vendedor?.name ?? null,
       cliente: { nome: cli ? cli.fantasia || cli.nome : '—', documento: cli?.documento && cli.documento !== '00000000000' ? cli.documento : null },
