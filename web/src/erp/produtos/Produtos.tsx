@@ -8,6 +8,10 @@ import { brl, qtd, toCents, fromCents, toMil } from '../format';
 import { UNIDADES_CADASTRO, unidadeValida, unidadeLegivel, qtdUn, nomeUnidade, numeroQtd } from '../../../../server/erp/shared/unidade';
 import { descricaoEmbalagem } from '../../../../server/erp/shared/embalagem';
 import { LotesProduto } from '../estoque/lotes';
+import { imprimir } from '../impressao/cabecalho';
+import { htmlListaProdutos, htmlFichaProduto } from '../impressao/relatorios';
+
+const avisar = (e: unknown) => alert((e as Error).message);
 
 export default function Produtos() {
   const [q, setQ] = useState(''); const [query, setQuery] = useState('');
@@ -25,6 +29,7 @@ export default function Produtos() {
         <div className="row">
           <form onSubmit={(e) => { e.preventDefault(); setQuery(q); }}><input placeholder="Nome, código ou código de barras" value={q} onChange={(e) => setQ(e.target.value)} style={{ width: 230 }} aria-label="Pesquisar" /></form>
           {can('OWNER', 'ADMIN') && <button className="btn" onClick={() => setRegras(true)}>Regras comerciais</button>}
+          <button className="btn" disabled={!state.data?.items?.length} onClick={() => { const itens = state.data?.items ?? []; imprimir(() => htmlListaProdutos(itens, { busca: query })).catch(avisar); }}>🖨️ Imprimir / PDF</button>
           <ImportarExportar entidade="produtos" podeImportar={can('OWNER', 'ADMIN')} onImportado={state.reload} />
           <button className="btn primary" onClick={() => setEdit({})}>+ Produto</button>
         </div>
@@ -149,7 +154,7 @@ function ProdutoForm({ inicial, onClose, onSaved }: { inicial: any; onClose: () 
       </>}
       {inicial.id && inicial.controlaValidade && <LotesValidade produtoId={inicial.id} unidade={f.unidade} />}
       <label className="row small"><input type="checkbox" checked={f.ativo} onChange={set('ativo')} /> Ativo (desmarque para arquivar: some das buscas de venda, mas o histórico fica)</label>
-      <div className="row" style={{ justifyContent: 'flex-end', marginTop: 10 }}><button className="btn" onClick={onClose}>Cancelar</button><button className="btn primary" disabled={busy || f.nome.length < 2 || !unidadeValida(f.unidade) || !fatorOk} onClick={salvar}>Salvar</button></div>
+      <div className="row" style={{ justifyContent: 'flex-end', marginTop: 10 }}>{inicial.id && <button className="btn ghost" title="Imprime os dados salvos do produto" onClick={() => { const forn = (fornecedores.data?.items ?? []).find((x: any) => x.id === inicial.fornecedorPadraoId); imprimir(() => htmlFichaProduto(inicial, { custoTotalCents: custoTotal(inicial), fornecedor: forn ? (forn.fantasia || forn.nome) : '' })).catch(avisar); }}>🖨️ Imprimir ficha</button>}<button className="btn" onClick={onClose}>Cancelar</button><button className="btn primary" disabled={busy || f.nome.length < 2 || !unidadeValida(f.unidade) || !fatorOk} onClick={salvar}>Salvar</button></div>
     </Modal>
   );
 }

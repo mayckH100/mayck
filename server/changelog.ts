@@ -21,6 +21,17 @@ export type EntradaChangelog = {
 
 export const CHANGELOG: EntradaChangelog[] = [
   {
+    versao: '1.54.1',
+    data: '26/11/2026',
+    titulo: 'MCK ERP: imprimir relatórios e produtos',
+    itens: [
+      'Relatórios: novo botão "🖨️ Imprimir / PDF" no relatório do dia. Sai com o seu cabeçalho, o dia escolhido, a data em que foi gerado, os totais, as formas de pagamento e as alterações sensíveis.',
+      'Produtos: novo botão "🖨️ Imprimir / PDF" que imprime a lista que está na tela (com a busca que você fez): código, nome, unidade, preço e estoque disponível.',
+      'Na tela de editar um produto, o botão "🖨️ Imprimir ficha" imprime a ficha completa dele.',
+      'Funciona no celular: o mesmo botão salva em PDF.',
+    ],
+  },
+  {
     versao: '1.54.0',
     data: '26/11/2026',
     titulo: 'MCK ERP: seu logo e seus dados nos documentos impressos',
