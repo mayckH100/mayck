@@ -7,6 +7,7 @@
  */
 import type { ReactNode } from 'react';
 import { NavLink } from 'react-router-dom';
+import { BotaoPdf, pdfDoExport } from './impressao/BotaoPdf';
 import { useApi, Loading } from '../ui';
 
 export interface ErpAcesso { liberado: boolean; planoCompleto: boolean; superAdmin: boolean; motivo: string | null; planos?: { id: string; name: string }[] }
@@ -43,7 +44,7 @@ export function ErpBloqueado({ motivo, planos }: { motivo?: string | null; plano
         <h2 style={{ margin: 0 }}>Baixar meus dados</h2>
         <p className="small muted" style={{ margin: 0 }}>Você pode baixar a qualquer momento o que já lançou no ERP (planilhas CSV).</p>
         <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
-          {baixar.map((b) => <a key={b.href} className="btn sm" href={b.href} download data-sub-exempt>{b.label}</a>)}
+          {baixar.map((b) => <span key={b.href} className="row" style={{ gap: 4 }}><a className="btn sm" href={b.href} download data-sub-exempt>{b.label}</a><BotaoPdf className="btn sm" montar={pdfDoExport(b.href, b.label, b.href.includes('bi/') ? ['Últimos 400 dias'] : [])}>📄 PDF</BotaoPdf></span>)}
         </div>
         {lista.length > 0 && (
           <>

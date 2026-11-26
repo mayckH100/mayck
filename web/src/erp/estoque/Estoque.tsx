@@ -12,6 +12,9 @@ import { nomeUnidade, qtdUn } from '../../../../server/erp/shared/unidade';
 import { LoteCard, ImprimirEtiquetas, CampoLeitura } from './lotes';
 import { get as apiGet } from '../../api';
 import { brl } from '../format';
+import { BotaoImprimir } from '../impressao/BotaoPdf';
+import { listaSaldos, listaLotesSaldo, listaMovimentos, listaDepositos } from '../impressao/estoque';
+import type { Documento } from '../impressao/cabecalho';
 
 /** v1.50.0: aba inicial pela rota (ex.: /erp/estoque/…); as abas internas continuam como nas primeiras versões. */
 export type AbaEstoque = 'saldos' | 'lotes' | 'xml' | 'etiquetas' | 'inventarios' | 'movimentos' | 'depositos';
@@ -31,6 +34,12 @@ export default function Estoque({ aba: inicial }: { aba?: AbaEstoque } = {}) {
   const { run } = useAction();
   const { can } = useAuth();
   const recarregar = () => { saldos.reload(); deps.reload(); movs.reload(); };
+  // v1.55.0: imprime a aba aberta (saldos, saldo por lote, movimentações ou depósitos) com os filtros atuais.
+  const nomeDep = (deps.data ?? []).find((d) => d.id === depositoId)?.nome;
+  const docAba: (() => Documento) | null = aba === 'saldos' && saldos.data ? () => listaSaldos(filtro ? saldos.data!.filter((x) => x.produtoId === filtro.produtoId && (!filtro.loteId || x.loteId === filtro.loteId)) : saldos.data!, { deposito: nomeDep, filtro: filtro?.texto })
+    : aba === 'lotes' && lotesSaldo.data ? () => listaLotesSaldo(lotesSaldo.data!, { deposito: nomeDep })
+      : aba === 'movimentos' && movs.data ? () => listaMovimentos(movs.data!)
+        : aba === 'depositos' && deps.data ? () => listaDepositos(deps.data!) : null;
   const abrirEtiqueta = async (tipo: string, id: string) => setEtiqueta(await get(`/erp/estoque/etiqueta/${tipo}/${id}`));
   return (
     <>
@@ -38,6 +47,7 @@ export default function Estoque({ aba: inicial }: { aba?: AbaEstoque } = {}) {
         <div><h1>Estoque</h1><p className="muted">Disponível = físico − reservado − quarentena. Toda movimentação fica registrada.</p></div>
         <div className="row">
           <select value={depositoId} onChange={(e) => setDepositoId(e.target.value)} aria-label="Depósito"><option value="">Todos os depósitos</option>{(deps.data ?? []).map((d) => <option key={d.id} value={d.id}>{d.nome}</option>)}</select>
+          {docAba && <BotaoImprimir montar={docAba} />}
           <button className="btn primary" disabled={!deps.data?.length} onClick={() => setModal({ tipo: 'entrada' })}>+ Entrada</button>
         </div>
       </div>

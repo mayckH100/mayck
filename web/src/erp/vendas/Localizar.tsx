@@ -8,6 +8,9 @@ import { brl } from '../format';
 import { badgeStatus } from './Pedidos';
 import { CampoLeitura } from '../leitura/Leitor';
 import { imprimirDocumento } from './documento';
+import { BotaoImprimir } from '../impressao/BotaoPdf';
+import { listaLocalizar } from '../impressao/cadastros';
+import { STATUS_PEDIDO } from '../format';
 
 export default function Localizar() {
   const [sp, setSp] = useSearchParams();
@@ -23,7 +26,7 @@ export default function Localizar() {
       </div>
       {q && <Async state={st}>{(d) => d.pedidos.length === 0 ? <div className="card"><Empty title="Nenhum pedido encontrado">Nada com “{q.slice(0, 60)}”. Confira o código ou procure pelo nome do cliente.</Empty></div> : (
         <>
-          <p className="small muted">{d.total} pedido{d.total === 1 ? '' : 's'} encontrado{d.total === 1 ? '' : 's'}</p>
+          <div className="row between"><p className="small muted">{d.total} pedido{d.total === 1 ? '' : 's'} encontrado{d.total === 1 ? '' : 's'}</p><BotaoImprimir className="btn sm" montar={() => listaLocalizar(d, q, STATUS_PEDIDO)} /></div>
           {d.pedidos.map((p: any) => (
             <div key={p.id} className="card" style={{ padding: 12, marginBottom: 8 }} data-testid="pedido-achado">
               <div className="row between" style={{ gap: 6 }}>

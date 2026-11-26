@@ -2,6 +2,9 @@
 import { useRef, useState } from 'react';
 import { upload } from '../api';
 import { Modal, useAction } from '../ui';
+import { BotaoPdf, pdfDoExport } from './impressao/BotaoPdf';
+
+const TITULO_PDF: Record<string, string> = { clientes: 'Cadastro de clientes', fornecedores: 'Cadastro de fornecedores', produtos: 'Cadastro de produtos' };
 
 const NOME: Record<string, string> = { clientes: 'clientes', fornecedores: 'fornecedores', produtos: 'produtos' };
 
@@ -10,6 +13,8 @@ export default function ImportarExportar({ entidade, onImportado, podeImportar =
   return (
     <>
       <a className="btn" href={`/api/erp/io/${entidade}/exportar`} download>Exportar</a>
+      {/* v1.55.0: o mesmo conteúdo da planilha exportada, em PDF com o cabeçalho da empresa. */}
+      <BotaoPdf montar={pdfDoExport(`/api/erp/io/${entidade}/exportar`, TITULO_PDF[entidade], ['Exportação completa'])} />
       {podeImportar && <button className="btn" onClick={() => setAberto(true)}>Importar</button>}
       {aberto && <Importar entidade={entidade} onClose={() => setAberto(false)} onDone={() => { setAberto(false); onImportado?.(); }} />}
     </>

@@ -18,7 +18,7 @@ describe('impressão de relatórios e produtos (v1.54.1)', () => {
     const d = htmlRelatorioDia(r, '2026-11-25', agora);
     expect(d.titulo).toBe('Relatório do dia 25/11/2026');
     const h = pagina(d);
-    expect(h).toContain('<h2>Relatório do dia 25/11/2026</h2>');
+    expect(h).toContain('<div class="mck-cab-titulo">Relatório do dia 25/11/2026</div>'); // v1.55.0: título na faixa do cabeçalho
     expect(h).toContain('Período: 25/11/2026');
     expect(h).toContain('Gerado em 26/11/2026 11:05');
     expect(h).toContain('3 pedido(s) · 1 no balcão');

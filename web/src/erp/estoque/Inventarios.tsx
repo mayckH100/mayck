@@ -14,6 +14,8 @@ import { qtdUn } from '../../../../server/erp/shared/unidade';
 import { CampoLeitura } from './lotes';
 import { imprimir } from '../impressao/cabecalho';
 import { esc } from '../impressao/modelo';
+import { BotaoImprimir, BotaoPdf, pdfDoExport } from '../impressao/BotaoPdf';
+import { htmlTabela, fmt } from '../impressao/listas';
 
 const STATUS: Record<string, string> = { CONTANDO: 'Contando', EM_APROVACAO: 'Aguardando aprovação', CONCLUIDO: 'Concluído', CANCELADO: 'Cancelado' };
 
@@ -24,7 +26,10 @@ export default function Inventarios({ depositos, onAjustado }: { depositos: any[
   const { busy, run } = useAction();
   return (
     <>
-      <button className="btn primary" style={{ marginBottom: 10 }} onClick={() => setNovo(true)}>+ Inventário</button>
+      <div className="row" style={{ marginBottom: 10, gap: 6 }}>
+        <button className="btn primary" onClick={() => setNovo(true)}>+ Inventário</button>
+        <BotaoImprimir disabled={!lista.data?.length} montar={() => htmlTabela({ titulo: 'Inventários', linhas: lista.data ?? [], colunas: [{ titulo: 'Descrição', valor: (i: any) => i.descricao }, { titulo: 'Situação', valor: (i: any) => STATUS[i.status] ?? i.status }, { titulo: 'Contagem cega', valor: (i: any) => fmt.simNao(i.cego) }, { titulo: 'Aberto em', valor: (i: any) => fmt.dataHora(i.createdAt) }] })} />
+      </div>
       <Async state={lista}>{(d) => d.length === 0 ? <div className="card"><Empty title="Nenhum inventário">Abra um inventário para conferir o estoque físico.</Empty></div> : (
         <>{d.map((i) => (
           <div key={i.id} className="card row between" style={{ padding: 10, marginBottom: 6, flexWrap: 'wrap', gap: 6 }}>
@@ -153,7 +158,8 @@ function Relatorio({ id, status, onClose, onAprovado }: { id: string; status: st
             </div>
             <div className="row between" style={{ flexWrap: 'wrap', gap: 6 }}>
               <label className="row small"><input type="checkbox" checked={so} onChange={(e) => setSo(e.target.checked)} /> Só o que tem diferença</label>
-              <a className="btn sm" href={`/api/erp/estoque/inventarios/${id}/relatorio?formato=csv`}>⬇️ Planilha (CSV)</a>
+              <span className="row" style={{ gap: 4 }}><a className="btn sm" href={`/api/erp/estoque/inventarios/${id}/relatorio?formato=csv`}>⬇️ Planilha (CSV)</a>
+                <BotaoPdf className="btn sm" montar={pdfDoExport(`/api/erp/estoque/inventarios/${id}/relatorio?formato=csv`, 'Inventário · Físico x Sistema')} /></span>
             </div>
             <div style={{ maxHeight: 300, overflow: 'auto', marginTop: 6 }}>
               {linhas.length === 0 ? <div className="small muted">Nenhuma diferença: o físico bate com o sistema.</div> : linhas.map((l: any) => (
@@ -188,9 +194,8 @@ function imprimirFolha(inv: any) {
   const linhas = [...inv.contagens].sort((a: any, b: any) => String(a.endereco ?? '').localeCompare(String(b.endereco ?? '')) || String(a.produto?.nome ?? '').localeCompare(String(b.produto?.nome ?? '')));
   const mostraSistema = !inv.cego && linhas.some((x: any) => x.sistemaMil != null);
   imprimir(() => ({
-    titulo: `Folha de contagem · ${inv.descricao}`,
-    corpo: `<h2>Folha de contagem · ${esc(inv.descricao)}</h2><div class="small">${esc(STATUS[inv.status] ?? inv.status)}${inv.cego ? ' · contagem cega' : ''} · aberto em ${esc(fmtDate(inv.createdAt))} · ${linhas.length} linha(s)</div>
-      <table><thead><tr><th>Local</th><th>Código</th><th>Produto</th><th>Lote</th>${mostraSistema ? '<th class="dir">Sistema</th>' : ''}<th style="width:22%">Contado</th></tr></thead><tbody>${linhas.map((x: any) => `<tr><td><b>${esc(x.endereco ?? '—')}</b></td><td>${esc(x.produto?.sku ?? '')}</td><td>${esc(x.produto?.nome ?? '')}</td><td>${esc(x.lote ?? '—')}</td>${mostraSistema ? `<td class="dir">${x.sistemaMil == null ? '' : esc(qtd(x.sistemaMil))}</td>` : ''}<td style="border-bottom:1px solid #000">&nbsp;</td></tr>`).join('')}${`<tr><td>&nbsp;</td><td></td><td></td><td></td>${mostraSistema ? '<td></td>' : ''}<td style="border-bottom:1px solid #000"></td></tr>`.repeat(6)}</tbody></table>
+    titulo: `Folha de contagem · ${inv.descricao}`, subtitulo: `${STATUS[inv.status] ?? inv.status}${inv.cego ? ' · contagem cega' : ''} · aberto em ${fmtDate(inv.createdAt)} · ${linhas.length} linha(s)`,
+    corpo: `<table><thead><tr><th>Local</th><th>Código</th><th>Produto</th><th>Lote</th>${mostraSistema ? '<th class="dir">Sistema</th>' : ''}<th style="width:22%">Contado</th></tr></thead><tbody>${linhas.map((x: any) => `<tr><td><b>${esc(x.endereco ?? '—')}</b></td><td>${esc(x.produto?.sku ?? '')}</td><td>${esc(x.produto?.nome ?? '')}</td><td>${esc(x.lote ?? '—')}</td>${mostraSistema ? `<td class="dir">${x.sistemaMil == null ? '' : esc(qtd(x.sistemaMil))}</td>` : ''}<td style="border-bottom:1px solid #000">&nbsp;</td></tr>`).join('')}${`<tr><td>&nbsp;</td><td></td><td></td><td></td>${mostraSistema ? '<td></td>' : ''}<td style="border-bottom:1px solid #000"></td></tr>`.repeat(6)}</tbody></table>
       <p style="margin-top:28px">Contado por: ____________________ &nbsp; Data: ___/___/______ &nbsp; Conferido por: ____________________</p>`,
   })).catch((e) => alert((e as Error).message));
 }

@@ -6,6 +6,8 @@ import { useApi, Async, Empty, Modal, Field, useAction, useToast } from '../../u
 import { brl, toCents, fromCents, fmtDoc } from '../format';
 import { imprimir } from '../impressao/cabecalho';
 import { esc } from '../impressao/modelo';
+import { linhaFiltros, htmlTabela, htmlFicha, fmt } from '../impressao/listas';
+import { BotaoImprimir, BotaoPdf } from '../impressao/BotaoPdf';
 import NovoTitulo, { NATUREZA } from './NovoTitulo';
 import Categorias from './Categorias';
 
@@ -37,6 +39,11 @@ function Painel() {
   return (
     <Async state={st}>{(d) => (
       <>
+        <div className="row" style={{ justifyContent: 'flex-end', marginBottom: 6 }}><BotaoImprimir className="btn sm" montar={() => htmlTabela({ titulo: 'Painel financeiro', filtros: [`Saldo em contas ${brl(d.saldoCents)}`, `Menor saldo projetado (30 dias) ${brl(Math.min(...d.fluxo.map((f: any) => f.saldoCents)))}`],
+          colunas: [{ titulo: 'Dia', valor: (f: any) => dt(f.data) }, { titulo: 'Entradas', valor: (f: any) => brl(f.entradasCents), dir: true }, { titulo: 'Saídas', valor: (f: any) => brl(f.saidasCents), dir: true }, { titulo: 'Saldo', valor: (f: any) => brl(f.saldoCents), dir: true }],
+          linhas: d.fluxo.filter((f: any, i: number) => i === 0 || f.entradasCents || f.saidasCents),
+          extras: [{ titulo: 'Saldo por conta', linhas: d.contas, colunas: [{ titulo: 'Conta', valor: (c: any) => c.nome }, { titulo: 'Saldo', valor: (c: any) => brl(c.saldoCents), dir: true }] },
+            { titulo: 'A receber e a pagar por atraso', linhas: [['A vencer', 'aVencer'], ['Até 30 dias', 'ate30'], ['31 a 60', 'ate60'], ['61 a 90', 'ate90'], ['Mais de 90', 'mais90']], colunas: [{ titulo: 'Faixa', valor: (x: string[]) => x[0] }, { titulo: 'A receber', valor: (x: string[]) => brl(d.receber?.[x[1]]), dir: true }, { titulo: 'A pagar', valor: (x: string[]) => brl(d.pagar?.[x[1]]), dir: true }] }] })} /></div>
         <div className="grid g2">
           <div className="card"><span className="muted small">Saldo em contas</span><h2>{brl(d.saldoCents)}</h2><div className="small">{d.contas.map((c: any) => `${c.nome}: ${brl(c.saldoCents)}`).join(' · ') || 'Cadastre uma conta em "Contas e conciliação"'}</div></div>
           <div className="card"><span className="muted small">Menor saldo projetado (30 dias)</span><h2>{brl(Math.min(...d.fluxo.map((f: any) => f.saldoCents)))}</h2></div>
@@ -110,6 +117,13 @@ function Titulo({ id, onClose }: { id: string; onClose: () => void }) {
               {pix && <div className="card small" style={{ wordBreak: 'break-all' }}>{pix} <button className="btn sm" onClick={() => { navigator.clipboard.writeText(pix); toast('Copiado'); }}>Copiar</button></div>}
             </div>}
             {t.baixas.length > 0 && <table style={{ marginTop: 8 }}><thead><tr><th>Data</th><th>Principal</th><th>Juros</th><th>Desconto</th><th>Forma</th><th></th></tr></thead><tbody>{t.baixas.map((x: any) => <tr key={x.id} style={{ opacity: x.estornada ? 0.5 : 1 }}><td>{dt(x.data)}</td><td>{brl(x.valorCents)}</td><td>{brl(x.jurosCents)}</td><td>{brl(x.descontoCents)}</td><td>{x.forma}{x.estornada && ' · estornada'}</td><td>{!x.estornada && can('OWNER', 'ADMIN') && <button className="btn sm ghost" onClick={async () => { if (confirm('Estornar esta baixa?') && await run(() => post(`/erp/financeiro/baixas/${x.id}/estornar`, {}), 'Estornada')) st.reload(); }}>Estornar</button>}</td></tr>)}</tbody></table>}
+            <div className="row" style={{ justifyContent: 'flex-end', marginTop: 8, gap: 6 }}>
+              <BotaoImprimir title="Imprime a ficha do título com os dados salvos" montar={() => htmlFicha({ titulo: `${t.tipo === 'RECEBER' ? 'Conta a receber' : 'Conta a pagar'} · ${t.descricao}`, subtitulo: `vencimento ${dt(t.vencimento)}`,
+                secoes: [{ campos: [['Descrição', t.descricao], [t.tipo === 'RECEBER' ? 'Cliente' : 'Fornecedor', t.parceiro?.nome], ['CPF/CNPJ', t.parceiro?.documento ? fmtDoc(t.parceiro.documento) : ''], ['Parcela', t.parcelas > 1 ? `${t.parcela}/${t.parcelas}` : ''],
+                  ['Vencimento', dt(t.vencimento)], ['Valor', brl(t.valorCents)], ['Pago', brl(t.pagoCents)], ['Saldo', brl(Math.max(0, t.valorCents - t.pagoCents))], ['Status', ST[t.status] ?? t.status], ['Categoria', t.categoria?.nome ?? t.categoriaNome], ['Documento', t.documento]] }],
+                tabelas: t.baixas.length ? [{ titulo: 'Baixas', linhas: t.baixas, colunas: [{ titulo: 'Data', valor: (x: any) => dt(x.data) }, { titulo: 'Forma', valor: (x: any) => FORMA_PG[x.forma] ?? x.forma }, { titulo: 'Conta', valor: (x: any) => x.contaNome }, { titulo: 'Principal', valor: (x: any) => brl(x.valorCents), dir: true }, { titulo: 'Juros', valor: (x: any) => brl(x.jurosCents), dir: true }, { titulo: 'Desconto', valor: (x: any) => brl(x.descontoCents), dir: true }, { titulo: 'Situação', valor: (x: any) => (x.estornada ? 'Estornada' : 'Válida') }] }] : [],
+                observacoes: t.observacoes ?? '' })} />
+            </div>
             {t.baixas.some((x: any) => !x.estornada) && <div className="row" style={{ justifyContent: 'flex-end', marginTop: 8 }}><button className="btn" onClick={() => imprimirComprovante(t)}>🧾 {t.tipo === 'RECEBER' ? 'Recibo' : 'Comprovante'} de pagamento</button></div>}
             {t.pagoCents === 0 && t.status !== 'CANCELADO' && can('OWNER', 'ADMIN') && <div className="row" style={{ justifyContent: 'flex-end', marginTop: 8 }}><button className="btn ghost" onClick={async () => { const motivo = prompt('Motivo do cancelamento'); if (motivo && await run(() => post(`/erp/financeiro/titulos/${id}/cancelar`, { motivo }), 'Cancelado')) st.reload(); }}>Cancelar título</button></div>}
           </>
@@ -127,10 +141,11 @@ function Contas() {
   const { busy, run } = useAction(); const { can } = useAuth();
   return (
     <>
-      <div className="row" style={{ marginBottom: 10, gap: 6 }}>{can('OWNER', 'ADMIN') && <button className="btn primary" onClick={() => setNova(true)}>+ Conta</button>}<button className="btn" onClick={() => setTransf(true)}>Transferir entre contas</button></div>
+      <div className="row" style={{ marginBottom: 10, gap: 6 }}>{can('OWNER', 'ADMIN') && <button className="btn primary" onClick={() => setNova(true)}>+ Conta</button>}<button className="btn" onClick={() => setTransf(true)}>Transferir entre contas</button>
+        <BotaoImprimir disabled={!l.data?.length} montar={() => htmlTabela({ titulo: 'Contas bancárias e caixas', linhas: l.data ?? [], total: `Saldo total ${brl((l.data ?? []).reduce((a, c) => a + (c.saldoCents ?? 0), 0))}`, colunas: [{ titulo: 'Conta', valor: (c: any) => c.nome }, { titulo: 'Tipo', valor: (c: any) => ({ BANCO: 'Banco', CAIXA: 'Caixa', CARTAO: 'Cartão' } as Record<string, string>)[c.tipo] ?? c.tipo }, { titulo: 'Banco', valor: (c: any) => c.banco }, { titulo: 'Agência', valor: (c: any) => c.agencia }, { titulo: 'Conta nº', valor: (c: any) => c.conta }, { titulo: 'Chave Pix', valor: (c: any) => c.chavePix }, { titulo: 'Saldo', valor: (c: any) => brl(c.saldoCents), dir: true }] })} /></div>
       <Async state={l}>{(d) => d.length === 0 ? <div className="card"><Empty title="Nenhuma conta">Cadastre o banco e o caixa da empresa. A chave Pix serve para gerar o Pix copia-e-cola das cobranças.</Empty></div> : (
         <div className="card table-wrap"><table><thead><tr><th>Conta</th><th>Banco</th><th>Saldo</th><th></th></tr></thead>
-          <tbody>{d.map((c) => <tr key={c.id}><td>{c.nome}</td><td className="small">{[c.banco, c.agencia, c.conta].filter(Boolean).join(' · ') || c.tipo}</td><td>{brl(c.saldoCents)}</td><td><button className="btn sm" onClick={() => setConc(c)}>Extrato e conciliação</button></td></tr>)}</tbody></table></div>
+          <tbody>{d.map((c) => <tr key={c.id}><td>{c.nome}</td><td className="small">{[c.banco, c.agencia, c.conta].filter(Boolean).join(' · ') || c.tipo}</td><td>{brl(c.saldoCents)}</td><td className="row" style={{ gap: 4 }}><button className="btn sm" onClick={() => setConc(c)}>Extrato e conciliação</button><BotaoImprimir className="btn sm ghost" title="Ficha da conta" montar={() => htmlFicha({ titulo: `Conta · ${c.nome}`, secoes: [{ campos: [['Nome', c.nome], ['Tipo', ({ BANCO: 'Banco', CAIXA: 'Caixa', CARTAO: 'Cartão' } as Record<string, string>)[c.tipo] ?? c.tipo], ['Banco', c.banco], ['Agência', c.agencia], ['Conta', c.conta], ['Chave Pix', c.chavePix], ['Saldo atual', brl(c.saldoCents)]] }] })}>🖨️</BotaoImprimir></td></tr>)}</tbody></table></div>
       )}</Async>
       {nova && <Modal title="Nova conta" onClose={() => setNova(false)}>
         <div className="grid g2">
@@ -189,6 +204,7 @@ function Dre() {
         <input type="date" value={p.de} onChange={(e) => setP({ ...p, de: e.target.value })} aria-label="De" />
         <input type="date" value={p.ate} onChange={(e) => setP({ ...p, ate: e.target.value })} aria-label="Até" />
         <select value={p.regime} onChange={(e) => setP({ ...p, regime: e.target.value })} aria-label="Regime"><option value="competencia">Competência</option><option value="caixa">Caixa</option></select>
+        <BotaoImprimir disabled={!st.data} montar={() => htmlTabela({ titulo: 'DRE gerencial', filtros: [`Período: ${fmt.dia(p.de)} a ${fmt.dia(p.ate)}`, p.regime === 'caixa' ? 'Regime de caixa' : 'Regime de competência'], linhas, colunas: [{ titulo: 'Linha', valor: (x: [string, string, boolean?]) => (x[2] ? `= ${x[1]}` : x[1]) }, { titulo: 'Valor', valor: (x: [string, string, boolean?]) => brl(st.data?.[x[0]]), dir: true }] })} />
       </div>
       <Async state={st}>{(d) => <div className="card"><table><tbody>{linhas.map(([k, l, tot]) => <tr key={k} style={{ fontWeight: tot ? 700 : 400 }}><td>{l}</td><td style={{ textAlign: 'right', color: d[k] < 0 ? '#dc2626' : undefined }}>{brl(d[k])}</td></tr>)}</tbody></table><p className="small muted">DRE gerencial pelo plano de contas. Lançamentos sem categoria entram como receita bruta (recebimentos) ou despesa operacional (pagamentos).</p></div>}</Async>
     </>
@@ -207,9 +223,8 @@ function imprimirComprovante(t: any) {
   const titulo = receber ? 'Recibo de pagamento' : 'Comprovante de pagamento';
   const quem = t.parceiro?.nome ?? '—';
   imprimir(() => ({
-    titulo,
-    corpo: `<h2>${titulo}</h2><div class="small">Título: ${esc(t.descricao)}${t.parcelas > 1 ? ` · parcela ${esc(t.parcela)}/${esc(t.parcelas)}` : ''} · vencimento ${esc(dt(t.vencimento))}</div>
-      <p>${receber ? 'Recebemos de' : 'Pago a'} <b>${esc(quem)}</b>${t.parceiro?.documento ? ` (${esc(fmtDoc(t.parceiro.documento))})` : ''} a quantia de <b>${brl(totalPago)}</b>, referente a ${esc(t.descricao)}.</p>
+    titulo, subtitulo: `Título: ${t.descricao}${t.parcelas > 1 ? ` · parcela ${t.parcela}/${t.parcelas}` : ''} · vencimento ${dt(t.vencimento)}`,
+    corpo: `<p>${receber ? 'Recebemos de' : 'Pago a'} <b>${esc(quem)}</b>${t.parceiro?.documento ? ` (${esc(fmtDoc(t.parceiro.documento))})` : ''} a quantia de <b>${brl(totalPago)}</b>, referente a ${esc(t.descricao)}.</p>
       <table><thead><tr><th>Data</th><th>Forma</th><th>Conta</th><th class="dir">Principal</th><th class="dir">Juros/multa</th><th class="dir">Desconto</th></tr></thead><tbody>${baixas.map((x: any) => `<tr><td>${esc(dt(x.data))}</td><td>${esc(FORMA_PG[x.forma] ?? x.forma)}</td><td>${esc(x.contaNome ?? '')}</td><td class="dir">${brl(x.valorCents)}</td><td class="dir">${brl(x.jurosCents)}</td><td class="dir">${brl(x.descontoCents)}</td></tr>`).join('')}</tbody></table>
       <div class="tot">Valor do título ${brl(t.valorCents)} · Pago ${brl(t.pagoCents)} · Saldo ${brl(Math.max(0, t.valorCents - t.pagoCents))}<br><b>${t.status === 'PAGO' ? 'Quitado' : 'Pagamento parcial'}</b></div>
       <p style="margin-top:40px;text-align:center">______________________________________<br>${receber ? 'Assinatura de quem recebeu' : 'Assinatura'}</p>`,
@@ -222,9 +237,8 @@ function imprimirLista(tipo: 'RECEBER' | 'PAGAR', d: any[], f: { de: string; ate
   const periodo = f.de || f.ate ? `Vencimento ${f.de ? `de ${f.de.split('-').reverse().join('/')}` : ''} ${f.ate ? `até ${f.ate.split('-').reverse().join('/')}` : ''}` : 'Todos os vencimentos';
   const filtro = { ABERTOS: 'em aberto', PAGO: 'pagos', CANCELADO: 'cancelados', TODOS: 'todos' }[f.filtro] ?? '';
   imprimir(() => ({
-    titulo: nomeTipo,
-    corpo: `<h2>${nomeTipo}</h2><div class="small">${esc(periodo)} · ${esc(filtro)} · ${d.length} título(s)</div>
-      <table><thead><tr><th>Vencimento</th><th>${tipo === 'RECEBER' ? 'Cliente' : 'Fornecedor / conta'}</th><th>Descrição</th><th class="dir">Valor</th><th class="dir">Saldo</th><th>Status</th></tr></thead><tbody>${d.map((t) => `<tr><td>${esc(dt(t.vencimento))}${t.vencido ? ' ⚠' : ''}</td><td>${esc(t.natureza && t.natureza !== 'FORNECEDOR' ? (t.tipoConta ?? NATUREZA[t.natureza] ?? 'Conta') : (t.parceiro ?? '—'))}</td><td>${esc(t.descricao)}</td><td class="dir">${brl(t.valorCents)}</td><td class="dir">${brl(t.saldoCents)}</td><td>${esc(ST[t.status] ?? t.status)}</td></tr>`).join('')}</tbody></table>
+    titulo: nomeTipo, subtitulo: linhaFiltros([periodo, filtro, `${d.length} título(s)`]),
+    corpo: `<table><thead><tr><th>Vencimento</th><th>${tipo === 'RECEBER' ? 'Cliente' : 'Fornecedor / conta'}</th><th>Descrição</th><th class="dir">Valor</th><th class="dir">Saldo</th><th>Status</th></tr></thead><tbody>${d.map((t) => `<tr><td>${esc(dt(t.vencimento))}${t.vencido ? ' ⚠' : ''}</td><td>${esc(t.natureza && t.natureza !== 'FORNECEDOR' ? (t.tipoConta ?? NATUREZA[t.natureza] ?? 'Conta') : (t.parceiro ?? '—'))}</td><td>${esc(t.descricao)}</td><td class="dir">${brl(t.valorCents)}</td><td class="dir">${brl(t.saldoCents)}</td><td>${esc(ST[t.status] ?? t.status)}</td></tr>`).join('')}</tbody></table>
       <div class="tot">Total ${brl(d.reduce((a, t) => a + t.valorCents, 0))} · <b>Saldo em aberto ${brl(d.reduce((a, t) => a + t.saldoCents, 0))}</b></div>${d.some((t) => t.vencido) ? '<div class="small">⚠ vencido</div>' : ''}`,
   })).catch(avisar);
 }

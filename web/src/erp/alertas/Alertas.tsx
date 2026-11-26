@@ -5,6 +5,18 @@
 import { useState } from 'react';
 import { get, post, put } from '../../api';
 import { useApi, Async, Field, useAction } from '../../ui';
+import { BotaoImprimir } from '../impressao/BotaoPdf';
+import { htmlFicha, htmlTabela } from '../impressao/listas';
+
+/** v1.55.0: configuração SALVA dos alertas (e a prévia, se já foi gerada) em PDF. */
+function pdfAlertas(c: any, previa: string[] | null) {
+  const o = c?.opcoes ?? {}; const sim = (b: unknown) => (b ? 'Sim' : 'Não');
+  return htmlFicha({ titulo: 'Alertas do ERP', subtitulo: c?.alertaAtivo ? 'Alertas ligados' : 'Alertas desligados', secoes: [
+    { campos: [['Receber alertas por WhatsApp', sim(c?.alertaAtivo)], ['Números que recebem', (c?.telefones ?? []).join(', ')], ['Horário do envio', c?.alertaHora != null ? `${c.alertaHora}h` : '']] },
+    { titulo: 'O que avisar', campos: [['Contas a pagar', c?.alertaPagar ? `Sim, vencidas e que vencem em até ${c.alertaDiasAntes ?? 0} dia(s)` : 'Não'], ['Estoque baixo', c?.alertaEstoqueMinimo ? `Sim · consumo de ${o.consumoDias ?? 30} dias · comprar para ${o.coberturaDias ?? 30} dias${o.compraWhatsapp ? ' · aprovar pelo WhatsApp' : ''}` : 'Não'],
+      ['Lotes vencendo', o.validade ? `Sim, em até ${o.validadeDias ?? 30} dia(s)` : 'Não'], ['Produtos parados', c?.alertaSemSaidaDias > 0 ? `Sim, sem saída há ${c.alertaSemSaidaDias} dia(s)` : 'Não'], ['Caixa de ontem', sim(o.caixa)], ['Alterações de ontem', sim(o.alteracoes)]] },
+  ], observacoes: previa?.length ? `Prévia do alerta:\n\n${previa.join('\n\n').replace(/[*_]/g, '')}` : '' });
+}
 import { brl } from '../format';
 
 const SITUACAO: Record<string, string> = {
@@ -73,6 +85,7 @@ function Form({ inicial, onSaved }: { inicial: any; onSaved: () => void }) {
 
       {inicial.status && <p className="small" style={{ color: inicial.status.ok ? undefined : '#b45309' }}>Último envio: {new Date(inicial.status.at).toLocaleString('pt-BR')} — {inicial.status.detail}</p>}
       <div className="row" style={{ justifyContent: 'flex-end', gap: 6, marginTop: 10, flexWrap: 'wrap' }}>
+        <BotaoImprimir title="Imprime a configuração salva (e a prévia, se você gerou)" montar={() => pdfAlertas(inicial, previa)} />
         <button className="btn" disabled={busy} onClick={async () => { if (await salvar()) { const r = await run(() => get<any>('/erp/alertas/previa')); if (r) setPrevia(r.partes?.length ? r.partes : ['Nada para avisar hoje.']); } }}>Salvar e ver prévia</button>
         <button className="btn" disabled={busy} onClick={async () => { if (await salvar()) { const r = await run(() => post<any>('/erp/alertas/enviar-agora')); if (r) { alert(r.ok ? `Alerta enviado${r.partes > 1 ? ` em ${r.partes} mensagens` : ''}.${r.codigo ? ` Código de compra: ${r.codigo}.` : ''}` : `Não foi enviado: ${r.detail}`); onSaved(); } } }}>Salvar e enviar agora</button>
         <button className="btn primary" disabled={busy} onClick={async () => { if (await salvar()) onSaved(); }}>Salvar</button>
@@ -89,6 +102,7 @@ function Aprovacoes() {
   return (
     <div className="card" style={{ marginTop: 12 }}>
       <h3 style={{ marginTop: 0 }}>Compras aprovadas pelo WhatsApp</h3>
+      {!!st.data?.length && <div className="row" style={{ justifyContent: 'flex-end' }}><BotaoImprimir className="btn sm" montar={() => htmlTabela({ titulo: 'Compras aprovadas pelo WhatsApp', linhas: st.data ?? [], colunas: [{ titulo: 'Código', valor: (a: any) => a.codigo }, { titulo: 'Alerta', valor: (a: any) => String(a.dia ?? '').split('-').reverse().join('/') }, { titulo: 'Itens', valor: (a: any) => a.itens }, { titulo: 'Situação', valor: (a: any) => SITUACAO[a.status] ?? a.status }, { titulo: 'Quem respondeu', valor: (a: any) => a.aprovadoPor }, { titulo: 'Gerado', valor: (a: any) => a.documentos.map((d: any) => `${d.tipo === 'pedido' ? `Pedido nº ${d.numero} (${d.fornecedor})` : `Solicitação nº ${d.numero}`}${d.totalCents ? ` ${brl(d.totalCents)}` : ''}`).join(' · ') }] })} /></div>}
       <Async state={st}>{(l) => !l.length ? <p className="muted small">Nenhuma ainda. Quando o alerta trouxer itens com estoque baixo, responda APROVADO no WhatsApp.</p> : (
         <div className="table-wrap"><table>
           <thead><tr><th>Código</th><th>Alerta</th><th>Itens</th><th>Situação</th><th>Quem respondeu</th><th>Gerado</th></tr></thead>

@@ -5,7 +5,7 @@
  */
 import { get } from '../../api';
 import type { ConfigDocumento } from '../../../../server/erp/shared/documento';
-import { esc, paginaHtml, type Formato } from './modelo';
+import { esc, paginaHtml, type Formato, type Orientacao } from './modelo';
 
 let cache: Promise<ConfigDocumento | null> | null = null;
 /** Configuração do cabeçalho (uma busca por sessão da tela; falha → documento sai só com o rodapé). */
@@ -16,7 +16,8 @@ export function configDocumento(): Promise<ConfigDocumento | null> {
 /** Depois de salvar a configuração: a próxima impressão busca de novo. */
 export function limparCacheDocumento(c?: ConfigDocumento) { cache = c ? Promise.resolve(c) : null; }
 
-export interface Documento { titulo: string; corpo: string; formato?: Formato; css?: string; nomeReserva?: string }
+/** `titulo` e `subtitulo` vão na faixa do cabeçalho (A4); `arquivo` = nome sugerido do PDF; `orientacao` = paisagem p/ tabelas largas. */
+export interface Documento { titulo: string; corpo: string; formato?: Formato; css?: string; nomeReserva?: string; subtitulo?: string; orientacao?: Orientacao; arquivo?: string }
 
 /**
  * Chame DIRETO no clique. `montar` pode buscar dados (assíncrono); erros aparecem na própria janela e são relançados.

@@ -4,6 +4,8 @@ import { Link } from 'react-router-dom';
 import { post, get } from '../../api';
 import { useApi, Async, Modal, Field, useAction } from '../../ui';
 import { brl, toCents } from '../format';
+import { BotaoImprimir } from '../impressao/BotaoPdf';
+import { listaFunil, fichaOportunidade } from '../impressao/cadastros';
 
 export default function Funil() {
   const state = useApi<any>('/erp/crm/funil');
@@ -16,7 +18,7 @@ export default function Funil() {
     <>
       <div className="page-head">
         <div><h1>Funil de vendas</h1><p className="muted">Arraste os cards entre as etapas. Ganhar ou perder fecha a oportunidade e registra na linha do tempo do cliente.</p></div>
-        <button className="btn primary" onClick={() => setNova(true)}>+ Oportunidade</button>
+        <div className="row"><BotaoImprimir disabled={!state.data} montar={() => listaFunil(state.data)} /><button className="btn primary" onClick={() => setNova(true)}>+ Oportunidade</button></div>
       </div>
       <Async state={state}>{(d) => (
         <div className="board">
@@ -41,6 +43,7 @@ export default function Funil() {
                     <div className="row" style={{ marginTop: 6, gap: 6 }}>
                       <button className="btn sm" onClick={() => acao(o.id, { evento: 'GANHAR' }, 'Oportunidade ganha')}>Ganhou</button>
                       <button className="btn ghost sm" onClick={() => setPerder(o)}>Perdeu</button>
+                      <BotaoImprimir className="btn ghost sm" title="Imprimir a ficha da oportunidade" montar={() => fichaOportunidade(o, e.nome)}>🖨️</BotaoImprimir>
                     </div>
                   </div>
                 ))}

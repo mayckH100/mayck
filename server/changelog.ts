@@ -21,6 +21,18 @@ export type EntradaChangelog = {
 
 export const CHANGELOG: EntradaChangelog[] = [
   {
+    versao: '1.55.0',
+    data: '26/11/2026',
+    titulo: 'MCK ERP: PDF em tudo e cabeçalho mais profissional',
+    itens: [
+      'Onde tem exportar planilha agora também tem "📄 Exportar PDF", com o mesmo conteúdo: clientes, fornecedores, produtos, BI (pedidos e produtos vendidos), relatório do dia, inventário e rastreio de lote.',
+      'Todos os cadastros e listas ganharam "🖨️ Imprimir / PDF": clientes, fornecedores, funil, painel do CRM, pedidos, caixas, estoque (saldos, lotes, movimentações e depósitos), notas de entrada, compras (o que comprar, solicitações, cotações, ordens e avisos), produção (ordens, estruturas e MRP), financeiro (painel, contas a receber e a pagar, contas bancárias, DRE e plano de contas), fiscal (notas, emitente e regras), BI, alertas, tabelas de preço, condições de pagamento e funcionários.',
+      'Também dá para imprimir a ficha de cada cadastro com os dados salvos: cliente, fornecedor, oportunidade, título do financeiro, conta bancária, categoria, regra de tributação, estrutura do produto e funcionário.',
+      'Novo cabeçalho dos documentos: escolha em Documentos impressos se o logo fica no canto esquerdo (com seus dados embaixo, em letra pequena, e o título do documento à direita) ou no centro da folha. A tela mostra a prévia.',
+      'Listas com muitas colunas saem com a folha deitada e letra menor, e o cabeçalho da tabela se repete em cada página. No celular, use "Salvar como PDF".',
+    ],
+  },
+  {
     versao: '1.54.1',
     data: '26/11/2026',
     titulo: 'MCK ERP: imprimir relatórios e produtos',

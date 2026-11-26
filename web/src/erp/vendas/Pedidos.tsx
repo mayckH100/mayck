@@ -6,6 +6,8 @@ import { useApi, Async, Empty, Modal, Field, useAction, useToast, fmtDate } from
 import VendaBalcao from './Balcao';
 import { CaixaBanner, AbrirCaixaModal, CaixasHistorico, type EstadoCaixa } from './Caixa';
 import { brl, toCents, toMil, qtd, STATUS_PEDIDO } from '../format';
+import { BotaoImprimir } from '../impressao/BotaoPdf';
+import { listaPedidos } from '../impressao/cadastros';
 
 /** `id` (v1.37.0): atalho na URL (?grupo=aprovacao) usado pelo Resumo e pelos alertas. */
 export const GRUPOS: { label: string; status: string; origem?: 'balcao'; id: string }[] = [
@@ -50,6 +52,7 @@ export default function Pedidos({ balcao: abrirBalcao = false }: { balcao?: bool
       <div className="page-head">
         <div><h1>{abrirBalcao ? 'Venda balcão (PDV)' : 'Pedidos de venda'}</h1><p className="muted">{abrirBalcao ? 'Venda na hora: baixa o estoque e já lança no caixa. As vendas feitas aparecem logo abaixo.' : 'Do orçamento à entrega: aprovação, reserva de estoque, separação por QR e faturamento.'}</p></div>
         <div className="row" style={{ gap: 6 }}>
+          {!caixasAba && <BotaoImprimir disabled={!state.data?.length} montar={() => listaPedidos(state.data ?? [], grupo, STATUS_PEDIDO)} />}
           <button className="btn" onClick={() => setNovo(true)}>+ Orçamento</button>
           <button className="btn primary" onClick={iniciarVenda}>Venda balcão</button>
         </div>

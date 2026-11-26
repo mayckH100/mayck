@@ -5,6 +5,8 @@ import { useApi, Async, Empty, Modal, Field, useAction, fmtDate } from '../../ui
 import { brl, qtd, toMil, toCents, fromCents } from '../format';
 import { BuscaProduto } from '../comum';
 import { imprimir } from '../impressao/cabecalho';
+import { BotaoImprimir } from '../impressao/BotaoPdf';
+import { htmlTabela, htmlFicha, fmt } from '../impressao/listas';
 import { diaSP, esc } from '../impressao/modelo';
 
 const ST: Record<string, string> = { PLANEJADA: 'Planejada', LIBERADA: 'Liberada', EM_PRODUCAO: 'Em produção', ENCERRADA: 'Encerrada', CANCELADA: 'Cancelada' };
@@ -34,7 +36,10 @@ function Ops() {
   const { busy, run } = useAction();
   return (
     <>
-      <button className="btn primary" style={{ marginBottom: 10 }} onClick={() => { setF({ produto: null, qtd: '', inicio: '', fim: '' }); setNova(true); }}>+ Ordem de produção</button>
+      <div className="row" style={{ marginBottom: 10, gap: 6 }}>
+        <button className="btn primary" onClick={() => { setF({ produto: null, qtd: '', inicio: '', fim: '' }); setNova(true); }}>+ Ordem de produção</button>
+        <BotaoImprimir disabled={!l.data?.length} montar={() => htmlTabela({ titulo: 'Ordens de produção', linhas: l.data ?? [], colunas: [{ titulo: 'Nº', valor: (o: any) => o.numero }, { titulo: 'Produto', valor: (o: any) => `${o.produto?.sku ?? ''} · ${o.produto?.nome ?? ''}` }, { titulo: 'Planejado', valor: (o: any) => fmt.qtd(o.qtdPlanejadaMil), dir: true }, { titulo: 'Produzido', valor: (o: any) => `${fmt.qtd(o.qtdProduzidaMil)}${o.qtdRefugoMil > 0 ? ` (+${fmt.qtd(o.qtdRefugoMil)} refugo)` : ''}`, dir: true }, { titulo: 'Origem', valor: (o: any) => o.origem }, { titulo: 'Status', valor: (o: any) => ST[o.status] ?? o.status }, { titulo: 'Fim previsto', valor: (o: any) => fmt.dia(o.fimPrevisto) }] })} />
+      </div>
       <Async state={l}>{(d) => d.length === 0 ? <div className="card"><Empty title="Nenhuma OP">Cadastre a estrutura do produto e abra uma ordem, ou aplique o MRP.</Empty></div> : (
         <div className="card table-wrap"><table><thead><tr><th>Nº</th><th>Produto</th><th>Planejado</th><th>Produzido</th><th>Origem</th><th>Status</th><th></th></tr></thead>
           <tbody>{d.map((o) => <tr key={o.id}><td>{o.numero}</td><td>{o.produto?.sku} · {o.produto?.nome}</td><td>{qtd(o.qtdPlanejadaMil)}</td><td>{qtd(o.qtdProduzidaMil)}{o.qtdRefugoMil > 0 && <span className="small muted"> (+{qtd(o.qtdRefugoMil)} refugo)</span>}</td><td>{o.origem}</td><td>{ST[o.status]}</td><td><button className="btn sm" onClick={() => setAberta(o.id)}>Abrir</button></td></tr>)}</tbody></table></div>
@@ -107,6 +112,10 @@ function EditorEstrutura({ produtoId }: { produtoId: string }) {
       const O = ops ?? d.operacoes.map((o: any) => ({ descricao: o.descricao, centro: o.centroTrabalho, seg: String(o.segundosPorUn), setup: String(o.setupMinutos), custoHora: fromCents(o.custoHoraCents) }));
       return (
         <div className="card">
+          <div className="row" style={{ justifyContent: 'flex-end' }}><BotaoImprimir className="btn sm" title="Imprime a estrutura salva" montar={() => htmlFicha({ titulo: `Estrutura e roteiro · ${d.produto?.sku ?? ''} ${d.produto?.nome ?? ''}`.trim(), subtitulo: `Custo padrão ${brl(d.custoPadraoCents)} por ${d.produto?.unidade ?? ''}`,
+            secoes: [{ campos: [['Produto', `${d.produto?.sku ?? ''} · ${d.produto?.nome ?? ''}`], ['Custo padrão', `${brl(d.custoPadraoCents)} por ${d.produto?.unidade ?? ''}`], ['Usado em', d.usadoEm.map((p: any) => p.sku).join(', ')]] }],
+            tabelas: [{ titulo: `Componentes (por 1 ${d.produto?.unidade ?? ''})`, linhas: d.itens, colunas: [{ titulo: 'Componente', valor: (i: any) => `${i.componente?.sku ?? ''} · ${i.componente?.nome ?? ''}` }, { titulo: 'Qtd', valor: (i: any) => `${fmt.qtd(i.qtdMil)} ${i.componente?.unidade ?? ''}`, dir: true }, { titulo: 'Perda', valor: (i: any) => fmt.pct(i.perdaBp), dir: true }] },
+              { titulo: 'Roteiro (operações)', linhas: d.operacoes, colunas: [{ titulo: 'Operação', valor: (o: any) => o.descricao }, { titulo: 'Centro de trabalho', valor: (o: any) => o.centroTrabalho }, { titulo: 'Seg/un', valor: (o: any) => o.segundosPorUn, dir: true }, { titulo: 'Setup (min)', valor: (o: any) => o.setupMinutos, dir: true }, { titulo: 'R$/hora', valor: (o: any) => brl(o.custoHoraCents), dir: true }] }] })} /></div>
           <p className="small">Custo padrão atual: <b>{brl(d.custoPadraoCents)}</b> por {d.produto.unidade}{d.usadoEm.length > 0 && ` · usado em ${d.usadoEm.map((p: any) => p.sku).join(', ')}`}</p>
           <strong className="small">Componentes (por 1 {d.produto.unidade})</strong>
           <table><thead><tr><th>Componente</th><th>Qtd</th><th>Perda %</th><th></th></tr></thead><tbody>{I.map((i: any, n: number) => <tr key={i.componente.id}><td className="small">{i.componente.sku} · {i.componente.nome}</td>
@@ -144,6 +153,7 @@ function Mrp() {
             <td>{v !== undefined ? <input style={{ width: 80 }} value={v} inputMode="decimal" aria-label="Quantidade" onChange={(e) => setSel({ ...sel, [s.produtoId]: e.target.value })} /> : `${qtd(s.qtdMil)} ${s.unidade}`}</td>
             <td>{s.fornecedor ?? '—'}</td><td className="small muted">{s.motivo}</td></tr>; })}</tbody></table></div>
         <div className="row" style={{ justifyContent: 'flex-end', marginTop: 8 }}>
+          <BotaoImprimir montar={() => htmlTabela({ titulo: 'MRP · sugestões de compra e produção', linhas: d, colunas: [{ titulo: 'Ação', valor: (s: any) => (s.acao === 'PRODUZIR' ? 'Produzir' : 'Comprar') }, { titulo: 'Produto', valor: (s: any) => `${s.sku} · ${s.nome}` }, { titulo: 'Necessidade', valor: (s: any) => `${fmt.qtd(s.necessidadeMil)} ${s.unidade}`, dir: true }, { titulo: 'Sugerido', valor: (s: any) => `${fmt.qtd(s.qtdMil)} ${s.unidade}`, dir: true }, { titulo: 'Fornecedor padrão', valor: (s: any) => s.fornecedor }, { titulo: 'Cálculo', valor: (s: any) => s.motivo }] })} />
           <button className="btn" onClick={() => setSel(Object.fromEntries(d.map((s) => [s.produtoId, qtd(s.qtdMil).replace(/\./g, '')])))}>Marcar todas</button>
           <button className="btn primary" disabled={busy || !Object.keys(sel).length} onClick={async () => {
             const itens = d.filter((s) => sel[s.produtoId] !== undefined).map((s) => ({ produtoId: s.produtoId, acao: s.acao, qtdMil: toMil(sel[s.produtoId]) })).filter((i) => i.qtdMil > 0);
@@ -160,9 +170,8 @@ function Mrp() {
 function imprimirOp(o: any) {
   const un = o.produto?.unidade ?? '';
   imprimir(() => ({
-    titulo: `Ordem de produção nº ${o.numero}`,
-    corpo: `<h2>Ordem de produção nº ${esc(o.numero)}</h2><div class="small">Status: ${esc(ST[o.status] ?? o.status)} · origem ${esc(o.origem)}${o.inicioPrevisto ? ` · início ${esc(diaSP(o.inicioPrevisto))}` : ''}${o.fimPrevisto ? ` · fim previsto ${esc(diaSP(o.fimPrevisto))}` : ''}</div>
-      <p>Produto: <b>${esc(o.produto?.sku)} · ${esc(o.produto?.nome)}</b><br>Quantidade planejada: <b>${esc(qtd(o.qtdPlanejadaMil))} ${esc(un)}</b> · produzido até agora: ${esc(qtd(o.qtdProduzidaMil))} ${esc(un)}</p>
+    titulo: `Ordem de produção nº ${o.numero}`, subtitulo: `Status: ${ST[o.status] ?? o.status} · origem ${o.origem}${o.inicioPrevisto ? ` · início ${diaSP(o.inicioPrevisto)}` : ''}${o.fimPrevisto ? ` · fim previsto ${diaSP(o.fimPrevisto)}` : ''}`,
+    corpo: `<p>Produto: <b>${esc(o.produto?.sku)} · ${esc(o.produto?.nome)}</b><br>Quantidade planejada: <b>${esc(qtd(o.qtdPlanejadaMil))} ${esc(un)}</b> · produzido até agora: ${esc(qtd(o.qtdProduzidaMil))} ${esc(un)}</p>
       <h3>Componentes</h3><table><thead><tr><th>Componente</th><th class="dir">Previsto</th><th class="dir">Reservado</th><th class="dir">Consumido</th><th>Separado ☐</th></tr></thead><tbody>${o.componentes.map((c: any) => `<tr><td>${esc(c.produto?.sku)} · ${esc(c.produto?.nome)}</td><td class="dir">${esc(qtd(c.qtdPrevistaMil))} ${esc(c.produto?.unidade ?? '')}</td><td class="dir">${esc(qtd(c.qtdReservadaMil))}</td><td class="dir">${esc(qtd(c.qtdConsumidaMil))}</td><td>☐</td></tr>`).join('')}</tbody></table>
       ${o.apontamentos.length ? `<h3>Apontamentos</h3><table><thead><tr><th>Quando</th><th class="dir">Boa</th><th class="dir">Refugo</th><th>Lote</th></tr></thead><tbody>${o.apontamentos.map((a: any) => `<tr><td>${esc(fmtDate(a.createdAt))}</td><td class="dir">${esc(qtd(a.qtdBoaMil))}</td><td class="dir">${esc(qtd(a.qtdRefugoMil))}</td><td>${esc(a.lote ?? '—')}</td></tr>`).join('')}</tbody></table>` : ''}
       <h3>Apontamento manual</h3><table><thead><tr><th>Data</th><th>Quantidade boa</th><th>Refugo</th><th>Lote</th><th>Responsável</th></tr></thead><tbody>${'<tr><td>&nbsp;</td><td></td><td></td><td></td><td></td></tr>'.repeat(4)}</tbody></table>

@@ -1,13 +1,14 @@
 /**
  * v1.54.0 — MCK ERP › Documentos impressos (só Proprietário/Administrador): logo e dados que saem no cabeçalho de todos
- * os documentos (pedido, orçamento, romaneio, recibo, ordem de compra, OP, financeiro, inventário, fechamento de caixa).
+ * os documentos (pedido, orçamento, romaneio, recibo, ordem de compra, OP, financeiro, inventário, fechamento de caixa,
+ * relatórios, listas e fichas de cadastro). v1.55.0: escolha da posição do logo (Esquerda/Centro) com prévia.
  * O rodapé da MCK é fixo e aparece só como informação (não há campo para mudar).
  */
 import { useMemo, useState } from 'react';
 import { put } from '../../api';
 import { useAuth } from '../../auth';
 import { useApi, Async, Field, useAction, useToast } from '../../ui';
-import { CAMPOS_CABECALHO, LOGO_MAX_BYTES, RODAPE_DOCUMENTO, type ConfigDocumento } from '../../../../server/erp/shared/documento';
+import { CAMPOS_CABECALHO, LOGO_MAX_BYTES, RODAPE_DOCUMENTO, posicaoLogoValida, type ConfigDocumento, type PosicaoLogo } from '../../../../server/erp/shared/documento';
 import { paginaHtml } from '../impressao/modelo';
 import { limparCacheDocumento } from '../impressao/cabecalho';
 
@@ -47,7 +48,7 @@ export default function DocumentosImpressos() {
   const { can } = useAuth();
   return (
     <div className="page">
-      <div className="page-head"><div><h1>Documentos impressos</h1><p className="muted">Seu logo e os dados da empresa no topo de pedidos, orçamentos, romaneios, recibos, ordens de compra e de produção, comprovantes do financeiro e folhas de inventário.</p></div></div>
+      <div className="page-head"><div><h1>Documentos impressos</h1><p className="muted">Seu logo e os dados da empresa no topo de pedidos, orçamentos, romaneios, recibos, ordens de compra e de produção, comprovantes do financeiro, folhas de inventário, relatórios, listas e PDFs exportados.</p></div></div>
       {!can('OWNER', 'ADMIN') ? <div className="card"><p className="small">Só o proprietário ou um administrador altera os documentos impressos.</p></div>
         : <Async state={st}>{(d) => <Form inicial={d} onSaved={st.reload} />}</Async>}
     </div>
@@ -60,10 +61,12 @@ function Form({ inicial, onSaved }: { inicial: { config: ConfigDocumento; salvo:
   const { busy, run } = useAction(); const toast = useToast();
   const logo = logoNovo === undefined ? f.logo : logoNovo;
   const set = (k: keyof ConfigDocumento) => (e: { target: { value: string } }) => setF({ ...f, [k]: e.target.value });
+  const posicao = posicaoLogoValida(f.posicaoLogo);
+  // v1.55.0: a prévia mostra o layout escolhido (logo à esquerda ou no centro).
   const previa = useMemo(() => paginaHtml({
-    titulo: 'Prévia', config: { ...f, logo },
-    corpo: '<h2>Pedido de venda nº 123</h2><div class="small">Exemplo de como o topo e o rodapé saem no papel.</div><table><thead><tr><th>Item</th><th>Qtd</th><th>Total</th></tr></thead><tbody><tr><td>Produto exemplo</td><td>1 UN</td><td>R$ 10,00</td></tr></tbody></table>',
-  }), [f, logo]);
+    titulo: 'Pedido de venda nº 123', subtitulo: 'Emitido em 26/11/2026 10:30', config: { ...f, logo, posicaoLogo: posicao },
+    corpo: '<div class="small">Exemplo de como o topo e o rodapé saem no papel.</div><table><thead><tr><th>Item</th><th>Qtd</th><th class="dir">Total</th></tr></thead><tbody><tr><td>Produto exemplo</td><td>1 UN</td><td class="dir">R$ 10,00</td></tr></tbody></table>',
+  }), [f, logo, posicao]);
   async function escolher(file?: File) {
     if (!file) return;
     try { setLogoNovo(await prepararLogo(file)); } catch (e) { toast((e as Error).message, 'err'); }
@@ -71,6 +74,7 @@ function Form({ inicial, onSaved }: { inicial: { config: ConfigDocumento; salvo:
   const salvar = async () => {
     const corpo: Record<string, unknown> = {};
     for (const k of CAMPOS_CABECALHO) corpo[k] = f[k] ?? '';
+    corpo.posicaoLogo = posicao;
     if (logoNovo !== undefined) corpo.logo = logoNovo;
     const r = await run(() => put<any>('/erp/documentos/config', corpo), 'Documentos impressos salvos');
     if (r) { limparCacheDocumento(r.config); setLogoNovo(undefined); setF(r.config); onSaved(); }
@@ -87,6 +91,12 @@ function Form({ inicial, onSaved }: { inicial: { config: ConfigDocumento; salvo:
             {logo && <button className="btn sm ghost" onClick={() => setLogoNovo(null)}>Remover</button>}
           </div>
           <p className="small muted">PNG, JPG ou WEBP. Reduzimos para até 800×400 px (máx. 500 KB). Fundo transparente ou branco fica melhor.</p>
+          <Field label="Posição do logo" hint="Esquerda: logo no canto e os dados embaixo, em letra pequena. Centro: logo e dados centralizados. O recibo de 80 mm sai sempre centralizado.">
+            <select value={posicao} onChange={(e) => setF({ ...f, posicaoLogo: e.target.value as PosicaoLogo })} aria-label="Posição do logo">
+              <option value="ESQUERDA">Esquerda (padrão)</option>
+              <option value="CENTRO">Centro</option>
+            </select>
+          </Field>
           <h3>Dados do cabeçalho</h3>
           <Field label={ROTULO.nomeExibicao}><input value={f.nomeExibicao} onChange={set('nomeExibicao')} maxLength={120} /></Field>
           <div className="grid g2">

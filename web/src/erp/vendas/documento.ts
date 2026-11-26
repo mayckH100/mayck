@@ -38,7 +38,9 @@ export async function imprimirDocumento(tipo: TipoDocumento, pedidoId: string) {
     const titulo = tituloPedido(tipo, p);
     const orc = tipo !== 'romaneio' && p.orcamento;
     const codigoBloco = `<div class="cod"><img src="${qr}" alt="QR do pedido"><div style="flex:1;min-width:0">${barras(p.codigo)}<div class="c">${esc(p.codigo)}</div><div class="small">Leia este código no MCK ERP (Ler código / Localizar pedido) para abrir o pedido.</div></div></div>`;
-    const cab = `<h2>${esc(titulo)}</h2><div class="small">${dt(p.createdAt)}${p.vendedor ? ` · ${esc(p.vendedor)}` : ''}</div>
+    // v1.55.0: no A4 o título e a data/vendedor vão na faixa do cabeçalho; no recibo 80 mm continuam no corpo.
+    const sub = `${dt(p.createdAt)}${p.vendedor ? ` · ${p.vendedor}` : ''} · ${p.codigo}`;
+    const cab = `${tipo === 'recibo' ? `<h2>${esc(titulo)}</h2><div class="small">${esc(sub)}</div>` : ''}
       ${orc && p.validoAte ? `<div class="validade"><b>Válido até ${diaSP(p.validoAte)}</b></div>` : ''}
       <div>Cliente: <b>${esc(p.cliente.nome)}</b>${p.cliente.documento ? ` · ${esc(doc(p.cliente.documento))}` : ''}</div>`;
     let corpo = '';
@@ -59,6 +61,6 @@ export async function imprimirDocumento(tipo: TipoDocumento, pedidoId: string) {
       : '.cod img{width:30mm;height:30mm}')
       + '.cod{display:flex;gap:3mm;align-items:center;margin:8px 0;padding:2mm;border:1px dashed #999}.c{font:bold 1.2em monospace;text-align:center}.validade{margin:4px 0;padding:3px 6px;border:1px solid #000;display:inline-block}';
     const obs = tipo !== 'recibo' && p.observacoes ? `<p class="small">Obs.: ${esc(p.observacoes).replace(/\n/g, '<br>')}</p>` : '';
-    return { titulo: `${titulo} ${p.codigo}`, corpo: `${cab}${codigoBloco}${corpo}${obs}`, formato: tipo === 'recibo' ? 'recibo' as const : 'a4' as const, css, nomeReserva: d.empresa?.nome ?? '' };
+    return { titulo, subtitulo: sub, arquivo: `${titulo} ${p.codigo}`, corpo: `${cab}${codigoBloco}${corpo}${obs}`, formato: tipo === 'recibo' ? 'recibo' as const : 'a4' as const, css, nomeReserva: d.empresa?.nome ?? '' };
   }, 'width=900,height=700');
 }

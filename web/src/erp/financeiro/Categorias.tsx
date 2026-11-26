@@ -4,6 +4,15 @@ import { put, del } from '../../api';
 import { useAuth } from '../../auth';
 import { useApi, Async, Modal, useAction, useToast } from '../../ui';
 import { arvore, NovaCategoriaInline, NovoTipoContaInline, type Cat, type TipoConta } from './categoriasUi';
+import { BotaoImprimir } from '../impressao/BotaoPdf';
+import { htmlTabela, htmlFicha, fmt } from '../impressao/listas';
+
+const GRUPO: Record<string, string> = { RECEITA_BRUTA: 'Receita bruta', DEDUCAO: 'Deduções', CUSTO: 'Custos', OPERACIONAL: 'Despesas operacionais', FINANCEIRA: 'Resultado financeiro', IMPOSTO: 'Impostos' };
+/** v1.55.0: plano de contas (categorias e subcategorias) impresso, na ordem da árvore. */
+const pdfPlano = (lista: Cat[], tipo: 'RECEITA' | 'DESPESA') => htmlTabela({ titulo: `Plano de contas · ${tipo === 'RECEITA' ? 'Receitas' : 'Despesas'}`, filtros: ['Inclui categorias inativas'], linhas: arvore(lista, tipo, false),
+  colunas: [{ titulo: 'Código', valor: (x) => x.cat.codigo }, { titulo: 'Categoria', valor: (x) => `${x.nivel ? '↳ ' : ''}${x.cat.nome}` }, { titulo: 'Grupo no DRE', valor: (x) => GRUPO[x.cat.grupo] ?? x.cat.grupo }, { titulo: 'Situação', valor: (x) => (x.cat.ativa ? 'Ativa' : 'Inativa') }] });
+const pdfCategoria = (c: Cat, lista: Cat[]) => htmlFicha({ titulo: `Categoria · ${c.nome}`, secoes: [{ campos: [['Nome', c.nome], ['Código', c.codigo], ['Tipo', c.tipo === 'RECEITA' ? 'Receita' : 'Despesa'], ['Grupo no DRE', GRUPO[c.grupo] ?? c.grupo],
+  ['Categoria mãe', lista.find((x) => x.id === c.paiId)?.nome ?? ''], ['Subcategorias', lista.filter((x) => x.paiId === c.id).map((x) => x.nome).join(', ')], ['Situação', c.ativa ? 'Ativa' : 'Inativa']] }] });
 
 function Renomear({ nome, onSalvar, onCancel }: { nome: string; onSalvar: (n: string) => void; onCancel: () => void }) {
   const [v, setV] = useState(nome);
@@ -49,12 +58,13 @@ export default function Categorias({ tipoInicial, onClose }: { tipoInicial: 'REC
 
       {tipo !== 'TIPOS' ? <Async state={cats}>{(lista) => (
         <div style={{ display: 'grid', gap: 8 }}>
-          {gestor && !nova && <div className="row"><button type="button" className="btn sm" onClick={() => setNova({ sub: false })}>+ Nova categoria</button></div>}
+          <div className="row">{gestor && !nova && <button type="button" className="btn sm" onClick={() => setNova({ sub: false })}>+ Nova categoria</button>}<BotaoImprimir className="btn sm" montar={() => pdfPlano(lista, tipo)} /></div>
           {nova && <NovaCategoriaInline key={`${nova.sub}-${nova.pai ?? ''}`} tipo={tipo} cats={lista} sub={nova.sub} paiInicial={nova.pai} onCancel={() => setNova(null)} onCriada={() => { setNova(null); cats.reload(); }} />}
           {arvore(lista, tipo, false).map(({ cat: c, nivel }) => (
             <div key={c.id} className="row" style={{ paddingLeft: nivel ? 22 : 0, borderBottom: '1px solid var(--line)', paddingBottom: 6, flexWrap: 'wrap' }}>
               {editando === c.id ? <Renomear nome={c.nome} onCancel={() => setEditando(null)} onSalvar={(n) => renomearCat(c, n)} /> : <>
                 <span style={{ flex: '1 1 160px', opacity: c.ativa ? 1 : 0.55 }}>{nivel ? '↳ ' : ''}<b>{c.nome}</b> <span className="small muted">{c.codigo}</span> {!c.ativa && <span className="badge">Inativa</span>}</span>
+                <BotaoImprimir className="btn ghost sm" title="Ficha da categoria" montar={() => pdfCategoria(c, lista)}>🖨️</BotaoImprimir>
                 {gestor && <div className="row" style={{ gap: 4 }}>
                   {!nivel && c.ativa && <button type="button" className="btn ghost sm" onClick={() => setNova({ sub: true, pai: c.id })}>+ Sub</button>}
                   <button type="button" className="btn ghost sm" onClick={() => setEditando(c.id)}>Renomear</button>
@@ -70,11 +80,13 @@ export default function Categorias({ tipoInicial, onClose }: { tipoInicial: 'REC
         <div style={{ display: 'grid', gap: 8 }}>
           <p className="small muted">Além dos tipos prontos (água, luz, internet, telefone, aluguel, imposto), você pode criar os seus.</p>
           {gestor && (nova ? <NovoTipoContaInline onCancel={() => setNova(null)} onCriado={() => { setNova(null); tipos.reload(); }} /> : <div className="row"><button type="button" className="btn sm" onClick={() => setNova({ sub: false })}>+ Novo tipo de conta</button></div>)}
+          {lista.length > 0 && <div className="row"><BotaoImprimir className="btn sm" montar={() => htmlTabela({ titulo: 'Tipos de conta', linhas: lista, colunas: [{ titulo: 'Tipo de conta', valor: (t) => t.nome }, { titulo: 'Categoria', valor: (t) => (cats.data ?? []).find((c) => c.id === t.categoriaId)?.nome }, { titulo: 'Situação', valor: (t) => (t.ativo ? 'Ativo' : 'Inativo') }] })} /></div>}
           {lista.length === 0 && <p className="small muted">Nenhum tipo criado ainda.</p>}
           {lista.map((t) => (
             <div key={t.id} className="row" style={{ borderBottom: '1px solid var(--line)', paddingBottom: 6 }}>
               {editando === t.id ? <Renomear nome={t.nome} onCancel={() => setEditando(null)} onSalvar={(n) => renomearTipo(t, n)} /> : <>
                 <span style={{ flex: '1 1 160px', opacity: t.ativo ? 1 : 0.55 }}><b>{t.nome}</b> {!t.ativo && <span className="badge">Inativo</span>}</span>
+                <BotaoImprimir className="btn ghost sm" title="Ficha do tipo de conta" montar={() => htmlFicha({ titulo: `Tipo de conta · ${t.nome}`, secoes: [{ campos: [['Nome', t.nome], ['Categoria', (cats.data ?? []).find((c) => c.id === t.categoriaId)?.nome ?? ''], ['Situação', fmt.simNao(t.ativo) === 'Sim' ? 'Ativo' : 'Inativo']] }] })}>🖨️</BotaoImprimir>
                 {gestor && <div className="row" style={{ gap: 4 }}>
                   <button type="button" className="btn ghost sm" onClick={() => setEditando(t.id)}>Renomear</button>
                   <button type="button" className="btn ghost sm" disabled={busy} onClick={() => alternarTipo(t)}>{t.ativo ? 'Desativar' : 'Reativar'}</button>

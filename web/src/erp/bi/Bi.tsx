@@ -2,6 +2,8 @@
 import { useState } from 'react';
 import { useApi, Async } from '../../ui';
 import { brl, qtd } from '../format';
+import { BotaoImprimir, BotaoPdf, pdfDoExport } from '../impressao/BotaoPdf';
+import { relatorioBi } from '../impressao/cadastros';
 
 const pct = (bp: number) => `${(bp / 100).toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%`;
 const iso = (d: Date) => new Date(d.getTime() - 3 * 3_600_000).toISOString().slice(0, 10);
@@ -20,7 +22,11 @@ export default function Bi() {
         <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
           <input type="date" value={p.de} onChange={(e) => setP({ ...p, de: e.target.value })} aria-label="De" />
           <input type="date" value={p.ate} onChange={(e) => setP({ ...p, ate: e.target.value })} aria-label="Até" />
-          <button className="btn sm" onClick={() => baixar('pedidos')}>CSV pedidos</button><button className="btn sm" onClick={() => baixar('produtos')}>CSV produtos</button>
+          <button className="btn sm" onClick={() => baixar('pedidos')}>CSV pedidos</button>
+          <BotaoPdf className="btn sm" montar={pdfDoExport(`/api/erp/bi/exportar?tipo=pedidos&de=${p.de}&ate=${p.ate}`, 'BI · pedidos faturados', [`Período: ${p.de.split('-').reverse().join('/')} a ${p.ate.split('-').reverse().join('/')}`])}>📄 PDF pedidos</BotaoPdf>
+          <button className="btn sm" onClick={() => baixar('produtos')}>CSV produtos</button>
+          <BotaoPdf className="btn sm" montar={pdfDoExport(`/api/erp/bi/exportar?tipo=produtos&de=${p.de}&ate=${p.ate}`, 'BI · produtos vendidos (curva ABC)', [`Período: ${p.de.split('-').reverse().join('/')} a ${p.ate.split('-').reverse().join('/')}`])}>📄 PDF produtos</BotaoPdf>
+          <BotaoImprimir className="btn sm" disabled={!st.data} montar={() => relatorioBi(st.data, p)} />
         </div></div>
       <Async state={st}>{(d) => {
         const max = Math.max(1, ...d.vendas.serie.map((x: any) => x.valorCents));

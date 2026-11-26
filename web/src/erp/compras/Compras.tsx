@@ -12,6 +12,8 @@ import { ROTULO_STATUS_COMPRA, ROTULO_EVENTO_COMPRA, ETAPAS_COMPRA } from '../..
 import { diaBr } from '../../../../server/erp/compras/prazo';
 import { imprimir } from '../impressao/cabecalho';
 import { diaSP, esc } from '../impressao/modelo';
+import { BotaoImprimir } from '../impressao/BotaoPdf';
+import { htmlTabela, htmlFicha, fmt } from '../impressao/listas';
 
 // Solicitação (início do fluxo): aberta → aguardando aprovação do gestor → aprovada → vira OC (atendida).
 const ST: Record<string, string> = { RASCUNHO: 'Solicitação aberta', EM_APROVACAO: 'Aguardando aprovação do gestor', APROVADA: 'Aprovada', REPROVADA: 'Reprovada', ATENDIDA: 'Virou OC', CANCELADA: 'Cancelada', ABERTA: 'Aberta', ENCERRADA: 'Encerrada' };
@@ -52,7 +54,10 @@ function Solicitacoes() {
   const acao = async (id: string, evento: string) => { const motivo = precisaMotivo(evento) ? prompt('Motivo') : undefined; if (precisaMotivo(evento) && !motivo) return; if (await run(() => post(`/erp/compras/solicitacoes/${id}/acao`, { evento, motivo }), 'Feito')) l.reload(); };
   return (
     <>
-      <button className="btn primary" style={{ marginBottom: 10 }} onClick={() => { setItens([]); setJust(''); setNova(true); }}>+ Solicitação</button>
+      <div className="row" style={{ marginBottom: 10, gap: 6 }}>
+        <button className="btn primary" onClick={() => { setItens([]); setJust(''); setNova(true); }}>+ Solicitação</button>
+        <BotaoImprimir disabled={!l.data?.length} montar={() => htmlTabela({ titulo: 'Solicitações de compra', linhas: l.data ?? [], colunas: [{ titulo: 'Nº', valor: (s: any) => s.numero }, { titulo: 'Itens', valor: (s: any) => s.itens.map((i: any) => `${i.produto?.sku ?? ''} ${i.produto?.nome ?? ''} · ${qtd(i.qtdMil)}`).join('; ') }, { titulo: 'Origem', valor: (s: any) => s.origem }, { titulo: 'Justificativa', valor: (s: any) => s.justificativa }, { titulo: 'Status', valor: (s: any) => ST[s.status] ?? s.status }, { titulo: 'Criada em', valor: (s: any) => fmt.dia(s.createdAt) }] })} />
+      </div>
       <Async state={l}>{(d) => d.length === 0 ? <div className="card"><Empty title="Nenhuma solicitação">Quem precisa de material pede aqui; o MRP também cria solicitações.</Empty></div> : (
         <div className="card table-wrap"><table><thead><tr><th>Nº</th><th>Itens</th><th>Origem</th><th>Status</th><th></th></tr></thead>
           <tbody>{d.map((s) => <tr key={s.id}><td>{s.numero}</td><td className="small">{s.itens.map((i: any) => `${i.produto?.sku} ${qtd(i.qtdMil)}`).join(', ')}</td><td>{s.origem}</td><td>{ST[s.status] ?? s.status}</td>
@@ -88,7 +93,10 @@ function Cotacoes() {
   const [nova, setNova] = useState(false); const [aberta, setAberta] = useState<string | null>(null);
   return (
     <>
-      <button className="btn primary" style={{ marginBottom: 10 }} onClick={() => setNova(true)}>+ Cotação</button>
+      <div className="row" style={{ marginBottom: 10, gap: 6 }}>
+        <button className="btn primary" onClick={() => setNova(true)}>+ Cotação</button>
+        <BotaoImprimir disabled={!l.data?.length} montar={() => htmlTabela({ titulo: 'Cotações', linhas: l.data ?? [], colunas: [{ titulo: 'Nº', valor: (c: any) => c.numero }, { titulo: 'Itens', valor: (c: any) => c._count?.itens, dir: true }, { titulo: 'Propostas', valor: (c: any) => c._count?.respostas, dir: true }, { titulo: 'Status', valor: (c: any) => ST[c.status] ?? c.status }, { titulo: 'Aberta em', valor: (c: any) => fmt.dia(c.createdAt) }] })} />
+      </div>
       <Async state={l}>{(d) => d.length === 0 ? <div className="card"><Empty title="Nenhuma cotação">Convide fornecedores, lance as propostas e o mapa escolhe a melhor por item.</Empty></div> : (
         <div className="card table-wrap"><table><thead><tr><th>Nº</th><th>Itens</th><th>Propostas</th><th>Status</th><th>Aberta</th><th></th></tr></thead>
           <tbody>{d.map((c) => <tr key={c.id}><td>{c.numero}</td><td>{c._count.itens}</td><td>{c._count.respostas}</td><td>{ST[c.status]}</td><td>{fmtDate(c.createdAt)}</td><td><button className="btn sm" onClick={() => setAberta(c.id)}>Abrir</button></td></tr>)}</tbody></table></div>
@@ -109,8 +117,13 @@ function Cotacao({ id, onClose }: { id: string; onClose: () => void }) {
       <Async state={st}>{(c) => {
         const resp = (itemId: string, parceiroId: string) => c.respostas.find((r: any) => r.itemId === itemId && r.parceiroId === parceiroId);
         const texto = `Olá! Pedimos cotação dos itens abaixo (cotação nº ${c.numero}):\n${c.itens.map((i: any) => `• ${i.produto?.nome} (${i.produto?.sku}): ${qtd(i.qtdMil)} ${i.produto?.unidade}`).join('\n')}\nInforme preço unitário, prazo de entrega e condição de pagamento. Obrigado!`;
+        // v1.55.0: mapa de cotação impresso (itens × fornecedores, melhor preço marcado com ★).
+        const mapaPdf = () => htmlFicha({ titulo: `Mapa de cotação nº ${c.numero}`, subtitulo: ST[c.status] ?? c.status, secoes: [{ campos: [['Fornecedores', c.fornecedores.map((f: any) => f.fantasia || f.nome).join(', ')], ['Aberta em', fmt.dia(c.createdAt)]] }],
+          tabelas: [{ titulo: 'Propostas por item', linhas: c.itens, colunas: [{ titulo: 'Item', valor: (i: any) => `${i.produto?.sku ?? ''} · ${i.produto?.nome ?? ''} · ${qtd(i.qtdMil)} ${i.produto?.unidade ?? ''}` },
+            ...c.fornecedores.map((f: any) => ({ titulo: f.fantasia || f.nome, dir: true, valor: (i: any) => { const r = resp(i.id, f.id); return r ? `${i.melhorParceiroId === f.id ? '★ ' : ''}${brl(r.precoUnitCents)}${r.prazoEntregaDias != null ? ` · ${r.prazoEntregaDias} d` : ''}` : ''; } }))] }] });
         return (
           <>
+            <div className="row" style={{ justifyContent: 'flex-end' }}><BotaoImprimir className="btn sm" montar={mapaPdf} /></div>
             <div className="table-wrap"><table><thead><tr><th>Item</th>{c.fornecedores.map((f: any) => <th key={f.id}>{f.fantasia || f.nome}</th>)}</tr></thead>
               <tbody>{c.itens.map((i: any) => <tr key={i.id}><td className="small">{i.produto?.sku} · {qtd(i.qtdMil)}</td>{c.fornecedores.map((f: any) => {
                 const r = resp(i.id, f.id); const melhor = i.melhorParceiroId === f.id;
@@ -160,7 +173,11 @@ function PedidosCompra() {
   };
   return (
     <>
-      <button className="btn primary" style={{ marginBottom: 10 }} onClick={() => setNovo(true)}>+ Ordem de compra</button>
+      <div className="row" style={{ marginBottom: 10, gap: 6 }}>
+        <button className="btn primary" onClick={() => setNovo(true)}>+ Ordem de compra</button>
+        <BotaoImprimir disabled={!l.data?.length} montar={() => { const lista = (l.data ?? []).filter((p) => passa(p, filtro)); return htmlTabela({ titulo: 'Ordens de compra', filtros: [`Filtro: ${FILTROS_OC.find((x) => x.id === filtro)?.nome ?? ''}`], linhas: lista, total: `Total ${brl(lista.reduce((a, p) => a + (p.totalCents ?? 0), 0))}`,
+          colunas: [{ titulo: 'Nº', valor: (p: any) => p.numero }, { titulo: 'Fornecedor', valor: (p: any) => p.parceiro?.fantasia || p.parceiro?.nome }, { titulo: 'Previsão', valor: (p: any) => (p.prazo?.previsaoDia ? diaBr(p.prazo.previsaoDia) : '') }, { titulo: 'Etapa', valor: (p: any) => p.statusRotulo ?? STATUS_OC[p.status] ?? p.status }, { titulo: 'Total', valor: (p: any) => brl(p.totalCents), dir: true }] }); }} />
+      </div>
       <Async state={l}>{(d) => (
         <>
           <div className="row" style={{ flexWrap: 'wrap', gap: 4, marginBottom: 8 }} role="tablist" aria-label="Filtrar ordens de compra">
@@ -230,9 +247,8 @@ function PedidoCompra({ id, onClose }: { id: string; onClose: () => void }) {
   // v1.54.0: ordem de compra com o cabeçalho da empresa (logo e dados) e o rodapé da MCK.
   function imprimirOc(p: any) {
     imprimir(() => ({
-      titulo: `Ordem de compra nº ${p.numero}`,
-      corpo: `<h2>Ordem de compra nº ${esc(p.numero)}</h2>${p.emitidoEm ? `<div class="small">Emitida em ${esc(diaSP(p.emitidoEm))}</div>` : ''}
-        <p>Fornecedor: <b>${esc(p.parceiro?.nome)}</b>${p.parceiro?.documento ? ` · CNPJ ${esc(fmtDoc(p.parceiro.documento))}` : ''}</p>
+      titulo: `Ordem de compra nº ${p.numero}`, subtitulo: p.emitidoEm ? `Emitida em ${diaSP(p.emitidoEm)}` : '',
+      corpo: `<p>Fornecedor: <b>${esc(p.parceiro?.nome)}</b>${p.parceiro?.documento ? ` · CNPJ ${esc(fmtDoc(p.parceiro.documento))}` : ''}</p>
         <p>Previsão de entrega: ${p.prazo?.previsaoDia ? esc(diaBr(p.prazo.previsaoDia)) : '—'} · Condição: ${esc(p.condicao ?? '—')}</p>
         <table><thead><tr><th>Produto</th><th>Qtd</th><th>Preço un.</th><th>Total</th></tr></thead><tbody>${p.itens.map((i: any) => `<tr><td>${esc(i.produto?.sku)} · ${esc(i.descricao)}</td><td>${esc(qtdComEmbalagem(i.qtdMil, i.produto ?? {}))}</td><td>${brl(i.precoUnitCents)}</td><td>${brl(i.totalCents)}</td></tr>`).join('')}</tbody></table>
         <div class="tot">Frete: ${brl(p.freteCents)} · <b>Total: ${brl(p.totalCents)}</b></div>
@@ -294,6 +310,7 @@ function Avisos({ onLidos }: { onLidos: () => void }) {
     <Async state={l}>{(d) => (
       <>
         <div className="row between" style={{ marginBottom: 8 }}><p className="small muted">Avisos de prazo e de etapas das ordens de compra. A rotina roda uma vez por dia (a partir da hora do alerta do ERP) e não repete o mesmo aviso no mesmo dia.</p>
+          <BotaoImprimir className="btn sm" disabled={!d.avisos.length} montar={() => htmlTabela({ titulo: 'Avisos de compras', linhas: d.avisos, colunas: [{ titulo: 'Quando', valor: (a: any) => fmt.dataHora(a.createdAt) }, { titulo: 'Aviso', valor: (a: any) => `${a.titulo}${a.texto ? ` — ${a.texto}` : ''}` }, { titulo: 'Para', valor: (a: any) => (a.destino === 'FORNECEDOR' ? 'Fornecedor' : 'Equipe') }] })} />
           {d.naoLidos > 0 && <button className="btn sm" disabled={busy} onClick={async () => { if (await run(() => post('/erp/compras/avisos/lidos', {}), 'Marcados como lidos')) { l.reload(); onLidos(); } }}>Marcar todos como lidos</button>}</div>
         {d.avisos.length === 0 ? <div className="card"><Empty title="Nenhum aviso">Quando uma OC atrasar, estiver para chegar, aguardar aprovação ou tiver NF/estoque liberado, o aviso aparece aqui.</Empty></div> : (
           <div className="card table-wrap"><table><thead><tr><th>Quando</th><th>Aviso</th><th>Para</th><th>Envio</th></tr></thead>

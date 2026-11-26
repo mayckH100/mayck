@@ -2,6 +2,8 @@ import { useState } from 'react';
 import { post, patch, del } from '../api';
 import { useAuth, ROLE_LABEL } from '../auth';
 import { useApi, Async, useAction, Field, fmtDate, useToast, copy } from '../ui';
+import { BotaoImprimir } from '../erp/impressao/BotaoPdf';
+import { htmlTabela, htmlFicha, fmt } from '../erp/impressao/listas';
 
 type Mod = { id: string; label: string; app: string };
 type Perms = { catalog: Mod[]; defaults: Record<'ADMIN' | 'AGENT', string[]>; roleModules: Record<string, string[]>; mine: string[]; myChannelIds: string[] | null };
@@ -115,7 +117,10 @@ export default function Team({ erp = false }: { erp?: boolean }) {
         )}
         <Async state={state}>{(d) => (
           <div className="card stack">
-            <h2>Membros ({d.members.length})</h2>
+            <div className="row between"><h2>Membros ({d.members.length})</h2>
+              {/* v1.55.0: no MCK ERP (Funcionários), lista e ficha impressas (nome, e-mail, papel e áreas; nada de senha). */}
+              {erp && <BotaoImprimir className="btn sm" montar={() => htmlTabela({ titulo: 'Funcionários', linhas: d.members, colunas: [{ titulo: 'Nome', valor: (m: any) => m.user?.name }, { titulo: 'E-mail', valor: (m: any) => m.user?.email }, { titulo: 'Papel', valor: (m: any) => ROLE_LABEL[m.role as 'OWNER'] ?? m.role }, { titulo: 'Áreas do ERP', valor: (m: any) => (m.role === 'OWNER' ? 'Todas' : (m.modules ?? []).filter((id: string) => id.startsWith('erp_')).map((id: string) => perms?.catalog.find((c) => c.id === id)?.label ?? id).join(', ')) }, { titulo: 'Desde', valor: (m: any) => fmt.dia(m.createdAt) }] })} />}
+            </div>
             {d.members.map((m: any) => (
               <div key={m.id}>
                 <div className="row between">
@@ -123,6 +128,7 @@ export default function Team({ erp = false }: { erp?: boolean }) {
                     {m.role !== 'OWNER' && m.modules && perms && <div className="small muted">Acessa: {m.modules.map((id: string) => perms.catalog.find((c) => c.id === id)?.label ?? id).join(', ') || 'nenhum módulo'}{m.channelIds ? ` · ${m.channelIds.length} canal(is) WhatsApp` : ''}</div>}
                   </div>
                   <div className="row">
+                    {erp && <BotaoImprimir className="btn sm ghost" title="Ficha do funcionário" montar={() => htmlFicha({ titulo: `Funcionário · ${m.user?.name ?? ''}`, secoes: [{ campos: [['Nome', m.user?.name], ['E-mail', m.user?.email], ['Papel', ROLE_LABEL[m.role as 'OWNER'] ?? m.role], ['Áreas do ERP', m.role === 'OWNER' ? 'Todas' : (m.modules ?? []).filter((id: string) => id.startsWith('erp_')).map((id: string) => perms?.catalog.find((c) => c.id === id)?.label ?? id).join(', ')], ['Na equipe desde', fmt.dia(m.createdAt)]] }] })}>🖨️</BotaoImprimir>}
                     {m.role === 'OWNER' || !can('OWNER') ? <span className="badge">{ROLE_LABEL[m.role as 'OWNER']}</span> : (
                       <select value={m.role} style={{ width: 150 }} aria-label="Papel" onChange={(e) => run(() => patch(`/team/members/${m.id}`, { role: e.target.value }), 'Papel atualizado').then(state.reload)}>
                         <option value="ADMIN">Administrador</option><option value="AGENT">Atendente</option>

@@ -9,6 +9,8 @@ import { useApi, Async, Empty, Modal, Field, useAction } from '../../ui';
 import { useAuth } from '../../auth';
 import { brl, toCents } from '../format';
 import { imprimir } from '../impressao/cabecalho';
+import { BotaoImprimir } from '../impressao/BotaoPdf';
+import { listaCaixas } from '../impressao/cadastros';
 
 export const FORMA_NOME: Record<string, string> = { DINHEIRO: 'Dinheiro', PIX: 'Pix', CARTAO: 'Cartão' };
 
@@ -179,6 +181,7 @@ export function CaixasHistorico() {
         <Field label="De"><input type="date" value={de} onChange={(e) => setDe(e.target.value)} /></Field>
         <Field label="Até"><input type="date" value={ate} onChange={(e) => setAte(e.target.value)} /></Field>
         <Field label="Situação"><select value={status} onChange={(e) => setStatus(e.target.value)}><option value="">Todos</option><option value="ABERTO">Abertos</option><option value="FECHADO">Fechados</option></select></Field>
+        <BotaoImprimir disabled={!state.data?.length} montar={() => listaCaixas(state.data ?? [], { de, ate, status })} />
       </div>
       <Async state={state}>{(d) => d.length === 0 ? <div className="card"><Empty title="Nenhum caixa neste período">Abra o caixa para começar a vender no balcão.</Empty></div> : (
         <div className="card table-wrap"><table>

@@ -13,13 +13,13 @@ import { ah, badRequest } from '../../lib/http.js';
 import { orgOf, requireRole } from '../../auth/session.js';
 import { detectImageMime } from '../../lib/announcements.js';
 import { auditar } from '../shared/auditoria.js';
-import { CAMPOS_CABECALHO, LOGO_DATA_URL, LOGO_MAX_BYTES, RODAPE_DOCUMENTO, type ConfigDocumento } from '../shared/documento.js';
+import { CAMPOS_CABECALHO, LOGO_DATA_URL, LOGO_MAX_BYTES, POSICOES_LOGO, POSICAO_LOGO_PADRAO, RODAPE_DOCUMENTO, posicaoLogoValida, type ConfigDocumento } from '../shared/documento.js';
 
 export const documentosRouter = Router();
 const admins = requireRole('OWNER', 'ADMIN');
 const limiteEscrita = rateLimit({ windowMs: 60 * 1000, limit: 20, standardHeaders: 'draft-7', legacyHeaders: false, message: { error: 'Muitas alterações seguidas. Aguarde um instante.' } });
 
-const VAZIA: ConfigDocumento = { nomeExibicao: '', cnpj: '', ie: '', logradouro: '', numero: '', bairro: '', cidade: '', uf: '', cep: '', telefone: '', whatsapp: '', email: '', site: '', textoLivre: '', logo: null };
+const VAZIA: ConfigDocumento = { nomeExibicao: '', cnpj: '', ie: '', logradouro: '', numero: '', bairro: '', cidade: '', uf: '', cep: '', telefone: '', whatsapp: '', email: '', site: '', textoLivre: '', logo: null, posicaoLogo: POSICAO_LOGO_PADRAO };
 const soDigitos = (s: string | null | undefined) => String(s ?? '').replace(/\D/g, '');
 
 export async function configDocumento(orgId: string): Promise<{ config: ConfigDocumento; salvo: boolean }> {
@@ -28,6 +28,7 @@ export async function configDocumento(orgId: string): Promise<{ config: ConfigDo
     const config = { ...VAZIA };
     for (const k of CAMPOS_CABECALHO) config[k] = c[k] ?? '';
     config.logo = c.logo && LOGO_DATA_URL.test(c.logo) ? c.logo : null;
+    config.posicaoLogo = posicaoLogoValida(c.posicaoLogo);
     return { config, salvo: true };
   }
   const [f, org] = await Promise.all([
@@ -57,6 +58,8 @@ const schema = z.object({
   uf: z.string().trim().max(2).toUpperCase().default(''), cep: txt(10), telefone: txt(20), whatsapp: txt(20),
   email: z.union([z.literal(''), z.string().trim().email('E-mail inválido').max(120)]).default(''),
   site: txt(120), textoLivre: txt(300),
+  /** v1.55.0: layout do topo. undefined = mantém; só aceita os valores do enum. */
+  posicaoLogo: z.enum(POSICOES_LOGO, { message: 'Posição do logo inválida: use Esquerda ou Centro' }).optional(),
   /** undefined = mantém o logo; null = remove; string = data URL nova. */
   logo: z.string().max(1_000_000, 'Logo muito grande: o máximo é 500 KB').nullish(),
 }); // sem .passthrough(): qualquer outro campo (ex.: "rodape") é descartado.
@@ -82,7 +85,7 @@ documentosRouter.put('/config', admins, limiteEscrita, ah(async (req, res) => {
   else if (typeof logo === 'string' && logo) data.logo = validarLogo(logo);
   const antes = await prisma.erpDocumentoConfig.findUnique({ where: { orgId }, select: { nomeExibicao: true, logo: true } });
   await prisma.erpDocumentoConfig.upsert({ where: { orgId }, create: { orgId, ...data }, update: data });
-  await auditar(req, 'documentos.config', 'erp_documento_config', orgId, antes ? { nomeExibicao: antes.nomeExibicao, logo: !!antes.logo } : null, { nomeExibicao: campos.nomeExibicao, logo: data.logo === undefined ? !!antes?.logo : !!data.logo });
+  await auditar(req, 'documentos.config', 'erp_documento_config', orgId, antes ? { nomeExibicao: antes.nomeExibicao, logo: !!antes.logo } : null, { nomeExibicao: campos.nomeExibicao, posicaoLogo: campos.posicaoLogo, logo: data.logo === undefined ? !!antes?.logo : !!data.logo });
   const r = await configDocumento(orgId);
   res.json({ ...r, rodape: RODAPE_DOCUMENTO });
 }));

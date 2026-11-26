@@ -9,6 +9,9 @@ import { useApi, Async, Empty } from '../../ui';
 import { qtdUn } from '../../../../server/erp/shared/unidade';
 import { LoteCard, CampoLeitura, dataBr } from './lotes';
 import { CabecalhoImpressao, RodapeImpressao } from '../impressao/MarcaImpressao';
+import { BotaoImprimir, BotaoPdf, pdfDoExport } from '../impressao/BotaoPdf';
+import { listaRastreioBusca } from '../impressao/estoque';
+import { linhaFiltros } from '../impressao/listas';
 
 const COR: Record<string, string> = { entrada: '#16a34a', producao: '#16a34a', devolucao: '#16a34a', saida: '#dc2626', consumo: '#b45309', baixa: '#dc2626', inventario: '#7c3aed', transferencia: '#2563eb', reserva: '#64748b', separacao: '#0891b2', qualidade: '#64748b' };
 const hora = (d: string) => new Date(d).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', dateStyle: 'short', timeStyle: 'short' });
@@ -37,7 +40,7 @@ function Busca({ q }: { q: string }) {
   const st = useApi<any>(`/erp/estoque/rastreio?q=${encodeURIComponent(q)}`, [q]);
   return (
     <Async state={st}>{(d) => d.grupos.length === 0 ? <div className="card"><Empty title="Nada encontrado">Confira o código. A busca aceita produto, lote, lote do fornecedor, nota fiscal (número ou chave) e pedido.</Empty></div> : (
-      <>{d.grupos.map((g: any, i: number) => (
+      <><div className="row" style={{ justifyContent: 'flex-end', marginBottom: 6 }}><BotaoImprimir className="btn sm" montar={() => listaRastreioBusca(d, q)} /></div>{d.grupos.map((g: any, i: number) => (
         <div key={i} style={{ marginBottom: 14 }}>
           <div className="row between" style={{ flexWrap: 'wrap', gap: 6, margin: '4px 0 6px' }}>
             <div><span className="badge">{g.rotulo}</span> <b>{g.titulo}</b>{g.detalhe && <span className="small muted"> · {g.detalhe}</span>}</div>
@@ -62,9 +65,10 @@ function LoteDetalhe({ id, onVoltar }: { id: string; onVoltar?: () => void }) {
           <div className="row" style={{ gap: 6, marginBottom: 8, flexWrap: 'wrap' }}>
             {onVoltar && <button className="btn sm" onClick={onVoltar}>← Voltar à busca</button>}
             <a className="btn sm" href={`/api/erp/estoque/rastreio/lote/${id}/csv`}>⬇️ Exportar (planilha CSV)</a>
+            <BotaoPdf className="btn sm" montar={pdfDoExport(`/api/erp/estoque/rastreio/lote/${id}/csv`, `Rastreio do lote ${r.lote?.numero ?? ''}`.trim())} />
             <button className="btn sm" onClick={() => window.print()}>🖨️ Imprimir / salvar PDF</button>
           </div>
-          <CabecalhoImpressao />
+          <CabecalhoImpressao titulo={`Rastreio do lote ${r.lote?.numero ?? ''}`.trim()} subtitulo={linhaFiltros([r.lote?.produto?.nome])} />
           <LoteCard l={r.lote} unidade={un} acoes={false} />
 
           {r.reservadoPara.length > 0 && <div className="card" style={{ marginBottom: 8 }}>

@@ -1,9 +1,11 @@
 /** Produtos: cadastro com NCM, lote/validade, FEFO/FIFO, mínimo e estimativa de compra; regras comerciais (alçada). */
 import { useState } from 'react';
-import { post, put, del } from '../../api';
+import { get, post, put, del } from '../../api';
 import { useAuth } from '../../auth';
 import { useApi, Async, Empty, Modal, Field, useAction } from '../../ui';
 import ImportarExportar from '../ImportarExportar';
+import { BotaoImprimir } from '../impressao/BotaoPdf';
+import { htmlTabela, htmlFicha, fmt } from '../impressao/listas';
 import { brl, qtd, toCents, fromCents, toMil } from '../format';
 import { UNIDADES_CADASTRO, unidadeValida, unidadeLegivel, qtdUn, nomeUnidade, numeroQtd } from '../../../../server/erp/shared/unidade';
 import { descricaoEmbalagem } from '../../../../server/erp/shared/embalagem';
@@ -159,6 +161,21 @@ function ProdutoForm({ inicial, onClose, onSaved }: { inicial: any; onClose: () 
   );
 }
 
+/** v1.55.0: tabelas de preço (com faixas por volume) e condições de pagamento impressas, direto das rotas da própria empresa. */
+async function pdfTabelasPreco() {
+  const [tabs, prods] = await Promise.all([get<any[]>('/erp/produtos/tabelas'), get<any>('/erp/produtos?q=')]);
+  const nome = new Map<string, string>((prods.items ?? []).map((p: any) => [p.id, `${p.sku} · ${p.nome}`]));
+  const linhas = tabs.flatMap((t) => (t.itens.length ? t.itens : [null]).map((i: any) => ({ t, i })));
+  return htmlTabela({ titulo: 'Tabelas de preço', filtros: [`${tabs.length} tabela(s)`], linhas, vazio: 'Nenhuma tabela de preço cadastrada.',
+    colunas: [{ titulo: 'Tabela', valor: (x) => `${x.t.nome}${x.t.uf ? ` (${x.t.uf})` : ''}${x.t.ativa ? '' : ' · inativa'}` }, { titulo: 'Produto', valor: (x) => (x.i ? nome.get(x.i.produtoId) ?? 'produto fora da lista' : 'sem itens') },
+      { titulo: 'A partir de', valor: (x) => (x.i ? fmt.qtd(x.i.qtdMinimaMil) : ''), dir: true }, { titulo: 'Preço', valor: (x) => (x.i ? fmt.brl(x.i.precoCents) : ''), dir: true }] });
+}
+async function pdfCondicoes() {
+  const cs = await get<any[]>('/erp/produtos/condicoes');
+  return htmlTabela({ titulo: 'Condições de pagamento', linhas: cs, vazio: 'Nenhuma condição de pagamento cadastrada.',
+    colunas: [{ titulo: 'Condição', valor: (c: any) => c.nome }, { titulo: 'Parcelas', valor: (c: any) => (c.prazos ?? []).length, dir: true }, { titulo: 'Prazos (dias)', valor: (c: any) => (c.prazos ?? []).join(' / ') }, { titulo: 'Situação', valor: (c: any) => (c.ativa ? 'Ativa' : 'Inativa') }] });
+}
+
 function RegrasComerciais({ onClose }: { onClose: () => void }) {
   const state = useApi<any>('/erp/produtos/config');
   const { busy, run } = useAction();
@@ -166,6 +183,12 @@ function RegrasComerciais({ onClose }: { onClose: () => void }) {
   const v = f ?? (state.data && { desconto: String(state.data.descontoMaxBp / 100).replace('.', ','), credito: state.data.bloquearSemCredito, validade: String(state.data.validadeOrcamentoDias), alcada: String(state.data.alcadaCompraCents / 100), tol: String(state.data.toleranciaPrecoBp / 100).replace('.', ','), cego: state.data.recebimentoCego });
   return (
     <Modal title="Regras comerciais e de compras" onClose={onClose}>
+      <div className="row" style={{ gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
+        <BotaoImprimir className="btn sm" disabled={!state.data} title="Imprime as regras salvas" montar={() => htmlFicha({ titulo: 'Regras comerciais e de compras', secoes: [{ campos: [['Desconto máximo sem aprovação', fmt.pct(state.data?.descontoMaxBp)], ['Bloquear pedido acima do limite de crédito', fmt.simNao(state.data?.bloquearSemCredito)], ['Validade do orçamento', `${state.data?.validadeOrcamentoDias ?? ''} dia(s)`]] },
+          { titulo: 'Compras', campos: [['Alçada do pedido de compra', fmt.brl(state.data?.alcadaCompraCents)], ['Tolerância de preço no recebimento', fmt.pct(state.data?.toleranciaPrecoBp)], ['Recebimento cego', fmt.simNao(state.data?.recebimentoCego)]] }] })}>🖨️ Regras</BotaoImprimir>
+        <BotaoImprimir className="btn sm" montar={pdfTabelasPreco}>🖨️ Tabelas de preço</BotaoImprimir>
+        <BotaoImprimir className="btn sm" montar={pdfCondicoes}>🖨️ Condições de pagamento</BotaoImprimir>
+      </div>
       {!v ? null : <>
         <Field label="Desconto máximo sem aprovação (%)" hint="Acima disso o pedido espera o proprietário ou um administrador"><input value={v.desconto} onChange={(e) => setF({ ...v, desconto: e.target.value })} inputMode="decimal" /></Field>
         <label className="row small"><input type="checkbox" checked={v.credito} onChange={(e) => setF({ ...v, credito: e.target.checked })} /> Bloquear pedido que passa do limite de crédito do cliente</label>

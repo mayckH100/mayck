@@ -13,7 +13,12 @@ export const LOGO_TIPOS = ['image/png', 'image/jpeg', 'image/webp'] as const;
 /** Campos do cabeçalho que o cliente edita (nada de rodapé aqui). */
 export const CAMPOS_CABECALHO = ['nomeExibicao', 'cnpj', 'ie', 'logradouro', 'numero', 'bairro', 'cidade', 'uf', 'cep', 'telefone', 'whatsapp', 'email', 'site', 'textoLivre'] as const;
 export type CampoCabecalho = (typeof CAMPOS_CABECALHO)[number];
-export type ConfigDocumento = Record<CampoCabecalho, string> & { logo: string | null };
+/** v1.55.0 — onde o logo fica no topo do A4: "ESQUERDA" (padrão: logo no canto e dados embaixo) ou "CENTRO". */
+export const POSICOES_LOGO = ['ESQUERDA', 'CENTRO'] as const;
+export type PosicaoLogo = (typeof POSICOES_LOGO)[number];
+export const POSICAO_LOGO_PADRAO: PosicaoLogo = 'ESQUERDA';
+export const posicaoLogoValida = (v: unknown): PosicaoLogo => (POSICOES_LOGO as readonly unknown[]).includes(v) ? (v as PosicaoLogo) : POSICAO_LOGO_PADRAO;
+export type ConfigDocumento = Record<CampoCabecalho, string> & { logo: string | null; posicaoLogo?: PosicaoLogo };
 
 /** Data URL aceita no navegador e no servidor (base64 de PNG/JPEG/WEBP). Qualquer outra coisa não entra no HTML. */
 export const LOGO_DATA_URL = /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/]+={0,2}$/;

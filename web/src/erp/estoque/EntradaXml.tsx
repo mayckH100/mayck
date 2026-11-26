@@ -8,6 +8,8 @@ import { brl, qtd, toMil } from '../format';
 import { imprimirComum } from './impressao';
 import { CampoLeitura } from '../leitura/Leitor';
 import { BotaoZebra } from './ZebraImprimir';
+import { BotaoImprimir } from '../impressao/BotaoPdf';
+import { htmlTabela, fmt } from '../impressao/listas';
 import { lerArquivosXml, limparXml, pareceXml, type ArquivoXml } from '../../../../server/erp/estoque/xmlArquivo';
 
 type Resultado = { nome: string; ok: boolean; msg: string; id?: string };
@@ -71,7 +73,9 @@ export default function EntradaXml({ depositos, onLancada, onDepositos }: { depo
         )}
       </div>
       <Async state={lista}>{(d) => d.length === 0 ? <div className="card"><Empty title="Nenhuma NF-e importada">Importe o XML que o fornecedor enviou.</Empty></div> : (
-        <div className="card table-wrap"><table>
+        <div className="card table-wrap">
+          <div className="row" style={{ justifyContent: 'flex-end' }}><BotaoImprimir className="btn sm" montar={() => htmlTabela({ titulo: 'Notas de entrada (XML)', linhas: d, colunas: [{ titulo: 'NF-e', valor: (n: any) => `${n.numero}/${n.serie}${n.autorizada ? '' : ' (sem protocolo)'}` }, { titulo: 'Fornecedor', valor: (n: any) => n.emitenteNome }, { titulo: 'Emissão', valor: (n: any) => fmt.dia(n.dataEmissao) }, { titulo: 'Valor', valor: (n: any) => fmt.brl(n.valorTotalCents), dir: true }, { titulo: 'Status', valor: (n: any) => (n.status === 'LANCADA' ? 'Lançada' : 'Pendente') }] })} /></div>
+          <table>
           <thead><tr><th>NF-e</th><th>Fornecedor</th><th>Emissão</th><th>Valor</th><th>Status</th><th></th></tr></thead>
           <tbody>{d.map((n) => <tr key={n.id}><td>{n.numero}/{n.serie}{!n.autorizada && <span className="badge red">sem protocolo</span>}</td><td>{n.emitenteNome}</td><td>{n.dataEmissao ? new Date(n.dataEmissao).toLocaleDateString('pt-BR') : '—'}</td><td>{brl(n.valorTotalCents)}</td><td><span className={`badge ${n.status === 'LANCADA' ? 'green' : ''}`}>{n.status === 'LANCADA' ? 'Lançada' : 'Pendente'}</span></td><td><button className="btn sm" onClick={() => setAberta(n.id)}>Abrir</button></td></tr>)}</tbody>
         </table></div>

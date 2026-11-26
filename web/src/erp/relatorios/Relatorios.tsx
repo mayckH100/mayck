@@ -5,6 +5,7 @@ import { useApi, Async, useAction } from '../../ui';
 import { useAuth } from '../../auth';
 import { brl } from '../format';
 import { imprimir } from '../impressao/cabecalho';
+import { BotaoPdf, pdfDoExport } from '../impressao/BotaoPdf';
 import { htmlRelatorioDia } from '../impressao/relatorios';
 
 const hoje = () => new Date().toLocaleDateString('sv-SE', { timeZone: 'America/Sao_Paulo' });
@@ -21,6 +22,7 @@ export default function RelatoriosErp() {
         <div className="row" style={{ gap: 6 }}>
           <input type="date" value={dia} max={hoje()} onChange={(e) => e.target.value && setDia(e.target.value)} aria-label="Dia" />
           <a className="btn" href={`/api/erp/relatorios/dia.csv?data=${dia}`} download>Baixar (planilha)</a>
+          <BotaoPdf montar={pdfDoExport(`/api/erp/relatorios/dia.csv?data=${dia}`, `Relatório do dia ${dia.split('-').reverse().join('/')} (planilha)`)} />
           <button className="btn" disabled={!state.data} onClick={() => { const r = state.data; if (r) imprimir(() => htmlRelatorioDia(r, dia)).catch((e) => alert((e as Error).message)); }}>🖨️ Imprimir / PDF</button>
           {can('OWNER', 'ADMIN') && <button className="btn primary" disabled={busy} onClick={() => run(() => post(`/erp/relatorios/dia/enviar?data=${dia}`), 'Relatório enviado ao proprietário')}>Enviar agora</button>}
         </div>

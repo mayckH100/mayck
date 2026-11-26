@@ -4,6 +4,8 @@ import { useNavigate } from 'react-router-dom';
 import { get, post, put } from '../../api';
 import { useApi, Async, Empty, Modal, Field, useAction } from '../../ui';
 import ImportarExportar from '../ImportarExportar';
+import { BotaoImprimir } from '../impressao/BotaoPdf';
+import { listaParceiros } from '../impressao/cadastros';
 import { useAuth } from '../../auth';
 import { fmtDoc, toCents, fromCents } from '../format';
 
@@ -23,6 +25,7 @@ export default function Clientes({ papel = 'cliente' }: { papel?: 'cliente' | 'f
         <div className="row">
           <form onSubmit={(e) => { e.preventDefault(); setQuery(q); }}><input placeholder="Nome, CPF/CNPJ ou e-mail" value={q} onChange={(e) => setQ(e.target.value)} style={{ width: 230 }} aria-label="Pesquisar" /></form>
           <ImportarExportar entidade={forn ? 'fornecedores' : 'clientes'} podeImportar={can('OWNER', 'ADMIN')} onImportado={state.reload} />
+          <BotaoImprimir disabled={!state.data?.items?.length} montar={() => listaParceiros(state.data?.items ?? [], papel, query, state.data?.total)} />
           <button className="btn primary" onClick={() => setNovo(true)}>{forn ? '+ Novo fornecedor' : '+ Novo cliente'}</button>
         </div>
       </div>

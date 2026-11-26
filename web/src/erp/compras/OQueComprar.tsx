@@ -13,6 +13,8 @@ import { BuscaParceiro } from '../comum';
 import { nomeUnidade, numeroQtd } from '../../../../server/erp/shared/unidade';
 import { aceitaDecimal, baseParaEmbalagens, embalagensParaBase, linhaCompra, lerQtdMil, precoPorEmbalagem } from '../../../../server/erp/shared/embalagem';
 import { saidaMediaTexto } from '../../../../server/erp/compras/sugestao';
+import { BotaoImprimir } from '../impressao/BotaoPdf';
+import { htmlTabela } from '../impressao/listas';
 
 interface Item {
   produtoId: string; sku: string; nome: string; unidade: string; unidadeCompra: string; fatorCompraMil: number; embalagem: string; temEmbalagem: boolean;
@@ -86,6 +88,13 @@ function Lista({ d, cobertura, setCobertura, podeComprar, onGerado }: { d: Respo
         <label className="card stat"><div className="l">Comprar para</div>
           <select value={cobertura} onChange={(e) => setCobertura(Number(e.target.value))} aria-label="Dias de cobertura">{[...new Set([...COBERTURAS, cobertura])].sort((a, b) => a - b).map((n) => <option key={n} value={n}>{n} dias</option>)}</select>
         </label>
+      </div>
+      <div className="row" style={{ justifyContent: 'flex-end' }}>
+        {/* v1.55.0: lista de compra impressa, com as quantidades digitadas na tela, agrupada por fornecedor. */}
+        <BotaoImprimir className="btn sm" montar={() => { const linhas = grupos.flatMap((g) => g.itens.filter((i) => marcado[i.produtoId] && linha(i).base > 0).map((i) => ({ i, g: g.nome, ...linha(i) })));
+          return htmlTabela({ titulo: 'O que comprar', filtros: [`Comprar para ${cobertura} dias`, `${zerados} produto(s) sem nenhuma unidade`], linhas, total: `Total da compra ${brl(linhas.reduce((a, x) => a + x.lc.totalCents, 0))}`,
+            colunas: [{ titulo: 'Fornecedor', valor: (x) => x.g }, { titulo: 'Código', valor: (x) => x.i.sku }, { titulo: 'Produto', valor: (x) => x.i.nome }, { titulo: 'Tem hoje', valor: (x) => un(x.i.saldoMil, x.i.unidade), dir: true }, { titulo: 'Mínimo', valor: (x) => un(x.i.minimoMil, x.i.unidade), dir: true },
+              { titulo: 'Comprar', valor: (x) => x.lc.texto }, { titulo: 'Total', valor: (x) => brl(x.lc.totalCents), dir: true }] }); }} />
       </div>
       <p className="small muted" style={{ margin: '4px 0 10px' }}>
         Quantidade sugerida = saída média por dia (vendas e baixas dos últimos {d.janelaDias} dias; sem saída, 90 dias) × {cobertura} dias (+ prazo do fornecedor) − o que tem hoje − o que já foi pedido. Nunca menos que o necessário para voltar ao mínimo; arredonda para embalagem inteira.

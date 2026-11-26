@@ -7,11 +7,11 @@ import type { ConfigDocumento } from '../../../../server/erp/shared/documento';
 import { configDocumento } from './cabecalho';
 import { cabecalhoHtml, rodapeHtml } from './modelo';
 
-export function CabecalhoImpressao() {
+export function CabecalhoImpressao({ titulo, subtitulo }: { titulo?: string; subtitulo?: string } = {}) {
   const [c, setC] = useState<ConfigDocumento | null>(null);
   useEffect(() => { let vivo = true; configDocumento().then((x) => { if (vivo) setC(x); }); return () => { vivo = false; }; }, []);
   // cabecalhoHtml escapa todo texto e só aceita logo em data URL de imagem.
-  return <div className="so-impressao" dangerouslySetInnerHTML={{ __html: cabecalhoHtml(c, 'a4') }} />;
+  return <div className="so-impressao" dangerouslySetInnerHTML={{ __html: cabecalhoHtml(c, 'a4', '', { titulo, subtitulo }) }} />;
 }
 export function RodapeImpressao() {
   return <div className="so-impressao mck-rodape-tela" dangerouslySetInnerHTML={{ __html: rodapeHtml() }} />;

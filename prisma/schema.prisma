@@ -2738,6 +2738,7 @@ model ErpDocumentoConfig {
   site         String   @default("")
   textoLivre   String   @default("")
   logo         String? // data URL (PNG/JPEG/WEBP, ≤ 500 KB), tipo conferido pelos bytes
+  posicaoLogo  String   @default("ESQUERDA") // v1.55.0: ESQUERDA | CENTRO (validado no servidor)
   updatedAt    DateTime @updatedAt
 }
 

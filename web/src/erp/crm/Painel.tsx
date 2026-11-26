@@ -5,6 +5,8 @@ import { brl } from '../format';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../auth';
 import { AvisoInventarios } from '../estoque/Estoque';
+import { BotaoImprimir } from '../impressao/BotaoPdf';
+import { relatorioPainelCrm } from '../impressao/cadastros';
 
 const hoje = () => new Date().toISOString().slice(0, 10);
 const diasAtras = (n: number) => new Date(Date.now() - n * 86_400_000).toISOString().slice(0, 10);
@@ -30,6 +32,7 @@ export default function Painel() {
             <option value="">Todas as filiais</option>
             {(filiais.data ?? []).map((f) => <option key={f.id} value={f.id}>{f.nome}</option>)}
           </select>
+          <BotaoImprimir disabled={!state.data} montar={() => relatorioPainelCrm(state.data, { de, ate, filial: (filiais.data ?? []).find((f) => f.id === filialId)?.nome })} />
         </div>
       </div>
       <Async state={state}>{(d) => {

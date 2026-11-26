@@ -4,6 +4,8 @@ import JsBarcode from 'jsbarcode';
 import { get, post, put, del } from '../../api';
 import { useAuth } from '../../auth';
 import { useApi, Async, Empty, Modal, Field, useAction, useToast, fmtDate } from '../../ui';
+import { BotaoImprimir } from '../impressao/BotaoPdf';
+import { htmlTabela, htmlFicha, fmt } from '../impressao/listas';
 import { brl } from '../format';
 import { BuscaProduto } from '../comum';
 import { rodapeHtml } from '../impressao/modelo';
@@ -77,7 +79,9 @@ function BotoesNfe({ n, a, gestor }: { n: any; a: ReturnType<typeof useAcoesNfe>
 function ListaNfe() {
   const l = useApi<any[]>('/erp/fiscal/nfe'); const a = useAcoesNfe(() => l.reload()); const { can } = useAuth();
   return <Async state={l}>{(d) => d.length === 0 ? <div className="card"><Empty title="Nenhuma NF-e emitida">Emita pelo pedido de venda, depois da conferência.</Empty></div> : (
-    <div className="card table-wrap"><table><thead><tr><th>Nº</th><th>Destinatário</th><th>Total</th><th>Status</th><th>Emitida</th><th></th></tr></thead>
+    <div className="card table-wrap">
+      <div className="row" style={{ justifyContent: 'flex-end' }}><BotaoImprimir className="btn sm" montar={() => htmlTabela({ titulo: 'NF-e emitidas', linhas: d, total: `Total ${brl(d.filter((n) => n.status === 'AUTORIZADA').reduce((a, n) => a + (n.totalCents ?? 0), 0))} (autorizadas)`, colunas: [{ titulo: 'Nº/Série', valor: (n: any) => `${n.numero}/${n.serie}${n.ambiente === 2 ? ' (homolog.)' : ''}` }, { titulo: 'Destinatário', valor: (n: any) => n.destinatario }, { titulo: 'Status', valor: (n: any) => `${ST[n.status] ?? n.status}${n.motivo && n.status !== 'AUTORIZADA' ? ` · ${n.cStat ?? ''} ${n.motivo}` : ''}` }, { titulo: 'Emitida em', valor: (n: any) => fmt.dataHora(n.createdAt) }, { titulo: 'Chave', valor: (n: any) => n.chave }, { titulo: 'Total', valor: (n: any) => brl(n.totalCents), dir: true }] })} /></div>
+      <table><thead><tr><th>Nº</th><th>Destinatário</th><th>Total</th><th>Status</th><th>Emitida</th><th></th></tr></thead>
       <tbody>{d.map((n) => <tr key={n.id}><td>{n.numero}/{n.serie}{n.ambiente === 2 && <span className="badge">homolog.</span>}</td><td>{n.destinatario}</td><td>{brl(n.totalCents)}</td><td>{ST[n.status] ?? n.status}{n.motivo && n.status !== 'AUTORIZADA' && <div className="small muted">{n.cStat} {n.motivo}</div>}</td><td>{fmtDate(n.createdAt)}</td><td><BotoesNfe n={n} a={a} gestor={can('OWNER', 'ADMIN')} /></td></tr>)}</tbody></table></div>
   )}</Async>;
 }
@@ -113,7 +117,11 @@ function Config() {
   return <Async state={st}>{(c) => {
     const v = f ?? { razaoSocial: c.razaoSocial, fantasia: c.fantasia ?? '', cnpj: c.cnpj, ie: c.ie, crt: c.crt, uf: c.uf, codMunicipio: c.codMunicipio, municipio: c.municipio, logradouro: c.logradouro, numero: c.numero, bairro: c.bairro, cep: c.cep, fone: c.fone ?? '', ambiente: c.ambiente, serie: c.serie, proximoNumero: c.proximoNumero };
     const set = (k: string) => (e: any) => setF({ ...v, [k]: e.target.value });
+    const CRT: Record<number, string> = { 1: 'Simples Nacional', 2: 'Simples (excesso de sublimite)', 3: 'Regime normal (Presumido/Real)' };
     return <>
+      <div className="row" style={{ justifyContent: 'flex-end', marginBottom: 6 }}><BotaoImprimir className="btn sm" title="Imprime os dados salvos do emitente (sem senha nem certificado)" montar={() => htmlFicha({ titulo: 'Emitente da NF-e', subtitulo: c.ambiente === 1 ? 'Produção' : 'Homologação',
+        secoes: [{ campos: [['Razão social', c.razaoSocial], ['Nome fantasia', c.fantasia], ['CNPJ', fmt.doc(c.cnpj)], ['Inscrição estadual', c.ie], ['Regime', CRT[c.crt] ?? c.crt], ['Endereço', [[c.logradouro, c.numero].filter(Boolean).join(', '), c.bairro, [c.municipio, c.uf].filter(Boolean).join('/'), c.cep && `CEP ${c.cep}`].filter(Boolean).join(' · ')], ['Código IBGE do município', c.codMunicipio], ['Telefone', c.fone]] },
+          { titulo: 'Emissão', campos: [['Ambiente', c.ambiente === 1 ? 'Produção' : 'Homologação (testes)'], ['Série', c.serie], ['Próximo número', c.proximoNumero], ['Certificado digital', c.temCertificado ? `instalado${c.certTitular ? ` · ${c.certTitular}` : ''}${c.certValidade ? ` · válido até ${fmt.dia(c.certValidade)}` : ''}` : 'não instalado']] }] })} /></div>
       <div className="card">
         <div className="grid g2">
           <Field label="Razão social"><input value={v.razaoSocial} onChange={set('razaoSocial')} /></Field>
@@ -157,11 +165,15 @@ function Regras() {
   const [ed, setEd] = useState<any>(null); const { busy, run } = useAction(); const { can } = useAuth();
   const nova = { nome: '', produto: null, ncmPrefixo: '', cfopDentro: '5102', cfopFora: '6102', csosn: '102', cstIcms: '00', icms: '18', cstIpi: '53', ipi: '0', cstPis: '49', pis: '0', cstCofins: '49', cofins: '0' };
   const bp = (s: string) => Math.round(Number(String(s).replace(',', '.')) * 100) || 0;
+  const aplica = (r: any) => (r.produtoId ? `produto${r.produto?.sku ? ` ${r.produto.sku}` : ''}` : r.ncmPrefixo ? `NCM ${r.ncmPrefixo}…` : 'padrão');
   return <>
-    {can('OWNER', 'ADMIN') && <button className="btn primary" style={{ marginBottom: 10 }} onClick={() => setEd(nova)}>+ Regra</button>}
+    <div className="row" style={{ marginBottom: 10, gap: 6 }}>
+      {can('OWNER', 'ADMIN') && <button className="btn primary" onClick={() => setEd(nova)}>+ Regra</button>}
+      <BotaoImprimir disabled={!l.data?.length} montar={() => htmlTabela({ titulo: 'Regras de tributação', linhas: l.data ?? [], colunas: [{ titulo: 'Regra', valor: (r: any) => r.nome }, { titulo: 'Aplica a', valor: aplica }, { titulo: 'CFOP', valor: (r: any) => `${r.cfopDentro}/${r.cfopFora}` }, { titulo: 'ICMS', valor: (r: any) => `CSOSN ${r.csosn} · CST ${r.cstIcms} ${fmt.pct(r.aliqIcmsBp)}` }, { titulo: 'IPI', valor: (r: any) => `CST ${r.cstIpi ?? ''} ${fmt.pct(r.aliqIpiBp)}` }, { titulo: 'PIS', valor: (r: any) => `CST ${r.cstPis} ${fmt.pct(r.aliqPisBp)}` }, { titulo: 'COFINS', valor: (r: any) => `CST ${r.cstCofins} ${fmt.pct(r.aliqCofinsBp)}` }] })} />
+    </div>
     <Async state={l}>{(d) => d.length === 0 ? <div className="card"><Empty title="Usando a regra padrão">Sem regras, vale CFOP 5102/6102, Simples CSOSN 102 e PIS/COFINS 49. Crie a regra padrão da empresa e as exceções por NCM ou produto.</Empty></div> : (
       <div className="card table-wrap"><table><thead><tr><th>Regra</th><th>Aplica a</th><th>CFOP</th><th>ICMS</th><th>PIS/COFINS</th><th></th></tr></thead>
-        <tbody>{d.map((r) => <tr key={r.id}><td>{r.nome}</td><td className="small">{r.produtoId ? 'produto' : r.ncmPrefixo ? `NCM ${r.ncmPrefixo}…` : 'padrão'}</td><td>{r.cfopDentro}/{r.cfopFora}</td><td>CSOSN {r.csosn} · CST {r.cstIcms} {r.aliqIcmsBp / 100}%</td><td>{r.cstPis}/{r.cstCofins}</td><td>{can('OWNER', 'ADMIN') && <button className="btn sm ghost" onClick={async () => { if (confirm('Excluir regra?') && await run(() => del(`/erp/fiscal/regras/${r.id}`), 'Excluída')) l.reload(); }}>Excluir</button>}</td></tr>)}</tbody></table></div>
+        <tbody>{d.map((r) => <tr key={r.id}><td>{r.nome}</td><td className="small">{r.produtoId ? 'produto' : r.ncmPrefixo ? `NCM ${r.ncmPrefixo}…` : 'padrão'}</td><td>{r.cfopDentro}/{r.cfopFora}</td><td>CSOSN {r.csosn} · CST {r.cstIcms} {r.aliqIcmsBp / 100}%</td><td>{r.cstPis}/{r.cstCofins}</td><td className="row" style={{ gap: 4 }}><BotaoImprimir className="btn sm ghost" title="Ficha da regra" montar={() => htmlFicha({ titulo: `Regra de tributação · ${r.nome}`, secoes: [{ campos: [['Nome', r.nome], ['Aplica a', aplica(r)], ['CFOP dentro do estado', r.cfopDentro], ['CFOP fora do estado', r.cfopFora], ['CSOSN', r.csosn], ['CST ICMS', r.cstIcms], ['Alíquota ICMS', fmt.pct(r.aliqIcmsBp)], ['CST IPI', r.cstIpi], ['Alíquota IPI', fmt.pct(r.aliqIpiBp)], ['CST PIS', r.cstPis], ['Alíquota PIS', fmt.pct(r.aliqPisBp)], ['CST COFINS', r.cstCofins], ['Alíquota COFINS', fmt.pct(r.aliqCofinsBp)]] }] })}>🖨️</BotaoImprimir>{can('OWNER', 'ADMIN') && <button className="btn sm ghost" onClick={async () => { if (confirm('Excluir regra?') && await run(() => del(`/erp/fiscal/regras/${r.id}`), 'Excluída')) l.reload(); }}>Excluir</button>}</td></tr>)}</tbody></table></div>
     )}</Async>
     {ed && <Modal title="Regra de tributação" onClose={() => setEd(null)}>
       <Field label="Nome"><input value={ed.nome} onChange={(e) => setEd({ ...ed, nome: e.target.value })} placeholder="Padrão da empresa" /></Field>
