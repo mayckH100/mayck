@@ -55,7 +55,8 @@ export function relatorioPainelCrm(d: any, f: { de: string; ate: string; filial?
   const kpis: [string, string][] = [
     ['Clientes ativos', `${k.clientesAtivos ?? 0} (${k.clientesInativos ?? 0} inativos)`], ['Pipeline aberto', `${fmt.brl(k.pipelineCents ?? 0)} · ${k.oportunidadesAbertas ?? 0} oportunidade(s)`],
     ['Taxa de conversão', `${Number(k.taxaConversao ?? 0).toLocaleString('pt-BR')}% · ${k.ganhas ?? 0} ganhas · ${k.perdidas ?? 0} perdidas`], ['Ticket médio', `${fmt.brl(k.ticketMedioCents ?? 0)} · ciclo médio ${k.cicloMedioDias ?? 0} dias`],
-    ['CAC', fmt.brl(k.cacCents ?? 0)], ['Inadimplência', k.inadimplenciaPct == null ? '—' : `${k.inadimplenciaPct}%`],
+    ['CAC', fmt.brl(k.cacCents ?? 0)], ['Inadimplência', k.inadimplenciaPct == null ? '—' : `${Number(k.inadimplenciaPct).toLocaleString('pt-BR')}% · vencido ${fmt.brl(k.inadimplenciaVencidoCents ?? 0)} de ${fmt.brl(k.inadimplenciaTotalCents ?? 0)}`],
+    ...(d?.scores ? [['Score médio dos clientes', d.scores.medio == null ? '—' : `${d.scores.medio} · ${d.scores.bons} bons · ${d.scores.atencao} atenção · ${d.scores.risco} risco`] as [string, string]] : []),
   ];
   return htmlTabela({ titulo: 'Painel CRM', filtros: [`Período: ${fmt.dia(f.de)} a ${fmt.dia(f.ate)}`, f.filial || 'Todas as filiais'],
     colunas: [{ titulo: 'Indicador', valor: (x: [string, string]) => x[0] }, { titulo: 'Valor', valor: (x: [string, string]) => x[1] }], linhas: kpis,
