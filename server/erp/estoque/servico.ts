@@ -246,7 +246,7 @@ export async function conferir(tx: Tx, orgId: string, pedidoId: string, codigo: 
  * Devolução de venda com retorno ao estoque (v1.33.0): devolve cada parte ao MESMO lote e endereço de onde saiu
  * (movimento DEVOLUCAO), para o rastreio do lote continuar fechando. Não devolve duas vezes o mesmo pedido.
  */
-export async function devolverAoEstoque(tx: Tx, e: MovBase & { pedidoId: string }) {
+export async function devolverAoEstoque(tx: Tx, e: MovBase & { pedidoId: string; quarentena?: boolean }) {
   const movs = await tx.erpMovimento.findMany({ where: { orgId: e.orgId, docId: e.pedidoId, tipo: { in: ['SAIDA', 'DEVOLUCAO'] }, docTipo: { in: ['pedido_venda', 'devolucao'] } } });
   const resto = new Map<string, { produtoId: string; loteId: string; enderecoId: string; qtdMil: number; custo: number }>();
   for (const m of movs) {
@@ -260,8 +260,37 @@ export async function devolverAoEstoque(tx: Tx, e: MovBase & { pedidoId: string 
     const lote = await tx.erpLote.findUniqueOrThrow({ where: { id: x.loteId } });
     const end = await tx.erpEnderecoEstoque.findFirst({ where: { id: x.enderecoId, orgId: e.orgId, ativo: true } });
     if (!end) throw new EstoqueErro('O endereço de onde o produto saiu foi desativado: reative-o para devolver ao estoque');
-    await entrada(tx, { ...e, produtoId: x.produtoId, enderecoId: x.enderecoId, qtdMil: x.qtdMil, custoUnitCents: x.custo, tipo: 'DEVOLUCAO', docTipo: 'devolucao', docId: e.pedidoId, lote: { numero: lote.numero, validade: lote.validade, status: lote.status } });
+    const r = await entrada(tx, { ...e, produtoId: x.produtoId, enderecoId: x.enderecoId, qtdMil: x.qtdMil, custoUnitCents: x.custo, tipo: 'DEVOLUCAO', docTipo: 'devolucao', docId: e.pedidoId, lote: { numero: lote.numero, validade: lote.validade, status: lote.status } });
+    // v1.57.1: o que volta de venda cancelada/devolvida fica em quarentena até a qualidade liberar (lote liberado já
+    // entrou disponível; lote em quarentena/bloqueado já entrou preso).
+    if (e.quarentena && r.lote.status === 'LIBERADO') {
+      const sq = await tx.erpSaldo.update({ where: { id: r.saldo.id }, data: { quarentenaMil: { increment: x.qtdMil } } });
+      await tx.erpMovimento.create({ data: { orgId: e.orgId, produtoId: x.produtoId, loteId: x.loteId, enderecoId: x.enderecoId, tipo: 'QUARENTENA', qtdMil: 0, saldoAposMil: sq.fisicoMil, docTipo: 'devolucao', docId: e.pedidoId, motivo: `Aguardando qualidade: ${e.motivo ?? 'retorno de venda'}`, userId: e.userId ?? null, correlationId: e.correlationId ?? null } });
+    }
     n++;
   }
+  return n;
+}
+
+/**
+ * v1.57.1 — decisão da qualidade sobre parte de um saldo em quarentena (ex.: produto de venda cancelada):
+ *  - LIBERAR: a quantidade volta a ficar disponível para venda;
+ *  - DESCARTAR: sai do estoque (defeito, contaminação, avaria), com o motivo registrado.
+ */
+export async function qualidadeSaldo(tx: Tx, e: MovBase & { saldoId: string; acao: 'LIBERAR' | 'DESCARTAR'; qtdMil: number }) {
+  if (e.qtdMil <= 0) throw new EstoqueErro('Quantidade deve ser maior que zero');
+  const s = await tx.erpSaldo.findFirst({ where: { id: e.saldoId, orgId: e.orgId } });
+  if (!s) throw new EstoqueErro('Saldo não encontrado');
+  if (e.qtdMil > s.quarentenaMil) throw new EstoqueErro('Quantidade maior que a que está em quarentena');
+  const lote = await tx.erpLote.findUniqueOrThrow({ where: { id: s.loteId } });
+  if (e.acao === 'LIBERAR' && lote.status !== 'LIBERADO') throw new EstoqueErro(`O lote ${lote.numero} inteiro está ${lote.status === 'QUARENTENA' ? 'em quarentena' : 'bloqueado'}: libere o lote`);
+  if (e.acao === 'LIBERAR') {
+    const n = await tx.erpSaldo.update({ where: { id: s.id }, data: { quarentenaMil: { decrement: e.qtdMil } } });
+    await tx.erpMovimento.create({ data: { orgId: e.orgId, produtoId: s.produtoId, loteId: s.loteId, enderecoId: s.enderecoId, tipo: 'LIBERACAO', qtdMil: 0, saldoAposMil: n.fisicoMil, docTipo: 'qualidade', docId: s.id, motivo: `Liberado pela qualidade${e.motivo ? `: ${e.motivo}` : ''}`, userId: e.userId ?? null } });
+    return n;
+  }
+  const n = await tx.erpSaldo.update({ where: { id: s.id }, data: { quarentenaMil: { decrement: e.qtdMil }, fisicoMil: { decrement: e.qtdMil } } });
+  const p = await tx.erpProduto.findUniqueOrThrow({ where: { id: s.produtoId } });
+  await tx.erpMovimento.create({ data: { orgId: e.orgId, produtoId: s.produtoId, loteId: s.loteId, enderecoId: s.enderecoId, tipo: 'AJUSTE', qtdMil: -e.qtdMil, custoUnitCents: p.custoMedioCents, saldoAposMil: n.fisicoMil, docTipo: 'qualidade', docId: s.id, motivo: `Descartado pela qualidade${e.motivo ? `: ${e.motivo}` : ''}`, userId: e.userId ?? null } });
   return n;
 }

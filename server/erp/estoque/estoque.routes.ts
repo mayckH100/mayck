@@ -7,7 +7,7 @@ import { contem } from '../../lib/busca.js';
 import { ah, badRequest, notFound } from '../../lib/http.js';
 import { orgOf, requireRole } from '../../auth/session.js';
 import { auditar } from '../shared/auditoria.js';
-import { entrada, saidaDoSaldo, transferir, mudarStatusLote } from './servico.js';
+import { entrada, saidaDoSaldo, transferir, mudarStatusLote, qualidadeSaldo } from './servico.js';
 import { disponivel } from './saldo.js';
 import { zpl, textoQr, type DadosEtiqueta } from './etiquetas.js';
 import { gs1Lote, etiquetasSugeridas } from './codigoLote.js';
@@ -97,6 +97,15 @@ estoqueRouter.patch('/lotes/:id', admins, ah(async (req, res) => {
   const l = await prisma.$transaction((tx) => mudarStatusLote(tx, orgOf(req), req.params.id, status, req.auth?.userId));
   await auditar(req, 'estoque.lote_status', 'erp_lote', l.id, null, { status });
   res.json(l);
+}));
+
+/** v1.57.1: liberar ou descartar parte de um saldo em quarentena (ex.: retorno de venda cancelada). */
+estoqueRouter.post('/saldos/:id/qualidade', admins, ah(async (req, res) => {
+  const b = z.object({ acao: z.enum(['LIBERAR', 'DESCARTAR']), qtdMil: z.number().int().min(1).max(2_000_000_000), motivo: z.string().trim().max(300).optional() }).parse(req.body);
+  if (b.acao === 'DESCARTAR' && !b.motivo) throw badRequest('Informe o motivo do descarte');
+  const s = await prisma.$transaction((tx) => qualidadeSaldo(tx, { orgId: orgOf(req), saldoId: req.params.id, ...b, userId: req.auth?.userId }));
+  await auditar(req, `estoque.qualidade_${b.acao.toLowerCase()}`, 'erp_saldo', req.params.id, null, { qtdMil: b.qtdMil, motivo: b.motivo ?? null });
+  res.json({ ...s, disponivelMil: disponivel(s) });
 }));
 
 estoqueRouter.get('/movimentos', ah(async (req, res) => {
