@@ -21,6 +21,14 @@ export type EntradaChangelog = {
 
 export const CHANGELOG: EntradaChangelog[] = [
   {
+    versao: '1.56.1',
+    data: '27/11/2026',
+    titulo: 'Blog: novo artigo sobre lista de transmissão do WhatsApp Business',
+    itens: [
+      'Novo artigo no blog: lista de transmissão do WhatsApp Business, com limites, boas práticas e quando migrar para campanhas.',
+    ],
+  },
+  {
     versao: '1.56.0',
     data: '26/11/2026',
     titulo: 'MCK ERP: inadimplência e score do cliente de verdade, períodos e cores iguais',
