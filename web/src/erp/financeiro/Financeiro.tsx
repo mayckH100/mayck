@@ -10,6 +10,8 @@ import { linhaFiltros, htmlTabela, htmlFicha, fmt } from '../impressao/listas';
 import { BotaoImprimir, BotaoPdf } from '../impressao/BotaoPdf';
 import NovoTitulo, { NATUREZA } from './NovoTitulo';
 import Categorias from './Categorias';
+import { SeletorPeriodo, usePeriodo } from '../SeletorPeriodo';
+import { classeStatus, statusSaldo, statusTitulo, StatusBadge } from '../status';
 
 const ST: Record<string, string> = { EM_ABERTO: 'Em aberto', PARCIAL: 'Parcial', PAGO: 'Pago', CANCELADO: 'Cancelado' };
 const dt = (d?: string | null) => (d ? new Date(d).toLocaleDateString('pt-BR', { timeZone: 'UTC' }) : '—');
@@ -45,8 +47,8 @@ function Painel() {
           extras: [{ titulo: 'Saldo por conta', linhas: d.contas, colunas: [{ titulo: 'Conta', valor: (c: any) => c.nome }, { titulo: 'Saldo', valor: (c: any) => brl(c.saldoCents), dir: true }] },
             { titulo: 'A receber e a pagar por atraso', linhas: [['A vencer', 'aVencer'], ['Até 30 dias', 'ate30'], ['31 a 60', 'ate60'], ['61 a 90', 'ate90'], ['Mais de 90', 'mais90']], colunas: [{ titulo: 'Faixa', valor: (x: string[]) => x[0] }, { titulo: 'A receber', valor: (x: string[]) => brl(d.receber?.[x[1]]), dir: true }, { titulo: 'A pagar', valor: (x: string[]) => brl(d.pagar?.[x[1]]), dir: true }] }] })} /></div>
         <div className="grid g2">
-          <div className="card"><span className="muted small">Saldo em contas</span><h2>{brl(d.saldoCents)}</h2><div className="small">{d.contas.map((c: any) => `${c.nome}: ${brl(c.saldoCents)}`).join(' · ') || 'Cadastre uma conta em "Contas e conciliação"'}</div></div>
-          <div className="card"><span className="muted small">Menor saldo projetado (30 dias)</span><h2>{brl(Math.min(...d.fluxo.map((f: any) => f.saldoCents)))}</h2></div>
+          <div className={`card st-card ${classeStatus(statusSaldo(d.saldoCents))}`}><span className="muted small">Saldo em contas</span><h2>{brl(d.saldoCents)}</h2><div className="small">{d.contas.map((c: any) => `${c.nome}: ${brl(c.saldoCents)}`).join(' · ') || 'Cadastre uma conta em "Contas e conciliação"'}</div></div>
+          <div className={`card st-card ${classeStatus(statusSaldo(Math.min(...d.fluxo.map((f: any) => f.saldoCents))))}`}><span className="muted small">Menor saldo projetado (30 dias)</span><h2>{brl(Math.min(...d.fluxo.map((f: any) => f.saldoCents)))}</h2></div>
           <Faixas t="A receber por atraso" a={d.receber} />
           <Faixas t="A pagar por atraso" a={d.pagar} />
         </div>
@@ -60,7 +62,8 @@ function Painel() {
 function Titulos({ tipo }: { tipo: 'RECEBER' | 'PAGAR' }) {
   const [filtro, setFiltro] = useState('ABERTOS');
   const [nat, setNat] = useState(''); // a pagar: '' todas | FORNECEDOR | CONTAS (água, luz, internet...)
-  const [per, setPer] = useState({ de: '', ate: '' }); // v1.54.0: período (vencimento) para a lista e a impressão
+  // v1.54.0: período (vencimento) para a lista e a impressão; v1.56.0: seletor padrão (abre em "Todos", como antes).
+  const [per, setPer] = usePeriodo('todos');
   const l = useApi<any[]>(`/erp/financeiro/titulos?tipo=${tipo}&status=${filtro === 'TODOS' ? '' : filtro}${tipo === 'PAGAR' && nat ? `&natureza=${nat}` : ''}${per.de ? `&de=${per.de}` : ''}${per.ate ? `&ate=${per.ate}` : ''}`, [filtro, nat, per.de, per.ate]);
   const [novo, setNovo] = useState(false); const [baixar, setBaixar] = useState<string | null>(null); const [cats, setCats] = useState(false);
   return (
@@ -72,13 +75,12 @@ function Titulos({ tipo }: { tipo: 'RECEBER' | 'PAGAR' }) {
         {tipo === 'PAGAR' && ([['', 'Todas'], ['FORNECEDOR', 'Fornecedores'], ['CONTAS', 'Contas da empresa']] as const).map(([v, r]) => <button key={v} className={`btn sm ${nat === v ? 'primary' : ''}`} onClick={() => setNat(v)}>{r}</button>)}
       </div>
       <div className="row" style={{ marginBottom: 10, gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-        <span className="small muted">Vencimento de</span><input type="date" value={per.de} onChange={(e) => setPer({ ...per, de: e.target.value })} aria-label="Vencimento de" />
-        <span className="small muted">até</span><input type="date" value={per.ate} onChange={(e) => setPer({ ...per, ate: e.target.value })} aria-label="Vencimento até" />
-        <button className="btn sm" disabled={!l.data?.length} onClick={() => imprimirLista(tipo, l.data ?? [], { ...per, filtro })}>🖨️ Imprimir lista</button>
+        <span className="small muted">Vencimento:</span><SeletorPeriodo valor={per} onChange={setPer} rotulo="Vencimento" rotuloDatas="Vencimento" opcoes={['todos', 'hoje', '7d', '30d', 'mes', 'personalizado']} />
+        <button className="btn sm" disabled={!l.data?.length} onClick={() => imprimirLista(tipo, l.data ?? [], { de: per.de, ate: per.ate, filtro })}>🖨️ Imprimir lista</button>
       </div>
       <Async state={l}>{(d) => d.length === 0 ? <div className="card"><Empty title="Nada por aqui">{tipo === 'RECEBER' ? 'Pedidos faturados entram aqui sozinhos.' : 'NF-e de entrada lançadas entram aqui sozinhas.'}</Empty></div> : (
         <div className="card table-wrap"><table><thead><tr><th>Vencimento</th><th>{tipo === 'RECEBER' ? 'Cliente' : 'Fornecedor / conta'}</th><th>Descrição</th><th>Valor</th><th>Saldo</th><th>Status</th><th></th></tr></thead>
-          <tbody>{d.map((t) => <tr key={t.id}><td style={{ color: t.vencido ? '#dc2626' : undefined }}>{dt(t.vencimento)}</td><td>{t.natureza && t.natureza !== 'FORNECEDOR' ? <span className="badge">{t.tipoConta ?? NATUREZA[t.natureza] ?? 'Conta'}</span> : t.parceiro ?? '—'}</td><td className="small">{t.descricao}</td><td>{brl(t.valorCents)}</td><td>{brl(t.saldoCents)}</td><td>{ST[t.status]}</td><td><button className="btn sm" onClick={() => setBaixar(t.id)}>Abrir</button></td></tr>)}</tbody></table>
+          <tbody>{d.map((t) => <tr key={t.id}><td className={t.vencido ? 'st-problema' : undefined}>{dt(t.vencimento)}</td><td>{t.natureza && t.natureza !== 'FORNECEDOR' ? <span className="badge">{t.tipoConta ?? NATUREZA[t.natureza] ?? 'Conta'}</span> : t.parceiro ?? '—'}</td><td className="small">{t.descricao}</td><td>{brl(t.valorCents)}</td><td>{brl(t.saldoCents)}</td><td><StatusBadge status={statusTitulo(t)}>{t.vencido ? 'Vencido' : ST[t.status]}</StatusBadge></td><td><button className="btn sm" onClick={() => setBaixar(t.id)}>Abrir</button></td></tr>)}</tbody></table>
           <p className="small">Total em aberto: <b>{brl(d.reduce((a, t) => a + t.saldoCents, 0))}</b></p></div>
       )}</Async>
       {novo && <NovoTitulo tipo={tipo} onClose={() => setNovo(false)} onDone={() => { setNovo(false); l.reload(); }} />}
@@ -195,15 +197,17 @@ function Conciliacao({ conta, onClose }: { conta: any; onClose: () => void }) {
 }
 
 function Dre() {
-  const [p, setP] = useState({ de: new Date().toISOString().slice(0, 8) + '01', ate: hojeIso(), regime: 'competencia' });
+  // v1.56.0: seletor de período padrão (abre no mês atual, como antes).
+  const [per, setPer] = usePeriodo('mes');
+  const [regime, setRegime] = useState('competencia');
+  const p = { de: per.de, ate: per.ate, regime };
   const st = useApi<any>(`/erp/financeiro/dre?de=${p.de}&ate=${p.ate}&regime=${p.regime}`, [p.de, p.ate, p.regime]);
   const linhas: [string, string, boolean?][] = [['RECEITA_BRUTA', 'Receita bruta'], ['DEDUCAO', '(−) Deduções'], ['receitaLiquida', 'Receita líquida', true], ['CUSTO', '(−) Custos'], ['lucroBruto', 'Lucro bruto', true], ['OPERACIONAL', '(−) Despesas operacionais'], ['resultadoOperacional', 'Resultado operacional', true], ['FINANCEIRA', '(±) Resultado financeiro'], ['resultadoAntesImpostos', 'Resultado antes dos impostos', true], ['IMPOSTO', '(−) IRPJ e CSLL'], ['resultadoLiquido', 'Resultado líquido', true]];
   return (
     <>
       <div className="row" style={{ gap: 6, marginBottom: 10, flexWrap: 'wrap' }}>
-        <input type="date" value={p.de} onChange={(e) => setP({ ...p, de: e.target.value })} aria-label="De" />
-        <input type="date" value={p.ate} onChange={(e) => setP({ ...p, ate: e.target.value })} aria-label="Até" />
-        <select value={p.regime} onChange={(e) => setP({ ...p, regime: e.target.value })} aria-label="Regime"><option value="competencia">Competência</option><option value="caixa">Caixa</option></select>
+        <SeletorPeriodo valor={per} onChange={setPer} />
+        <select value={regime} onChange={(e) => setRegime(e.target.value)} aria-label="Regime"><option value="competencia">Competência</option><option value="caixa">Caixa</option></select>
         <BotaoImprimir disabled={!st.data} montar={() => htmlTabela({ titulo: 'DRE gerencial', filtros: [`Período: ${fmt.dia(p.de)} a ${fmt.dia(p.ate)}`, p.regime === 'caixa' ? 'Regime de caixa' : 'Regime de competência'], linhas, colunas: [{ titulo: 'Linha', valor: (x: [string, string, boolean?]) => (x[2] ? `= ${x[1]}` : x[1]) }, { titulo: 'Valor', valor: (x: [string, string, boolean?]) => brl(st.data?.[x[0]]), dir: true }] })} />
       </div>
       <Async state={st}>{(d) => <div className="card"><table><tbody>{linhas.map(([k, l, tot]) => <tr key={k} style={{ fontWeight: tot ? 700 : 400 }}><td>{l}</td><td style={{ textAlign: 'right', color: d[k] < 0 ? '#dc2626' : undefined }}>{brl(d[k])}</td></tr>)}</tbody></table><p className="small muted">DRE gerencial pelo plano de contas. Lançamentos sem categoria entram como receita bruta (recebimentos) ou despesa operacional (pagamentos).</p></div>}</Async>
