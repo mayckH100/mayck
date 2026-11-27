@@ -21,6 +21,53 @@ export type EntradaChangelog = {
 
 export const CHANGELOG: EntradaChangelog[] = [
   {
+    versao: '1.59.2',
+    data: '27/11/2026',
+    titulo: 'Correção do total do item no recibo',
+    itens: [
+      'O recibo e o pedido impresso mostravam "R$ NaN" no total e no preço de cada item. Agora saem os valores certos, inclusive para produto vendido por quilo.',
+    ],
+  },
+  {
+    versao: '1.59.1',
+    data: '27/11/2026',
+    titulo: 'Correção na entrada de estoque',
+    itens: [
+      'Entrada de estoque sem produto escolhido mostrava um erro técnico. Agora o botão Confirmar só libera com o produto escolhido, e a data de fabricação no futuro é recusada com aviso.',
+    ],
+  },
+  {
+    versao: '1.59.0',
+    data: '27/11/2026',
+    titulo: 'Pix com QR Code no balcão e aviso de maquininha desconectada',
+    itens: [
+      'Pix no balcão: o sistema mostra na tela o QR Code com a chave da empresa e o valor da venda. O dinheiro cai direto na sua conta, sem intermediário e sem taxa.',
+      'Depois de conferir no app do banco, toque em "Pix recebido" para concluir a venda.',
+      'A chave Pix pode ser cadastrada e trocada ali mesmo, na tela do Pix, pelo dono ou administrador.',
+      'Cartão sem maquininha conectada: aparece um aviso no meio da tela para seguir ou voltar, e a venda fica marcada como liberada sem aprovação da maquininha.',
+    ],
+  },
+  {
+    versao: '1.58.0',
+    data: '27/11/2026',
+    titulo: 'Balança no balcão, de qualquer marca',
+    itens: [
+      'Leia a etiqueta que a balança imprime (código que começa com 2): o produto entra na venda com o peso certo. Em Regras comerciais você diz quantos dígitos tem o código e se a etiqueta traz o preço ou o peso.',
+      'Balança ligada ao computador (cabo serial ou USB): no Chrome ou Edge, o botão ⚖️ na linha do produto vendido por quilo lê o peso direto. Funciona com Toledo, Filizola, Urano, Elgin e outras; a velocidade fica salva no computador.',
+      'Sem balança ligada, o peso continua podendo ser digitado no campo Kg.',
+    ],
+  },
+  {
+    versao: '1.57.1',
+    data: '27/11/2026',
+    titulo: 'Cancelamento e devolução: produto volta em quarentena, com motivo',
+    itens: [
+      'Ao cancelar ou devolver uma venda, você escolhe o motivo numa lista (desistência, devolução, defeito, contaminação, avaria, vencido, erro no lançamento ou outro).',
+      'O produto volta para o mesmo lote e local, mas fica em quarentena: não aparece como disponível até a qualidade decidir.',
+      'Na tela Estoque, a coluna Quarentena mostra o que está preso, e o botão Qualidade libera para venda ou descarta, com o motivo registrado no rastreio do lote.',
+    ],
+  },
+  {
     versao: '1.57.0',
     data: '27/11/2026',
     titulo: 'Pedidos: botão "Cancelar venda" também depois de entregue',
