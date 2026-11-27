@@ -65,18 +65,19 @@ export default function Estoque({ aba: inicial }: { aba?: AbaEstoque } = {}) {
 
       {aba === 'saldos' && <Async state={saldos}>{(d0) => { const d = filtro ? d0.filter((x) => x.produtoId === filtro.produtoId && (!filtro.loteId || x.loteId === filtro.loteId)) : d0; return d.length === 0 ? <div className="card"><Empty title={deps.data?.length ? 'Sem saldo em estoque' : 'Crie um depósito primeiro'}>{deps.data?.length ? 'Lance o saldo inicial pelo botão Entrada.' : 'Na aba Depósitos e endereços.'}</Empty></div> : (
         <div className="card table-wrap"><table>
-          <thead><tr><th>Produto</th><th>Lote interno / fabricante</th><th>Validade</th><th>Endereço</th><th>Físico</th><th>Reservado</th><th>Disponível</th><th></th></tr></thead>
+          <thead><tr><th>Produto</th><th>Lote interno / fabricante</th><th>Validade</th><th>Endereço</th><th>Físico</th><th>Reservado</th><th>Quarentena</th><th>Disponível</th><th></th></tr></thead>
           <tbody>{d.map((s) => (
             <tr key={s.id}>
               <td><strong>{s.produto?.nome}</strong><div className="small muted">{s.produto?.sku}</div></td>
               <td>{s.lote?.numero === 'UNICO' ? '—' : s.lote?.numero}{s.lote?.loteFornecedor && s.lote.loteFornecedor !== s.lote.numero ? <div className="small muted">fab. {s.lote.loteFornecedor}</div> : null} {s.lote?.status !== 'LIBERADO' && <span className="badge red">{s.lote?.status}</span>}</td>
               <td>{s.lote?.validade ? new Date(s.lote.validade).toLocaleDateString('pt-BR', { timeZone: 'UTC' }) : '—'}</td>
               <td>{s.endereco.deposito} · {s.endereco.codigo}</td>
-              <td>{qtd(s.fisicoMil)}</td><td>{qtd(s.reservadoMil)}</td><td><strong>{qtd(s.disponivelMil)}</strong></td>
+              <td>{qtd(s.fisicoMil)}</td><td>{qtd(s.reservadoMil)}</td><td>{s.quarentenaMil > 0 ? <span className="badge st-atencao" title="Aguardando a qualidade liberar">{qtd(s.quarentenaMil)}</span> : '—'}</td><td><strong>{qtd(s.disponivelMil)}</strong></td>
               <td className="row" style={{ gap: 4 }}>
                 <button className="btn ghost sm" onClick={() => setModal({ tipo: 'transferencia', saldo: s })}>Mover</button>
                 <button className="btn ghost sm" onClick={() => setModal({ tipo: 'ajuste', saldo: s })}>Baixa</button>
                 {can('OWNER', 'ADMIN') && s.lote?.numero !== 'UNICO' && <button className="btn ghost sm" onClick={async () => { await run(() => patch(`/erp/estoque/lotes/${s.loteId}`, { status: s.lote.status === 'LIBERADO' ? 'QUARENTENA' : 'LIBERADO' }), 'Lote atualizado'); recarregar(); }}>{s.lote?.status === 'LIBERADO' ? 'Quarentena' : 'Liberar'}</button>}
+                {can('OWNER', 'ADMIN') && s.quarentenaMil > 0 && s.lote?.status === 'LIBERADO' && <button className="btn ghost sm" title="Liberar para venda ou descartar o que está em quarentena" onClick={() => setModal({ tipo: 'qualidade', saldo: s })}>Qualidade</button>}
                 <button className="btn ghost sm" onClick={() => setModal({ tipo: 'corrigir', saldo: s })}>Corrigir</button>
                 <button className="btn ghost sm" title="Etiqueta do lote (código de barras e QR)" onClick={() => setEtiquetas([{ loteId: s.loteId, numero: s.lote?.numero, produto: `${s.produto?.sku} · ${s.produto?.nome}`, sugeridas: 1 }])}>🏷️</button>
               </td>
@@ -123,14 +124,19 @@ export default function Estoque({ aba: inicial }: { aba?: AbaEstoque } = {}) {
 function Movimento({ modal, depositos, onClose, onDone }: { modal: any; depositos: any[]; onClose: () => void; onDone: (r?: any) => void }) {
   const [f, setF] = useState<any>({ qtd: '', custo: '', lote: '', fabricante: '', validade: '', fabricacao: '', quarentena: false, motivo: '', enderecoId: '', produto: null, busca: '', nome: '', codigos: '', ruas: '', prateleiras: '', posicoes: '' });
   const [opcoes, setOpcoes] = useState<any[]>([]);
-  const { busy, run } = useAction();
+  const { busy, run } = useAction(); const toastE = useToast();
   const set = (k: string) => (e: any) => setF({ ...f, [k]: e.target.type === 'checkbox' ? e.target.checked : e.target.value });
   const enderecos = depositos.flatMap((d) => d.enderecos.map((e: any) => ({ ...e, label: `${d.nome} · ${e.codigo}` })));
   async function procurar(q: string) { setF({ ...f, busca: q }); setOpcoes(q.length >= 2 ? (await get<any>(`/erp/produtos?q=${encodeURIComponent(q)}&ativos=1`)).items.filter((p: any) => p.tipo !== 'SERVICO').slice(0, 8) : []); }
+  const hojeIso = new Date().toISOString().slice(0, 10);
+  // v1.59.1: entrada sem produto escolhido dava "Cannot read properties of null (reading 'id')".
+  const erroEntrada = modal.tipo !== 'entrada' ? null : !f.produto ? 'Escolha o produto: leia o código ou toque no nome na lista da busca.' : f.fabricacao && f.fabricacao > hojeIso ? 'A data de fabricação está no futuro. Confira o ano.' : null;
   async function salvar() {
+    if (erroEntrada) { toastE(erroEntrada, 'err'); return; }
     const acoes: Record<string, () => Promise<unknown>> = {
       entrada: () => post('/erp/estoque/entrada', { produtoId: f.produto.id, enderecoId: f.enderecoId, qtdMil: toMil(f.qtd), custoUnitCents: f.custo ? toCents(f.custo) : undefined, lote: { fabricante: f.fabricante || null, validade: f.produto?.controlaValidade ? f.validade || null : null, fabricacao: f.fabricacao || null, status: f.quarentena ? 'QUARENTENA' : 'LIBERADO' }, motivo: f.motivo || undefined }),
       ajuste: () => post('/erp/estoque/ajuste', { saldoId: modal.saldo.id, qtdMil: toMil(f.qtd), motivo: f.motivo }),
+      qualidade: () => post(`/erp/estoque/saldos/${modal.saldo.id}/qualidade`, { acao: f.acao || 'LIBERAR', qtdMil: toMil(f.qtd || qtd(modal.saldo.quarentenaMil)), motivo: f.motivo || undefined }),
       transferencia: () => post('/erp/estoque/transferencia', { saldoId: modal.saldo.id, enderecoDestinoId: f.enderecoId, qtdMil: toMil(f.qtd) }),
       deposito: () => post('/erp/estoque/depositos', { nome: f.nome, enderecos: f.codigos ? f.codigos.split(/[\s,;]+/).filter(Boolean) : ['GERAL'] }),
       enderecos: () => post(`/erp/estoque/depositos/${modal.deposito.id}/enderecos`, f.ruas ? { ruas: f.ruas, prateleiras: Number(f.prateleiras), posicoes: Number(f.posicoes) } : { codigos: f.codigos.split(/[\s,;]+/).filter(Boolean) }),
@@ -138,7 +144,7 @@ function Movimento({ modal, depositos, onClose, onDone }: { modal: any; deposito
     const r = await run(acoes[modal.tipo], 'Feito');
     if (r) { if (modal.tipo === 'entrada') modal.produtoNome = `${f.produto?.sku} · ${f.produto?.nome}`; onDone(r); }
   }
-  const titulo = { entrada: 'Entrada de estoque', ajuste: 'Baixa / ajuste de saída', transferencia: 'Mover entre endereços', deposito: 'Novo depósito', enderecos: `Endereços em ${modal.deposito?.nome}` }[modal.tipo as string];
+  const titulo = { entrada: 'Entrada de estoque', ajuste: 'Baixa / ajuste de saída', qualidade: 'Qualidade: liberar ou descartar', transferencia: 'Mover entre endereços', deposito: 'Novo depósito', enderecos: `Endereços em ${modal.deposito?.nome}` }[modal.tipo as string];
   return (
     <Modal title={titulo ?? ''} onClose={onClose}>
       {modal.tipo === 'entrada' && <>
@@ -160,6 +166,13 @@ function Movimento({ modal, depositos, onClose, onDone }: { modal: any; deposito
         {f.produto?.controlaLote && <label className="row small"><input type="checkbox" checked={f.quarentena} onChange={set('quarentena')} /> Entrar em quarentena (aguardando inspeção)</label>}
         <Field label="Motivo"><input value={f.motivo} onChange={set('motivo')} placeholder="Saldo inicial, compra avulsa…" /></Field>
       </>}
+      {modal.tipo === 'qualidade' && <>
+        <div className="small muted">{modal.saldo.produto?.nome} · lote {modal.saldo.lote?.numero} · {modal.saldo.endereco.codigo} · em quarentena {qtd(modal.saldo.quarentenaMil)}</div>
+        <Field label="Decisão"><div className="row" style={{ gap: 6 }}>{[['LIBERAR', 'Liberar para venda'], ['DESCARTAR', 'Descartar']].map(([a, r]) => <button key={a} type="button" className={`btn sm ${(f.acao || 'LIBERAR') === a ? 'primary' : ''}`} onClick={() => setF({ ...f, acao: a })}>{r}</button>)}</div></Field>
+        <Field label="Quantidade"><input value={f.qtd} onChange={set('qtd')} inputMode="decimal" placeholder={qtd(modal.saldo.quarentenaMil)} autoFocus /></Field>
+        <Field label={f.acao === 'DESCARTAR' ? 'Motivo do descarte *' : 'Observação (opcional)'}><input value={f.motivo} onChange={set('motivo')} placeholder={f.acao === 'DESCARTAR' ? 'Defeito, contaminação, avaria…' : 'Inspecionado, sem defeito'} /></Field>
+        <p className="small muted">Fica registrado no rastreio do lote, com o motivo e quem decidiu.</p>
+      </>}
       {(modal.tipo === 'ajuste' || modal.tipo === 'transferencia') && <>
         <div className="small muted">{modal.saldo.produto?.nome} · {modal.saldo.endereco.codigo} · disponível {qtd(modal.saldo.disponivelMil)}</div>
         <Field label="Quantidade"><input value={f.qtd} onChange={set('qtd')} inputMode="decimal" autoFocus /></Field>
@@ -179,7 +192,7 @@ function Movimento({ modal, depositos, onClose, onDone }: { modal: any; deposito
         </div>
         <Field label="Ou códigos"><input value={f.codigos} onChange={set('codigos')} /></Field>
       </>}
-      <div className="row" style={{ justifyContent: 'flex-end', marginTop: 10 }}><button className="btn" onClick={onClose}>Cancelar</button><button className="btn primary" disabled={busy || (modal.tipo === 'entrada' && !!f.produto?.controlaValidade && !f.validade)} onClick={salvar}>Confirmar</button></div>
+      <div className="row" style={{ justifyContent: 'flex-end', marginTop: 10 }}><button className="btn" onClick={onClose}>Cancelar</button><button className="btn primary" disabled={busy || (modal.tipo === 'entrada' && (!f.produto || (!!f.produto?.controlaValidade && !f.validade)))} onClick={salvar}>Confirmar</button></div>
     </Modal>
   );
 }
