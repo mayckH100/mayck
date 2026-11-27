@@ -1,27 +1,27 @@
 /** BI: o negócio no período em uma tela (vendas, margem, ABC, estoque, compras, produção, financeiro, CRM) e CSV. */
-import { useState } from 'react';
 import { useApi, Async } from '../../ui';
+import { SeletorPeriodo, usePeriodo } from '../SeletorPeriodo';
+import { classeStatus, statusInadimplencia, statusSaldo, type StatusCor } from '../status';
 import { brl, qtd } from '../format';
 import { BotaoImprimir, BotaoPdf, pdfDoExport } from '../impressao/BotaoPdf';
 import { relatorioBi } from '../impressao/cadastros';
 
 const pct = (bp: number) => `${(bp / 100).toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%`;
-const iso = (d: Date) => new Date(d.getTime() - 3 * 3_600_000).toISOString().slice(0, 10);
 
-function Kpi({ t, v, s }: { t: string; v: string; s?: string }) {
-  return <div className="card"><span className="muted small">{t}</span><h2 style={{ margin: '4px 0' }}>{v}</h2>{s && <span className="small">{s}</span>}</div>;
+function Kpi({ t, v, s, st }: { t: string; v: string; s?: string; st?: StatusCor }) {
+  return <div className={`card${st ? ` st-card ${classeStatus(st)}` : ''}`}><span className="muted small">{t}</span><h2 style={{ margin: '4px 0' }}>{v}</h2>{s && <span className="small">{s}</span>}</div>;
 }
 
 export default function Bi() {
-  const [p, setP] = useState({ de: iso(new Date(Date.now() - 29 * 86_400_000)), ate: iso(new Date()) });
+  // v1.56.0: seletor de período padrão (abre nos últimos 30 dias, como antes).
+  const [p, setP] = usePeriodo('30d');
   const st = useApi<any>(`/erp/bi/resumo?de=${p.de}&ate=${p.ate}`, [p.de, p.ate]);
   const baixar = async (tipo: string) => { const r = await fetch(`/api/erp/bi/exportar?tipo=${tipo}&de=${p.de}&ate=${p.ate}`, { credentials: 'same-origin' }); const a = document.createElement('a'); a.href = URL.createObjectURL(await r.blob()); a.download = `bi-${tipo}-${p.de}-${p.ate}.csv`; a.click(); };
   return (
     <div className="page">
       <div className="page-head"><div><h1>BI</h1><p className="muted">Vendas pela data do faturamento. Margem pelo custo médio da baixa de estoque.</p></div>
         <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
-          <input type="date" value={p.de} onChange={(e) => setP({ ...p, de: e.target.value })} aria-label="De" />
-          <input type="date" value={p.ate} onChange={(e) => setP({ ...p, ate: e.target.value })} aria-label="Até" />
+          <SeletorPeriodo valor={p} onChange={setP} />
           <button className="btn sm" onClick={() => baixar('pedidos')}>CSV pedidos</button>
           <BotaoPdf className="btn sm" montar={pdfDoExport(`/api/erp/bi/exportar?tipo=pedidos&de=${p.de}&ate=${p.ate}`, 'BI · pedidos faturados', [`Período: ${p.de.split('-').reverse().join('/')} a ${p.ate.split('-').reverse().join('/')}`])}>📄 PDF pedidos</BotaoPdf>
           <button className="btn sm" onClick={() => baixar('produtos')}>CSV produtos</button>
@@ -33,9 +33,9 @@ export default function Bi() {
         return <>
           <div className="grid g2" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(180px,1fr))' }}>
             <Kpi t="Receita" v={brl(d.vendas.receitaCents)} s={`${d.vendas.pedidos} pedidos · ticket ${brl(d.vendas.ticketMedioCents)}`} />
-            <Kpi t="Margem bruta" v={pct(d.vendas.margemBrutaBp)} s={`${brl(d.vendas.margemBrutaCents)} · CMV ${brl(d.vendas.cmvCents)}`} />
+            <Kpi t="Margem bruta" st={d.vendas.receitaCents ? statusSaldo(d.vendas.margemBrutaCents) : undefined} v={pct(d.vendas.margemBrutaBp)} s={`${brl(d.vendas.margemBrutaCents)} · CMV ${brl(d.vendas.cmvCents)}`} />
             <Kpi t="Estoque" v={brl(d.estoque.valorCents)} s={d.estoque.coberturaDias !== null ? `cobertura ${d.estoque.coberturaDias} dias` : 'sem venda no período'} />
-            <Kpi t="Inadimplência" v={pct(d.financeiro.inadimplenciaBp)} s={`vencido ${brl(d.financeiro.receberVencidoCents)} de ${brl(d.financeiro.receberAbertoCents)}`} />
+            <Kpi t="Inadimplência" st={statusInadimplencia(d.financeiro.inadimplenciaBp / 100)} v={pct(d.financeiro.inadimplenciaBp)} s={`vencido ${brl(d.financeiro.receberVencidoCents)} de ${brl(d.financeiro.receberAbertoCents)}`} />
             <Kpi t="A pagar em 7 dias" v={brl(d.financeiro.pagarProximos7DiasCents)} />
             <Kpi t="Compras" v={brl(d.compras.totalCents)} s={`${d.compras.pedidos} pedidos`} />
             <Kpi t="Produção" v={`${d.producao.opsEncerradas} OPs`} s={`refugo ${pct(d.producao.refugoBp)} · ${d.producao.opsAbertas} abertas`} />
