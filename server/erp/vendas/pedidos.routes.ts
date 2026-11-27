@@ -222,7 +222,7 @@ pedidosRouter.post('/:id/acao', ah(async (req, res) => {
       case 'ENTREGAR_PARCIAL': return aplicar(tx, p, 'ENTREGAR_PARCIAL', { motivo: a.motivo }, { observacoes: [p.observacoes, `Entrega parcial: ${a.motivo}`].filter(Boolean).join('\n') });
       case 'DEVOLVER': {
         const x = await aplicar(tx, p, 'DEVOLVER', { motivo: a.motivo }, { motivoCancelamento: a.motivo });
-        if (a.voltarEstoque) await devolverAoEstoque(tx, { orgId, pedidoId: p.id, motivo: `Devolução do pedido ${p.numero}${a.motivo ? `: ${a.motivo}` : ''}`, userId: req.auth?.userId, correlationId: p.correlationId });
+        if (a.voltarEstoque) await devolverAoEstoque(tx, { orgId, pedidoId: p.id, motivo: `Devolução do pedido ${p.numero}${a.motivo ? `: ${a.motivo}` : ''}`, userId: req.auth?.userId, correlationId: p.correlationId, quarentena: true });
         return x;
       }
       case 'CANCELAR_VENDA': {
@@ -232,7 +232,7 @@ pedidosRouter.post('/:id/acao', ah(async (req, res) => {
         const nf = await tx.erpNfeSaida.findFirst({ where: { orgId, pedidoId: p.id, status: 'AUTORIZADA' } });
         if (nf) throw badRequest(`Cancele antes a NF-e nº ${nf.numero} na tela Fiscal`);
         const x = await aplicar(tx, p, 'CANCELAR_VENDA', { motivo: a.motivo }, { motivoCancelamento: a.motivo });
-        if (a.voltarEstoque ?? true) await devolverAoEstoque(tx, { orgId, pedidoId: p.id, motivo: `Cancelamento do pedido ${p.numero}: ${a.motivo}`, userId: req.auth?.userId, correlationId: p.correlationId });
+        if (a.voltarEstoque ?? true) await devolverAoEstoque(tx, { orgId, pedidoId: p.id, motivo: `Cancelamento do pedido ${p.numero}: ${a.motivo}`, userId: req.auth?.userId, correlationId: p.correlationId, quarentena: true });
         if (p.itens.some((i) => i.reservadoMil > 0)) await liberarReservas(tx, p.id);
         const titulos = await tx.erpTitulo.findMany({ where: { orgId, docTipo: 'pedido_venda', docId: p.id, status: { not: 'CANCELADO' } } });
         for (const t of titulos) {

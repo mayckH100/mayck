@@ -18,11 +18,16 @@ import { baixarReservas, reservarPedido, saldosParaSaida } from '../estoque/serv
 import { resolverCodigo } from '../estoque/leitura.js';
 import { disponivel, planejarAlocacao } from '../estoque/saldo.js';
 import { classificarLeitura } from '../leitura/codigo.js';
+import { lerEtiquetaBalanca, qtdMilDaEtiqueta, variantesCodigoBalanca, type ValorEtiqueta } from '../shared/balanca.js';
 import { titulosDoPedido, recalcularTitulo } from '../financeiro/servico.js';
 import { aplicar, itemSchema, montarItens, PREFIXO_BALCAO } from './pedidos.routes.js';
 import { configDa } from '../produtos/produtos.routes.js';
 import { avisarPedidoErp } from './avisoPedido.js';
 import { sessaoParaVenda, travarSessaoParaVenda } from './caixa.routes.js';
+import QRCode from 'qrcode';
+import { requireRole } from '../../auth/session.js';
+import { pixCopiaECola } from '../financeiro/calculo.js';
+import { TIPOS_CHAVE, ROTULO_TIPO, normalizarChave, type TipoChave } from '../../pix/core.js';
 
 export const balcaoRouter = Router();
 export const DOC_CONSUMIDOR = '00000000000';
@@ -35,6 +40,52 @@ const schema = z.object({
   depositoId: z.string().nullish(), observacoes: z.string().trim().max(1000).nullish(),
   caixaSessaoId: z.string().nullish(),
 });
+
+/**
+ * v1.59.0 — Pix no balcão: QR Code com a chave da própria empresa e o valor da venda (BR Code estático).
+ * O dinheiro cai direto na conta da chave, sem intermediário e sem taxa. A confirmação é do operador
+ * (o banco não avisa o sistema sem a API Pix dele). Chave: a do Pix da empresa; se não houver, a de uma conta do Financeiro.
+ */
+async function chavePixDa(orgId: string) {
+  const cfg = await prisma.pixSettings.findUnique({ where: { orgId } });
+  if (cfg) return { chave: cfg.key, nome: cfg.name, cidade: cfg.city, tipo: cfg.keyType, origem: 'empresa' as const };
+  const conta = await prisma.erpContaFinanceira.findFirst({ where: { orgId, ativa: true, chavePix: { not: null } }, orderBy: { nome: 'asc' } });
+  if (!conta?.chavePix?.trim()) return null;
+  const org = await prisma.organization.findUnique({ where: { id: orgId }, select: { name: true } });
+  const filial = await prisma.erpFilial.findFirst({ where: { orgId }, select: { nome: true } });
+  return { chave: conta.chavePix.trim(), nome: org?.name ?? 'EMPRESA', cidade: filial?.nome ?? 'SAO PAULO', tipo: null, origem: 'conta' as const, conta: conta.nome };
+}
+
+balcaoRouter.get('/pix/config', ah(async (req, res) => {
+  const c = await chavePixDa(orgOf(req));
+  res.json(c ? { configurado: true, ...c, tipoRotulo: c.tipo ? ROTULO_TIPO[c.tipo as TipoChave] ?? c.tipo : null } : { configurado: false });
+}));
+
+balcaoRouter.put('/pix/config', requireRole('OWNER', 'ADMIN'), ah(async (req, res) => {
+  const b = z.object({
+    keyType: z.enum(TIPOS_CHAVE), key: z.string().trim().min(3, 'Informe a chave Pix').max(100),
+    name: z.string().trim().min(2, 'Informe o nome do recebedor (como aparece no banco)').max(60),
+    city: z.string().trim().min(2, 'Informe a cidade').max(40),
+  }).parse(req.body);
+  const n = normalizarChave(b.keyType, b.key);
+  if (!n.ok) throw badRequest(n.erro);
+  const orgId = orgOf(req);
+  const data = { keyType: b.keyType, key: n.chave, name: b.name, city: b.city };
+  await prisma.pixSettings.upsert({ where: { orgId }, create: { orgId, ...data }, update: data });
+  await auditar(req, 'pix.config', 'pixSettings', orgId, null, { keyType: b.keyType });
+  res.json({ ok: true });
+}));
+
+balcaoRouter.get('/pix', ah(async (req, res) => {
+  const orgId = orgOf(req);
+  const valorCents = Math.round(Number(req.query.valorCents));
+  if (!Number.isFinite(valorCents) || valorCents <= 0 || valorCents > 100_000_000) throw badRequest('Valor do Pix inválido');
+  const c = await chavePixDa(orgId);
+  if (!c) throw badRequest('Cadastre a chave Pix da empresa para gerar o QR Code');
+  const txid = `PDV${Date.now().toString(36).toUpperCase()}`;
+  const codigo = pixCopiaECola({ chave: c.chave, nome: c.nome, cidade: c.cidade, valorCents, txid });
+  res.json({ codigo, valorCents, txid, chave: c.chave, nome: c.nome, png: await QRCode.toDataURL(codigo, { margin: 1, width: 320, errorCorrectionLevel: 'M' }) });
+}));
 
 /** Contas para receber no balcão (cria "Caixa" se a empresa ainda não tem nenhuma). */
 balcaoRouter.get('/contas', ah(async (req, res) => {
@@ -55,7 +106,22 @@ balcaoRouter.get('/ler', ah(async (req, res) => {
   if (!codigo.trim()) throw badRequest('Leia ou digite um código');
   const c = classificarLeitura(codigo);
   if (c.tipo === 'pedido' || c.tipo === 'chave_nfe') throw badRequest(c.tipo === 'pedido' ? `Este código é do pedido nº ${c.numero}, não de um produto. Use "Localizar pedido".` : 'Este código é a chave de uma nota fiscal, não de um produto. Use "Localizar pedido".');
-  const r = await resolverCodigo(prisma, orgId, codigo);
+  let r = await resolverCodigo(prisma, orgId, codigo);
+  // v1.58.0: etiqueta impressa pela balança (EAN-13 com 2 na frente): produto pelo código + peso ou preço total.
+  let balanca: null | { qtdMil: number; valor: number; tipoValor: ValorEtiqueta } = null;
+  if (!r) {
+    const cfg = await prisma.erpConfig.findUnique({ where: { orgId }, select: { balancaDigitos: true, balancaValor: true } });
+    const et = lerEtiquetaBalanca(codigo.trim(), cfg?.balancaDigitos ?? 4, (cfg?.balancaValor as ValorEtiqueta) ?? 'PRECO');
+    if (et) {
+      const v = variantesCodigoBalanca(et.codigoProduto);
+      const produto = await prisma.erpProduto.findFirst({ where: { orgId, OR: [{ sku: { in: v } }, { codigoBarras: { in: v } }] } });
+      if (!produto) throw notFound(`Produto da etiqueta da balança (código ${et.codigoProduto}). Cadastre o produto com esse código`);
+      const qtdMil = qtdMilDaEtiqueta(et, produto.precoBaseCents);
+      if (qtdMil <= 0) throw badRequest(`${produto.nome} está sem preço por quilo no cadastro: não dá para calcular o peso da etiqueta`);
+      r = { produto, lote: null, tipo: 'simples' };
+      balanca = { qtdMil, valor: et.valor, tipoValor: et.tipoValor };
+    }
+  }
   if (!r) throw notFound(`Produto para o código ${codigo.trim().slice(0, 40)}`);
   const p = r.produto;
   if (!p.ativo) throw badRequest(`O produto ${p.nome} está inativo`);
@@ -78,7 +144,7 @@ balcaoRouter.get('/ler', ah(async (req, res) => {
   res.json({
     tipo: r.tipo,
     produto: { id: p.id, sku: p.sku, nome: p.nome, unidade: p.unidade, tipo: p.tipo, precoBaseCents: p.precoBaseCents, codigoBarras: p.codigoBarras, regraSaida: p.regraSaida, controlaLote: p.controlaLote, saldo: { disponivelMil: disp } },
-    lote, sugestao: sug ? { loteId: sug.loteId, numero: sug.lote.numero, validade: sug.lote.validade, regra: p.regraSaida } : null, aviso,
+    lote, sugestao: sug ? { loteId: sug.loteId, numero: sug.lote.numero, validade: sug.lote.validade, regra: p.regraSaida } : null, aviso, balanca,
   });
 }));
 

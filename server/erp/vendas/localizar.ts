@@ -163,7 +163,7 @@ localizarRouter.get('/documento/:id', ah(async (req, res) => {
       itens: p.itens.map((i) => {
         const res = reservas.filter((r) => r.pedidoItemId === i.id);
         return {
-          descricao: i.descricao, qtdMil: i.qtdMil, unidade: unidadeLegivel(PR.get(i.produtoId)?.unidade), // v1.56.2: unidade antiga numérica ("30") saía no recibo como "1 30" codigoBarras: PR.get(i.produtoId)?.codigoBarras ?? null, precoUnitCents: i.precoUnitCents, descontoBp: i.descontoBp, totalCents: i.totalCents,
+          descricao: i.descricao, qtdMil: i.qtdMil, unidade: unidadeLegivel(PR.get(i.produtoId)?.unidade), /* v1.56.2: unidade antiga numérica ("30") saía no recibo como "1 30" */ codigoBarras: PR.get(i.produtoId)?.codigoBarras ?? null, precoUnitCents: i.precoUnitCents, descontoBp: i.descontoBp, totalCents: i.totalCents,
           lotes: res.map((r) => ({ numero: loteNum(r.loteId), validade: L.get(r.loteId)?.validade ?? null, endereco: E.get(r.enderecoId) ?? null, qtdMil: r.qtdMil, separadoMil: r.separadoMil })),
         };
       }),
