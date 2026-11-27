@@ -139,13 +139,16 @@ export function sanitizeGrant(
 /** Áreas do MCK ERP. Compatível: quem tem o acesso ao ERP e nenhuma área marcada (permissão antiga) continua vendo tudo. */
 export const ERP_AREAS = ['erp_vendas', 'erp_estoque', 'erp_compras', 'erp_financeiro', 'erp_relatorios'] as const;
 export type ErpArea = (typeof ERP_AREAS)[number];
+/** v1.56.0: a mesma regra do requireErpArea, para uma rota saber se pode mostrar um dado de outra área (ex.: CRM mostrando a inadimplência do Financeiro). */
+export function temAreaErp(a: { role?: string; modules?: string[] | null } | undefined, area: ErpArea, leituraTambem: ErpArea[] = [], metodo = 'GET') {
+  if (a?.role === 'OWNER' || !a?.modules) return true;
+  if (a.modules.includes(area)) return true;
+  if (!ERP_AREAS.some((m) => a.modules!.includes(m))) return true;
+  return metodo === 'GET' && leituraTambem.some((m) => a.modules!.includes(m));
+}
 export function requireErpArea(area: ErpArea, leituraTambem: ErpArea[] = []) {
   return (req: Request, _res: Response, next: NextFunction) => {
-    const a = req.auth;
-    if (a?.role === 'OWNER' || !a?.modules) return next();
-    if (a.modules.includes(area)) return next();
-    if (!ERP_AREAS.some((m) => a.modules!.includes(m))) return next();
-    if (req.method === 'GET' && leituraTambem.some((m) => a.modules!.includes(m))) return next();
+    if (temAreaErp(req.auth as any, area, leituraTambem, req.method)) return next();
     next(forbidden(`Você não tem acesso a esta área do MCK ERP (${moduleLabel(area).replace('MCK ERP: ', '')}). Peça ao proprietário.`));
   };
 }
