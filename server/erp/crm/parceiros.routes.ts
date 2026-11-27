@@ -1,5 +1,6 @@
 /** Cadastro 360º de clientes/fornecedores. Leitura: membros do módulo. Escrita: OWNER/ADMIN/AGENT (exclusão só OWNER/ADMIN). */
 import { Router } from 'express';
+import { scoresDosClientes } from './scoreDados.js';
 import { z } from 'zod';
 import { prisma } from '../../db.js';
 import { contem } from '../../lib/busca.js';
@@ -69,8 +70,11 @@ parceirosRouter.get('/:id', ah(async (req, res) => {
   const interacoes = await prisma.erpInteracao.findMany({ where: { orgId, parceiroId: p.id }, orderBy: { createdAt: 'desc' }, take: 100 });
   const ganhas = p.oportunidades.filter((o) => o.status === 'GANHA');
   const totalGanho = ganhas.reduce((a, o) => a + o.valorCents, 0);
+  // v1.56.0: score calculado na hora pelas contas a receber e compras do cliente (a coluna antiga fica em 500 e não é usada).
+  const scoreCliente = (await scoresDosClientes(orgId, [p.id])).get(p.id)!;
   res.json({
     ...fromRow(p), interacoes,
+    score: scoreCliente.score, scoreFaixa: scoreCliente.faixa, scoreMotivos: scoreCliente.motivos,
     resumo: {
       totalGanhoCents: totalGanho, negociosGanhos: ganhas.length,
       ticketMedioCents: ganhas.length ? Math.round(totalGanho / ganhas.length) : 0,

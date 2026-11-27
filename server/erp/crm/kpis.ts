@@ -1,4 +1,5 @@
 /** KPIs do CRM (funções puras; a rota só busca os dados e chama aqui). */
+import type { Inadimplencia } from './score.js';
 export interface OportunidadeKpi { status: string; valorCents: number; custoAquisicaoCents: number; parceiroId: string; createdAt: Date; fechadaEm: Date | null }
 export interface ParceiroKpi { id: string; status: string; ehCliente: boolean }
 
@@ -7,10 +8,14 @@ export interface KpisCrm {
   oportunidadesAbertas: number; pipelineCents: number;
   ganhas: number; perdidas: number; taxaConversao: number; // % ganhas / (ganhas + perdidas)
   ticketMedioCents: number; cacCents: number; cicloMedioDias: number;
-  inadimplenciaPct: number | null; // preenchido na etapa financeira
+  /** v1.56.0: % do vencido em aberto sobre o total a receber do período (Financeiro). null = sem acesso ao Financeiro. */
+  inadimplenciaPct: number | null;
+  inadimplenciaVencidoCents: number | null;
+  inadimplenciaTotalCents: number | null;
+  inadimplenciaTitulos: number | null;
 }
 
-export function calcularKpis(parceiros: ParceiroKpi[], ops: OportunidadeKpi[]): KpisCrm {
+export function calcularKpis(parceiros: ParceiroKpi[], ops: OportunidadeKpi[], inad: Inadimplencia | null = null): KpisCrm {
   const clientes = parceiros.filter((p) => p.ehCliente);
   const ganhas = ops.filter((o) => o.status === 'GANHA');
   const perdidas = ops.filter((o) => o.status === 'PERDIDA');
@@ -30,7 +35,10 @@ export function calcularKpis(parceiros: ParceiroKpi[], ops: OportunidadeKpi[]): 
     ticketMedioCents: ganhas.length ? Math.round(soma(ganhas.map((o) => o.valorCents)) / ganhas.length) : 0,
     cacCents: novosClientes ? Math.round(soma(ops.map((o) => o.custoAquisicaoCents)) / novosClientes) : 0,
     cicloMedioDias: ciclos.length ? Math.round((soma(ciclos) / ciclos.length) * 10) / 10 : 0,
-    inadimplenciaPct: null,
+    inadimplenciaPct: inad ? inad.pct : null,
+    inadimplenciaVencidoCents: inad ? inad.vencidoCents : null,
+    inadimplenciaTotalCents: inad ? inad.totalCents : null,
+    inadimplenciaTitulos: inad ? inad.titulosVencidos : null,
   };
 }
 
