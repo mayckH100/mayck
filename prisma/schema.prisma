@@ -1833,6 +1833,9 @@ model ErpConfig {
   etiquetaLarguraMm            Int      @default(100)
   etiquetaAlturaMm             Int      @default(50)
   etiquetaDpi                  Int      @default(203) // 203 ou 300 (Zebra)
+  // v1.58.0: etiqueta impressa pela balança (EAN-13 começando com 2): dígitos do código do produto (4, 5 ou 6) e o que vem no valor
+  balancaDigitos               Int      @default(4)
+  balancaValor                 String   @default("PRECO") // PRECO (total em centavos) | PESO (gramas)
   // Alertas diários por WhatsApp para a administração (financeiro e estoque)
   alertaAtivo                  Boolean  @default(false)
   alertaTelefones              String? // JSON: ["+55..."]
