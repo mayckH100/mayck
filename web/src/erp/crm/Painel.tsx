@@ -2,18 +2,18 @@
 import { useState } from 'react';
 import { useApi, Async } from '../../ui';
 import { brl } from '../format';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
+import { SeletorPeriodo, usePeriodo } from '../SeletorPeriodo';
+import { classeStatus, statusInadimplencia, statusScore, StatusBadge, ROTULO_FAIXA_SCORE, type StatusCor } from '../status';
 import { useAuth } from '../../auth';
 import { AvisoInventarios } from '../estoque/Estoque';
 import { BotaoImprimir } from '../impressao/BotaoPdf';
 import { relatorioPainelCrm } from '../impressao/cadastros';
 
-const hoje = () => new Date().toISOString().slice(0, 10);
-const diasAtras = (n: number) => new Date(Date.now() - n * 86_400_000).toISOString().slice(0, 10);
-
 export default function Painel() {
-  const [de, setDe] = useState(diasAtras(90));
-  const [ate, setAte] = useState(hoje());
+  // v1.56.0: seletor de período padrão; o CRM continua abrindo nos últimos 90 dias, como antes.
+  const [per, setPer] = usePeriodo('90d');
+  const { de, ate } = per;
   const [filialId, setFilialId] = useState('');
   const filiais = useApi<any[]>('/erp/core/filiais');
   const qs = `de=${de}&ate=${ate}T23:59:59${filialId ? `&filialId=${filialId}` : ''}`;
@@ -25,9 +25,8 @@ export default function Painel() {
       {can('OWNER', 'ADMIN') && hasModule('erp_estoque') && <AvisoInventarios onAbrir={() => nav('/erp/estoque')} />}
       <div className="page-head">
         <div><h1>Painel CRM</h1><p className="muted">Indicadores comerciais do período, com filtros por filial.</p></div>
-        <div className="row filtros">
-          <input type="date" value={de} onChange={(e) => setDe(e.target.value)} aria-label="De" />
-          <input type="date" value={ate} onChange={(e) => setAte(e.target.value)} aria-label="Até" />
+        <div className="row filtros" style={{ flexWrap: 'wrap', gap: 6 }}>
+          <SeletorPeriodo valor={per} onChange={setPer} opcoes={['hoje', '7d', '30d', '90d', 'mes', 'personalizado']} />
           <select value={filialId} onChange={(e) => setFilialId(e.target.value)} aria-label="Filial">
             <option value="">Todas as filiais</option>
             {(filiais.data ?? []).map((f) => <option key={f.id} value={f.id}>{f.nome}</option>)}
@@ -46,8 +45,28 @@ export default function Painel() {
               <Kpi l="Taxa de conversão" v={`${k.taxaConversao.toLocaleString('pt-BR')}%`} s={`${k.ganhas} ganhas · ${k.perdidas} perdidas`} />
               <Kpi l="Ticket médio" v={brl(k.ticketMedioCents)} s={`ciclo médio ${k.cicloMedioDias} dias`} />
               <Kpi l="CAC" v={brl(k.cacCents)} s="custo por cliente conquistado" />
-              <Kpi l="Inadimplência" v={k.inadimplenciaPct == null ? '—' : `${k.inadimplenciaPct}%`} s="chega com o módulo Financeiro" />
+              <Kpi l="Inadimplência" st={statusInadimplencia(k.inadimplenciaPct)}
+                v={k.inadimplenciaPct == null ? '—' : `${k.inadimplenciaPct.toLocaleString('pt-BR')}%`}
+                s={k.inadimplenciaPct == null ? 'só quem tem acesso ao Financeiro vê'
+                  : k.inadimplenciaTotalCents ? `vencido sem pagar ${brl(k.inadimplenciaVencidoCents)} de ${brl(k.inadimplenciaTotalCents)} a receber no período`
+                    : 'nada a receber com vencimento no período'} />
+              <Kpi l="Score médio dos clientes" st={d.scores.medio == null ? 'neutro' : statusScore(d.scores.medio)}
+                v={d.scores.medio ?? '—'}
+                s={d.scores.medio == null ? 'sem histórico de compras ou contas ainda' : `${d.scores.bons} bons · ${d.scores.atencao} atenção · ${d.scores.risco} risco`} />
             </div>
+            {d.scores.piores.length > 0 && (
+              <div className="card" style={{ marginTop: 14 }}>
+                <h3>Clientes que pedem atenção</h3>
+                <ul className="score-lista">
+                  {d.scores.piores.map((c: any) => (
+                    <li key={c.id}><Link to={`/erp/clientes/${c.id}`}>
+                      <span className="nome">{c.nome}<span className="small muted" style={{ display: 'block' }}>{c.motivo}</span></span>
+                      <StatusBadge status={statusScore(c.score, c.faixa)}>{c.score} · {ROTULO_FAIXA_SCORE[c.faixa]}</StatusBadge>
+                    </Link></li>
+                  ))}
+                </ul>
+              </div>
+            )}
             <div className="card" style={{ marginTop: 14 }}>
               <h3>Funil por etapa</h3>
               {d.funil.map((f: any) => (
@@ -64,6 +83,6 @@ export default function Painel() {
   );
 }
 
-function Kpi({ l, v, s }: { l: string; v: string | number; s?: string }) {
-  return <div className="card stat"><div className="l">{l}</div><div className="v">{v}</div>{s && <div className="small muted">{s}</div>}</div>;
+function Kpi({ l, v, s, st }: { l: string; v: string | number; s?: string; st?: StatusCor }) {
+  return <div className={`card stat${st ? ` st-card ${classeStatus(st)}` : ''}`}><div className="l">{l}</div><div className="v">{v}</div>{s && <div className="small muted">{s}</div>}</div>;
 }

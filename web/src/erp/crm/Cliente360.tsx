@@ -7,6 +7,7 @@ import { brl, fmtDoc } from '../format';
 import { ParceiroForm } from './Clientes';
 import { BotaoImprimir } from '../impressao/BotaoPdf';
 import { fichaParceiro } from '../impressao/cadastros';
+import { classeStatus, statusScore, StatusBadge, ROTULO_FAIXA_SCORE } from '../status';
 
 const ICONE: Record<string, string> = { WHATSAPP: '💬', EMAIL: '✉', LIGACAO: '☏', NOTA: '📝', CHAMADO: '🎫', SISTEMA: '⚙' };
 
@@ -29,8 +30,25 @@ export default function Cliente360() {
             <div className="card stat"><div className="l">Total comprado</div><div className="v">{brl(p.resumo.totalGanhoCents)}</div><div className="small muted">{p.resumo.negociosGanhos} negócio(s)</div></div>
             <div className="card stat"><div className="l">Ticket médio</div><div className="v">{brl(p.resumo.ticketMedioCents)}</div></div>
             <div className="card stat"><div className="l">Em negociação</div><div className="v">{brl(p.resumo.emAbertoCents)}</div></div>
-            <div className="card stat"><div className="l">Crédito disponível</div><div className="v">{brl(p.resumo.creditoDisponivelCents)}</div><div className="small muted">score {p.score}</div></div>
+            <div className="card stat"><div className="l">Crédito disponível</div><div className="v">{brl(p.resumo.creditoDisponivelCents)}</div><div className="small muted">score <StatusBadge status={statusScore(p.score, p.scoreFaixa)}>{p.score}</StatusBadge></div></div>
           </div>
+          {/* v1.56.0: score calculado pelas contas a receber e compras do cliente, com o porquê de cada ponto. */}
+          {p.ehCliente && (
+            <div className={`card st-card ${classeStatus(statusScore(p.score, p.scoreFaixa))}`} style={{ marginTop: 14 }} data-testid="score-cliente">
+              <div className="row between" style={{ flexWrap: 'wrap', gap: 6 }}>
+                <h3 style={{ margin: 0 }}>Score do cliente: {p.score} <span className="small muted">de 1000</span></h3>
+                <StatusBadge status={statusScore(p.score, p.scoreFaixa)}>{ROTULO_FAIXA_SCORE[p.scoreFaixa] ?? ''}</StatusBadge>
+              </div>
+              <ul className="score-motivos">
+                <li><span>Ponto de partida</span><span>500</span></li>
+                {(p.scoreMotivos ?? []).filter((m: any) => m.pontos !== 0).map((m: any) => (
+                  <li key={m.texto}><span>{m.texto}</span><strong className={m.pontos > 0 ? 'st-ok' : 'st-problema'}>{m.pontos > 0 ? `+${m.pontos}` : m.pontos}</strong></li>
+                ))}
+                {p.scoreFaixa === 'NOVO' && <li className="muted"><span>Sem compras nem contas ainda.</span></li>}
+              </ul>
+              <div className="small muted" style={{ marginTop: 4 }}>Sobe com contas pagas em dia e compras frequentes; desce com contas vencidas ou pagas com atraso.</div>
+            </div>
+          )}
           <div className="grid g2" style={{ marginTop: 14 }}>
             <div className="card">
               <h3>Linha do tempo</h3>
