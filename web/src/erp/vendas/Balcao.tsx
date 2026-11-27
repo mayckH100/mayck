@@ -2,15 +2,19 @@
  * v1.34.0: cada leitura (leitor USB/Bluetooth, câmera do celular ou digitação) soma +1; etiqueta do lote (GS1/QR) →
  * a baixa sai DAQUELE lote; sem lote, mostra o lote que sai pela regra (FEFO/FIFO). Recibo com QR do pedido.
  * Entra no caixa aberto (caixaSessaoId); dinheiro vai para a conta do caixa, Pix/cartão para a conta escolhida.
- * Cartão com maquininha configurada: a cobrança vai para o terminal e a venda só fecha quando o pagamento é aprovado. */
+ * Cartão com maquininha configurada: a cobrança vai para o terminal e a venda só fecha quando o pagamento é aprovado.
+ * v1.59.0: cartão sem maquininha conectada abre um aviso no meio da tela (seguir sem ela ou voltar); a venda sai marcada
+ * "liberada sem aprovação da maquininha". Pix: QR Code com a chave da empresa e o valor da venda; o operador confirma o recebimento. */
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { get, post, ApiError } from '../../api';
+import { get, post, put, ApiError } from '../../api';
+import { useAuth } from '../../auth';
 import { useApi, Modal, Field, useAction, useToast } from '../../ui';
 import { LeitorCamera, sinal } from '../leitura/Leitor';
 import { imprimirDocumento } from './documento';
 import { brl, toCents, toMil } from '../format';
 import { BuscaParceiro } from '../comum';
+import { BAUDS, baudSalvo, fecharBalanca, lerPeso, salvarBaud, temSerial } from './balancaSerial';
 
 const FORMAS = [['DINHEIRO', 'Dinheiro'], ['PIX', 'Pix'], ['CARTAO', 'Cartão']] as const;
 const reais = (c: number) => (c / 100).toFixed(2).replace('.', ',');
@@ -18,7 +22,7 @@ const FIM_COBRANCA: Record<string, string> = { RECUSADA: 'Pagamento recusado na 
 
 export default function VendaBalcao({ caixaSessaoId, onClose, onDone }: { caixaSessaoId: string; onClose: () => void; onDone: (p: any) => void }) {
   const contas = useApi<any[]>('/erp/vendas/balcao/contas');
-  type Linha = { produto: any; lote: any | null; sugestao: any | null; aviso: string | null; qtd: string; preco: string };
+  type Linha = { produto: any; lote: any | null; sugestao: any | null; aviso: string | null; qtd: string; preco: string; uid?: string };
   const [itens, setItens] = useState<Linha[]>([]);
   const [cam, setCam] = useState(false); const [msg, setMsg] = useState<{ ok: boolean; t: string } | null>(null);
   const toast = useToast();
@@ -32,10 +36,28 @@ export default function VendaBalcao({ caixaSessaoId, onClose, onDone }: { caixaS
   const [manual, setManual] = useState(false);
   const [cob, setCob] = useState<any>(null);
   const usaMaquininha = forma === 'CARTAO' && !!maq.data?.ativa && !manual;
+  const { can } = useAuth(); const gestor = can('OWNER', 'ADMIN');
+  const pixCfg = useApi<any>('/erp/vendas/balcao/pix/config');
+  const [avisoMaq, setAvisoMaq] = useState(false);
+  const [semMaq, setSemMaq] = useState(false);
+  const [pix, setPix] = useState<any>(null);
+  const [pixForm, setPixForm] = useState<{ keyType: string; key: string; name: string; city: string } | null>(null);
   const { busy, run } = useAction();
   const ref = useRef<HTMLInputElement>(null);
 
-  const chave = (x: { produto: any; lote: any | null }) => `${x.produto.id}:${x.lote?.id ?? ''}`;
+  const chave = (x: { produto: any; lote: any | null; uid?: string }) => `${x.produto.id}:${x.lote?.id ?? ''}${x.uid ? `:${x.uid}` : ''}`;
+  const qtdTexto = (mil: number) => (mil / 1000).toFixed(3).replace(/\.?0+$/, '').replace('.', ',');
+  const porPeso = (p: any) => String(p?.unidade ?? '').toUpperCase() === 'KG';
+  const [pesando, setPesando] = useState<number | null>(null); const [baud, setBaud] = useState(baudSalvo());
+  /** v1.58.0: lê o peso da balança ligada ao computador e põe na linha. */
+  async function pesar(i: number, escolher = false) {
+    setPesando(i);
+    const r = await lerPeso(escolher);
+    setPesando(null);
+    if (!r.ok) { sinal(false); setMsg({ ok: false, t: r.erro }); return; }
+    if (r.gramas <= 0) { sinal(false); setMsg({ ok: false, t: 'A balança está vazia (0 kg)' }); return; }
+    sinal(true); setItens((l) => l.map((y, k) => (k === i ? { ...y, qtd: qtdTexto(r.gramas) } : y))); setMsg({ ok: true, t: `⚖️ ${qtdTexto(r.gramas)} kg` });
+  }
   /** Cada leitura soma +1 na linha do mesmo produto + lote (ou cria a linha). */
   const add = (p: any, extra: { lote?: any; sugestao?: any; aviso?: string | null } = {}) => {
     setBusca(''); setOps([]);
@@ -50,6 +72,13 @@ export default function VendaBalcao({ caixaSessaoId, onClose, onDone }: { caixaS
     try {
       const r = await get<any>(`/erp/vendas/balcao/ler?codigo=${encodeURIComponent(q)}`);
       if (r.lote && (r.lote.vencido || r.lote.disponivelMil <= 0)) { sinal(false); setMsg({ ok: false, t: r.aviso }); return; }
+      if (r.balanca) {
+        // Etiqueta da balança: cada etiqueta é uma linha com o peso dela (não soma +1).
+        setBusca(''); setOps([]);
+        setItens((l) => [...l, { produto: r.produto, lote: null, sugestao: r.sugestao, aviso: r.aviso, qtd: qtdTexto(r.balanca.qtdMil), preco: reais(r.produto.precoBaseCents ?? 0), uid: String(Date.now()) }]);
+        sinal(!r.aviso); setMsg(r.aviso ? { ok: false, t: r.aviso } : { ok: true, t: `⚖️ ${qtdTexto(r.balanca.qtdMil)} kg · ${r.produto.nome}` });
+        ref.current?.focus(); return;
+      }
       add(r.produto, { lote: r.lote, sugestao: r.sugestao, aviso: r.aviso });
       sinal(!r.aviso); setMsg(r.aviso ? { ok: false, t: r.aviso } : { ok: true, t: `+1 ${r.produto.nome}${r.lote ? ` · lote ${r.lote.numero}` : ''}` });
     } catch (e) {
@@ -82,8 +111,19 @@ export default function VendaBalcao({ caixaSessaoId, onClose, onDone }: { caixaS
       if (c) setCob(c);
       return;
     }
-    const p = await run(() => post('/erp/vendas/balcao', corpo()), 'Venda concluída');
-    if (p) setFeito(p);
+    // Cartão sem maquininha conectada: avisa no meio da tela antes de liberar (não trava a venda).
+    if (forma === 'CARTAO') { setAvisoMaq(true); return; }
+    if (forma === 'PIX') { await abrirPix(); return; }
+    await concluir();
+  }
+  async function concluir(obs?: string, aviso?: string) {
+    const p = await run(() => post('/erp/vendas/balcao', { ...corpo(), observacoes: obs ?? null }), aviso ?? 'Venda concluída');
+    if (p) { setFeito(p); setPix(null); setAvisoMaq(false); }
+  }
+  async function abrirPix() {
+    if (!pixCfg.data?.configurado) { setPix({ semChave: true }); return; }
+    const r = await run(() => get(`/erp/vendas/balcao/pix?valorCents=${total}`));
+    if (r) setPix(r);
   }
   // "Aguardando pagamento na maquininha": consulta o status a cada 2,5 s até aprovar, recusar, cancelar ou expirar.
   useEffect(() => {
@@ -125,23 +165,67 @@ export default function VendaBalcao({ caixaSessaoId, onClose, onDone }: { caixaS
     </Modal>
   );
 
+  if (avisoMaq) return (
+    <Modal title="⚠️ Maquininha não conectada" onClose={() => setAvisoMaq(false)}>
+      <p style={{ fontSize: 18 }}>{maq.data?.ativa ? 'Você escolheu lançar sem a maquininha.' : 'Nenhuma maquininha está conectada ao sistema.'} O pagamento de <b>{brl(total)}</b> não será conferido por ela.</p>
+      <p className="small muted">Só siga se o cartão já foi passado e aprovado em outra maquininha. A venda fica marcada como "liberada sem aprovação da maquininha".{gestor ? ' Para conectar uma, vá em ☰ › Maquininhas.' : ''}</p>
+      <div className="row" style={{ justifyContent: 'flex-end', gap: 6, flexWrap: 'wrap' }}>
+        <button className="btn" onClick={() => setAvisoMaq(false)}>Voltar</button>
+        <button className="btn primary" disabled={busy} onClick={async () => { setSemMaq(true); await concluir('Cartão: venda liberada sem aprovação da maquininha', 'Venda liberada sem aprovação da maquininha'); }}>Seguir sem maquininha</button>
+      </div>
+    </Modal>
+  );
+
+  if (pix) return (
+    <Modal title="Pagamento com Pix" onClose={() => setPix(null)}>
+      {pix.semChave ? (pixForm ? <>
+        <p className="small muted" style={{ marginTop: 0 }}>Cadastre a chave Pix da empresa uma vez. O QR Code sai com o valor da venda e o dinheiro cai direto nessa conta.</p>
+        <Field label="Tipo da chave"><select value={pixForm.keyType} onChange={(e) => setPixForm({ ...pixForm, keyType: e.target.value })}>{[['cnpj', 'CNPJ'], ['cpf', 'CPF'], ['email', 'E-mail'], ['telefone', 'Telefone'], ['aleatoria', 'Chave aleatória']].map(([v, r]) => <option key={v} value={v}>{r}</option>)}</select></Field>
+        <Field label="Chave Pix"><input value={pixForm.key} onChange={(e) => setPixForm({ ...pixForm, key: e.target.value })} /></Field>
+        <Field label="Nome do recebedor (como aparece no banco)"><input value={pixForm.name} onChange={(e) => setPixForm({ ...pixForm, name: e.target.value })} /></Field>
+        <Field label="Cidade"><input value={pixForm.city} onChange={(e) => setPixForm({ ...pixForm, city: e.target.value })} /></Field>
+        <div className="row" style={{ justifyContent: 'flex-end', gap: 6 }}>
+          <button className="btn" onClick={() => setPixForm(null)}>Voltar</button>
+          <button className="btn primary" disabled={busy || !pixForm.key.trim() || pixForm.name.trim().length < 2 || pixForm.city.trim().length < 2} onClick={async () => { if (await run(() => put('/erp/vendas/balcao/pix/config', pixForm), 'Chave Pix salva')) { setPixForm(null); pixCfg.reload(); const r = await run(() => get(`/erp/vendas/balcao/pix?valorCents=${total}`)); if (r) setPix(r); } }}>Salvar e gerar QR</button>
+        </div>
+      </> : <>
+        <p>A chave Pix da empresa ainda não foi cadastrada, então não dá para gerar o QR Code.</p>
+        <div className="row" style={{ justifyContent: 'flex-end', gap: 6 }}>
+          <button className="btn" onClick={() => setPix(null)}>Voltar</button>
+          {gestor ? <button className="btn primary" onClick={() => setPixForm({ keyType: 'cnpj', key: '', name: '', city: '' })}>Cadastrar chave Pix</button> : <span className="small muted">Peça ao dono ou administrador para cadastrar.</span>}
+        </div>
+      </>) : <>
+        <p style={{ fontSize: 22, textAlign: 'center', margin: '0 0 6px' }}><b>{brl(pix.valorCents)}</b></p>
+        <div style={{ textAlign: 'center' }}><img src={pix.png} alt="QR Code Pix" style={{ width: 'min(280px, 80vw)', height: 'auto' }} /></div>
+        <p className="small muted" style={{ textAlign: 'center' }}>Peça para o cliente ler com o app do banco. Recebedor: <b>{pix.nome}</b> · chave {pix.chave}</p>
+        <div className="row" style={{ gap: 6 }}><input readOnly value={pix.codigo} aria-label="Pix copia e cola" onFocus={(e) => e.currentTarget.select()} style={{ flex: 1 }} /><button className="btn sm" onClick={() => { navigator.clipboard?.writeText(pix.codigo).then(() => toast('Código copiado'), () => undefined); }}>Copiar</button></div>
+        <p className="small" style={{ color: '#b45309' }}>Confira no app do banco que o Pix caiu antes de confirmar. A confirmação automática entra quando a API Pix do banco for ligada.</p>
+        <div className="row" style={{ justifyContent: 'flex-end', gap: 6, flexWrap: 'wrap' }}>
+          <button className="btn" onClick={() => setPix(null)}>Voltar</button>
+          <button className="btn primary" disabled={busy} onClick={() => concluir(`Pix ${pix.txid}: recebimento confirmado pelo operador`, 'Pix confirmado. Venda concluída')}>Pix recebido · concluir venda</button>
+        </div>
+      </>}
+    </Modal>
+  );
+
   if (feito) return (
     <Modal title="Venda concluída" onClose={() => onDone(feito)}>
       <p style={{ fontSize: 18 }}>Venda nº <b>{feito.numero}</b> · <b>{brl(feito.totalCents)}</b> recebido em {FORMAS.find((f) => f[0] === forma)?.[1]}.</p>
+      {forma === 'CARTAO' && semMaq && <p className="small" style={{ color: '#b45309' }}>⚠️ Venda liberada sem aprovação da maquininha.</p>}
       {troco > 0 && <p style={{ fontSize: 22 }}>Troco: <b>{brl(troco)}</b></p>}
       <p className="small muted">Estoque baixado (com o lote) e valor lançado no caixa. Para achar esta venda depois, leia o QR do recibo ou procure por <b>PV-{feito.numero}</b> em Localizar pedido.</p>
       <div className="row" style={{ justifyContent: 'flex-end', gap: 6, flexWrap: 'wrap' }}>
         <button className="btn" onClick={() => imprimirDocumento('recibo', feito.id).catch((e) => toast((e as Error).message, 'err'))}>🧾 Imprimir recibo</button>
         <Link className="btn" to={`/erp/pedidos/${feito.id}`} title="Abre a venda; lá dá para emitir NF-e (homologação) se o cliente pedir">Nota fiscal / abrir venda</Link>
         <button className="btn" onClick={() => onDone(feito)}>Fechar</button>
-        <button className="btn primary" onClick={() => { setFeito(null); setMsg(null); setItens([]); setCliente(null); setNome(''); setDesconto(''); setRecebido(''); }}>Nova venda</button>
+        <button className="btn primary" onClick={() => { setFeito(null); setSemMaq(false); setMsg(null); setItens([]); setCliente(null); setNome(''); setDesconto(''); setRecebido(''); }}>Nova venda</button>
       </div>
     </Modal>
   );
 
   return (
     <Modal title="Venda balcão" onClose={onClose}>
-      <Field label="Produto" hint="Leitor de código de barras/QR (USB ou Bluetooth), câmera 📷 ou digite nome/código e tecle Enter. Cada leitura soma 1.">
+      <Field label="Produto" hint="Leitor de código de barras/QR (USB ou Bluetooth), câmera 📷 ou digite nome/código e tecle Enter. Cada leitura soma 1; a etiqueta da balança já vem com o peso.">
         <div style={{ position: 'relative' }}>
           <div className="row" style={{ gap: 6, flexWrap: 'nowrap' }}>
             <input ref={ref} autoFocus value={busca} placeholder="Leia o código ou digite" onChange={(e) => buscar(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); enter(); } }} aria-label="Produto" autoComplete="off" autoCapitalize="off" spellCheck={false} enterKeyHint="go" style={{ flex: 1, minWidth: 0 }} />
@@ -164,11 +248,17 @@ export default function VendaBalcao({ caixaSessaoId, onClose, onDone }: { caixaS
             <button className="btn ghost sm" onClick={() => setItens(itens.filter((_, k) => k !== i))} aria-label="Remover">✕</button>
           </div>
           <div className="row" style={{ gap: 6, marginTop: 4, flexWrap: 'nowrap' }}>
-            <label className="small row" style={{ gap: 4, flexWrap: 'nowrap' }}>Qtd <input style={{ width: 64 }} value={x.qtd} inputMode="decimal" aria-label="Quantidade" onChange={(e) => setItens(itens.map((y, k) => (k === i ? { ...y, qtd: e.target.value } : y)))} /></label>
+            {porPeso(x.produto) && temSerial() && <button type="button" className="btn sm" disabled={pesando !== null} title="Ler o peso da balança ligada a este computador" onClick={() => pesar(i)}>{pesando === i ? '…' : '⚖️'}</button>}
+            <label className="small row" style={{ gap: 4, flexWrap: 'nowrap' }}>{porPeso(x.produto) ? 'Kg' : 'Qtd'} <input style={{ width: 64 }} value={x.qtd} inputMode="decimal" aria-label="Quantidade" onChange={(e) => setItens(itens.map((y, k) => (k === i ? { ...y, qtd: e.target.value } : y)))} /></label>
             <label className="small row" style={{ gap: 4, flexWrap: 'nowrap' }}>R$ <input style={{ width: 80 }} value={x.preco} inputMode="decimal" aria-label="Preço" onChange={(e) => setItens(itens.map((y, k) => (k === i ? { ...y, preco: e.target.value } : y)))} /></label>
             <b style={{ marginLeft: 'auto' }}>{brl(linha(x))}</b>
           </div>
         </div>)}
+      </div>}
+      {temSerial() && itens.some((x) => porPeso(x.produto)) && <div className="row small muted" style={{ gap: 6, marginBottom: 6, flexWrap: 'wrap' }}>
+        ⚖️ Balança no computador:
+        <select aria-label="Velocidade da balança" value={baud} onChange={async (e) => { const b = Number(e.target.value); salvarBaud(b); setBaud(b); await fecharBalanca(); }}>{BAUDS.map((b) => <option key={b} value={b}>{b} baud</option>)}</select>
+        <button type="button" className="btn ghost sm" onClick={() => { const i = itens.findIndex((x) => porPeso(x.produto)); if (i >= 0) pesar(i, true); }}>Escolher/trocar balança</button>
       </div>}
       <div className="grid g2">
         <Field label="Cliente (opcional)">{cliente ? <div className="row between"><strong>{cliente.fantasia || cliente.nome}</strong><button className="btn ghost sm" onClick={() => setCliente(null)}>Trocar</button></div> : <><BuscaParceiro tipo="cliente" placeholder="Buscar cliente cadastrado" onPick={setCliente} /><input style={{ marginTop: 4 }} value={nome} onChange={(e) => setNome(e.target.value)} placeholder="ou só o nome (consumidor final)" aria-label="Nome do cliente" /></>}</Field>
@@ -191,7 +281,7 @@ export default function VendaBalcao({ caixaSessaoId, onClose, onDone }: { caixaS
       </div>
       <div className="row between" style={{ marginTop: 10 }}>
         <span style={{ fontSize: 22 }}>Total <b>{brl(total)}</b></span>
-        <button className="btn primary" disabled={busy || !itens.length || total <= 0 || (forma === 'DINHEIRO' && !!recebido && troco < 0)} onClick={finalizar}>{usaMaquininha ? 'Cobrar na maquininha' : 'Finalizar venda'}</button>
+        <button className="btn primary" disabled={busy || !itens.length || total <= 0 || (forma === 'DINHEIRO' && !!recebido && troco < 0)} onClick={finalizar}>{usaMaquininha ? 'Cobrar na maquininha' : forma === 'PIX' ? 'Gerar QR Pix' : 'Finalizar venda'}</button>
       </div>
     </Modal>
   );

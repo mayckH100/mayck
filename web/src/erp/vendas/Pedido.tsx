@@ -18,6 +18,9 @@ const PEDE: Record<string, { campo: string; label: string }[]> = {
 };
 // Ações automáticas ou internas que não viram botão.
 const OCULTAS = new Set(['BLOQUEAR', 'FALTAR']);
+// v1.57.1: motivos prontos para cancelamento e devolução (mais um detalhe opcional, ou "Outro" com texto).
+const MOTIVOS_RETORNO = ['Desistência do cliente', 'Devolução do cliente', 'Produto com defeito', 'Produto com contaminação', 'Produto avariado', 'Produto vencido ou perto de vencer', 'Erro no lançamento', 'Outro'];
+const MOTIVOS: Record<string, string[]> = { CANCELAR: ['Desistência do cliente', 'Sem estoque', 'Preço ou condição errada', 'Erro no lançamento', 'Outro'], CANCELAR_VENDA: MOTIVOS_RETORNO, DEVOLVER: MOTIVOS_RETORNO };
 
 export default function Pedido() {
   const { id } = useParams();
@@ -101,9 +104,12 @@ function Pergunta({ evento, onClose, onConfirm }: { evento: string; onClose: () 
   const campos = PEDE[evento];
   return (
     <Modal title={ROTULO[evento]} onClose={onClose}>
-      {campos.map((c, i) => <Field key={c.campo} label={c.label}><input autoFocus={i === 0} value={v[c.campo] ?? ''} onChange={(e) => setV({ ...v, [c.campo]: e.target.value })} /></Field>)}
+      {MOTIVOS[evento] && <Field label="Motivo"><select autoFocus value={v.tipoMotivo ?? ''} onChange={(e) => setV({ ...v, tipoMotivo: e.target.value, motivo: e.target.value === 'Outro' ? (v.detalhe ?? '') : [e.target.value, v.detalhe].filter(Boolean).join(': ') })}><option value="">Escolha o motivo</option>{MOTIVOS[evento].map((m) => <option key={m} value={m}>{m}</option>)}</select></Field>}
+      {campos.map((c, i) => MOTIVOS[evento] && c.campo === 'motivo'
+        ? <Field key="detalhe" label={v.tipoMotivo === 'Outro' ? 'Descreva o motivo' : 'Detalhe (opcional)'}><input value={v.detalhe ?? ''} onChange={(e) => setV({ ...v, detalhe: e.target.value, motivo: v.tipoMotivo === 'Outro' ? e.target.value : [v.tipoMotivo, e.target.value].filter(Boolean).join(': ') })} /></Field>
+        : <Field key={c.campo} label={c.label}><input autoFocus={i === 0} value={v[c.campo] ?? ''} onChange={(e) => setV({ ...v, [c.campo]: e.target.value })} /></Field>)}
       {evento === 'CANCELAR_VENDA' && <p className="small" style={{ margin: '4px 0 8px' }}>O dinheiro recebido é estornado da conta (ou do caixa) e a conta a receber é cancelada. Se tiver NF-e autorizada, cancele a nota antes.</p>}
-      {(evento === 'DEVOLVER' || evento === 'CANCELAR_VENDA') && <label className="row small" style={{ margin: '4px 0 8px' }}><input type="checkbox" checked={v.voltarEstoque ?? true} onChange={(e) => setV({ ...v, voltarEstoque: e.target.checked })} /> Os produtos voltaram para o estoque (entram de novo no mesmo lote e local de onde saíram)</label>}
+      {(evento === 'DEVOLVER' || evento === 'CANCELAR_VENDA') && <label className="row small" style={{ margin: '4px 0 8px' }}><input type="checkbox" checked={v.voltarEstoque ?? true} onChange={(e) => setV({ ...v, voltarEstoque: e.target.checked })} /> Os produtos voltaram para a loja (entram no mesmo lote e local, em quarentena, até a qualidade liberar no Estoque)</label>}
       <div className="row" style={{ justifyContent: 'flex-end' }}><button className="btn" onClick={onClose}>Voltar</button><button className="btn primary" disabled={evento !== 'EXPEDIR' && !v[campos[0].campo]} onClick={() => onConfirm(evento === 'DEVOLVER' || evento === 'CANCELAR_VENDA' ? { ...v, voltarEstoque: v.voltarEstoque ?? true } : v)}>Confirmar</button></div>
     </Modal>
   );
