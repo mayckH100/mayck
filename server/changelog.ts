@@ -21,6 +21,16 @@ export type EntradaChangelog = {
 
 export const CHANGELOG: EntradaChangelog[] = [
   {
+    versao: '1.57.0',
+    data: '27/11/2026',
+    titulo: 'Pedidos: botão "Cancelar venda" também depois de entregue',
+    itens: [
+      'Venda já faturada ou entregue (inclusive no balcão) agora tem o botão "Cancelar venda", para proprietário e administrador.',
+      'Ao cancelar, os produtos voltam para o estoque, o dinheiro recebido sai da conta ou do caixa e a conta a receber é cancelada. É preciso informar o motivo.',
+      'Se a venda tiver nota fiscal autorizada, o sistema pede para cancelar a nota antes.',
+    ],
+  },
+  {
     versao: '1.56.2',
     data: '27/11/2026',
     titulo: 'Recibo e pedido impresso: quantidade vendida certa',
