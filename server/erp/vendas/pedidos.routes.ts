@@ -17,6 +17,7 @@ import { maquinaPedido, financeiroApos, COM_RESERVA, type StatusPedido, type Eve
 import { totalizar, totalItem, motivosBloqueio, precoPorVolume } from './calculo.js';
 import { reservarPedido, liberarReservas, baixarReservas, conferir, devolverAoEstoque, LOTE_UNICO } from '../estoque/servico.js';
 import { configDa } from '../produtos/produtos.routes.js';
+import { recalcularTitulo } from '../financeiro/servico.js';
 import { avisarPedidoErp } from './avisoPedido.js';
 
 type Tx = Prisma.TransactionClient;
@@ -169,7 +170,7 @@ export async function reservarOuAguardar(tx: Tx, p: Pedido) {
 }
 
 const acaoSchema = z.object({
-  evento: z.enum(['ENVIAR', 'APROVAR', 'REPROVAR', 'RESERVAR', 'SEPARAR', 'CONFERIR', 'FATURAR', 'EXPEDIR', 'ENTREGAR', 'ENTREGAR_PARCIAL', 'DEVOLVER', 'CANCELAR']),
+  evento: z.enum(['ENVIAR', 'APROVAR', 'REPROVAR', 'RESERVAR', 'SEPARAR', 'CONFERIR', 'FATURAR', 'EXPEDIR', 'ENTREGAR', 'ENTREGAR_PARCIAL', 'DEVOLVER', 'CANCELAR', 'CANCELAR_VENDA']),
   motivo: z.string().trim().max(300).optional(), nfNumero: z.string().trim().max(20).optional(),
   transportadora: z.string().trim().max(100).optional(), rastreio: z.string().trim().max(60).optional(),
   // v1.33.0: devolução com os produtos voltando ao estoque (mesmo lote e endereço de onde saíram).
@@ -222,6 +223,28 @@ pedidosRouter.post('/:id/acao', ah(async (req, res) => {
       case 'DEVOLVER': {
         const x = await aplicar(tx, p, 'DEVOLVER', { motivo: a.motivo }, { motivoCancelamento: a.motivo });
         if (a.voltarEstoque) await devolverAoEstoque(tx, { orgId, pedidoId: p.id, motivo: `Devolução do pedido ${p.numero}${a.motivo ? `: ${a.motivo}` : ''}`, userId: req.auth?.userId, correlationId: p.correlationId });
+        return x;
+      }
+      case 'CANCELAR_VENDA': {
+        // v1.57.0: cancelar venda já faturada/entregue. Só gestor; NF-e autorizada tem de ser cancelada antes.
+        if (!gestor) throw forbidden('Só proprietário ou administrador cancela venda já faturada ou entregue');
+        if (!a.motivo || a.motivo.length < 3) throw badRequest('Informe o motivo do cancelamento');
+        const nf = await tx.erpNfeSaida.findFirst({ where: { orgId, pedidoId: p.id, status: 'AUTORIZADA' } });
+        if (nf) throw badRequest(`Cancele antes a NF-e nº ${nf.numero} na tela Fiscal`);
+        const x = await aplicar(tx, p, 'CANCELAR_VENDA', { motivo: a.motivo }, { motivoCancelamento: a.motivo });
+        if (a.voltarEstoque ?? true) await devolverAoEstoque(tx, { orgId, pedidoId: p.id, motivo: `Cancelamento do pedido ${p.numero}: ${a.motivo}`, userId: req.auth?.userId, correlationId: p.correlationId });
+        if (p.itens.some((i) => i.reservadoMil > 0)) await liberarReservas(tx, p.id);
+        const titulos = await tx.erpTitulo.findMany({ where: { orgId, docTipo: 'pedido_venda', docId: p.id, status: { not: 'CANCELADO' } } });
+        for (const t of titulos) {
+          const baixas = await tx.erpBaixa.findMany({ where: { tituloId: t.id, estornada: false } });
+          for (const bx of baixas) {
+            const lanc = await tx.erpLancamento.findFirst({ where: { orgId, origemTipo: 'baixa', origemId: bx.id } });
+            await tx.erpBaixa.update({ where: { id: bx.id }, data: { estornada: true } });
+            if (lanc) await tx.erpLancamento.create({ data: { orgId, contaId: lanc.contaId, data: new Date(), valorCents: -lanc.valorCents, descricao: `Estorno (venda cancelada): ${lanc.descricao}`, origemTipo: 'estorno', origemId: bx.id, categoriaId: lanc.categoriaId } });
+          }
+          await recalcularTitulo(tx, t.id);
+          await tx.erpTitulo.update({ where: { id: t.id }, data: { status: 'CANCELADO', observacoes: `${t.observacoes ? `${t.observacoes}\n` : ''}Cancelado: venda cancelada (${a.motivo})` } });
+        }
         return x;
       }
       case 'CANCELAR': {

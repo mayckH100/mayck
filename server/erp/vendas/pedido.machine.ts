@@ -5,7 +5,7 @@
 import type { Maquina } from '../shared/statemachine.js';
 
 export type StatusPedido = 'RASCUNHO' | 'EM_APROVACAO' | 'BLOQUEADO' | 'APROVADO' | 'AGUARDANDO_SUPRIMENTO' | 'RESERVADO' | 'EM_SEPARACAO' | 'SEPARADO' | 'FATURADO' | 'EM_TRANSPORTE' | 'ENTREGUE' | 'ENTREGA_PARCIAL' | 'DEVOLVIDO' | 'CANCELADO';
-export type EventoPedido = 'ENVIAR' | 'BLOQUEAR' | 'APROVAR' | 'REPROVAR' | 'RESERVAR' | 'FALTAR' | 'SEPARAR' | 'CONFERIR' | 'FATURAR' | 'EXPEDIR' | 'ENTREGAR' | 'ENTREGAR_PARCIAL' | 'DEVOLVER' | 'CANCELAR' | 'REABRIR';
+export type EventoPedido = 'ENVIAR' | 'BLOQUEAR' | 'APROVAR' | 'REPROVAR' | 'RESERVAR' | 'FALTAR' | 'SEPARAR' | 'CONFERIR' | 'FATURAR' | 'EXPEDIR' | 'ENTREGAR' | 'ENTREGAR_PARCIAL' | 'DEVOLVER' | 'CANCELAR' | 'CANCELAR_VENDA' | 'REABRIR';
 
 export interface CtxPedido { itens: number; totalCents: number; tudoSeparado?: boolean; nfNumero?: string | null; motivo?: string | null }
 
@@ -14,7 +14,8 @@ const ANTES_FATURAR: StatusPedido[] = ['RASCUNHO', 'EM_APROVACAO', 'BLOQUEADO', 
 export const maquinaPedido: Maquina<StatusPedido, EventoPedido, CtxPedido> = {
   nome: 'Pedido',
   inicial: 'RASCUNHO',
-  finais: ['ENTREGUE', 'DEVOLVIDO', 'CANCELADO'],
+  // v1.57.0: ENTREGUE deixou de ser final só para permitir "Cancelar venda" (ver CANCELAR_VENDA).
+  finais: ['DEVOLVIDO', 'CANCELADO'],
   transicoes: [
     { de: 'RASCUNHO', evento: 'ENVIAR', para: 'EM_APROVACAO', guarda: (c) => (c.itens > 0 && c.totalCents > 0 ? null : 'Pedido sem itens ou com total zero') },
     { de: 'EM_APROVACAO', evento: 'BLOQUEAR', para: 'BLOQUEADO', emite: ['vendas.pedido.bloqueado'] },
@@ -30,6 +31,8 @@ export const maquinaPedido: Maquina<StatusPedido, EventoPedido, CtxPedido> = {
     { de: 'EM_TRANSPORTE', evento: 'ENTREGAR_PARCIAL', para: 'ENTREGA_PARCIAL', guarda: (c) => (c.motivo ? null : 'Descreva o que faltou'), emite: ['vendas.pedido.entrega_parcial'] },
     { de: ['EM_TRANSPORTE', 'ENTREGA_PARCIAL'], evento: 'DEVOLVER', para: 'DEVOLVIDO', guarda: (c) => (c.motivo ? null : 'Informe o motivo da devolução'), emite: ['vendas.pedido.devolvido'] },
     { de: 'ENTREGA_PARCIAL', evento: 'ENTREGAR', para: 'ENTREGUE', emite: ['vendas.pedido.entregue'] },
+    // v1.57.0: venda já faturada/entregue (ex.: balcão) também pode ser cancelada: devolve o estoque, estorna o que foi recebido e cancela o título.
+    { de: ['FATURADO', 'EM_TRANSPORTE', 'ENTREGUE', 'ENTREGA_PARCIAL'], evento: 'CANCELAR_VENDA', para: 'CANCELADO', guarda: (c) => (c.motivo ? null : 'Informe o motivo do cancelamento'), emite: ['vendas.pedido.cancelado'] },
     { de: ANTES_FATURAR, evento: 'CANCELAR', para: 'CANCELADO', guarda: (c) => (c.motivo ? null : 'Informe o motivo do cancelamento'), emite: ['vendas.pedido.cancelado'] },
   ],
 };
