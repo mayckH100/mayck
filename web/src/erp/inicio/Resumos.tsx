@@ -9,6 +9,9 @@ import { useApi } from '../../ui';
 import { brl } from '../format';
 import { podeArea, type ErpAreaPerm } from '../ErpNav';
 import { Kpi, Kpis, Pendencias, type Pendencia } from '../pagina';
+import { SeletorPeriodo, usePeriodo } from '../SeletorPeriodo';
+import { descreverPeriodo, type Periodo } from '../periodo';
+import { statusInadimplencia, statusSaldo, tomDoStatus } from '../status';
 import { contarVendas, contarCompras, solicitacoesEmAprovacao, contarReposicao, vencido, contarFiscal } from './contagens';
 
 function usePode() {
@@ -27,11 +30,9 @@ function useReposicao(on: boolean) { return useApi<any>(on ? '/erp/compras/o-que
 function useFin(on: boolean) { return useApi<any>(on ? '/erp/financeiro/painel' : null, [on]); }
 function useNfe(on: boolean) { return useApi<any[]>(on ? '/erp/fiscal/nfe' : null, [on]); }
 function useInvPend(on: boolean) { return useApi<any[]>(on ? '/erp/estoque/inventarios/pendentes' : null, [on]); }
-const isoBr = (d: Date) => new Date(d.getTime() - 3 * 3_600_000).toISOString().slice(0, 10);
-/** Mesmo período padrão da tela do BI (últimos 30 dias). */
-function useBi(on: boolean) {
-  const de = isoBr(new Date(Date.now() - 29 * 86_400_000)); const ate = isoBr(new Date());
-  return useApi<any>(on ? `/erp/bi/resumo?de=${de}&ate=${ate}` : null, [on, de, ate]);
+/** Mesmo período padrão da tela do BI (últimos 30 dias); v1.56.0: a pessoa troca pelo seletor de período padrão. */
+function useBi(on: boolean, p: Periodo) {
+  return useApi<any>(on ? `/erp/bi/resumo?de=${p.de}&ate=${p.ate}` : null, [on, p.de, p.ate]);
 }
 const pctBp = (bp: number | undefined) => (bp === undefined || bp === null ? '–' : `${(bp / 100).toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%`);
 
@@ -40,17 +41,19 @@ const pctBp = (bp: number | undefined) => (bp === undefined || bp === null ? '�
  * grande para a tela completa.
  */
 function BiNoInicio() {
-  const bi = useBi(true);
+  const [per, setPer] = usePeriodo('30d');
+  const bi = useBi(true, per);
   const d = bi.data;
   return (
     <section className="card bi-inicio" aria-label="Indicadores (BI)" data-testid="erp-inicio-bi">
-      <div className="bi-inicio-topo"><h2>📊 Indicadores (BI)</h2><span className="small muted">últimos 30 dias</span></div>
+      <div className="bi-inicio-topo"><h2>📊 Indicadores (BI)</h2><span className="small muted">{descreverPeriodo(per).toLowerCase()}</span></div>
+      <div style={{ marginBottom: 10 }}><SeletorPeriodo valor={per} onChange={setPer} /></div>
       {bi.error ? <div className="small muted">Não foi possível carregar os indicadores agora.</div> : (
         <Kpis>
           <Kpi rotulo="Receita" valor={brl(d?.vendas?.receitaCents)} detalhe={d ? plural(d.vendas.pedidos, 'pedido', 'pedidos') : undefined} to="/erp/bi" carregando={bi.loading} />
           <Kpi rotulo="Margem bruta" valor={pctBp(d?.vendas?.margemBrutaBp)} detalhe={d ? brl(d.vendas.margemBrutaCents) : undefined} to="/erp/bi" carregando={bi.loading} />
           <Kpi rotulo="Estoque (custo)" valor={brl(d?.estoque?.valorCents)} detalhe={d ? (d.estoque.coberturaDias !== null ? `cobre ${d.estoque.coberturaDias} dias` : 'sem venda no período') : undefined} to="/erp/bi" carregando={bi.loading} />
-          <Kpi rotulo="Inadimplência" valor={pctBp(d?.financeiro?.inadimplenciaBp)} detalhe={d ? `vencido ${brl(d.financeiro.receberVencidoCents)}` : undefined} to="/erp/bi" tom={(d?.financeiro?.inadimplenciaBp ?? 0) > 0 ? 'alerta' : 'neutro'} carregando={bi.loading} />
+          <Kpi rotulo="Inadimplência" valor={pctBp(d?.financeiro?.inadimplenciaBp)} detalhe={d ? `vencido ${brl(d.financeiro.receberVencidoCents)}` : undefined} to="/erp/bi" tom={d ? tomDoStatus(statusInadimplencia(d.financeiro.inadimplenciaBp / 100)) : 'neutro'} carregando={bi.loading} />
         </Kpis>
       )}
       <Link className="bi-inicio-mais" to="/erp/bi" data-testid="erp-inicio-bi-abrir">Ver todos os indicadores (BI) <span aria-hidden>›</span></Link>
@@ -96,7 +99,7 @@ export function InicioErp() {
       {biOk && <BiNoInicio />}
       <Kpis>
         {rel && <Kpi rotulo="Vendido hoje" valor={brl(dia.data?.vendas?.totalCents)} detalhe={dia.data ? plural(dia.data.vendas.pedidos, 'venda', 'vendas') : undefined} to="/erp/relatorios" carregando={dia.loading} />}
-        {p.area('erp_financeiro') && <Kpi rotulo="Saldo em contas" valor={brl(fin.data?.saldoCents)} to="/erp/financeiro" carregando={fin.loading} tom={(fin.data?.saldoCents ?? 0) < 0 ? 'perigo' : 'neutro'} />}
+        {p.area('erp_financeiro') && <Kpi rotulo="Saldo em contas" valor={brl(fin.data?.saldoCents)} to="/erp/financeiro" carregando={fin.loading} tom={fin.data ? tomDoStatus(statusSaldo(fin.data.saldoCents)) : 'neutro'} />}
         {p.area('erp_compras') && <Kpi rotulo="Compras atrasadas" valor={c.atrasadas} to="/erp/compras/ordens?filtro=atrasados" tom={c.atrasadas ? 'perigo' : 'ok'} carregando={ocs.loading} />}
         {(p.area('erp_compras') || p.area('erp_estoque')) && <Kpi rotulo="Para comprar" valor={r.itens} detalhe={r.totalCents ? brl(r.totalCents) : r.itens ? undefined : 'estoque em dia'} to="/erp/compras/o-que-comprar" tom={r.zerados ? 'alerta' : 'neutro'} carregando={rep.loading} />}
         {p.area('erp_vendas') && !rel && <Kpi rotulo="Pedidos em andamento" valor={v.aprovacao + v.separacao + v.aFaturar + v.aguardandoEstoque} to="/erp/pedidos" carregando={vendas.loading} />}
