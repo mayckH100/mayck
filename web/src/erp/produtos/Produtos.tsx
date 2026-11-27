@@ -180,12 +180,12 @@ function RegrasComerciais({ onClose }: { onClose: () => void }) {
   const state = useApi<any>('/erp/produtos/config');
   const { busy, run } = useAction();
   const [f, setF] = useState<any>(null);
-  const v = f ?? (state.data && { desconto: String(state.data.descontoMaxBp / 100).replace('.', ','), credito: state.data.bloquearSemCredito, validade: String(state.data.validadeOrcamentoDias), alcada: String(state.data.alcadaCompraCents / 100), tol: String(state.data.toleranciaPrecoBp / 100).replace('.', ','), cego: state.data.recebimentoCego });
+  const v = f ?? (state.data && { desconto: String(state.data.descontoMaxBp / 100).replace('.', ','), credito: state.data.bloquearSemCredito, validade: String(state.data.validadeOrcamentoDias), alcada: String(state.data.alcadaCompraCents / 100), tol: String(state.data.toleranciaPrecoBp / 100).replace('.', ','), cego: state.data.recebimentoCego, balDig: state.data.balancaDigitos ?? 4, balValor: state.data.balancaValor ?? 'PRECO' });
   return (
     <Modal title="Regras comerciais e de compras" onClose={onClose}>
       <div className="row" style={{ gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
         <BotaoImprimir className="btn sm" disabled={!state.data} title="Imprime as regras salvas" montar={() => htmlFicha({ titulo: 'Regras comerciais e de compras', secoes: [{ campos: [['Desconto máximo sem aprovação', fmt.pct(state.data?.descontoMaxBp)], ['Bloquear pedido acima do limite de crédito', fmt.simNao(state.data?.bloquearSemCredito)], ['Validade do orçamento', `${state.data?.validadeOrcamentoDias ?? ''} dia(s)`]] },
-          { titulo: 'Compras', campos: [['Alçada do pedido de compra', fmt.brl(state.data?.alcadaCompraCents)], ['Tolerância de preço no recebimento', fmt.pct(state.data?.toleranciaPrecoBp)], ['Recebimento cego', fmt.simNao(state.data?.recebimentoCego)]] }] })}>🖨️ Regras</BotaoImprimir>
+          { titulo: 'Compras', campos: [['Alçada do pedido de compra', fmt.brl(state.data?.alcadaCompraCents)], ['Tolerância de preço no recebimento', fmt.pct(state.data?.toleranciaPrecoBp)], ['Recebimento cego', fmt.simNao(state.data?.recebimentoCego)]] }, { titulo: 'Etiqueta da balança', campos: [['Dígitos do código', String(state.data?.balancaDigitos ?? 4)], ['A etiqueta traz', state.data?.balancaValor === 'PESO' ? 'Peso' : 'Preço total']] }] })}>🖨️ Regras</BotaoImprimir>
         <BotaoImprimir className="btn sm" montar={pdfTabelasPreco}>🖨️ Tabelas de preço</BotaoImprimir>
         <BotaoImprimir className="btn sm" montar={pdfCondicoes}>🖨️ Condições de pagamento</BotaoImprimir>
       </div>
@@ -197,8 +197,14 @@ function RegrasComerciais({ onClose }: { onClose: () => void }) {
         <Field label="Alçada do pedido de compra (R$)" hint="Até este valor o pedido é aprovado ao enviar; acima, só proprietário ou administrador aprova"><input value={v.alcada} onChange={(e) => setF({ ...v, alcada: e.target.value })} inputMode="decimal" /></Field>
         <Field label="Tolerância de preço no recebimento (%)" hint="Diferença entre a nota e o pedido de compra aceita sem aprovação"><input value={v.tol} onChange={(e) => setF({ ...v, tol: e.target.value })} inputMode="decimal" /></Field>
         <label className="row small"><input type="checkbox" checked={v.cego} onChange={(e) => setF({ ...v, cego: e.target.checked })} /> Recebimento cego (o conferente não vê a quantidade da nota)</label>
+        <h4 style={{ margin: '12px 0 4px' }}>Etiqueta da balança</h4>
+        <p className="small muted" style={{ margin: '0 0 6px' }}>Para produto vendido por quilo: a balança imprime um código que começa com 2. Use o mesmo código do produto na balança e no sistema (código ou código de barras). Vale para qualquer marca.</p>
+        <div className="grid g2">
+          <Field label="Dígitos do código do produto"><select value={v.balDig} onChange={(e) => setF({ ...v, balDig: Number(e.target.value) })}>{[4, 5, 6].map((n) => <option key={n} value={n}>{n} dígitos</option>)}</select></Field>
+          <Field label="A etiqueta traz"><select value={v.balValor} onChange={(e) => setF({ ...v, balValor: e.target.value })}><option value="PRECO">Preço total</option><option value="PESO">Peso</option></select></Field>
+        </div>
         <div className="row" style={{ justifyContent: 'flex-end', marginTop: 10 }}>
-          <button className="btn primary" disabled={busy} onClick={async () => { if (await run(() => put('/erp/produtos/config', { descontoMaxBp: Math.round(Number(v.desconto.replace(',', '.')) * 100) || 0, bloquearSemCredito: v.credito, validadeOrcamentoDias: Number(v.validade) || 15, alcadaCompraCents: toCents(v.alcada), toleranciaPrecoBp: Math.round(Number(String(v.tol).replace(',', '.')) * 100) || 0, recebimentoCego: !!v.cego }), 'Regras salvas')) onClose(); }}>Salvar</button>
+          <button className="btn primary" disabled={busy} onClick={async () => { if (await run(() => put('/erp/produtos/config', { descontoMaxBp: Math.round(Number(v.desconto.replace(',', '.')) * 100) || 0, bloquearSemCredito: v.credito, validadeOrcamentoDias: Number(v.validade) || 15, alcadaCompraCents: toCents(v.alcada), toleranciaPrecoBp: Math.round(Number(String(v.tol).replace(',', '.')) * 100) || 0, recebimentoCego: !!v.cego, balancaDigitos: Number(v.balDig) || 4, balancaValor: v.balValor }), 'Regras salvas')) onClose(); }}>Salvar</button>
         </div>
       </>}
     </Modal>
