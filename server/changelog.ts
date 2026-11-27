@@ -21,6 +21,18 @@ export type EntradaChangelog = {
 
 export const CHANGELOG: EntradaChangelog[] = [
   {
+    versao: '1.56.0',
+    data: '26/11/2026',
+    titulo: 'MCK ERP: inadimplência e score do cliente de verdade, períodos e cores iguais',
+    itens: [
+      'Painel CRM: a inadimplência agora aparece de verdade, calculada pelas contas a receber do Financeiro: quanto está vencido e sem pagar e quanto isso representa do total a receber no período. Só quem tem acesso ao Financeiro vê esse número.',
+      'Score do cliente (de 0 a 1000) deixou de ficar parado em 500: sobe com contas pagas em dia e compras frequentes e recentes, e desce com contas vencidas ou pagas com atraso. A ficha do cliente mostra o porquê de cada ponto.',
+      'O Painel CRM ganhou o score médio dos clientes e a lista dos clientes que pedem atenção, com o principal motivo de cada um.',
+      'Período igual em todas as telas: botões Hoje, 7 dias, 30 dias, Mês e Personalizado (as datas só aparecem no Personalizado) no Painel CRM, no BI, no Resumo e no Financeiro (contas a receber, a pagar e DRE). Funciona bem no celular.',
+      'Cores iguais em todo o ERP: verde quando está tudo certo, amarelo para atenção e vermelho para problema, nos indicadores, nas contas vencidas e no score.',
+    ],
+  },
+  {
     versao: '1.55.1',
     data: '26/11/2026',
     titulo: 'MCK ERP: menu mostra só o que a pessoa pode abrir',
