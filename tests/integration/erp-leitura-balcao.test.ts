@@ -114,6 +114,13 @@ describe('ERP · leitura unificada, balcão por etiqueta e localizar pedido (v1.
     const it = d.pedido.itens.find((i: any) => i.descricao.includes('Leite'));
     expect(it.lotes.map((l: any) => l.numero)).toEqual([loteNovo.numero]);
     expect(d.pedido.pagamentos).toEqual([{ forma: 'DINHEIRO', valorCents: vendaLote.totalCents }]);
+    // v1.56.2: produto antigo com unidade numérica ("30") não pode sair como "1 30" no recibo.
+    const pid = (await prisma.erpPedidoItem.findFirst({ where: { pedidoId: vendaLote.id } }))!.produtoId;
+    const antes = (await prisma.erpProduto.findUnique({ where: { id: pid } }))!.unidade;
+    await prisma.erpProduto.update({ where: { id: pid }, data: { unidade: '30' } });
+    const d2 = (await owner.get(`/api/erp/vendas/localizar/documento/${vendaLote.id}`)).body;
+    expect(d2.pedido.itens.every((i: any) => i.unidade !== '30')).toBe(true);
+    await prisma.erpProduto.update({ where: { id: pid }, data: { unidade: antes } });
     expect((await owner.get('/api/erp/vendas/localizar/documento/naoexiste')).status).toBe(404);
   });
 
