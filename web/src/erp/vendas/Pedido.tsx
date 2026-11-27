@@ -10,9 +10,9 @@ import { badgeStatus } from './Pedidos';
 import { CampoLeitura } from '../leitura/Leitor';
 import { imprimirDocumento, type TipoDocumento } from './documento';
 
-const ROTULO: Record<string, string> = { ENVIAR: 'Enviar para aprovação', APROVAR: 'Aprovar', REPROVAR: 'Reprovar', RESERVAR: 'Tentar reservar de novo', SEPARAR: 'Liberar separação', CONFERIR: 'Concluir conferência', FATURAR: 'Faturar', EXPEDIR: 'Expedir', ENTREGAR: 'Confirmar entrega', ENTREGAR_PARCIAL: 'Entrega parcial', DEVOLVER: 'Devolução', CANCELAR: 'Cancelar pedido' };
+const ROTULO: Record<string, string> = { ENVIAR: 'Enviar para aprovação', APROVAR: 'Aprovar', REPROVAR: 'Reprovar', RESERVAR: 'Tentar reservar de novo', SEPARAR: 'Liberar separação', CONFERIR: 'Concluir conferência', FATURAR: 'Faturar', EXPEDIR: 'Expedir', ENTREGAR: 'Confirmar entrega', ENTREGAR_PARCIAL: 'Entrega parcial', DEVOLVER: 'Devolução', CANCELAR: 'Cancelar pedido', CANCELAR_VENDA: 'Cancelar venda' };
 const PEDE: Record<string, { campo: string; label: string }[]> = {
-  REPROVAR: [{ campo: 'motivo', label: 'Motivo' }], CANCELAR: [{ campo: 'motivo', label: 'Motivo do cancelamento' }],
+  REPROVAR: [{ campo: 'motivo', label: 'Motivo' }], CANCELAR: [{ campo: 'motivo', label: 'Motivo do cancelamento' }], CANCELAR_VENDA: [{ campo: 'motivo', label: 'Motivo do cancelamento' }],
   ENTREGAR_PARCIAL: [{ campo: 'motivo', label: 'O que faltou' }], DEVOLVER: [{ campo: 'motivo', label: 'Motivo da devolução' }],
   FATURAR: [{ campo: 'nfNumero', label: 'Número da nota fiscal' }], EXPEDIR: [{ campo: 'transportadora', label: 'Transportadora' }, { campo: 'rastreio', label: 'Código de rastreio' }],
 };
@@ -41,8 +41,8 @@ export default function Pedido() {
               <Link className="btn" to="/erp/pedidos">Voltar</Link>
               <Link className="btn" to={`/erp/rastreio?pedido=${p.id}`}>🔎 Lotes deste pedido</Link>
               <Imprimir pedidoId={p.id} balcao={!!p.nfNumero?.startsWith('BALCAO-')} orcamento={p.statusOperacional === 'RASCUNHO'} />
-              {p.acoes.filter((a: string) => !OCULTAS.has(a) && (a !== 'APROVAR' || can('OWNER', 'ADMIN'))).map((a: string) => (
-                <button key={a} className={`btn ${a === 'CANCELAR' || a === 'REPROVAR' || a === 'DEVOLVER' ? 'ghost' : 'primary'}`} disabled={busy} onClick={() => (PEDE[a] ? setPedindo(a) : acao(a))}>{ROTULO[a] ?? a}</button>
+              {p.acoes.filter((a: string) => !OCULTAS.has(a) && ((a !== 'APROVAR' && a !== 'CANCELAR_VENDA') || can('OWNER', 'ADMIN'))).map((a: string) => (
+                <button key={a} className={`btn ${a === 'CANCELAR' || a === 'CANCELAR_VENDA' || a === 'REPROVAR' || a === 'DEVOLVER' ? 'ghost' : 'primary'}`} disabled={busy} onClick={() => (PEDE[a] ? setPedindo(a) : acao(a))}>{ROTULO[a] ?? a}</button>
               ))}
             </div>
           </div>
@@ -102,8 +102,9 @@ function Pergunta({ evento, onClose, onConfirm }: { evento: string; onClose: () 
   return (
     <Modal title={ROTULO[evento]} onClose={onClose}>
       {campos.map((c, i) => <Field key={c.campo} label={c.label}><input autoFocus={i === 0} value={v[c.campo] ?? ''} onChange={(e) => setV({ ...v, [c.campo]: e.target.value })} /></Field>)}
-      {evento === 'DEVOLVER' && <label className="row small" style={{ margin: '4px 0 8px' }}><input type="checkbox" checked={v.voltarEstoque ?? true} onChange={(e) => setV({ ...v, voltarEstoque: e.target.checked })} /> Os produtos voltaram para o estoque (entram de novo no mesmo lote e local de onde saíram)</label>}
-      <div className="row" style={{ justifyContent: 'flex-end' }}><button className="btn" onClick={onClose}>Voltar</button><button className="btn primary" disabled={evento !== 'EXPEDIR' && !v[campos[0].campo]} onClick={() => onConfirm(evento === 'DEVOLVER' ? { ...v, voltarEstoque: v.voltarEstoque ?? true } : v)}>Confirmar</button></div>
+      {evento === 'CANCELAR_VENDA' && <p className="small" style={{ margin: '4px 0 8px' }}>O dinheiro recebido é estornado da conta (ou do caixa) e a conta a receber é cancelada. Se tiver NF-e autorizada, cancele a nota antes.</p>}
+      {(evento === 'DEVOLVER' || evento === 'CANCELAR_VENDA') && <label className="row small" style={{ margin: '4px 0 8px' }}><input type="checkbox" checked={v.voltarEstoque ?? true} onChange={(e) => setV({ ...v, voltarEstoque: e.target.checked })} /> Os produtos voltaram para o estoque (entram de novo no mesmo lote e local de onde saíram)</label>}
+      <div className="row" style={{ justifyContent: 'flex-end' }}><button className="btn" onClick={onClose}>Voltar</button><button className="btn primary" disabled={evento !== 'EXPEDIR' && !v[campos[0].campo]} onClick={() => onConfirm(evento === 'DEVOLVER' || evento === 'CANCELAR_VENDA' ? { ...v, voltarEstoque: v.voltarEstoque ?? true } : v)}>Confirmar</button></div>
     </Modal>
   );
 }
