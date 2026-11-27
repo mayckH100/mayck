@@ -21,6 +21,14 @@ export type EntradaChangelog = {
 
 export const CHANGELOG: EntradaChangelog[] = [
   {
+    versao: '1.56.2',
+    data: '27/11/2026',
+    titulo: 'Recibo e pedido impresso: quantidade vendida certa',
+    itens: [
+      'No recibo, no pedido e no romaneio, a coluna Qtd mostra só a quantidade vendida e a unidade (ex.: "1 UN"). Antes, alguns produtos antigos saíam com um número a mais (ex.: "1 30").',
+    ],
+  },
+  {
     versao: '1.56.1',
     data: '27/11/2026',
     titulo: 'Blog: novo artigo sobre lista de transmissão do WhatsApp Business',
